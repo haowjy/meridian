@@ -24,13 +24,14 @@ This directory contains detailed documentation for all features in Meridian, org
 |---------|-------|---------|----------|-------|
 | **Authentication** | Both | âœ… Complete | âœ… Complete | JWT validation, Google OAuth only, protected routes, resource authorization |
 | **User Settings** | Both | âœ… Complete | ðŸŸ¡ Partial | Profile UI complete, preferences API complete, preferences UI missing |
-| **Document Editor** | Frontend | N/A | âœ… Complete | TipTap, auto-save, markdown, caching |
+| **Document Editor** | Frontend | N/A | âœ… Complete | CodeMirror, auto-save, markdown, caching |
 | **File System** | Both | âœ… Complete | âœ… Complete | CRUD, tree view, context menus; Search UI non-functional |
 | **Document Import** | Both | âœ… Complete | âœ… Complete | Multi-format (.zip, .md, .txt, .html), XSS sanitization, drag-drop |
 | **Context Menus** | Frontend | N/A | âœ… Complete | Right-click actions for tree (create, rename, delete, import) |
 | **Chat/LLM** | Both | âœ… Complete | âœ… Complete | Turn branching, streaming, 3 providers working |
 | **Streaming (SSE)** | Both | âœ… Complete | âœ… Complete | Catchup, reconnection, race-free |
-| **Tool Calling** | Backend | âœ… Complete | N/A | Auto-mapping, 3 built-in + 3 custom read-only tools |
+| **Tool Calling** | Backend | ✅ Complete | N/A | Auto-mapping, 3 built-in + 4 custom tools |
+| **AI Editing** | Both | 🟡 Partial | ❌ Missing | Backend complete (ai_version + doc_edit); Frontend diff UI pending |
 | **State Management** | Frontend | N/A | âœ… Complete | Zustand, IndexedDB, optimistic updates, retry queue |
 | **UI Components** | Frontend | N/A | âœ… Complete | shadcn/ui, custom components, high polish |
 | **Infrastructure** | Both | âœ… Complete | âœ… Complete | Errors, DB features, routing, logging, deployment |
@@ -53,9 +54,9 @@ This directory contains detailed documentation for all features in Meridian, org
 - Preferences UI: not yet implemented (frontend âŒ)
 
 ### [f-document-editor/](f-document-editor/)
-**TipTap rich text editor with auto-save and caching**
-- TipTap integration with LRU cache (5 editors)
-- Auto-save (1s debounce), markdown conversion
+**CodeMirror markdown editor with auto-save and caching**
+- CodeMirror 6 markdown-native editor with live preview
+- Auto-save (1s debounce), no format conversion needed
 - IndexedDB caching with Reconcile-Newest strategy
 - Word count, save status UI
 
@@ -89,9 +90,9 @@ This directory contains detailed documentation for all features in Meridian, org
 
 ### [b-tool-calling/](b-tool-calling/)
 **Tool calling system for LLM interactions**
-- Auto-mapping: Minimal definitions â†’ provider-specific
+- Auto-mapping: Minimal definitions → provider-specific
 - Built-in tools: web_search (server), bash (client), text_editor (client)
-- Custom read-only tools: doc_view, doc_tree, doc_search
+- Custom tools: doc_view, doc_tree, doc_search, doc_edit
 - Multi-turn tool continuation
 
 ### [f-state-management/](f-state-management/)

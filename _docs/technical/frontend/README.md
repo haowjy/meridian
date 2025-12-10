@@ -5,7 +5,7 @@ audience: developer
 
 # Frontend Technical Documentation
 
-Complete technical reference for Meridian frontend (Vite + TanStack Router + TypeScript + TipTap + Supabase).
+Complete technical reference for Meridian frontend (Vite + TanStack Router + TypeScript + CodeMirror + Supabase).
 
 ## Quick Links
 
@@ -18,7 +18,7 @@ Complete technical reference for Meridian frontend (Vite + TanStack Router + Typ
 ## Getting Started
 
 - [Setup Quickstart](setup-quickstart.md) - Development environment setup
-- [UI Colors](ui-colors.md) - Theme and color system
+- [Theme System](theme-system.md) - Theming architecture and presets
 
 ## Architecture
 
@@ -38,7 +38,7 @@ Core patterns and system design:
 ### Editor
 
 - [Editor Caching](editor-caching.md) - Document caching strategy with IndexedDB
-- [Editor UI Overview](editor-ui-overview.md) - TipTap editor UI components
+- [Editor UI Overview](editor-ui-overview.md) - CodeMirror editor UI components
 
 ### Chat UI
 
@@ -56,9 +56,8 @@ See `frontend/CLAUDE.md` for:
 
 ## Styling & UI
 
-- [UI Colors](ui-colors.md) - Color system and theming
-- TipTap extensions in `src/core/editor/extensions/`
-- Tailwind configuration in `tailwind.config.ts`
+- [Theme System](theme-system.md) - Theming architecture, presets, CSS variables
+- Tailwind configuration in `globals.css` (Tailwind v4 CSS-first approach)
 
 ## Development
 
@@ -90,6 +89,6 @@ All docs follow minimal detail principle from main `CLAUDE.md`:
 
 - [Vite Docs](https://vitejs.dev/)
 - [TanStack Router Docs](https://tanstack.com/router)
-- [TipTap Editor Docs](https://tiptap.dev/)
+- [CodeMirror Docs](https://codemirror.net/)
 - [Supabase Auth Docs](https://supabase.com/docs/guides/auth)
 - [Tailwind CSS](https://tailwindcss.com/)
