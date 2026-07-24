@@ -188,6 +188,70 @@ describe("AssistantTurn process fold", () => {
     expect(html).not.toContain("+2 steps");
     expect(html).not.toContain("Ask user");
   });
+
+  it("keeps frontier prose and interrupt card DOM identity when tools fold on settle", async () => {
+    documentsRef.current = [];
+    const prose = {
+      ...block(2, "text", "The gate opened."),
+      textContent: "The gate opened.",
+    };
+    const interrupt = block(3, "custom", {
+      kind: "free-text",
+      props: {
+        question: "Which path?",
+        recommended: null,
+        requiresHuman: true,
+        resolvedValue: "The northern road",
+        answerProvenance: "user",
+      },
+      interrupt: { id: "interrupt-1" },
+    });
+    const blocks = [
+      block(0, "tool_use", {
+        toolCallId: "read-1",
+        toolName: "write",
+        input: { command: "read", path: "Chapter 1.md" },
+      }),
+      block(1, "tool_result", {
+        toolCallId: "read-1",
+        toolName: "write",
+        output: "chapter body",
+      }),
+      prose,
+      interrupt,
+    ];
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+
+    await act(async () =>
+      root.render(<AssistantTurn turn={{ ...turn("turn-1", "streaming"), blocks }} />),
+    );
+    const proseBefore = [...host.querySelectorAll("p")].find(
+      (element) => element.textContent === "The gate opened.",
+    );
+    const interruptBefore = [...host.querySelectorAll("section")].find((element) =>
+      element.textContent?.includes("The northern road"),
+    );
+
+    await act(async () =>
+      root.render(<AssistantTurn turn={{ ...turn("turn-1", "complete"), blocks }} />),
+    );
+    const proseAfter = [...host.querySelectorAll("p")].find(
+      (element) => element.textContent === "The gate opened.",
+    );
+    const interruptAfter = [...host.querySelectorAll("section")].find((element) =>
+      element.textContent?.includes("The northern road"),
+    );
+
+    expect(proseBefore).toBeDefined();
+    expect(proseAfter).toBe(proseBefore);
+    expect(interruptBefore).toBeDefined();
+    expect(interruptAfter).toBe(interruptBefore);
+    expect(host.querySelector("[data-process-fold]")?.textContent).toContain("Chapter 1");
+
+    await act(async () => root.unmount());
+  });
 });
 
 describe("AssistantTurn live ink drop", () => {

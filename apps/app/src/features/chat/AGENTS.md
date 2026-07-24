@@ -49,8 +49,10 @@ diagrams — lives in [`.context/CONTEXT.md`](.context/CONTEXT.md).
    tool protocol rows in every segment fold, while resolved interrupt cards and
    other frontier non-tool blocks remain expanded.
 4. **Block render keys are positional.** Use `blockRenderKey(block)` —
-   `turnId::sequence`. Never key by `block.id`. This ensures the live→settled swap
-   is an in-place content replace, not a remount.
+   `turnId::sequence`. Never key by `block.id`. Blocks keep identity while they
+   remain in one zone; frontier prose, images, and custom cards therefore do not
+   remount at settlement. Tool views structurally move from the frontier into the
+   process fold at settlement and may remount at that boundary.
 
 ## Anti-patterns
 
@@ -62,8 +64,7 @@ diagrams — lives in [`.context/CONTEXT.md`](.context/CONTEXT.md).
 - **Don't duplicate tool rendering between fold and activity zone.**
   `DeliverySegments` normalizes tool protocol blocks into ToolViews for both folded
   activity runs and visible frontiers. No raw tool block should reach `TurnBlockStep`.
-- **Don't hard-code `defaultOpen={reasoningStreaming}`.** That's the old model
-  being migrated away from.
+- **Don't auto-open process disclosures during streaming.**
 
 ## Entry points
 

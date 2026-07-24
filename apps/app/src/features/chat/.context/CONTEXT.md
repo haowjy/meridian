@@ -135,17 +135,19 @@ Each segment applies the same durable-settlement rule independently.
   tool rows. Transient `isLive` and partial-block state never drive partitioning.
 - **Interrupt cards stay visible.** Resolution freezes the segment boundary; on
   settle, its tool rows fold but its resolved interrupt card remains visible.
-- **Block render keys are positional.** `blockRenderKey` derives from `(turnId, sequence)`,
-  never `block.id`. This ensures the live→settled swap is an in-place content replace, not
-  a remount.
+- **Block render keys are positional.** `blockRenderKey` derives from
+  `(turnId, sequence)`, never `block.id`. Updates within one render zone preserve
+  DOM identity. Settlement keeps frontier prose, images, and custom/interrupt
+  cards in place, so they do not remount. Tool views alone structurally move from
+  the frontier into the process fold and may remount at that boundary.
 
 ### What breaks if violated
 
 - Keying the partition off transient streaming state → the final frame and reload
   can disagree.
 - Folding a resolved interrupt card → the user loses sight of what they acted on.
-- Keying by `block.id` → the live→settled swap remounts DOM nodes, losing animation
-  continuity and scroll position.
+- Keying by `block.id` → ordinary within-zone updates can remount DOM nodes,
+  losing animation continuity and scroll position.
 
 ## Architecture
 
@@ -165,7 +167,9 @@ Current code path:
 
 ```
 AssistantTurn.tsx
-  → partitionTurnSegments(sortedBlocks)    ← interrupt segmentation + run grouping
+  → partitionTurnSegments(sortedBlocks, settled)
+                                           ← interrupt segmentation, run grouping,
+                                             and terminal tool folding
   → ProcessDisclosure(label, children)     ← default-collapsed fold shell
       → TurnBlockStep | DeliverySegments   ← fold runs in chronological order
   → DeliverySegments(frontier)             ← visible activity frontier per segment
@@ -230,11 +234,11 @@ Key files:
 
 Implemented in `partition-turn-segments.ts`, `ProcessDisclosure.tsx`, and
 `AssistantTurn.tsx`. The partition returns interrupt-bounded segments where
-`foldRuns` contains all non-frontier runs and `frontier` contains the last
-activity run. `ProcessDisclosure` is a default-collapsed shell; callers compose
-reasoning rows and folded activity runs.
-
-Migration is tracked in `work/activity-thinking-model`.
+`foldRuns` contains reasoning, earlier activity runs, and — for settled turns —
+the frontier's tool protocol blocks. `frontier` contains the complete last
+activity run while live and only its non-tool blocks after settlement.
+`ProcessDisclosure` is a default-collapsed shell; callers compose reasoning rows
+and folded activity runs.
 
 ## Turn edits card (`TurnEditsCard.tsx`)
 
