@@ -8,6 +8,10 @@ describe("word counting", () => {
   });
 
   it("diffs whole word tokens rather than character fragments", () => {
+    expect(wordDeltaBetweenTexts("The old gate opened.", "The new gate opened.")).toEqual({
+      wordsAdded: 1,
+      wordsRemoved: 1,
+    });
     expect(wordDeltaBetweenTexts("The old gate opened.", "The new gate opened slowly.")).toEqual({
       wordsAdded: 2,
       wordsRemoved: 1,
