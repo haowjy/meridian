@@ -46,6 +46,8 @@ export type ActivityRowStatus = "running" | "done" | "error";
 
 export type ActivityRowProps = {
   Icon: LucideIcon;
+  /** Preserve the rail gutter while omitting a redundant per-row icon chip. */
+  quietIcon?: boolean;
   /** Single-line action title (e.g. `Read foo.md`). Omit when using `children`. */
   title?: ReactNode;
   /** Status indicator. Hidden when the row is `done` and not interactive. */
@@ -73,6 +75,7 @@ const ICON_TOP_PAD = "pt-[3px]";
 
 export function ActivityRow({
   Icon,
+  quietIcon = false,
   title,
   status,
   expand,
@@ -87,7 +90,9 @@ export function ActivityRow({
   // Icon column owns the rail. `items-stretch` on the row + `flex-1` on the
   // line span makes the rail fill from below the chip to the row's bottom
   // edge regardless of how tall the content column grows.
-  const iconColumn = (
+  const iconColumn = quietIcon ? (
+    <div className="w-[19px] shrink-0" aria-hidden />
+  ) : (
     <div className={cn("flex w-[19px] shrink-0 flex-col items-center", ICON_TOP_PAD)}>
       <span className="grid size-[19px] shrink-0 place-items-center rounded-md bg-chip-muted-bg text-ink-subtle">
         <Icon className="size-3" aria-hidden />

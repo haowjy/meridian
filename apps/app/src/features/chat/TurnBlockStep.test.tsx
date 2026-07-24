@@ -33,4 +33,14 @@ describe("TurnBlockStep", () => {
 
     expect(html).toContain("A useful update");
   });
+
+  it("keeps folded reasoning aligned without a per-row icon chip", () => {
+    const html = renderToStaticMarkup(
+      <TurnBlockStep block={block({ blockType: "reasoning", textContent: "A quiet thought" })} />,
+    );
+
+    expect(html).toContain("A quiet thought");
+    expect(html).toContain('class="w-[19px] shrink-0"');
+    expect(html).not.toContain("lucide-clock");
+  });
 });

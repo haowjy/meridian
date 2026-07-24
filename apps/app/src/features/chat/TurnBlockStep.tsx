@@ -30,7 +30,11 @@ export function TurnBlockStep({ block }: TurnBlockStepProps) {
 
   return (
     <div data-block-id={block.id} data-block-type={block.blockType} data-block-seq={block.sequence}>
-      <ActivityRow Icon={Icon} proseClassName={isReasoning ? "italic text-ink-subtle" : undefined}>
+      <ActivityRow
+        Icon={Icon}
+        quietIcon={isReasoning}
+        proseClassName={isReasoning ? "italic text-ink-subtle" : undefined}
+      >
         {isReasoning ? (
           <Markdown variant="compact">{body}</Markdown>
         ) : (
