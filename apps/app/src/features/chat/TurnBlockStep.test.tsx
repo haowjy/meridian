@@ -40,7 +40,8 @@ describe("TurnBlockStep", () => {
     );
 
     expect(html).toContain("A quiet thought");
-    expect(html).toContain('class="w-[19px] shrink-0"');
+    expect(html).toContain("data-activity-rail");
+    expect(html).toContain("w-px");
     expect(html).not.toContain("lucide-clock");
   });
 });

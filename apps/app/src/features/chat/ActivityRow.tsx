@@ -91,13 +91,15 @@ export function ActivityRow({
   // line span makes the rail fill from below the chip to the row's bottom
   // edge regardless of how tall the content column grows.
   const iconColumn = quietIcon ? (
-    <div className="w-[19px] shrink-0" aria-hidden />
+    <div className="flex w-[19px] shrink-0 justify-center" aria-hidden>
+      <span className="w-px flex-1 bg-border" data-activity-rail />
+    </div>
   ) : (
     <div className={cn("flex w-[19px] shrink-0 flex-col items-center", ICON_TOP_PAD)}>
       <span className="grid size-[19px] shrink-0 place-items-center rounded-md bg-chip-muted-bg text-ink-subtle">
         <Icon className="size-3" aria-hidden />
       </span>
-      <span className="mt-1 w-px flex-1 bg-border" aria-hidden />
+      <span className="mt-1 w-px flex-1 bg-border" data-activity-rail aria-hidden />
     </div>
   );
 
