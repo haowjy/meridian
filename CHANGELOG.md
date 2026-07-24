@@ -38,6 +38,8 @@
 - `apps/app`, `apps/server`: assistant turns now persist the Work write mode
   they began under, so draft activity keeps “Drafted” vocabulary after reload,
   apply, or discard.
+- `apps/app`: process digests now count canonically equivalent document paths
+  once and omit hidden interrupt protocol operations.
 
 - `apps/app`: collapsed edit cards name single documents and show settled `+added −removed words` totals without fetching trail detail; live single-document cards use the shared display-name resolver.
 

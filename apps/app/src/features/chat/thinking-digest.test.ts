@@ -66,6 +66,22 @@ describe("thinkingDigest", () => {
     ).toBe("Explored 2 documents");
   });
 
+  it.each([
+    ["read", "Explored 1 document"],
+    ["replace", "Edited Chapter 1"],
+  ])("counts canonical %s targets once across path spellings", (command, expected) => {
+    expect(
+      thinkingDigest(
+        [
+          tool("write", { command, path: "/chapters/Chapter 1.md" }),
+          tool("write", { command, path: "chapters//Chapter 1.md" }),
+          tool("write", { command, path: "manuscript://chapters/./Chapter 1.md" }),
+        ],
+        "direct",
+      ),
+    ).toBe(expected);
+  });
+
   it("routes every non-read write command to edit and names one unique document", () => {
     for (const command of ["create", "insert", "replace", "undo", "redo"]) {
       expect(

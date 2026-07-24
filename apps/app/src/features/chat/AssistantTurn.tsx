@@ -33,10 +33,11 @@ import { groupDeliverySegments } from "./group-delivery-segments";
 import { ProcessDisclosure } from "./ProcessDisclosure";
 import { partitionTurnSegments, type Run, type TurnSegment } from "./partition-turn-segments";
 import { StreamingText } from "./StreamingText";
-import { isToolViewVisible, ToolRow } from "./ToolRow";
+import { ToolRow } from "./ToolRow";
 import { TurnBlockStep } from "./TurnBlockStep";
 import { TurnEditsCard } from "./TurnEditsCard";
 import { thinkingDigest } from "./thinking-digest";
+import { isToolViewVisible } from "./tool-view-visibility";
 import type { NavigateToTrailChange } from "./useChangeTrailNavigation";
 
 export type AssistantTurnProps = {
@@ -245,8 +246,8 @@ function toolViewsInFold(runs: Run[]) {
   return runs.flatMap((run) => {
     if (run.kind !== "activity") return [];
     return groupDeliverySegments(run.blocks).flatMap((segment) => {
-      if (segment.kind === "tool") return [segment.tool];
-      if (segment.kind === "tool-run") return segment.tools;
+      if (segment.kind === "tool") return isToolViewVisible(segment.tool) ? [segment.tool] : [];
+      if (segment.kind === "tool-run") return segment.tools.filter(isToolViewVisible);
       return [];
     });
   });

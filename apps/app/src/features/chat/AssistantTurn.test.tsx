@@ -164,6 +164,30 @@ describe("AssistantTurn process fold", () => {
       expect(html).not.toContain("Edited Chapter 1");
     }
   });
+
+  it("excludes hidden ask-user protocol rows from digests across an interrupt boundary", () => {
+    documentsRef.current = [];
+    const blocks = [
+      block(0, "tool_use", {
+        toolCallId: "ask-1",
+        toolName: "ask_user",
+        input: { question: "Which ending?" },
+      }),
+      block(1, "custom", { interrupt: { id: "interrupt-1" } }),
+      block(2, "tool_result", {
+        toolCallId: "ask-1",
+        output: { value: "The quiet ending", provenance: "user" },
+      }),
+    ];
+
+    const html = renderToStaticMarkup(
+      <AssistantTurn turn={{ ...turn("turn-1", "complete"), blocks }} />,
+    );
+
+    expect(html).not.toContain("+1 step");
+    expect(html).not.toContain("+2 steps");
+    expect(html).not.toContain("Ask user");
+  });
 });
 
 describe("AssistantTurn live ink drop", () => {

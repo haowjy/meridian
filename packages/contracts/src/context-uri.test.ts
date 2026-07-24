@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { documentTitleFromUri } from "./context-uri.js";
+import { documentTitleFromUri, parseContextUri } from "./context-uri.js";
 
 describe("documentTitleFromUri", () => {
   it.each([
@@ -22,5 +22,17 @@ describe("documentTitleFromUri", () => {
     "manuscript://chapters/.md",
   ])("returns null when %s has no usable title", (uri) => {
     expect(documentTitleFromUri(uri)).toBeNull();
+  });
+});
+
+describe("parseContextUri", () => {
+  it.each([
+    "/chapters/Chapter 1.md",
+    "chapters/Chapter 1.md",
+    "manuscript://chapters/./Chapter 1.md",
+    "manuscript:////chapters//Chapter 1.md/",
+  ])("canonicalizes equivalent manuscript reference %s", (reference) => {
+    const parsed = parseContextUri(reference);
+    expect(parsed.ok && parsed.value.canonical).toBe("manuscript://chapters/Chapter 1.md");
   });
 });

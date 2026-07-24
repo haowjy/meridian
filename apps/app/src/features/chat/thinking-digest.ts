@@ -3,6 +3,7 @@
  * process fold. The digest never describes visible frontier rows.
  */
 import { plural, t } from "@lingui/core/macro";
+import { parseContextUri } from "@meridian/contracts/context-uri";
 import type { JsonValue } from "@meridian/contracts/protocol";
 import { documentDisplayName } from "./document-display-name";
 import type { ToolView } from "./group-delivery-segments";
@@ -26,12 +27,12 @@ export function thinkingDigest(
     if (tool.isError) {
       steps += 1;
     } else if (tool.toolName === "write" && command === "read") {
-      if (path) exploredDocuments.add(normalizeDocumentUri(path));
+      if (path) exploredDocuments.add(documentIdentity(path));
       else uncountedExploreOps += 1;
     } else if (tool.toolName === "grep" || tool.toolName === "ls") {
       uncountedExploreOps += 1;
     } else if (tool.toolName === "write") {
-      if (path) editedDocuments.add(normalizeDocumentUri(path));
+      if (path) editedDocuments.add(documentIdentity(path));
       else steps += 1;
     } else {
       steps += 1;
@@ -103,10 +104,9 @@ function stringField(input: Record<string, JsonValue>, field: string): string | 
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-function normalizeDocumentUri(uriOrPath: string): string {
-  const match = /^([a-z][a-z0-9+.-]*):\/\/(.*)$/i.exec(uriOrPath);
-  if (!match) return `manuscript://${uriOrPath}`;
-  return `${match[1]?.toLowerCase()}://${match[2] ?? ""}`;
+function documentIdentity(uriOrPath: string): string {
+  const parsed = parseContextUri(uriOrPath);
+  return parsed.ok ? parsed.value.canonical : uriOrPath;
 }
 
 function capitalizeFirst(value: string): string {
