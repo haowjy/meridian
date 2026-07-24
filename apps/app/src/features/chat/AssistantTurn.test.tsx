@@ -252,6 +252,45 @@ describe("AssistantTurn process fold", () => {
 
     await act(async () => root.unmount());
   });
+
+  it("excludes a visible live frontier edit from the folded activity digest", () => {
+    documentsRef.current = [];
+    const blocks = [
+      block(0, "tool_use", {
+        toolCallId: "read-1",
+        toolName: "write",
+        input: { command: "read", path: "Chapter 1.md" },
+      }),
+      block(1, "tool_result", {
+        toolCallId: "read-1",
+        toolName: "write",
+        output: "chapter body",
+      }),
+      block(2, "reasoning", null),
+      block(3, "tool_use", {
+        toolCallId: "edit-1",
+        toolName: "write",
+        input: { command: "replace", path: "Chapter 2.md" },
+      }),
+      block(4, "tool_result", {
+        toolCallId: "edit-1",
+        toolName: "write",
+        output: "done",
+      }),
+    ];
+    const html = renderToStaticMarkup(
+      <AssistantTurn turn={{ ...turn("turn-1", "streaming"), blocks }} />,
+    );
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    const fold = host.querySelector("[data-process-fold]");
+    const digest = fold?.parentElement?.querySelector("button");
+
+    expect(digest?.textContent).toContain("Explored 1 document");
+    expect(digest?.textContent).not.toContain("Edited Chapter 2");
+    expect(host.textContent).toContain("Edited");
+    expect(host.textContent).toContain("Chapter 2");
+  });
 });
 
 describe("AssistantTurn live ink drop", () => {

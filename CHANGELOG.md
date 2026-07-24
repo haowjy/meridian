@@ -42,6 +42,8 @@
   once and omit hidden interrupt protocol operations.
 - `apps/app`: quiet folded reasoning keeps the process rail while omitting its
   redundant clock chip.
+- `apps/app`: draft and helper metadata now use plain spacing and sentence
+  structure instead of middot separators.
 
 - `apps/app`: collapsed edit cards name single documents and show settled `+added −removed words` totals without fetching trail detail; live single-document cards use the shared display-name resolver.
 

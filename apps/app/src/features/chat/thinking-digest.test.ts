@@ -160,14 +160,4 @@ describe("thinkingDigest", () => {
       ),
     ).toBe("Explored 2 documents, edited Chapter 3, +1 step");
   });
-
-  it("excludes frontier-visible operations when the caller supplies fold tools only", () => {
-    const folded = [tool("write", { command: "read", path: "Chapter 1.md" })];
-    const visibleFrontier = tool("write", { command: "replace", path: "Chapter 3.md" });
-
-    expect(thinkingDigest(folded, "direct")).toBe("Explored 1 document");
-    expect(thinkingDigest([...folded, visibleFrontier], "direct")).not.toBe(
-      thinkingDigest(folded, "direct"),
-    );
-  });
 });

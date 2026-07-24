@@ -21,7 +21,6 @@ export function HelperResultBlock({ content }: ComponentBlockProps) {
       <div className="flex items-center gap-2 text-caption font-medium text-muted-foreground">
         <Icon className="size-3.5" aria-hidden />
         <span>{props.agentName}</span>
-        <span aria-hidden>·</span>
         <span>{label}</span>
       </div>
       {props.summary ? (

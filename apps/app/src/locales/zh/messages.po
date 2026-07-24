@@ -73,8 +73,8 @@ msgid "{minutes}m"
 msgstr "{minutes}分钟"
 
 #: src/features/chat/DraftDock.tsx
-msgid "{name} · reviewed"
-msgstr ""
+#~ msgid "{name} · reviewed"
+#~ msgstr ""
 
 #: src/features/billing/UsageCard.tsx
 msgid "{remainingPercent}% remaining"
@@ -689,6 +689,10 @@ msgstr ""
 
 #: src/features/chat/thinking-digest.ts
 msgid "edited {name}"
+msgstr ""
+
+#: src/features/chat/TurnEditsCard.tsx
+msgid "Edited {title}"
 msgstr ""
 
 #: src/features/chat/TurnEditsCard.tsx
@@ -1517,6 +1521,10 @@ msgstr ""
 msgid "Review draft"
 msgstr ""
 
+#: src/features/chat/DraftDock.tsx
+msgid "Reviewed {name}"
+msgstr ""
+
 #: src/features/project/dock/ReviewOperationCard.tsx
 msgid "Rewrote"
 msgstr ""
@@ -1983,8 +1991,8 @@ msgid "Work"
 msgstr ""
 
 #: src/features/chat/LiveTurnStatusBar.tsx
-msgid "Working"
-msgstr "工作中"
+#~ msgid "Working"
+#~ msgstr "工作中"
 
 #: src/features/project/lifecycle.ts
 msgid "Working…"
