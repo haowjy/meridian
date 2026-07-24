@@ -626,27 +626,6 @@
   @apply focus-ring flex w-full min-w-0 cursor-pointer items-center gap-2 py-1 text-left text-sm font-medium text-muted-foreground transition-colors hover:text-foreground;
 }
 
-/*
- * Left-truncate text — single-line text that ellipsizes from the *start*
- * instead of the end. Use for paths where the leaf (filename, leaf directory)
- * is the informative tail and the prefix is scaffolding that can drop.
- *
- *   `apps/server/server/domains/runtime/foo.ts` → `…/runtime/foo.ts`
- *
- * Trick: `direction: rtl` flips the overflow side so ellipsis lands at the
- * visual left. `unicode-bidi: plaintext` keeps the actual character order
- * resolved by the content (LTR for ASCII paths), so the text reads forward
- * even though the container is rtl.
- */
-.truncate-start {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
-  text-align: left;
-  unicode-bidi: plaintext;
-}
-
 /** Small bordered action (Retry, secondary actions in chat). */
 @utility soft-button {
   @apply focus-ring inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-border-focus hover:bg-muted;

@@ -47,9 +47,9 @@
 - `apps/app`: chat composer opens at its one-line height reliably and rotates
   short, localized placeholders per page load — a calmer interject pool shows
   while the AI is streaming.
-- `apps/app`: unknown tool rows show just the tool name (plus path when
-  present) instead of truncated argument dumps; in-flight tool calls show
-  present-tense labels ("Writing…", "Reading…") until they complete.
+- `apps/app`: chat tool rows name documents and folders instead of exposing
+  context URIs or paths, qualify non-manuscript locations, distinguish writes
+  from edits, and humanize skill names; unknown tools show no arguments.
 - `apps/app`: reasoning disclosures show the full thinking text — the
   220-character cut is gone.
 - `apps/app`: change-trail cards no longer list per-operation "Inserted text"

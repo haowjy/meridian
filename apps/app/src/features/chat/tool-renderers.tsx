@@ -3,14 +3,13 @@
  * timeline's tier-2 rows.
  *
  * Each registered tool contributes: an icon, a single-line title that reads
- * the tool's input (e.g. `Read foo.md`, `Searched "dragon"`, `Ran segment skill`),
+ * the tool's input (e.g. `Read Chapter 1`, `Searched "dragon"`, `Ran the Outline skill`),
  * an optional inline expansion (curated — search result rows, stream tail, or
  * skill output).
  *
  * Three-tier contract documented in `.context/CONTEXT.md`:
  *   - **Tier 1 (default fallback)** — unknown tool. Static one-line row
- *     showing the tool name and, when present, its path. No expand or
- *     interaction.
+ *     showing the humanized tool name only. No expand or interaction.
  *   - **Tier 2 (registered)** — the entries in this file. Per-tool one-liner
  *     plus optional curated expansion.
  *   - **Tier 3 (generative)** — model-authored React. Not implemented here.
@@ -26,6 +25,7 @@ import {
 } from "@meridian/contracts/protocol";
 import { FilePen, FolderTree, type LucideIcon, Search, Sparkles, Wrench } from "lucide-react";
 import type { ReactNode } from "react";
+import { documentDisplayName, folderDisplayName, isContextUri } from "./document-display-name";
 import type { ToolView } from "./group-delivery-segments";
 import { normalizeToolResultRows, truncate } from "./tool-result-preview";
 
@@ -72,26 +72,23 @@ function toolVerb(tool: ToolView, complete: ReactNode, active: ReactNode): React
   return tool.status === "complete" ? complete : active;
 }
 
-/**
- * Title slot for path-bearing tools (`write`, `ls`, `grep`, and the default).
- *
- * Shows the **full path** rather than a stripped basename. When the row is
- * narrower than the path, the path left-truncates so the informative tail
- * (filename / leaf directory) stays visible and the boring scaffolding
- * drops, e.g. `apps/server/.../foo.ts`. The verb is in its own shrink-0
- * span so it never gets eaten by the truncation.
- *
- * Why not basename: `basename(path)` looks clean for `foo.md` and `src`
- * but lies for everything else — `Explored work` could be any of three
- * different `work/`s, `Wrote foo.md` could be any of dozens. The full
- * path is the actual information; clipping is a display concern that
- * CSS handles.
- */
-function PathTitle({ verb, path }: { verb: ReactNode; path: string }) {
+function DocumentName({ path }: { path: string }) {
+  const displayName = documentDisplayName(path);
+  return (
+    <span className="flex min-w-0 items-baseline gap-1.5">
+      <span className="min-w-0 truncate">{displayName.title}</span>
+      {displayName.qualifier ? (
+        <span className="shrink-0 text-ink-subtle">({displayName.qualifier})</span>
+      ) : null}
+    </span>
+  );
+}
+
+function DisplayNameTitle({ verb, path }: { verb: ReactNode; path: string }) {
   return (
     <span className="flex w-full min-w-0 items-baseline gap-1.5">
       <span className="shrink-0">{verb}</span>
-      <span className="truncate-start min-w-0 flex-1 text-ink-subtle">{path}</span>
+      <DocumentName path={path} />
     </span>
   );
 }
@@ -103,7 +100,9 @@ function ResultRows({ rows }: { rows: ReturnType<typeof normalizeToolResultRows>
     <ul className="space-y-2">
       {rows.map((row) => (
         <li key={`${row.title}|${row.subtitle ?? ""}|${row.snippet ?? ""}`} className="space-y-0.5">
-          <div className="text-compact font-medium text-prose-foreground">{row.title}</div>
+          <div className="text-compact font-medium text-prose-foreground">
+            {isContextUri(row.title) ? <DocumentName path={row.title} /> : row.title}
+          </div>
           {row.subtitle ? (
             <div className="truncate font-mono text-meta text-muted-foreground">{row.subtitle}</div>
           ) : null}
@@ -151,6 +150,14 @@ function invokeSkillSlug(tool: ToolView): string | undefined {
   return asString(inputObject(tool).skillname);
 }
 
+function humanizeSkillSlug(slug: string): string {
+  return slug
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 /**
  * Classify server-side invoke gate failures. Matches the two strings emitted
  * by `skill-tools.ts` — kept separate from i18n so unit tests can lock the
@@ -176,11 +183,15 @@ export function invokeSkillFailureCopy(
   if (typeof output !== "string" || output.length === 0) return null;
   const kind = classifyInvokeSkillFailure(output);
   if (kind === "unknown") {
-    return t`That skill isn't available in this chat.`;
+    const skillName = slug ? humanizeSkillSlug(slug) : undefined;
+    return skillName
+      ? t`The ${skillName} skill isn't available in this chat.`
+      : t`That skill isn't available in this chat.`;
   }
   if (kind === "no-longer-available") {
-    return slug
-      ? t`The ${slug} skill is no longer available in this chat — start a new chat to use the current version.`
+    const skillName = slug ? humanizeSkillSlug(slug) : undefined;
+    return skillName
+      ? t`The ${skillName} skill is no longer available in this chat — start a new chat to use the current version.`
       : t`This skill is no longer available in this chat — start a new chat to use the current version.`;
   }
   return null;
@@ -191,13 +202,8 @@ function InvokeSkillTitle({ tool }: { tool: ToolView }) {
   if (!slug) {
     return toolVerb(tool, t`Ran skill`, t`Running skill…`);
   }
-  return (
-    <span className="flex w-full min-w-0 items-baseline gap-1">
-      <span className="shrink-0">{toolVerb(tool, t`Ran`, t`Running`)}</span>
-      <span className="truncate-start min-w-0 flex-1 font-mono text-ink-subtle">{slug}</span>
-      <span className="shrink-0">{toolVerb(tool, t`skill`, t`skill…`)}</span>
-    </span>
-  );
+  const skillName = humanizeSkillSlug(slug);
+  return toolVerb(tool, t`Ran the ${skillName} skill`, t`Running the ${skillName} skill…`);
 }
 
 function writeToolFailureText(output: JsonValue | null): string | null {
@@ -219,25 +225,33 @@ function writeToolFailureText(output: JsonValue | null): string | null {
 function WriteToolTitle({ tool, context }: { tool: ToolView; context?: ToolRenderContext }) {
   const input = inputObject(tool);
   const path = asString(input.path);
-  if (input.command === "read") {
-    const verb = toolVerb(tool, t`Read`, t`Reading…`);
-    if (path) return <PathTitle verb={verb} path={path} />;
-    return toolVerb(tool, t`Read file`, t`Reading…`);
+  const command = asString(input.command);
+  if (command === "read") {
+    const complete = path ? <DisplayNameTitle verb={t`Read`} path={path} /> : t`Read file`;
+    return toolVerb(tool, complete, t`Reading…`);
   }
+  const isEdit = ["insert", "replace", "undo", "redo"].includes(command ?? "");
   if (tool.isError) {
-    const verb = context?.writeMode === "draft" ? t`Draft write failed` : t`Write failed`;
-    if (path) return <PathTitle verb={verb} path={path} />;
-    return context?.writeMode === "draft" ? t`Draft write failed` : t`Write failed`;
+    const verb =
+      context?.writeMode === "draft"
+        ? t`Couldn't draft`
+        : isEdit
+          ? t`Couldn't edit`
+          : t`Couldn't write`;
+    return path ? <DisplayNameTitle verb={verb} path={path} /> : verb;
   }
-  const verb =
-    context?.writeMode === "draft"
-      ? toolVerb(tool, t`Drafted`, t`Drafting…`)
-      : toolVerb(tool, t`Wrote`, t`Writing…`);
-  if (path) return <PathTitle verb={verb} path={path} />;
-  if (context?.writeMode === "draft") {
-    return toolVerb(tool, t`Drafted file`, t`Drafting…`);
-  }
-  return toolVerb(tool, t`Wrote file`, t`Writing…`);
+  const verb = context?.writeMode === "draft" ? t`Drafted` : isEdit ? t`Edited` : t`Wrote`;
+  const complete = path ? (
+    <DisplayNameTitle verb={verb} path={path} />
+  ) : context?.writeMode === "draft" ? (
+    t`Drafted file`
+  ) : isEdit ? (
+    t`Edited file`
+  ) : (
+    t`Wrote file`
+  );
+  const active = context?.writeMode === "draft" ? t`Drafting…` : isEdit ? t`Editing…` : t`Writing…`;
+  return toolVerb(tool, complete, active);
 }
 
 function writeExpand(tool: ToolView): ReactNode | null {
@@ -287,16 +301,11 @@ function humanizeToolName(toolName: string): string {
 
 /**
  * Tier-1 default — unknown tool. Static one-liner; no expand affordance,
- * no destination. Arguments are developer detail, so only a useful path is
- * shown alongside the tool name.
+ * no destination. Arguments are developer detail and never enter the title.
  */
 const DEFAULT_RENDERER: ToolRenderer = {
   Icon: Wrench,
-  title: (tool) => {
-    const path = asString(inputObject(tool).path);
-    const name = humanizeToolName(tool.toolName);
-    return path ? <PathTitle verb={name} path={path} /> : name;
-  },
+  title: (tool) => humanizeToolName(tool.toolName),
 };
 
 const RENDERERS: Record<string, ToolRenderer> = {
@@ -310,12 +319,17 @@ const RENDERERS: Record<string, ToolRenderer> = {
     title: (tool) => {
       const path = asString(inputObject(tool).path);
       // `ls` walks folder structure — "exploring", not reading content.
-      const verb = toolVerb(tool, t`Explored`, t`Exploring…`);
-      return path ? (
-        <PathTitle verb={verb} path={path} />
+      const folder = path ? folderDisplayName(path) : undefined;
+      const complete = path ? (
+        <span className="flex min-w-0 items-baseline gap-1.5">
+          <span>{t`Explored`}</span>
+          <span className="truncate">{folder}</span>
+        </span>
       ) : (
-        toolVerb(tool, t`Explored folders`, t`Exploring folders…`)
+        t`Explored folders`
       );
+      const active = folder ? t`Exploring ${folder}…` : t`Exploring folders…`;
+      return toolVerb(tool, complete, active);
     },
   },
   grep: {
@@ -324,7 +338,9 @@ const RENDERERS: Record<string, ToolRenderer> = {
       const pattern = asString(inputObject(tool).pattern);
       const verb = toolVerb(tool, t`Searched`, t`Searching…`);
       return pattern ? (
-        <PathTitle verb={verb} path={`"${truncate(pattern, 60)}"`} />
+        <span>
+          {verb} &quot;{truncate(pattern, 60)}&quot;
+        </span>
       ) : (
         toolVerb(tool, t`Searched context`, verb)
       );

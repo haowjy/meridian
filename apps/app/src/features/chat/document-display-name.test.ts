@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { documentDisplayName, folderDisplayName } from "./document-display-name";
+import { documentDisplayName, folderDisplayName, isContextUri } from "./document-display-name";
 
 vi.mock("@lingui/core/macro", () => ({
   t: (strings: TemplateStringsArray, ...values: unknown[]) =>
@@ -41,5 +41,19 @@ describe("folderDisplayName", () => {
     ["acts/Act 1", "Act 1"],
   ])("presents %s as %s", (uri, expected) => {
     expect(folderDisplayName(uri)).toBe(expected);
+  });
+});
+
+describe("isContextUri", () => {
+  it.each([
+    "manuscript://chapter.md",
+    "kb://character.md",
+    "uploads://map.png",
+  ])("recognizes %s", (uri) => {
+    expect(isContextUri(uri)).toBe(true);
+  });
+
+  it.each(["chapter.md", "https://example.com/result"])("leaves %s alone", (value) => {
+    expect(isContextUri(value)).toBe(false);
   });
 });

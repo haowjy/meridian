@@ -35,6 +35,11 @@ function parseContextLocation(uriOrPath: string): ParsedContextLocation {
   return { scheme: "manuscript", path: uriOrPath };
 }
 
+export function isContextUri(value: string): boolean {
+  const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(value);
+  return CONTEXT_SCHEMES.has(match?.[1]?.toLowerCase() as ProjectContextTreeScheme);
+}
+
 export type DocumentDisplayName = {
   title: string;
   qualifier?: string;

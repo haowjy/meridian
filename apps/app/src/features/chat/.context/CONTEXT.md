@@ -182,8 +182,8 @@ Three conventions govern all renderers:
 
 - **Unknown tools show a humanized name only.** The default renderer displays
   the tool name with underscores replaced by spaces and its first letter
-  capitalized, plus a path when present — never raw arguments. Tool arguments
-  are developer detail that should not appear in the writer's chat surface.
+  capitalized — never arguments or paths. Tool arguments are developer detail
+  that should not appear in the writer's chat surface.
 - **`toolVerb()` for status-aware tense.** Every registered renderer uses
   `toolVerb(tool, completedNode, activeNode)` to conjugate the action label
   by `tool.status` (`complete` vs `partial`). This keeps verb presentation

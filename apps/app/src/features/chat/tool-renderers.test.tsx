@@ -28,10 +28,12 @@ function writeToolView(overrides: Partial<ToolView> = {}): ToolView {
 describe("write tool renderer", () => {
   const renderer = rendererFor("write");
 
-  it("renders success copy unchanged for a completed write", () => {
+  it("renders a completed draft with the document display name", () => {
     const html = renderToStaticMarkup(renderer.title?.(writeToolView(), { writeMode: "draft" }));
     expect(html).toContain("Drafted");
-    expect(html).toContain("manuscript://chapter-1.md");
+    expect(html).toContain("chapter-1");
+    expect(html).not.toContain("manuscript://");
+    expect(html).not.toContain(".md");
     expect(renderer.expand?.(writeToolView())).toBeNull();
   });
 
@@ -60,11 +62,60 @@ describe("write tool renderer", () => {
       output: structuredOutput,
     });
     const html = renderToStaticMarkup(renderer.title?.(tool, { writeMode: "draft" }));
-    expect(html).toContain("Draft write failed");
+    expect(html).toContain("Couldn&#x27;t draft");
+    expect(html).toContain("chapter-1");
     expect(html).not.toContain("Drafted");
     const expand = renderToStaticMarkup(renderer.expand?.(tool));
     expect(expand).toContain("File already exists");
     expect(expand).toContain("overwrite=true");
+  });
+
+  it("uses the edits-card verb for edit commands", () => {
+    const tool = writeToolView({
+      input: { path: "manuscript://chapters/Chapter 3 — Ashes.md", command: "replace" },
+    });
+
+    const html = renderToStaticMarkup(renderer.title(tool, { writeMode: "direct" }));
+
+    expect(html).toContain("Edited");
+    expect(html).toContain("Chapter 3 — Ashes");
+    expect(html).not.toContain("manuscript://");
+  });
+
+  it("qualifies documents outside the manuscript", () => {
+    const tool = writeToolView({
+      input: { path: "kb://characters/Elara.md", command: "read" },
+    });
+
+    const html = renderToStaticMarkup(renderer.title(tool));
+
+    expect(html).toContain("Read");
+    expect(html).toContain("Elara");
+    expect(html).toContain("(Knowledge Base)");
+    expect(html).not.toContain("kb://");
+  });
+
+  it("names direct edit failures without exposing the address", () => {
+    const tool = writeToolView({
+      input: { path: "manuscript://chapters/Chapter 3.md", command: "undo" },
+      isError: true,
+      output: "Could not undo",
+    });
+
+    const html = renderToStaticMarkup(renderer.title(tool, { writeMode: "direct" }));
+
+    expect(html).toContain("Couldn&#x27;t edit");
+    expect(html).toContain("Chapter 3");
+    expect(html).not.toContain("manuscript://");
+  });
+
+  it("names direct create failures as writes", () => {
+    const tool = writeToolView({ isError: true, output: "File already exists" });
+
+    const html = renderToStaticMarkup(renderer.title(tool, { writeMode: "direct" }));
+
+    expect(html).toContain("Couldn&#x27;t write");
+    expect(html).toContain("chapter-1");
   });
 
   it("still surfaces legacy string-shaped tool errors", () => {
@@ -79,7 +130,7 @@ describe("write tool renderer", () => {
 });
 
 describe("unknown tool renderer", () => {
-  it("humanizes the tool name and shows a path without exposing other arguments", () => {
+  it("humanizes the tool name without exposing arguments", () => {
     const tool = writeToolView({
       toolName: "return_result",
       input: {
@@ -90,7 +141,7 @@ describe("unknown tool renderer", () => {
     const html = renderToStaticMarkup(rendererFor(tool.toolName).title(tool));
 
     expect(html).toContain("Return result");
-    expect(html).toContain("manuscript://chapter-1.md");
+    expect(html).not.toContain("manuscript://chapter-1.md");
     expect(html).not.toContain("query");
     expect(html).not.toContain("developer-facing");
   });
@@ -107,7 +158,7 @@ describe("unknown tool renderer", () => {
 
 describe("streaming tool labels", () => {
   it.each([
-    ["ls", { path: "manuscript://" }, "Exploring"],
+    ["ls", { path: "manuscript://" }, "Exploring Manuscript…"],
     ["grep", { pattern: "dragon" }, "Searching"],
   ])("uses present tense for a partial %s call", (toolName, input, expected) => {
     const tool = writeToolView({ toolName, input, status: "partial" });
@@ -124,6 +175,8 @@ describe("streaming tool labels", () => {
     const html = renderToStaticMarkup(rendererFor("write").title(tool, { writeMode }));
 
     expect(html).toContain(expected);
+    expect(html).not.toContain("manuscript://");
+    expect(html).not.toContain("chapter-1");
   });
 });
 
@@ -136,6 +189,20 @@ describe("runtime tool registry", () => {
     const tool = writeToolView({ toolName: "ls", input: {} });
 
     expect(rendererFor("ls").title(tool)).toBe("Explored folders");
+  });
+
+  it("shows only the leaf folder name for ls", () => {
+    const tool = writeToolView({
+      toolName: "ls",
+      input: { path: "kb://characters/supporting" },
+    });
+
+    const html = renderToStaticMarkup(rendererFor("ls").title(tool));
+
+    expect(html).toContain("Explored");
+    expect(html).toContain("supporting");
+    expect(html).not.toContain("kb://");
+    expect(html).not.toContain("characters/");
   });
 
   it("reads grep's pattern input", () => {
@@ -164,15 +231,70 @@ describe("runtime tool registry", () => {
 
     const html = renderToStaticMarkup(rendererFor("grep").expand?.(tool));
 
-    expect(html).toContain("manuscript://chapter-12.md");
+    expect(html).toContain("chapter-12");
+    expect(html).not.toContain("manuscript://");
+    expect(html).not.toContain(".md");
     expect(html).toContain("Line 42");
     expect(html).toContain("The dragon stirred beneath the mountain.");
     expect(html).not.toContain("0.91");
+  });
+
+  it("qualifies context result rows outside the manuscript", () => {
+    const tool = writeToolView({
+      toolName: "grep",
+      output: [{ uri: "kb://characters/Elara.md", excerpt: "A crown of ash.", line: 7 }],
+    });
+
+    const html = renderToStaticMarkup(rendererFor("grep").expand?.(tool));
+
+    expect(html).toContain("Elara");
+    expect(html).toContain("(Knowledge Base)");
+    expect(html).toContain("Line 7");
+    expect(html).not.toContain("kb://");
   });
 
   it("does not expand an empty server grep result array", () => {
     const tool = writeToolView({ toolName: "grep", output: [] });
 
     expect(rendererFor("grep").expand?.(tool)).toBeNull();
+  });
+});
+
+describe("invoke tool renderer", () => {
+  it("humanizes spinal-case skill slugs", () => {
+    const tool = writeToolView({
+      toolName: "invoke",
+      input: { skillname: "story-outline" },
+    });
+
+    expect(renderToStaticMarkup(rendererFor("invoke").title(tool))).toContain(
+      "Ran the Story Outline skill",
+    );
+  });
+
+  it("humanizes the slug in unavailable-skill messages", () => {
+    const tool = writeToolView({
+      toolName: "invoke",
+      input: { skillname: "story-outline" },
+      isError: true,
+      output: 'Skill "story-outline" is no longer available.',
+    });
+
+    expect(renderToStaticMarkup(rendererFor("invoke").expand?.(tool))).toContain(
+      "The Story Outline skill is no longer available",
+    );
+  });
+
+  it("humanizes the slug in unknown-skill messages", () => {
+    const tool = writeToolView({
+      toolName: "invoke",
+      input: { skillname: "story-outline" },
+      isError: true,
+      output: 'Unknown skill "story-outline".',
+    });
+
+    expect(renderToStaticMarkup(rendererFor("invoke").expand?.(tool))).toContain(
+      "The Story Outline skill isn&#x27;t available",
+    );
   });
 });

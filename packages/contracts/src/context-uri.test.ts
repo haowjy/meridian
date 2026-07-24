@@ -18,6 +18,7 @@ describe("documentTitleFromUri", () => {
     null,
     undefined,
     "",
+    "manuscript://",
     "manuscript://chapters/.md",
   ])("returns null when %s has no usable title", (uri) => {
     expect(documentTitleFromUri(uri)).toBeNull();
