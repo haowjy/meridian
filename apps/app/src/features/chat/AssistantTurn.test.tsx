@@ -83,6 +83,17 @@ describe("AssistantTurn edit lineage", () => {
     expect(html).toContain("Undo");
   });
 
+  it("keeps the committed lineage when a turn drafted and the writer applied", () => {
+    // The live-lineage endpoint returns the draft entry BEFORE the live entry for
+    // the same URI. Deduping to the first match hid the applied edit entirely.
+    documentsRef.current = [
+      { uri: "context://doc/chapter-3", path: "/chapter-3", scope: "draft" },
+      { uri: "context://doc/chapter-3", path: "/chapter-3", scope: "live" },
+    ];
+    const html = renderToStaticMarkup(<AssistantTurn threadId="thread-1" turn={turn("turn-1")} />);
+    expect(html).toContain("data-turn-edits-card");
+  });
+
   it("describes a cancelled turn in the writer's voice", () => {
     documentsRef.current = [];
     const html = renderToStaticMarkup(

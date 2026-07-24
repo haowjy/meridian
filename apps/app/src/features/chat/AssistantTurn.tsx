@@ -169,15 +169,24 @@ function isVisibleDeliveryBlock(block: Block): boolean {
   return typeof summary === "string" && summary.trim().length > 0;
 }
 
-function dedupeTurnEditDocuments<T extends { uri: string }>(documents: readonly T[]): T[] {
-  const seen = new Set<string>();
-  const deduped: T[] = [];
+/**
+ * One entry per document, preferring its committed (`live`) lineage.
+ *
+ * A turn that drafted an edit the writer later applied carries BOTH a `draft`
+ * and a `live` entry for the same URI, draft first. The card is a receipt for
+ * what happened to the manuscript, so the committed entry is the one that
+ * counts — keeping the draft would render an applied edit as if it never landed.
+ */
+function dedupeTurnEditDocuments<T extends { uri: string; scope: "live" | "draft" }>(
+  documents: readonly T[],
+): T[] {
+  const byUri = new Map<string, T>();
   for (const document of documents) {
-    if (seen.has(document.uri)) continue;
-    seen.add(document.uri);
-    deduped.push(document);
+    const existing = byUri.get(document.uri);
+    if (existing && (existing.scope === "live" || document.scope !== "live")) continue;
+    byUri.set(document.uri, document);
   }
-  return deduped;
+  return [...byUri.values()];
 }
 
 const TurnSegmentView = memo(function TurnSegmentView({
