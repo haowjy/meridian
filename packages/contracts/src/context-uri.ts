@@ -1,5 +1,7 @@
 /** Shared parser, canonicalizer, and presentation-neutral derivations for context URIs. */
 
+import { parseRequestId } from "./request-id.js";
+
 export type ContextUriScheme = "manuscript" | "kb" | "scratch" | "uploads" | "user";
 
 const UNIFIED_SCHEMES: readonly ContextUriScheme[] = [
@@ -10,8 +12,8 @@ const UNIFIED_SCHEMES: readonly ContextUriScheme[] = [
   "uploads",
 ];
 const AUTHORITY_SCHEMES: ReadonlySet<ContextUriScheme> = new Set(["scratch", "uploads"]);
-const UUID_AUTHORITY_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// Full UUID *shape* (8-4-4-4-12 alphanumeric groups) regardless of hex/version
+// validity — used to tell a typo'd Work id from a legitimate short folder name.
 const UUID_SHAPE_PATTERN = /^[0-9a-z]{8}-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{12}$/i;
 
 export interface ParsedContextUri {
@@ -117,7 +119,11 @@ function parseAuthorityPrefix(
   if (!rawPath || rawPath.startsWith("/")) return { ok: true, value: { authority: null, rawPath } };
 
   const [firstSegment = "", ...remainingSegments] = rawPath.split("/");
-  if (!UUID_AUTHORITY_PATTERN.test(firstSegment)) {
+  const authority = parseRequestId(firstSegment);
+  if (!authority) {
+    // Reject only segments with the full UUID shape that fail the wire grammar
+    // (a real mistyped Work id). Short folder names like "2024-assets" are not
+    // UUID-shaped and parse as ordinary path segments.
     if (
       AUTHORITY_SCHEMES.has(scheme) &&
       remainingSegments.length > 0 &&
@@ -132,7 +138,7 @@ function parseAuthorityPrefix(
   }
   return {
     ok: true,
-    value: { authority: firstSegment, rawPath: remainingSegments.join("/") },
+    value: { authority, rawPath: remainingSegments.join("/") },
   };
 }
 
