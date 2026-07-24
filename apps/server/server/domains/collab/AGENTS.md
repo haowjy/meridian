@@ -24,7 +24,11 @@ propagation between them.
 - **Reserved provenance is for direct-write safety, not sweep.** Ordinary prose
   safety attribution comes from the authenticated journal. Certified semantic
   mutations may add sparse continuation/restoration facts in reserved Yjs
-  types. Branch-settlement sweep uses recipient-native writer lineage intervals
+  types; the provenance writer canonically interprets per-run `materialization`
+  — callers forward the whole certified IR, never pre-filter it or skip
+  provenance wholesale, and the writer excludes retained runs from its insertion
+  stream while atomically writing facts for non-retained runs in the same IR.
+  Branch-settlement sweep uses recipient-native writer lineage intervals
   instead.
 - **Discard class means card review.** `branch-review-closure.ts` joins
   operations only through shared discard rows and hunks, then vends the required

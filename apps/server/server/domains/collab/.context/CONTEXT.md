@@ -119,6 +119,19 @@ instance without a lookup `await`. Startup retains that same instance so
 shutdown calls `drain()` before its first await; `drain()` closes admission
 synchronously before waiting for persistence.
 
+## Certified provenance materialization
+
+**Ordering invariant:** declaration order in `ir.intent.edits` is not application
+order. `applyEdits` sorts same-block Tier-1 edits right-to-left before execution;
+partitioning allocation-ordered strings by iterating declared edits swaps
+provenance roots between adjacent targets. The writer instead locates each edit
+by its final output span and intersects that span with newly inserted strings.
+
+**Regression trap:** hand-performing Yjs mutations in IR declaration order does
+not exercise this seam. Provenance ordering tests must compose the real
+`applyEdits`. Restoration length remains independently validated at both the
+certification and writer boundaries.
+
 ## Live manifest membership
 
 The project manifest's `documents` Y.Map is the membership authority used by the
