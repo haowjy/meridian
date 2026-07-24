@@ -58,6 +58,15 @@
   redundant clock chip.
 - `apps/app`: draft and helper metadata now use plain spacing and sentence
   structure instead of middot separators.
+- `apps/app`: applying a drafted edit keeps its receipt across reloads — the
+  card now reads a document's committed lineage instead of the superseded draft
+  entry that shared its URI.
+- `apps/app`: change-trail reconciliation converges under event bursts. Long
+  threads previously reconciled forever without ever committing a response,
+  which dropped edit-card receipts until a new turn happened to settle.
+- `packages/contracts`, `apps/server`: the request-ID wire grammar lives in
+  contracts, so context-URI Work authorities parse under the same canonical
+  grammar as every other request ID rather than a stale stricter copy.
 
 - `apps/app`: collapsed edit cards name single documents and show settled `+added −removed words` totals without fetching trail detail; live single-document cards use the shared display-name resolver.
 
