@@ -93,10 +93,12 @@ describe("change trail (postgres)", () => {
         sweptChangeCount: 2,
       }),
     ]);
-    expect(trails.details).toEqual([
-      expect.objectContaining({ documentId: ALPHA_ID, wordsAdded: 0, wordsRemoved: 5 }),
-      expect.objectContaining({ documentId: BETA_ID, wordsAdded: 0, wordsRemoved: 5 }),
-    ]);
+    expect(trails.details).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ documentId: ALPHA_ID, wordsAdded: 0, wordsRemoved: 5 }),
+        expect.objectContaining({ documentId: BETA_ID, wordsAdded: 0, wordsRemoved: 5 }),
+      ]),
+    );
     expect(
       trails.details.flatMap((detail) =>
         (

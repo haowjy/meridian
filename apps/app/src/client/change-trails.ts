@@ -74,12 +74,16 @@ export type ChangeTrailDocument =
       unavailable: true;
       trailId?: string;
       documentTitle?: string;
+      wordsAdded?: number | null;
+      wordsRemoved?: number | null;
       changes?: TrailChange[];
     }
   | {
       trailId: string;
       documentId: string;
       documentTitle: string;
+      wordsAdded: number | null;
+      wordsRemoved: number | null;
       changes: TrailChange[];
       unavailable?: false;
     };

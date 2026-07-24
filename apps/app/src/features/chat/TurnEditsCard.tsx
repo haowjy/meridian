@@ -65,7 +65,7 @@ export function TurnEditsCard({
   const direction: ReversalDirection = receipt?.control === "redo" ? "redo" : "undo";
   const guardCopy = undoGuardCopy(receipt);
   const trailDocuments = changeTrail?.documents ?? [];
-  const headerDocumentCount = Math.max(documents.length, trailDocuments.length);
+  const headerDocumentCount = changeTrail ? trailDocuments.length : documents.length;
   const singleDocumentTitle =
     trailDocuments.length === 1
       ? trailDocuments[0]?.title
