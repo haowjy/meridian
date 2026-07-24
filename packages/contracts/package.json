@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./context-uri": "./src/context-uri.ts",
     "./context-entry-validation": "./src/context-entry-validation.ts",
     "./components": "./src/components/index.ts",
     "./threads": "./src/threads/index.ts",
