@@ -107,7 +107,7 @@ function AssistantTurnComponent({
       {isErrored ? <ErrorBlock isLatest={isLatestAssistant} /> : null}
       {isCancelled ? (
         <p className="mt-2 text-caption text-muted-foreground italic">
-          <Trans>Turn cancelled.</Trans>
+          <Trans>Stopped.</Trans>
         </p>
       ) : null}
     </div>

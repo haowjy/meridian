@@ -35,6 +35,8 @@
   strict Nx typecheck target included in root `pnpm typecheck`.
 - `tools/dev`: startup failures now print the concrete portless log path, while
   pre-launch port refusals identify the non-owned holder by PID and command.
+- `apps/app`: cancelled assistant turns now say and announce “Stopped” in the
+  writer's voice.
 - `apps/app`: errored turns no longer show an unreachable Retry affordance.
 - `apps/app`: empty unknown turn blocks no longer expose developer block-type
   labels in chat.

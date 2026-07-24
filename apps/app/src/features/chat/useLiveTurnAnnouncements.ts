@@ -57,7 +57,7 @@ export function useLiveTurnAnnouncements(
           composerRef.current?.focus();
         }
       } else if (status === "cancelled") {
-        announce(t`Turn cancelled`);
+        announce(t`Stopped`);
       } else if (status === "error") {
         if (liveTurn?.error) announceError(liveTurn.error);
         reportChatError({

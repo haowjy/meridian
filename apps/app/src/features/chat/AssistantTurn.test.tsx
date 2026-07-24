@@ -64,6 +64,16 @@ describe("AssistantTurn edit lineage", () => {
     expect(html).toContain("data-turn-edits-card");
     expect(html).toContain("Undo");
   });
+
+  it("describes a cancelled turn in the writer's voice", () => {
+    documentsRef.current = [];
+    const html = renderToStaticMarkup(
+      <AssistantTurn threadId="thread-1" turn={turn("turn-1", "cancelled")} />,
+    );
+
+    expect(html).toContain("Stopped.");
+    expect(html).not.toContain("Turn cancelled");
+  });
 });
 
 describe("AssistantTurn change view", () => {
