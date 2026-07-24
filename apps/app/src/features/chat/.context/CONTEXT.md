@@ -240,7 +240,11 @@ Migration is tracked in `work/activity-thinking-model`.
 
 The existing per-turn Changes view below each assistant turn that edited
 documents: a default-collapsed card
-whose header carries only the count — `✎ Edited N documents` — expanding to
+whose header names a single document or counts multiple documents, followed by
+settled `+added −removed words` totals when the trail shell has them. Live
+single-document headers derive the same URI title without inventing a delta.
+The shell carries this header metadata so collapse never triggers a detail fetch.
+Expanding shows
 the per-document list and authorized durable change-trail rows. Created files count like any edit (creation flows
 through the same agent-edit write path and produces mutation rows). Rows come
 from turn lineage in BOTH scopes (`live` + `draft` via `useTurnLiveLineage`),
