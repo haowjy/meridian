@@ -72,7 +72,7 @@ diagrams — lives in [`.context/CONTEXT.md`](.context/CONTEXT.md).
 | `CustomBlockRenderer.tsx` | Renders `custom` blocks; interrupts route through `onRespondToInterrupt` |
 | `placeholders.ts` | Lingui `msg` descriptor pools + per-page-load localStorage rotation + `useSyncExternalStore` SSR guard. Rotation is internal to Composer; hero variant overrides by prop |
 | `tool-renderers.tsx` | Tool renderer registry — maps tool names to icon/title/expand behavior. Unknown tools show name only; all registered renderers use `toolVerb()` for status-aware present/past tense |
-| `ToolRunBlock.tsx` | Collapsed disclosure for adjacent ToolView runs |
+| `AssistantTurn.tsx` (`DeliverySegments`) | Renders adjacent tool runs as sibling `ToolRow`s |
 | `TurnBlockStep.tsx` | Compact label/body row for reasoning/prose/image fallback blocks; tools are handled upstream |
 | `TurnEditsCard.tsx` | Existing per-turn Changes view: lineage-backed Undo plus durable trail detail rows and writer-safety forward actions. No draft Review/Apply/Discard. Full model in [`.context/CONTEXT.md`](.context/CONTEXT.md) §Turn edits card |
 | `ChangeViewRows.tsx` | Captured-body sweep/resurrection rows with navigation and idempotent Restore/Delete again action seams. Returns null for plain-insert-only trails (no writerProtection) |
@@ -145,7 +145,8 @@ From `@meridian/contracts` `BlockType`: `reasoning` | `thinking` | `text` |
 
 - **reasoning run** = `reasoning` | `thinking` (rendered in `TurnBlockStep`, italic prose)
 - **activity run** = everything else (text/image/custom rendered directly; tool_use/tool_result
-  normalized into ToolViews and rendered as `ToolCard` or `ToolRunBlock`)
+  normalized into ToolViews and rendered as sibling `ToolRow`s by
+  `DeliverySegments`)
 
 ## Transcript viewport (TurnList)
 

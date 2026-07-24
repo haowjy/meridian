@@ -168,7 +168,7 @@ AssistantTurn.tsx
       → TurnBlockStep | DeliverySegments   ← fold runs in chronological order
   → DeliverySegments(frontier)             ← visible activity frontier per segment
       → groupDeliverySegments(blocks)      ← pair tool_use/tool_result into ToolViews
-          → ToolCard | ToolRunBlock | DeliveryBlock
+          → sibling ToolRows | DeliveryBlock
               → CustomBlockRenderer (interrupts)
 ```
 
@@ -208,7 +208,7 @@ Key files:
 | `ProcessDisclosure.tsx` | Collapsible `Thinking` disclosure with sticky user-toggle state |
 | `CustomBlockRenderer.tsx` | Renders `custom` blocks; interrupts pass through `onRespondToInterrupt` |
 | `tool-renderers.tsx` | Tool renderer registry; unknown tools show name only, registered tools use `toolVerb()` for tense and may show curated expand content |
-| `ToolRunBlock.tsx` | Collapsed disclosure for adjacent ToolView runs |
+| `AssistantTurn.tsx` (`DeliverySegments`) | Renders adjacent ToolViews as sibling `ToolRow`s |
 | `TurnBlockStep.tsx` | Compact label/body row for reasoning/prose/image fallback blocks; tools are handled upstream |
 | `block-render-key.ts` | Positional render keys — `turnId::sequence` |
 | `block-kind.ts` | Block type predicates (`isToolDeliveryBlock`, `isImageBlock`) |
@@ -220,7 +220,7 @@ Key files:
 |---|---|---|
 | `reasoning`, `thinking` | reasoning run | `TurnBlockStep` (in fold); italic prose in `Markdown variant="compact"` |
 | `text` | activity run | `Markdown variant="answer"` (settled) / `StreamingText` (partial) |
-| `tool_use`, `tool_result` | activity run | Paired into ToolViews by `groupDeliverySegments`, then rendered by `ToolCard` or `ToolRunBlock` |
+| `tool_use`, `tool_result` | activity run | Paired into ToolViews by `groupDeliverySegments`, then rendered as sibling `ToolRow`s by `DeliverySegments` |
 | `image` | activity run | `ImageBlock` |
 | `custom` | activity run (incl. interrupts) | `CustomBlockRenderer` → component registry |
 
