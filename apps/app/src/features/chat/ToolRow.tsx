@@ -10,7 +10,7 @@
  * Hidden tools: a few "tools" are protocol primitives whose UX lives elsewhere
  * (the custom interrupt card for `ask_user`). Their tool_use / tool_result
  * blocks are duplication when rendered as activity rows — see
- * `shouldHideToolView` below.
+ * `isToolViewVisible` below.
  */
 
 import type { JsonValue } from "@meridian/contracts/protocol";
@@ -24,7 +24,7 @@ export type ToolRowProps = {
 };
 
 export function ToolRow({ tool, draftWrite = false }: ToolRowProps) {
-  if (shouldHideToolView(tool)) return null;
+  if (!isToolViewVisible(tool)) return null;
 
   const renderer = rendererFor(tool.toolName);
   const status: ActivityRowStatus =
@@ -55,10 +55,10 @@ export function ToolRow({ tool, draftWrite = false }: ToolRowProps) {
  *      lacks `toolName` so it falls back to `"tool"`; we identify it by the
  *      interrupt-result output shape (`{ value, provenance }`).
  */
-function shouldHideToolView(tool: ToolView): boolean {
-  if (tool.toolName === "ask_user") return true;
-  if (tool.toolName === "tool" && isInterruptResultOutput(tool.output)) return true;
-  return false;
+export function isToolViewVisible(tool: ToolView): boolean {
+  if (tool.toolName === "ask_user") return false;
+  if (tool.toolName === "tool" && isInterruptResultOutput(tool.output)) return false;
+  return true;
 }
 
 function isInterruptResultOutput(output: JsonValue | null): boolean {

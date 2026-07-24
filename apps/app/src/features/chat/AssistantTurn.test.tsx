@@ -135,6 +135,60 @@ describe("AssistantTurn process fold", () => {
   });
 });
 
+describe("AssistantTurn live ink drop", () => {
+  it.each([
+    "pending",
+    "streaming",
+  ] satisfies Turn["status"][])("renders at the growing edge while the turn is %s", (status) => {
+    documentsRef.current = [];
+    const html = renderToStaticMarkup(<AssistantTurn turn={turn("turn-1", status)} />);
+    const host = document.createElement("div");
+    host.innerHTML = html;
+
+    expect(host.querySelector("[data-live-turn-ink] .ink-drop")).not.toBeNull();
+    expect(host.querySelector(".ink-drop")?.getAttribute("aria-hidden")).not.toBeNull();
+    expect(
+      host.querySelector("[data-turn-id]")?.lastElementChild?.hasAttribute("data-live-turn-ink"),
+    ).toBe(true);
+  });
+
+  it.each([
+    "waiting_interrupt",
+    "complete",
+    "cancelled",
+    "error",
+  ] satisfies Turn["status"][])("does not render when the turn is %s", (status) => {
+    documentsRef.current = [];
+    const html = renderToStaticMarkup(<AssistantTurn turn={turn("turn-1", status)} />);
+    expect(html).not.toContain("data-live-turn-ink");
+  });
+
+  it("aligns under the icon rail after a visible tool and at the prose edge otherwise", () => {
+    documentsRef.current = [];
+    const toolBlock = block(0, "tool_use", {
+      toolCallId: "read-1",
+      toolName: "write",
+      input: { command: "read", path: "Chapter 1.md" },
+    });
+    const proseBlock = {
+      ...block(1, "text", "The gate opened."),
+      textContent: "The gate opened.",
+    };
+    const renderInk = (blocks: Block[]) => {
+      const html = renderToStaticMarkup(
+        <AssistantTurn turn={{ ...turn("turn-1", "streaming"), blocks }} />,
+      );
+      const host = document.createElement("div");
+      host.innerHTML = html;
+      return host.querySelector("[data-live-turn-ink]");
+    };
+
+    expect(renderInk([toolBlock])?.classList.contains("pl-[3.5px]")).toBe(true);
+    expect(renderInk([toolBlock, proseBlock])?.classList.contains("pl-[3.5px]")).toBe(false);
+    expect(renderInk([])?.classList.contains("pl-[3.5px]")).toBe(false);
+  });
+});
+
 describe("AssistantTurn change view", () => {
   it("keeps an errored turn's settled change view reachable across reload", async () => {
     documentsRef.current = [];

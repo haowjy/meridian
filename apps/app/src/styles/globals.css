@@ -168,6 +168,41 @@
   }
 }
 
+/* Turn-level liveness sits at the growing edge as a single classical-ink
+   breath. Tool rows keep their own operation-level running indicators. */
+@utility ink-drop {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 42% 38%,
+    var(--color-ink-muted) 0%,
+    var(--color-ink-deep) 58%,
+    transparent 76%
+  );
+  animation: ink-breath 4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+@keyframes ink-breath {
+  0%, 100% {
+    transform: scale(0.72);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ink-drop {
+    animation: none;
+    opacity: 0.6;
+    transform: scale(0.85);
+  }
+}
+
 /* Undo-pill countdown bar — drains from full to empty over the undo window.
    The duration is set inline at the call site (per-instance), but the
    visual treatment (track color, easing) lives here. */

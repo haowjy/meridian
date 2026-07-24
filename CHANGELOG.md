@@ -35,6 +35,8 @@
   strict Nx typecheck target included in root `pnpm typecheck`.
 - `tools/dev`: startup failures now print the concrete portless log path, while
   pre-launch port refusals identify the non-owned holder by PID and command.
+- `apps/app`: a quiet breathing ink drop now marks the growing edge of pending
+  and streaming assistant turns, replacing the “Working” status bar.
 - `apps/app`: settled assistant turns fold every tool row behind a per-segment
   deterministic activity digest while leaving prose, images, and resolved
   interrupt cards visible; folded reasoning no longer repeats icon chips.

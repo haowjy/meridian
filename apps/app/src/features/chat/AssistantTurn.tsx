@@ -15,7 +15,12 @@
  */
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
-import { type Block, isTerminalTurnStatus, type Turn } from "@meridian/contracts/protocol";
+import {
+  type Block,
+  blockPlainText,
+  isTerminalTurnStatus,
+  type Turn,
+} from "@meridian/contracts/protocol";
 import { memo, useMemo } from "react";
 import type { ChangeTrailShell } from "@/client/change-trails";
 import { useTurnLiveLineage } from "@/client/query/useTurnLiveLineage";
@@ -26,11 +31,10 @@ import { blockRenderKey } from "./block-render-key";
 import { CustomBlockRenderer, type InterruptRespondRequest } from "./CustomBlockRenderer";
 import { ErrorBlock } from "./ErrorBlock";
 import { groupDeliverySegments } from "./group-delivery-segments";
-import { LiveTurnStatusBar } from "./LiveTurnStatusBar";
 import { ProcessDisclosure } from "./ProcessDisclosure";
 import { partitionTurnSegments, type Run, type TurnSegment } from "./partition-turn-segments";
 import { StreamingText } from "./StreamingText";
-import { ToolRow } from "./ToolRow";
+import { isToolViewVisible, ToolRow } from "./ToolRow";
 import { TurnBlockStep } from "./TurnBlockStep";
 import { TurnEditsCard } from "./TurnEditsCard";
 import { thinkingDigest } from "./thinking-digest";
@@ -67,8 +71,7 @@ function AssistantTurnComponent({
   );
   const isErrored = turn.status === "error";
   const isCancelled = turn.status === "cancelled";
-  // A turn is "live" iff its current status is still streaming. Settled turns
-  // are anything terminal (`complete`/`cancelled`/`error`).
+  const showsInkDrop = turn.status === "pending" || turn.status === "streaming";
   const isLive = !isSettled;
   const resolvedThreadId = threadId ?? turn.threadId;
   const liveLineage = useTurnLiveLineage(resolvedThreadId, turn.id, { enabled: !isLive });
@@ -108,15 +111,65 @@ function AssistantTurnComponent({
         />
       ) : null}
 
-      {isLive ? <LiveTurnStatusBar /> : null}
       {isErrored ? <ErrorBlock isLatest={isLatestAssistant} /> : null}
       {isCancelled ? (
         <p className="mt-2 text-caption text-muted-foreground italic">
           <Trans>Stopped.</Trans>
         </p>
       ) : null}
+      {showsInkDrop ? <InkDrop indented={lastVisibleSegmentElementIsTool(segments)} /> : null}
     </div>
   );
+}
+
+function InkDrop({ indented }: { indented: boolean }) {
+  return (
+    <div
+      className={
+        indented
+          ? "mt-[7px] flex min-h-5 items-center pl-[3.5px]"
+          : "mt-[7px] flex min-h-5 items-center"
+      }
+      data-live-turn-ink
+    >
+      <span className="ink-drop" aria-hidden />
+    </div>
+  );
+}
+
+function lastVisibleSegmentElementIsTool(segments: TurnSegment[]): boolean {
+  const lastSegment = segments.at(-1);
+  if (!lastSegment) return false;
+
+  const deliverySegments = groupDeliverySegments(lastSegment.frontier);
+  for (let index = deliverySegments.length - 1; index >= 0; index -= 1) {
+    const segment = deliverySegments[index];
+    if (!segment) continue;
+    if (segment.kind === "tool") {
+      if (isToolViewVisible(segment.tool)) return true;
+      continue;
+    }
+    if (segment.kind === "tool-run") {
+      if (segment.tools.some(isToolViewVisible)) return true;
+      continue;
+    }
+    if (isVisibleDeliveryBlock(segment.block)) return false;
+  }
+  return false;
+}
+
+function isVisibleDeliveryBlock(block: Block): boolean {
+  if (block.blockType === ("activity" as Block["blockType"])) return false;
+  if (isImageBlock(block)) return imageContentForBlock(block) !== null;
+  if (block.blockType === "custom") return true;
+  if (block.blockType === "text") return Boolean(block.textContent?.trim());
+  const text = block.textContent?.trim() || blockPlainText(block.blockType, block.content)?.trim();
+  if (text) return true;
+  if (!block.content || typeof block.content !== "object" || Array.isArray(block.content)) {
+    return false;
+  }
+  const summary = (block.content as Record<string, unknown>).summary;
+  return typeof summary === "string" && summary.trim().length > 0;
 }
 
 function dedupeTurnEditDocuments<T extends { uri: string }>(documents: readonly T[]): T[] {
@@ -345,9 +398,9 @@ function DeliveryBlock({
 }) {
   // `activity` blocks are AG-UI progress placeholders (`ACTIVITY_SNAPSHOT` /
   // `ACTIVITY_DELTA` events with no tool target) that the reducer parks under
-  // a non-canonical blockType. They're plumbing for the LiveTurnStatusBar —
-  // not deliverable content. Rendering them produces "(activity)" placeholder
-  // rows during streaming; hide them here so the turn frontier stays clean.
+  // a non-canonical blockType. They're transport-level liveness, not
+  // deliverable content. Rendering them produces "(activity)" placeholder rows
+  // during streaming; hide them here so the turn frontier stays clean.
   if (block.blockType === ("activity" as Block["blockType"])) return null;
 
   if (isImageBlock(block)) {
