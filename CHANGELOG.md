@@ -35,6 +35,8 @@
   strict Nx typecheck target included in root `pnpm typecheck`.
 - `tools/dev`: startup failures now print the concrete portless log path, while
   pre-launch port refusals identify the non-owned holder by PID and command.
+- `apps/server`: durable change trails now compute additions and removals from
+  prose word tokens, ignoring internal hashline identity changes.
 - `apps/app`, `apps/server`: assistant turns now persist the Work write mode
   they began under, so draft activity keeps “Drafted” vocabulary after reload,
   apply, or discard.

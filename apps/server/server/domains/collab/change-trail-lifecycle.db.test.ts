@@ -135,6 +135,29 @@ describe("change trail (postgres)", () => {
     cold.destroyWarmState();
   });
 
+  it("persists prose-token deltas for a one-word substitution", async () => {
+    const harness = createHarness();
+    const branchId = await harness.seedMatrixPush({
+      responseId: "word-delta-substitution",
+      initialMarkdown: "The gate remained closed.",
+      steps: [{ source: "agent", markdown: "The gate opened." }],
+    });
+
+    await expect(harness.autoPush(branchId)).resolves.toMatchObject({ status: "pushed" });
+    await harness.markTurnError();
+    await harness.pollTrails();
+    await harness.pollTrails();
+
+    const trails = await harness.trailRows();
+    expect(trails.shells).toEqual([
+      expect.objectContaining({ state: "settled", wordsAdded: 1, wordsRemoved: 2 }),
+    ]);
+    expect(trails.details).toEqual([
+      expect.objectContaining({ documentId: ALPHA_ID, wordsAdded: 1, wordsRemoved: 2 }),
+    ]);
+    harness.destroyWarmState();
+  });
+
   it("restores captured prose journal-first against a live document and deduplicates retries", async () => {
     const documentSchema = buildDocumentSchema();
     const codec = createAgentEditCodec(mdxCodec({ schema: documentSchema }));

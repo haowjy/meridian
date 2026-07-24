@@ -25,12 +25,12 @@ import {
   type NormalizedTrail,
   type TrailChangeV1,
 } from "../domain/trail-read-kernel.js";
-import { wordDeltaBetweenTexts } from "../domain/word-count.js";
+import { wordDeltaBetweenHashlines } from "../domain/word-count.js";
 
 function trailWordDelta(changes: readonly TrailChangeV1[]) {
   return changes.reduce(
     (total, change) => {
-      const delta = wordDeltaBetweenTexts(change.beforeText ?? "", change.afterTextAtReceipt ?? "");
+      const delta = wordDeltaBetweenHashlines(change.beforeText, change.afterTextAtReceipt);
       return {
         wordsAdded: total.wordsAdded + delta.wordsAdded,
         wordsRemoved: total.wordsRemoved + delta.wordsRemoved,
