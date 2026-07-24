@@ -27,6 +27,12 @@ import { FilePen, FolderTree, type LucideIcon, Search, Sparkles, Wrench } from "
 import type { ReactNode } from "react";
 import { documentDisplayName, folderDisplayName, isContextUri } from "./document-display-name";
 import type { ToolView } from "./group-delivery-segments";
+import {
+  humanizeSkillSlug,
+  stringInput,
+  toolActivityVocabulary,
+  toolInputObject,
+} from "./tool-activity-vocabulary";
 import { normalizeToolResultRows, truncate } from "./tool-result-preview";
 
 export type ToolRenderContext = {
@@ -44,24 +50,7 @@ export type ToolRenderer = {
 /* ── input helpers ─────────────────────────────────────────────────────── */
 
 function inputObject(tool: ToolView): Record<string, JsonValue> {
-  // The wire format can hand us either a parsed JSON object (settled tool_use)
-  // or a JSON-string carrying the same object (mid-stream TOOL_CALL_ARGS that
-  // hasn't been re-parsed by the time the view is read). Accept both.
-  const raw = tool.input;
-  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-    return raw as Record<string, JsonValue>;
-  }
-  if (typeof raw === "string") {
-    try {
-      const parsed = JSON.parse(raw) as JsonValue;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed as Record<string, JsonValue>;
-      }
-    } catch {
-      /* fall through to empty */
-    }
-  }
-  return {};
+  return toolInputObject(tool);
 }
 
 function asString(value: JsonValue | undefined): string | undefined {
@@ -147,15 +136,7 @@ function PlainOutput({ value }: { value: string }) {
 }
 
 function invokeSkillSlug(tool: ToolView): string | undefined {
-  return asString(inputObject(tool).skillname);
-}
-
-function humanizeSkillSlug(slug: string): string {
-  return slug
-    .split(/[-_]+/)
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
+  return stringInput(inputObject(tool), "skillname");
 }
 
 /**
@@ -200,10 +181,14 @@ export function invokeSkillFailureCopy(
 function InvokeSkillTitle({ tool }: { tool: ToolView }) {
   const slug = invokeSkillSlug(tool);
   if (!slug) {
-    return toolVerb(tool, t`Ran skill`, t`Running skill…`);
+    return toolVerb(tool, t`Ran skill`, toolActivityVocabulary(tool)?.active ?? t`Running skill…`);
   }
   const skillName = humanizeSkillSlug(slug);
-  return toolVerb(tool, t`Ran the ${skillName} skill`, t`Running the ${skillName} skill…`);
+  return toolVerb(
+    tool,
+    t`Ran the ${skillName} skill`,
+    toolActivityVocabulary(tool)?.active ?? t`Running skill…`,
+  );
 }
 
 function writeFailureStatus(output: JsonValue | null): string | null {
@@ -284,7 +269,7 @@ function WriteToolTitle({ tool, context }: { tool: ToolView; context?: ToolRende
   ) : (
     t`Wrote file`
   );
-  const active = context?.writeMode === "draft" ? t`Drafting…` : isEdit ? t`Editing…` : t`Writing…`;
+  const active = toolActivityVocabulary(tool, context?.writeMode)?.active ?? t`Writing…`;
   return toolVerb(tool, complete, active);
 }
 
@@ -360,7 +345,9 @@ const RENDERERS: Record<string, ToolRenderer> = {
       ) : (
         t`Explored folders`
       );
-      const active = folder ? t`Exploring ${folder}…` : t`Exploring folders…`;
+      const active = folder
+        ? t`Exploring ${folder}…`
+        : (toolActivityVocabulary(tool)?.active ?? t`Exploring folders…`);
       return toolVerb(tool, complete, active);
     },
   },
@@ -368,7 +355,11 @@ const RENDERERS: Record<string, ToolRenderer> = {
     Icon: Search,
     title: (tool) => {
       const pattern = asString(inputObject(tool).pattern);
-      const verb = toolVerb(tool, t`Searched`, t`Searching…`);
+      const verb = toolVerb(
+        tool,
+        t`Searched`,
+        toolActivityVocabulary(tool)?.active ?? t`Searching…`,
+      );
       return pattern ? (
         <span>
           {verb} &quot;{truncate(pattern, 60)}&quot;

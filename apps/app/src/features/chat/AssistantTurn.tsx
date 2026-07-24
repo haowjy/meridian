@@ -5,8 +5,8 @@
  * SAME `Block[]` model. There is no synthetic `"live-reasoning"` block and no
  * separate `thinkingStream`/`textStream`/`visibleTool` props — in-progress
  * frontiers are partial blocks in the same array. Block render keys derive
- * from `(turnId, sequence)`, so the live→settled swap is an in-place
- * block-content replace, not a remount.
+ * from `(turnId, sequence)`, so non-tool frontier blocks keep their identity
+ * across settlement. Tool rows may remount when they move into the process fold.
  *
  * Draft affordances live OFF the transcript now: pending AI changes are the
  * composer-attached DraftDock's job, and this turn only records what it edited
@@ -180,7 +180,7 @@ function dedupeTurnEditDocuments<T extends { uri: string }>(documents: readonly 
   return deduped;
 }
 
-function TurnSegmentView({
+const TurnSegmentView = memo(function TurnSegmentView({
   segment,
   segmentIndex,
   segmentCount,
@@ -197,7 +197,10 @@ function TurnSegmentView({
   onRespondToInterrupt?: (request: InterruptRespondRequest) => void;
   writeMode: "direct" | "draft";
 }) {
-  const digest = thinkingDigest(toolViewsInFold(segment.foldRuns), writeMode);
+  const digest = useMemo(
+    () => thinkingDigest(toolViewsInFold(segment.foldRuns), writeMode),
+    [segment.foldRuns, writeMode],
+  );
   return (
     <div data-turn-segment={segmentIndex + 1}>
       {segment.foldRuns.length > 0 ? (
@@ -232,7 +235,7 @@ function TurnSegmentView({
       ) : null}
     </div>
   );
-}
+});
 
 function thinkingLabel() {
   return <Trans>Thinking</Trans>;
@@ -253,7 +256,7 @@ function toolViewsInFold(runs: Run[]) {
   });
 }
 
-function FoldRun({
+const FoldRun = memo(function FoldRun({
   run,
   threadId,
   turnStatus,
@@ -288,7 +291,7 @@ function FoldRun({
       />
     </div>
   );
-}
+});
 
 function segmentRenderKey(segment: TurnSegment): string {
   const firstBlock = firstSegmentBlock(segment);
@@ -326,7 +329,7 @@ AssistantTurn.displayName = "AssistantTurn";
  */
 type DeliveryMode = "frontier" | "fold";
 
-function DeliverySegments({
+const DeliverySegments = memo(function DeliverySegments({
   blocks,
   threadId,
   turnStatus,
@@ -375,7 +378,7 @@ function DeliverySegments({
       })}
     </>
   );
-}
+});
 
 // Tool protocol blocks are normalized by `groupDeliverySegments` before this
 // branch. Keeping DeliveryBlock tool-free prevents `(tool_*)` placeholders from

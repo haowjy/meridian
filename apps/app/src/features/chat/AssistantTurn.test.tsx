@@ -95,7 +95,7 @@ describe("AssistantTurn edit lineage", () => {
 });
 
 describe("AssistantTurn process fold", () => {
-  it("keeps live frontier tools visible and folds them behind the digest on settle", () => {
+  it("keeps live frontier tools visible and folds them behind the digest on settle", async () => {
     documentsRef.current = [];
     const blocks = [
       block(0, "reasoning", null),
@@ -124,15 +124,25 @@ describe("AssistantTurn process fold", () => {
     const isReadRow = (row: Element) =>
       row.textContent?.includes("Read") && row.textContent.includes("Chapter 1");
     const liveToolRow = [...liveHost.querySelectorAll("[data-activity-row]")].find(isReadRow);
-    const settledToolRow = [...settledHost.querySelectorAll("[data-activity-row]")].find(isReadRow);
-
     expect(liveHtml).toContain('aria-label="Thinking"');
     expect(liveToolRow).toBeDefined();
     expect(liveToolRow?.closest("[data-process-fold]")).toBeNull();
     expect(settledHost.textContent).toContain("Explored 1 document");
     expect(settledHtml).toContain('aria-label="Thinking"');
-    expect(settledToolRow).toBeDefined();
+
+    const interactiveHost = document.createElement("div");
+    document.body.append(interactiveHost);
+    const root = createRoot(interactiveHost);
+    await act(async () =>
+      root.render(<AssistantTurn turn={{ ...turn("turn-1", "complete"), blocks }} />),
+    );
+    const disclosure = interactiveHost.querySelector<HTMLButtonElement>("[aria-label='Thinking']");
+    await act(async () => disclosure?.click());
+    const settledToolRow = [...interactiveHost.querySelectorAll("[data-activity-row]")].find(
+      isReadRow,
+    );
     expect(settledToolRow?.closest("[data-process-fold]")).not.toBeNull();
+    await act(async () => root.unmount());
   });
 
   it("reloads settled draft vocabulary from the turn after review data disappears", () => {
@@ -248,6 +258,8 @@ describe("AssistantTurn process fold", () => {
     expect(proseAfter).toBe(proseBefore);
     expect(interruptBefore).toBeDefined();
     expect(interruptAfter).toBe(interruptBefore);
+    const disclosure = host.querySelector<HTMLButtonElement>("[aria-label='Thinking']");
+    await act(async () => disclosure?.click());
     expect(host.querySelector("[data-process-fold]")?.textContent).toContain("Chapter 1");
 
     await act(async () => root.unmount());

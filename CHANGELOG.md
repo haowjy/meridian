@@ -43,6 +43,10 @@
   results, deduplicated with direct reads; folder listings claim no documents.
 - `apps/app`, `apps/server`: trail-settled events now carry collapsed-card
   document and word metadata, so the live settled frame matches a reload.
+- `apps/app`: empty change trails no longer render zero-document cards; the
+  latest-turn control reliably hides after its jump; collapsed process folds
+  defer their hidden row tree until first expansion; live announcements now use
+  the same writer-facing activity vocabulary as tool rows.
 - `apps/app`, `apps/server`: assistant turns now persist the Work write mode
   they began under, so draft activity keeps “Drafted” vocabulary after reload,
   apply, or discard.

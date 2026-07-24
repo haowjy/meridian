@@ -213,6 +213,20 @@ describe("TurnEditsCard", () => {
     expect(html).toContain("+42");
   });
 
+  it("renders no card when neither lineage nor the trail names a document", () => {
+    const html = renderToStaticMarkup(
+      <TurnEditsCard
+        threadId="thread-1"
+        turn={turn()}
+        documents={[]}
+        receipt={null}
+        changeTrail={settledTrail({ documents: [] })}
+      />,
+    );
+
+    expect(html).toBe("");
+  });
+
   it("resolves a live single-document title without inventing a delta", () => {
     const html = renderToStaticMarkup(
       <TurnEditsCard

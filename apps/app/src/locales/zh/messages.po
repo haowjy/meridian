@@ -1666,11 +1666,11 @@ msgstr ""
 
 #: src/features/chat/useLiveTurnAnnouncements.ts
 msgid "Stopped"
-msgstr ""
+msgstr "已取消"
 
 #: src/features/chat/AssistantTurn.tsx
 msgid "Stopped."
-msgstr ""
+msgstr "已取消。"
 
 #: src/features/home/RecentProjects.tsx
 msgid "Streaming"

@@ -17,7 +17,7 @@ type ParsedContextLocation = {
 
 function parseContextLocation(uriOrPath: string): ParsedContextLocation {
   const parsed = parseUnifiedContextUri(uriOrPath);
-  return parsed.ok ? parsed.value : { scheme: "manuscript", path: "" };
+  return parsed.ok ? parsed.value : { scheme: "manuscript", path: uriOrPath };
 }
 
 export function isContextUri(value: string): boolean {

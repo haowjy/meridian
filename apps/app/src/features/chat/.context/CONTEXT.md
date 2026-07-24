@@ -260,34 +260,19 @@ live root degrades to Copy. There is no ChangeTrail transcript
 card or finishing presentation. INVARIANT: no draft Review/Apply/Discard here;
 pending changes belong to the composer-attached `DraftDock`.
 
-**Two-mode undo model.** The conversation has two distinct undo systems — same
-Yjs reversal engine, different scope and interaction pattern:
+**Server-owned receipt and card contract.** `AssistantTurn` combines two
+server-owned facts: turn lineage supplies document scope and the durable receipt
+supplies whole-turn Undo/Redo authority; the settled trail supplies historical
+document titles, word totals, and protected change rows. Both direct and draft
+lineage may produce this same card. A draft proposal with neither lineage
+documents nor trail documents produces no card; after Apply, its committed
+receipt correctly reads `Edited`.
 
-| Mode | Per-turn receipt | Undo behavior |
-|---|---|---|
-| **Auto-apply** (`direct`) | ActivityRow with [Undo] button | Reverses the Yjs mutation; creates a synthetic transcript turn ("You undid changes to …") with Redo. The synthetic turn is client-local until the writer moves on. |
-| **Draft mode** (`draft`) | 1-line informational receipt | Undo removes this turn's contribution from the accumulated draft. The actionable surface is the composer-attached `DraftDock`; the dock `Changes` view and the editor's `DraftReviewHeader` carry review. |
-
-Turn edits line behavior in auto-apply mode:
-
-- **Document authority** — `AssistantTurn` calls `useTurnLiveLineage(threadId,
-  turnId)`, backed by `GET /api/threads/:threadId/turns/:turnId/live-lineage`.
-  The server derives documents from live `agent_edit_mutations` filtered to
-  `scope_id = 'live'`; tool blocks, `turn_document_touches`, and
-  recent-documents are not undo authority.
-- **Draft review separation** — draft-only turns have no live-lineage line. When
-  a draft is applied, accept creates a distinct user accept turn and stamps the
-  live mutation with that accept turn, so the record belongs to the writer
-  acceptance event rather than the proposing assistant turn.
-- **Whole-turn Undo/Redo** — the single `Undo` chip calls
-  `POST /api/threads/:threadId/context/reverse` with
-  `{ direction, scope: "turn", target: turnId }` (`reverseTurn` across every
-  live-lineage document the turn touched); it flips to `Redo` after an undo.
-  Per-document granularity from the old footer is intentionally dropped — the
-  line is a record, not a control panel.
-- **Local state** — the line tracks a single disposition locally
-  (`applied` | `reversed` | `disabled`); `expired` disables the chip. Document
-  content refresh after reversal is handled by Yjs sync.
+The single Undo/Redo chip calls the turn-scoped reverse endpoint. Receipt state
+(`live-active`, `branch-active`, reversed, dependent, or expired) decides whether
+that control is available; the client does not synthesize transcript turns or
+invent local receipt state. Draft Review/Apply/Discard remain exclusively in the
+composer-attached `DraftDock` and inline review surface.
 
 ## Related (separate but adjacent)
 

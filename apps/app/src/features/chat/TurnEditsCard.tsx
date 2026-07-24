@@ -61,10 +61,10 @@ export function TurnEditsCard({
   const [pending, setPending] = useState(false);
   const turnMutation = useReverseTurnMutation(threadId);
 
-  const hasEditedDocuments = documents.length > 0 || Boolean(changeTrail);
   const direction: ReversalDirection = receipt?.control === "redo" ? "redo" : "undo";
   const guardCopy = undoGuardCopy(receipt);
   const trailDocuments = changeTrail?.documents ?? [];
+  const hasEditedDocuments = documents.length > 0 || trailDocuments.length > 0;
   const headerDocumentCount = changeTrail ? trailDocuments.length : documents.length;
   const singleDocumentTitle =
     trailDocuments.length === 1
@@ -81,6 +81,8 @@ export function TurnEditsCard({
           removed: changeTrail.wordsRemoved ?? 0,
         }
       : null;
+
+  if (!hasEditedDocuments) return null;
 
   async function reverseTurn() {
     if (pending || !receipt || receipt.control === "view_change") return;
