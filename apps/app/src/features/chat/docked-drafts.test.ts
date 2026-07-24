@@ -10,6 +10,7 @@ import type { ThreadDraftGroup } from "@/client/query/useWorkDrafts";
 import {
   activeDockedDraftGroups,
   dockRows,
+  hasDockChanges,
   pendingDockedDraftCount,
   pendingReviewDraft,
 } from "./docked-drafts";
@@ -97,6 +98,27 @@ describe("pendingDockedDraftCount", () => {
 
   it("returns zero for unknown groups because the mode switch stays disabled while they load", () => {
     expect(pendingDockedDraftCount(null)).toBe(0);
+  });
+});
+
+describe("hasDockChanges", () => {
+  it("keeps Changes available for a reviewed draft with a reachable undo receipt", () => {
+    const reviewed = draft({
+      status: "closed",
+      appliedAt: "2026-07-07T11:59:00.000Z",
+    });
+
+    expect(hasDockChanges([group([reviewed])], NOW)).toBe(true);
+  });
+
+  it("hides Changes when no rows remain", () => {
+    const expired = draft({
+      status: "closed",
+      appliedAt: "2026-06-01T00:00:00.000Z",
+    });
+
+    expect(hasDockChanges([group([expired])], NOW)).toBe(false);
+    expect(hasDockChanges([], NOW)).toBe(false);
   });
 });
 
