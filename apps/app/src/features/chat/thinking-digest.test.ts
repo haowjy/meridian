@@ -66,6 +66,47 @@ describe("thinkingDigest", () => {
     ).toBe("Explored 2 documents");
   });
 
+  it("counts unique search-result documents and deduplicates read overlap", () => {
+    expect(
+      thinkingDigest(
+        [
+          tool("write", { command: "read", path: "manuscript://Chapter 1.md" }),
+          tool(
+            "grep",
+            { pattern: "gate" },
+            {
+              output: [
+                { uri: "manuscript://Chapter 1.md", excerpt: "The gate." },
+                { uri: "manuscript://Chapter 2.md", excerpt: "Another gate." },
+              ],
+            },
+          ),
+        ],
+        "direct",
+      ),
+    ).toBe("Explored 2 documents");
+  });
+
+  it("digests a search-only fold from its result documents", () => {
+    expect(
+      thinkingDigest(
+        [
+          tool(
+            "grep",
+            { pattern: "dragon" },
+            {
+              output: [
+                { uri: "manuscript://Chapter 1.md", excerpt: "The dragon woke." },
+                { uri: "kb://characters/Mira.md", excerpt: "Mira watched." },
+              ],
+            },
+          ),
+        ],
+        "direct",
+      ),
+    ).toBe("Explored 2 documents");
+  });
+
   it.each([
     ["read", "Explored 1 document"],
     ["replace", "Edited Chapter 1"],
@@ -128,6 +169,10 @@ describe("thinkingDigest", () => {
         "direct",
       ),
     ).toBe("+4 steps");
+  });
+
+  it("does not count folder listings as documents or steps", () => {
+    expect(thinkingDigest([tool("ls", { path: "manuscript://" })], "direct")).toBeNull();
   });
 
   it("counts errored explore and edit operations only as steps", () => {

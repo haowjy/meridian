@@ -5,8 +5,9 @@
 import { plural, t } from "@lingui/core/macro";
 import { parseContextUri } from "@meridian/contracts/context-uri";
 import type { JsonValue } from "@meridian/contracts/protocol";
-import { documentDisplayName } from "./document-display-name";
+import { documentDisplayName, isContextUri } from "./document-display-name";
 import type { ToolView } from "./group-delivery-segments";
+import { normalizeToolResultRows } from "./tool-result-preview";
 
 export type ThinkingDigestWriteMode = "direct" | "draft";
 
@@ -29,8 +30,16 @@ export function thinkingDigest(
     } else if (tool.toolName === "write" && command === "read") {
       if (path) exploredDocuments.add(documentIdentity(path));
       else uncountedExploreOps += 1;
-    } else if (tool.toolName === "grep" || tool.toolName === "ls") {
-      uncountedExploreOps += 1;
+    } else if (tool.toolName === "grep") {
+      const resultDocuments = normalizeToolResultRows(tool.output ?? undefined)
+        .map((row) => row.title)
+        .filter(isContextUri);
+      if (resultDocuments.length > 0) {
+        for (const uri of resultDocuments) exploredDocuments.add(documentIdentity(uri));
+      } else {
+        uncountedExploreOps += 1;
+      }
+    } else if (tool.toolName === "ls") {
     } else if (tool.toolName === "write") {
       if (path) editedDocuments.add(documentIdentity(path));
       else steps += 1;

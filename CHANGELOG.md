@@ -39,6 +39,8 @@
   prose word tokens, ignoring internal hashline identity changes.
 - `apps/app`: failed write rows now show curated document-aware guidance instead
   of server messages, tool arguments, paths, or context URIs.
+- `apps/app`: process digests now include the unique documents shown in search
+  results, deduplicated with direct reads; folder listings claim no documents.
 - `apps/app`, `apps/server`: assistant turns now persist the Work write mode
   they began under, so draft activity keeps “Drafted” vocabulary after reload,
   apply, or discard.
