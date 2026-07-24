@@ -41,6 +41,8 @@
   of server messages, tool arguments, paths, or context URIs.
 - `apps/app`: process digests now include the unique documents shown in search
   results, deduplicated with direct reads; folder listings claim no documents.
+- `apps/app`, `apps/server`: trail-settled events now carry collapsed-card
+  document and word metadata, so the live settled frame matches a reload.
 - `apps/app`, `apps/server`: assistant turns now persist the Work write mode
   they began under, so draft activity keeps “Drafted” vocabulary after reload,
   apply, or discard.

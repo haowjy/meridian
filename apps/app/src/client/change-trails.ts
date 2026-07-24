@@ -98,6 +98,12 @@ export type TrailShellTransition = {
   turnId: string | null;
   version: number;
   counts?: { changes: number; swept: number; documents: number };
+  shell?: {
+    counts: { changes: number; swept: number; documents: number };
+    documents: Array<{ documentId: string; title: string }>;
+    wordsAdded: number | null;
+    wordsRemoved: number | null;
+  };
 };
 
 /** Fold one ordered delivery fact into shell state without inventing missing counts. */
@@ -108,6 +114,7 @@ export function applyTrailShellTransition(
 ): TrailShellState {
   const prior = state.byId[transition.trailId];
   const counts =
+    transition.shell?.counts ??
     transition.counts ??
     (prior
       ? {
@@ -128,9 +135,9 @@ export function applyTrailShellTransition(
     version: transition.version,
     changeCount: counts.changes,
     sweptChangeCount: counts.swept,
-    documents: prior.documents,
-    wordsAdded: prior.wordsAdded,
-    wordsRemoved: prior.wordsRemoved,
+    documents: transition.shell?.documents ?? prior.documents,
+    wordsAdded: transition.shell ? transition.shell.wordsAdded : prior.wordsAdded,
+    wordsRemoved: transition.shell ? transition.shell.wordsRemoved : prior.wordsRemoved,
     updatedAt: occurredAt,
     settledAt: transition.kind === "settled" ? occurredAt : null,
   });
