@@ -206,20 +206,54 @@ function InvokeSkillTitle({ tool }: { tool: ToolView }) {
   return toolVerb(tool, t`Ran the ${skillName} skill`, t`Running the ${skillName} skill…`);
 }
 
-function writeToolFailureText(output: JsonValue | null): string | null {
+function writeFailureStatus(output: JsonValue | null): string | null {
   if (output == null) return null;
-  const message =
-    typeof output === "string"
-      ? output
-      : meridianErrorFromStructuredToolOutput(output).message.trim();
-  if (message.length === 0) return null;
-  const lines = message.split("\n");
-  const statusLine = lines[0] ?? "";
-  if (statusLine.startsWith("status:")) {
-    const body = lines.slice(1).join("\n").trim();
-    return body.length > 0 ? body : statusLine;
+  if (typeof output === "object" && !Array.isArray(output)) {
+    const status = asString((output as Record<string, JsonValue>).status);
+    if (status) return status;
   }
-  return message;
+  const message =
+    typeof output === "string" ? output : meridianErrorFromStructuredToolOutput(output).message;
+  return /^status:\s*([a-z_]+)/i.exec(message.trim())?.[1]?.toLowerCase() ?? null;
+}
+
+function writeFailureDocumentName(tool: ToolView): string | null {
+  const path = asString(inputObject(tool).path);
+  if (!path) return null;
+  const { title, qualifier } = documentDisplayName(path);
+  return qualifier ? `${title} (${qualifier})` : title;
+}
+
+/** Writer copy is derived from failure shape; machine messages remain diagnostics only. */
+export function writeToolFailureCopy(tool: ToolView): string {
+  const name = writeFailureDocumentName(tool);
+  switch (writeFailureStatus(tool.output)) {
+    case "not_found":
+    case "document_not_found":
+      return name ? t`Couldn't find ${name}.` : t`That document couldn't be found.`;
+    case "ambiguous_match":
+      return name
+        ? t`The requested passage in ${name} wasn't specific enough.`
+        : t`The requested passage wasn't specific enough.`;
+    case "cant_undo_dependent":
+      return t`That change can't be undone because later edits depend on it.`;
+    case "destructive_write_rejected":
+      return t`That change could remove recent writing, so it wasn't applied.`;
+    case "rejected_response_requires_reread":
+      return name
+        ? t`${name} changed while the AI was working. It needs to read the document again before editing.`
+        : t`The document changed while the AI was working. It needs to read it again before editing.`;
+    case "partial_failure":
+      return name
+        ? t`Some changes to ${name} couldn't be completed.`
+        : t`Some changes couldn't be completed.`;
+    case "invalid_write":
+      return name ? t`That change couldn't be made in ${name}.` : t`That change couldn't be made.`;
+    default:
+      return name
+        ? t`Something went wrong while changing ${name}.`
+        : t`Something went wrong while making that change.`;
+  }
 }
 
 function WriteToolTitle({ tool, context }: { tool: ToolView; context?: ToolRenderContext }) {
@@ -256,9 +290,7 @@ function WriteToolTitle({ tool, context }: { tool: ToolView; context?: ToolRende
 
 function writeExpand(tool: ToolView): ReactNode | null {
   if (!tool.isError) return null;
-  const copy = writeToolFailureText(tool.output);
-  if (!copy) return null;
-  return <div className="text-compact text-destructive">{truncate(copy, 800)}</div>;
+  return <div className="text-compact text-destructive">{writeToolFailureCopy(tool)}</div>;
 }
 
 function invokeExpand(tool: ToolView): ReactNode | null {

@@ -49,7 +49,7 @@ describe("write tool renderer", () => {
     expect(html).not.toContain("Wrote");
   });
 
-  it("surfaces failure verb and error text for rejected writes", () => {
+  it("maps rejected writes to curated document copy", () => {
     const structuredOutput = {
       code: "tool_error",
       source: "tool",
@@ -66,8 +66,8 @@ describe("write tool renderer", () => {
     expect(html).toContain("chapter-1");
     expect(html).not.toContain("Drafted");
     const expand = renderToStaticMarkup(renderer.expand?.(tool));
-    expect(expand).toContain("File already exists");
-    expect(expand).toContain("overwrite=true");
+    expect(expand).toContain("That change couldn&#x27;t be made in chapter-1.");
+    expect(expand).not.toMatch(/:\/\/|\.md|command=|overwrite=true/);
   });
 
   it("uses the edits-card verb for edit commands", () => {
@@ -118,14 +118,27 @@ describe("write tool renderer", () => {
     expect(html).toContain("chapter-1");
   });
 
-  it("still surfaces legacy string-shaped tool errors", () => {
+  it("sanitizes legacy string-shaped tool errors", () => {
     const tool = writeToolView({
       isError: true,
       output:
         "status: invalid_write\nFile already exists: manuscript://chapter-1.md. Use overwrite=true to overwrite.",
     });
     const expand = renderToStaticMarkup(renderer.expand?.(tool));
-    expect(expand).toContain("overwrite=true");
+    expect(expand).toContain("That change couldn&#x27;t be made in chapter-1.");
+    expect(expand).not.toMatch(/:\/\/|\.md|command=|overwrite=true/);
+  });
+
+  it("never renders unknown machine detail", () => {
+    const tool = writeToolView({
+      isError: true,
+      output: 'Run write(command="read", file="manuscript://chapters/Chapter 1.md") to re-sync.',
+    });
+
+    const expand = renderToStaticMarkup(renderer.expand?.(tool));
+
+    expect(expand).toContain("Something went wrong while changing chapter-1.");
+    expect(expand).not.toMatch(/:\/\/|\.md|command=|file=/);
   });
 });
 

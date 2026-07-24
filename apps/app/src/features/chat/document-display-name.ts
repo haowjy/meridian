@@ -5,18 +5,10 @@
  * state: context URIs already carry the document basename and location.
  */
 import { t } from "@lingui/core/macro";
-import { documentTitleFromUri } from "@meridian/contracts/context-uri";
+import { documentTitleFromUri, parseUnifiedContextUri } from "@meridian/contracts/context-uri";
 import type { ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 
 import { schemeLabel } from "@/features/project/context/context-schemes";
-
-const CONTEXT_SCHEMES = new Set<ProjectContextTreeScheme>([
-  "manuscript",
-  "kb",
-  "scratch",
-  "uploads",
-  "user",
-]);
 
 type ParsedContextLocation = {
   scheme: ProjectContextTreeScheme;
@@ -24,20 +16,13 @@ type ParsedContextLocation = {
 };
 
 function parseContextLocation(uriOrPath: string): ParsedContextLocation {
-  const match = /^([a-z][a-z0-9+.-]*):\/\/(.*)$/i.exec(uriOrPath);
-  const candidate = match?.[1]?.toLowerCase();
-  if (candidate && CONTEXT_SCHEMES.has(candidate as ProjectContextTreeScheme)) {
-    return {
-      scheme: candidate as ProjectContextTreeScheme,
-      path: match?.[2] ?? "",
-    };
-  }
-  return { scheme: "manuscript", path: uriOrPath };
+  const parsed = parseUnifiedContextUri(uriOrPath);
+  return parsed.ok ? parsed.value : { scheme: "manuscript", path: "" };
 }
 
 export function isContextUri(value: string): boolean {
-  const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(value);
-  return CONTEXT_SCHEMES.has(match?.[1]?.toLowerCase() as ProjectContextTreeScheme);
+  const parsed = parseUnifiedContextUri(value);
+  return parsed.ok && value.trim().startsWith(`${parsed.value.scheme}://`);
 }
 
 export type DocumentDisplayName = {
@@ -46,8 +31,8 @@ export type DocumentDisplayName = {
 };
 
 export function documentDisplayName(uriOrPath: string): DocumentDisplayName {
-  const { scheme } = parseContextLocation(uriOrPath);
-  const title = documentTitleFromUri(uriOrPath) ?? t`Untitled document`;
+  const { scheme, path } = parseContextLocation(uriOrPath);
+  const title = documentTitleFromUri(path) ?? t`Untitled document`;
   return scheme === "manuscript" ? { title } : { title, qualifier: schemeLabel(scheme) };
 }
 

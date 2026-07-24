@@ -37,6 +37,8 @@
   pre-launch port refusals identify the non-owned holder by PID and command.
 - `apps/server`: durable change trails now compute additions and removals from
   prose word tokens, ignoring internal hashline identity changes.
+- `apps/app`: failed write rows now show curated document-aware guidance instead
+  of server messages, tool arguments, paths, or context URIs.
 - `apps/app`, `apps/server`: assistant turns now persist the Work write mode
   they began under, so draft activity keeps “Drafted” vocabulary after reload,
   apply, or discard.

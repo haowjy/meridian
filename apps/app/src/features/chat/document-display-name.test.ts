@@ -28,6 +28,13 @@ describe("documentDisplayName", () => {
       title: "Untitled document",
     });
   });
+
+  it("does not present an authority-only scratch Work id as a document", () => {
+    expect(documentDisplayName("scratch://123e4567-e89b-12d3-a456-426614174000")).toEqual({
+      title: "Untitled document",
+      qualifier: "Scratch",
+    });
+  });
 });
 
 describe("folderDisplayName", () => {
