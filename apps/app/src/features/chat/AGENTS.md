@@ -19,18 +19,20 @@ management, or composer — those are adjacent concerns in sibling files
 An assistant turn renders as a **stack of segments**, one per interrupt round.
 Each segment has exactly two zones:
 
-- **`Thinking` disclosure** (collapsed) — process history: all reasoning blocks
-  + all completed (non-latest) activity runs, in chronological order.
-- **`ActivityBlock`** (visible) — the **last activity run** — the delivery
-  frontier the reader is focused on.
+- **Process disclosure** (collapsed) — all reasoning, all completed activity
+  runs, and (once the durable turn settles) every frontier tool operation.
+  Its visible label becomes a deterministic digest when it contains tools.
+- **`ActivityBlock`** (visible) — the live last activity run. After settlement,
+  only that frontier's non-tool blocks remain visible.
 
-The partition is **purely structural**: it depends only on block order and block
-type, never on streaming state. This guarantees a settled/reloaded turn renders
-the same structure the user saw live.
+The partition keys off block order/type and the durable terminal-status
+predicate. It never reads transient stream state (`isLive`, partial blocks).
+At the durable status flip, tool rows move into the fold; the resulting final
+frame is identical to a reload.
 
-When a new activity run begins, the previous frontier **rolls up** into `Thinking`
-in its chronological position. When a interrupt is resolved, the segment is
-**frozen** and a new segment begins below.
+When a new activity run begins, the previous frontier **rolls up** into the
+process fold in chronological position. Interrupts end a segment; their cards
+remain visible after resolution even though tool protocol rows fold on settle.
 
 The full model — including the 6-state lifecycle table and interrupt segmentation
 diagrams — lives in [`.context/CONTEXT.md`](.context/CONTEXT.md).
@@ -39,20 +41,22 @@ diagrams — lives in [`.context/CONTEXT.md`](.context/CONTEXT.md).
 
 1. **Default-collapsed everywhere.** `Thinking` disclosures are closed by default
    whether streaming live or settled. No auto-open on streaming.
-2. **Streaming ≡ settled.** The partition logic must never branch on `isLive` or
-   `turn.status`. Same `Block[]` order → same render structure.
-3. **Interrupt segments are frozen.** Once a user responds to a interrupt, that
-   segment's `ActivityBlock` (including the interrupt) stays expanded forever —
-   never rolled up into a later segment's `Thinking`.
+2. **Durable settlement folds tool rows.** `complete`, `cancelled`, and `error`
+   put every segment's tool operations inside its fold. Live statuses keep the
+   last activity run visible. Never key this decision off `isLive` or partial
+   block content; use the contracts terminal-status predicate.
+3. **Interrupt cards stay visible.** Resolution starts a new segment. On settle,
+   tool protocol rows in every segment fold, while resolved interrupt cards and
+   other frontier non-tool blocks remain expanded.
 4. **Block render keys are positional.** Use `blockRenderKey(block)` —
    `turnId::sequence`. Never key by `block.id`. This ensures the live→settled swap
    is an in-place content replace, not a remount.
 
 ## Anti-patterns
 
-- **Don't branch on streaming state in partition logic.** If `isLive` appears in
-  `partitionTurnSegments` or determines which zone a block lands in, you're
-  building a settled-reload divergence.
+- **Don't branch on transient streaming state in partition logic.** Durable
+  terminal status is an input; `isLive`, partial-block shape, and component-local
+  stream state are not.
 - **Don't key by `block.id`.** ID spaces can drift between sources; positional
   identity cannot. Use `blockRenderKey`.
 - **Don't duplicate tool rendering between fold and activity zone.**

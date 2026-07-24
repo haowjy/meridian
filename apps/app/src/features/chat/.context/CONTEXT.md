@@ -6,61 +6,67 @@ whole turn lifecycle. This is the implemented contract for the turn render surfa
 
 ## Two zones
 
-- **`Thinking`** — a disclosure holding *process history*: every reasoning/thinking
-  block, AND every **completed (non-latest) activity run**. **Default-collapsed
-  everywhere** (live and settled). One click reveals the full chronological transcript.
-- **`ActivityBlock`** — the **live delivery frontier**: the single most-recent run of
-  delivered content the reader is focused on.
+- **Process fold** — default-collapsed history: every reasoning/thinking block,
+  every earlier activity run, and every frontier tool operation once the turn
+  reaches a durable terminal status. If the fold contains tools, its visible
+  label is their deterministic digest; otherwise it reads `Thinking`.
+- **`ActivityBlock`** — the live delivery frontier. For a settled turn it keeps
+  only non-tool frontier blocks (text, image, custom, including resolved
+  interrupt cards). A tools-only settled frontier is empty.
 
-The zones are rendered by `ProcessDisclosure.tsx` (the fold) and `AssistantTurn.tsx`
-(the activity zone, driving `DeliverySegments` → `groupDeliverySegments`).
+The zones are rendered by `ProcessDisclosure.tsx` (fold) and `AssistantTurn.tsx`
+(the visible zone, driving `DeliverySegments` → `groupDeliverySegments`).
 
-## The unified rule (purely structural)
+## Partition rule
 
-**Step 1 — segment at interrupts.** Split the turn's ordered `Block[]` into **segments**
-at each **interrupt** (user-interaction / HITL) block: a interrupt block is the *final*
-block of its segment. A turn with no interrupts is one segment. Segments **stack
-vertically**, each rendered independently.
+**Step 1 — segment at interrupts.** Split ordered `Block[]` at each interrupt;
+the interrupt is the final block of its segment.
 
-**Step 2 — within each segment**, group its blocks into **maximal runs** by kind:
+**Step 2 — group maximal runs** within each segment:
 
 - **reasoning** = `reasoning` | `thinking`
-- **activity** = everything else (`text`, `tool_use`, `tool_result`, `image`, `custom`,
-  and the **interrupt** block, which is an activity block — the segment's frontier)
+- **activity** = everything else
 
-Then, per segment:
+Earlier activity runs and all reasoning runs go into the fold. The last activity
+run is the frontier.
 
-- The **last activity run** is the visible **`ActivityBlock`** for that segment.
-- **Everything else** in the segment — every reasoning block *and* every earlier activity
-  run — renders **inside that segment's default-collapsed `Thinking` disclosure, in
-  chronological order**. Multiple segment folds use the same label; their position in the
-  transcript carries the sequence.
-- A segment with no activity yet (only reasoning) → empty `ActivityBlock`.
+**Step 3 — apply durable settlement.** For live statuses (`pending`, `streaming`,
+`waiting_interrupt`), the frontier stays whole and visible. For settled statuses
+(`complete`, `cancelled`, `error`), tool protocol blocks from the frontier move
+into that segment's fold in chronological position; frontier non-tool blocks
+remain visible.
 
-Because the rule depends only on **block order + type** (never on streaming state), a
-**settled/reloaded turn renders byte-for-byte the same structure** as it did live.
+The settlement input is the canonical `isTerminalTurnStatus` result. Partition
+never reads transient component liveness, partial-block shape, or stream buffers.
+A turn's final settled frame and its reload therefore partition identically.
 
-## Lifecycle table (6 states)
+## Lifecycle table
 
-Notation: `r#` = reasoning block, `a#` = activity block. `[fold]` = collapsed `Thinking`.
+Notation: `r` = reasoning, `p` = prose/custom/image, `t` = tool operation,
+`[fold]` = collapsed process disclosure.
 
-| # | event | blocks | visible `ActivityBlock` | `Thinking` (collapsed) |
-|---|---|---|---|---|
-| 1 | model starts thinking | `r0` | `()` empty | `r0` |
-| 2 | thinking done → first delivery | `r0 · a1` | `(a1)` | `r0` |
-| 3 | tool call | `r0 · a1 a2` | `(a1, a2)` | `r0` |
-| 4 | more text | `r0 · a1 a2 a3` | `(a1, a2, a3)` | `r0` |
-| 5 | model thinks again | `r0 · a1 a2 a3 · r4` | `(a1, a2, a3)` *(still last activity run)* | `r0, r4` |
-| 6 | delivers again | `r0 · a1 a2 a3 · r4 · a5` | `(a5)` | `r0, AB(a1,a2,a3), r4` |
+| durable state | blocks | visible `ActivityBlock` | process fold |
+|---|---|---|---|
+| live reasoning | `r0` | empty | `r0` (`Thinking`) |
+| live first run | `r0 · p1 t2 p3` | `p1 t2 p3` | `r0` (`Thinking`) |
+| live later reasoning | `r0 · p1 t2 · r3` | `p1 t2` | `r0, r3` (`Thinking`) |
+| live new frontier | `r0 · p1 t2 · r3 · t4 p5` | `t4 p5` | `r0, (p1 t2), r3` (`Explored…`/outcome digest) |
+| settled | same blocks | `p5` | `r0, (p1 t2), r3, t4` (digest includes all tools) |
+| settled tools-only frontier | `r0 · t1` | empty | `r0, t1` (digest) |
 
-- **5 → 6 is the roll-up:** when a new activity run (`a5`) begins, the previous frontier
-  `(a1,a2,a3)` collapses **up into `Thinking`**, slotted in chronological order between
-  `r0` and `r4`. Completed **activity runs** roll up, not just reasoning.
-- **State 5 transient:** while `r4` streams and no new activity has followed, the prior
-  activity run `(a1,a2,a3)` stays visible below the fold even though `r4` (chronologically
-  later) shows inside the fold above it. This momentary out-of-order is a natural
-  consequence of the structural rule (last *activity* run = `(a1,a2,a3)` until `a5`
-  exists) — no special-casing required.
+The live roll-up rule is unchanged: a new activity run moves the previous
+frontier into the fold. Settlement adds one final structural move for tool rows
+only. Prose and interaction cards do not become process history merely because
+the turn ended.
+
+### Digest contract
+
+The label summarizes only ToolViews actually inside that segment's fold. Reads
+with document targets contribute unique explored documents; successful writes
+contribute edited/drafted documents; invoke, unknown, failed, and otherwise
+uncountable operations contribute steps. Clauses are ordered explore → edit →
+steps. The accessible name remains `Thinking` / `Thinking part N` regardless of
+the visible digest.
 
 ## Interrupts segment the turn
 
@@ -69,12 +75,11 @@ A **interrupt** (user-interaction / HITL block — a `custom` block resolved via
 *final block of its segment* and the **frontier** of that segment's `ActivityBlock` (the
 round is waiting on the user).
 
-After the user responds:
-
-- The segment's `ActivityBlock` (including the interrupt) is **frozen — kept expanded,
-  never rolled up.** The reader must keep seeing what they acted on.
-- The continuation opens a **fresh `Thinking`** disclosure *below*, and a new
-  `ActivityBlock` — a new stacked segment.
+After the user responds, the interrupt card stays expanded and the continuation
+opens a fresh fold/frontier pair below. While the turn remains live, that earlier
+segment's frontier stays whole. When the turn settles, its tool rows fold just
+like every other segment's; the interrupt card and other non-tool blocks remain
+visible.
 
 A turn renders as a **vertical stack of `(Thinking + ActivityBlock)` segments**,
 one per interrupt round. There can be **multiple visible `ActivityBlock`s** (one per
@@ -92,29 +97,29 @@ Before the user responds — one segment, interrupt `c7` is the frontier:
 ActivityBlock([5] text, [6] tool, [7] interrupt ← awaiting user)
 ```
 
-After the user responds, segment 1 is **frozen as-is** and segment 2 begins below:
+After the user responds, segment 2 begins below. Once the turn settles:
 
 ```
-> Thinking                                    (collapsed, segment 1)
+> Explored 1 document                         (collapsed, segment 1)
 | [0] reasoning
 | ActivityBlock([1] text, [2] tool, [3] text)
 | [4] reasoning
-ActivityBlock([5] text, [6] tool, [7] interrupt)   ← kept, frozen
+| [6] tool
+ActivityBlock([5] text, [7] interrupt)             ← interaction stays visible
 
 > Thinking                                    (collapsed, segment 2)
 | [8] reasoning
 ActivityBlock(… segment 2's frontier …)
 ```
 
-Within each segment the same run-grouping rule applies (last activity run visible; rest
-folds into that segment's `Thinking`). This is identical live vs. settled.
+Each segment applies the same durable-settlement rule independently.
 
 ## Vocabulary
 
 | Term | Definition |
 |---|---|
-| **Process fold / `Thinking` disclosure** | The collapsible disclosure rendered by `ProcessDisclosure.tsx`. Holds process history: all reasoning blocks + all completed (non-latest) activity runs. Default-collapsed everywhere. |
-| **`ActivityBlock` (delivery frontier)** | The visible zone for the last activity run in a segment. Rendered inline by `AssistantTurn.tsx` → `DeliverySegments`. |
+| **Process fold / `Thinking` disclosure** | The default-collapsed disclosure rendered by `ProcessDisclosure.tsx`. Holds reasoning, completed activity runs, and settled frontier tool rows. Its visible label is a tool digest when possible. |
+| **`ActivityBlock` (delivery frontier)** | The live last activity run; after settlement, its non-tool blocks only. Rendered by `AssistantTurn.tsx` → `DeliverySegments`. |
 | **Activity run** | A maximal contiguous run of activity blocks (non-reasoning). The last one in a segment is the visible frontier. |
 | **Segment** | A subdivision of the turn at interrupt boundaries. Each segment has its own `Thinking` + `ActivityBlock` pair. |
 | **Interrupt boundary** | A `custom` block that partitions segments. It is the final block of its segment. |
@@ -126,22 +131,19 @@ folds into that segment's `Thinking`). This is identical live vs. settled.
 
 - **Default-collapsed everywhere.** `Thinking` disclosures are closed by default whether
   streaming live or settled/reloaded. No `defaultOpen={reasoningStreaming}`.
-- **Streaming ≡ settled.** The composition rule depends only on `Block[]` order + block
-  type. A settled reload produces the same render structure as the live stream. No
-  `isLive` branching in the partition logic.
-- **Interrupt segments are frozen.** Once a user responds to a interrupt, that
-  segment's `ActivityBlock` (including the interrupt) stays expanded forever — it
-  is never rolled up into a later segment's `Thinking`.
+- **Durable status is the lifecycle seam.** Terminal status folds every segment's
+  tool rows. Transient `isLive` and partial-block state never drive partitioning.
+- **Interrupt cards stay visible.** Resolution freezes the segment boundary; on
+  settle, its tool rows fold but its resolved interrupt card remains visible.
 - **Block render keys are positional.** `blockRenderKey` derives from `(turnId, sequence)`,
   never `block.id`. This ensures the live→settled swap is an in-place content replace, not
   a remount.
 
 ### What breaks if violated
 
-- Branching on streaming state in the partition → settled reload shows a *different*
-  structure than the user saw live (the classic "page refresh rearranges the turn" bug).
-- Rolling a interrupt frontier into `Thinking` → user loses sight of what they acted on,
-  breaking the interaction contract.
+- Keying the partition off transient streaming state → the final frame and reload
+  can disagree.
+- Folding a resolved interrupt card → the user loses sight of what they acted on.
 - Keying by `block.id` → the live→settled swap remounts DOM nodes, losing animation
   continuity and scroll position.
 
@@ -347,8 +349,8 @@ full row list. Per-row filtering within mixed trails remains with #321.
 
 ## Don't
 
-- Don't branch on `isLive`/streaming state in the partition logic — the rule must be
-  purely structural so settled reloads match.
+- Don't branch on transient `isLive` or partial-block state in partition logic;
+  only the canonical durable terminal-status flag belongs at that seam.
 - Don't key blocks by `block.id` — use `blockRenderKey` (`turnId::sequence`).
 - Don't roll interrupt segments into a later segment's `Thinking` — they are frozen.
 - Don't auto-open `Thinking` disclosures during streaming — default-collapsed everywhere.
