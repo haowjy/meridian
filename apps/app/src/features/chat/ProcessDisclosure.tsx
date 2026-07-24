@@ -44,7 +44,7 @@ export function ProcessDisclosure({ label, ariaLabel, children }: ProcessDisclos
           className={cn("size-3 shrink-0 transition-transform duration-200", open && "rotate-90")}
           aria-hidden
         />
-        <span className="font-medium">{label}</span>
+        <span className="min-w-0 text-left font-medium">{label}</span>
       </button>
 
       <div

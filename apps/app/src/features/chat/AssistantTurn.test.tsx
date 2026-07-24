@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import type { Turn } from "@meridian/contracts/protocol";
+import type { Block, Turn } from "@meridian/contracts/protocol";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -16,7 +16,12 @@ vi.mock("@lingui/react/macro", () => ({
   Trans: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   Plural: ({ value }: { value: number }) => <>{value}</>,
 }));
-vi.mock("@lingui/core/macro", () => ({ t: (strings: TemplateStringsArray) => strings[0] }));
+vi.mock("@lingui/core/macro", () => ({
+  t: (strings: TemplateStringsArray, ...values: unknown[]) =>
+    strings.reduce((copy, part, index) => copy + part + (values[index] ?? ""), ""),
+  plural: (count: number, forms: { one: string; other: string }) =>
+    (count === 1 ? forms.one : forms.other).replace("#", String(count)),
+}));
 
 const { documentsRef } = vi.hoisted(() => ({
   documentsRef: {
@@ -51,6 +56,18 @@ function turn(id: string, status: Turn["status"] = "complete"): Turn {
   } as unknown as Turn;
 }
 
+function block(sequence: number, blockType: Block["blockType"], content: Block["content"]): Block {
+  return {
+    id: `block-${sequence}`,
+    turnId: "turn-1",
+    sequence,
+    blockType,
+    status: "complete",
+    content,
+    textContent: blockType === "reasoning" ? "Considering the chapter." : null,
+  } as Block;
+}
+
 describe("AssistantTurn edit lineage", () => {
   it("renders no edit card without lineage documents", () => {
     documentsRef.current = [];
@@ -73,6 +90,48 @@ describe("AssistantTurn edit lineage", () => {
 
     expect(html).toContain("Stopped.");
     expect(html).not.toContain("Turn cancelled");
+  });
+});
+
+describe("AssistantTurn process fold", () => {
+  it("keeps live frontier tools visible and folds them behind the digest on settle", () => {
+    documentsRef.current = [];
+    const blocks = [
+      block(0, "reasoning", null),
+      block(1, "tool_use", {
+        toolCallId: "read-1",
+        toolName: "write",
+        input: { command: "read", path: "Chapter 1.md" },
+      }),
+      block(2, "tool_result", {
+        toolCallId: "read-1",
+        toolName: "write",
+        output: "chapter body",
+      }),
+    ];
+
+    const liveHtml = renderToStaticMarkup(
+      <AssistantTurn turn={{ ...turn("turn-1", "streaming"), blocks }} />,
+    );
+    const settledHtml = renderToStaticMarkup(
+      <AssistantTurn turn={{ ...turn("turn-1", "complete"), blocks }} />,
+    );
+    const liveHost = document.createElement("div");
+    liveHost.innerHTML = liveHtml;
+    const settledHost = document.createElement("div");
+    settledHost.innerHTML = settledHtml;
+    const isReadRow = (row: Element) =>
+      row.textContent?.includes("Read") && row.textContent.includes("Chapter 1");
+    const liveToolRow = [...liveHost.querySelectorAll("[data-activity-row]")].find(isReadRow);
+    const settledToolRow = [...settledHost.querySelectorAll("[data-activity-row]")].find(isReadRow);
+
+    expect(liveHtml).toContain('aria-label="Thinking"');
+    expect(liveToolRow).toBeDefined();
+    expect(liveToolRow?.closest("[data-process-fold]")).toBeNull();
+    expect(settledHost.textContent).toContain("Explored 1 document");
+    expect(settledHtml).toContain('aria-label="Thinking"');
+    expect(settledToolRow).toBeDefined();
+    expect(settledToolRow?.closest("[data-process-fold]")).not.toBeNull();
   });
 });
 

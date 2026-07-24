@@ -15,7 +15,7 @@
  */
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
-import type { Block, Turn } from "@meridian/contracts/protocol";
+import { type Block, isTerminalTurnStatus, type Turn } from "@meridian/contracts/protocol";
 import { memo, useMemo } from "react";
 import type { ChangeTrailShell } from "@/client/change-trails";
 import { useTurnLiveLineage } from "@/client/query/useTurnLiveLineage";
@@ -33,6 +33,7 @@ import { StreamingText } from "./StreamingText";
 import { ToolRow } from "./ToolRow";
 import { TurnBlockStep } from "./TurnBlockStep";
 import { TurnEditsCard } from "./TurnEditsCard";
+import { thinkingDigest } from "./thinking-digest";
 import type { NavigateToTrailChange } from "./useChangeTrailNavigation";
 
 export type AssistantTurnProps = {
@@ -59,12 +60,16 @@ function AssistantTurnComponent({
     () => [...turn.blocks].sort((a, b) => a.sequence - b.sequence),
     [turn.blocks],
   );
-  const segments = useMemo(() => partitionTurnSegments(sortedBlocks), [sortedBlocks]);
+  const isSettled = isTerminalTurnStatus(turn.status);
+  const segments = useMemo(
+    () => partitionTurnSegments(sortedBlocks, isSettled),
+    [sortedBlocks, isSettled],
+  );
   const isErrored = turn.status === "error";
   const isCancelled = turn.status === "cancelled";
   // A turn is "live" iff its current status is still streaming. Settled turns
   // are anything terminal (`complete`/`cancelled`/`error`).
-  const isLive = turn.status === "streaming" || turn.status === "pending";
+  const isLive = !isSettled;
   const resolvedThreadId = threadId ?? turn.threadId;
   const liveLineage = useTurnLiveLineage(resolvedThreadId, turn.id, { enabled: !isLive });
   const liveLineageDocuments = useMemo(
@@ -142,11 +147,12 @@ function TurnSegmentView({
   onRespondToInterrupt?: (request: InterruptRespondRequest) => void;
   draftWrite: boolean;
 }) {
+  const digest = thinkingDigest(toolViewsInFold(segment.foldRuns), draftWrite ? "draft" : "direct");
   return (
     <div data-turn-segment={segmentIndex + 1}>
       {segment.foldRuns.length > 0 ? (
         <ProcessDisclosure
-          label={thinkingLabel()}
+          label={digest ?? thinkingLabel()}
           ariaLabel={thinkingAriaLabel(segmentIndex, segmentCount)}
         >
           {segment.foldRuns.map((run) => (
@@ -183,8 +189,18 @@ function thinkingLabel() {
 }
 
 function thinkingAriaLabel(segmentIndex: number, segmentCount: number): string | undefined {
-  if (segmentCount <= 1) return undefined;
-  return t`Thinking part ${segmentIndex + 1}`;
+  return segmentCount <= 1 ? t`Thinking` : t`Thinking part ${segmentIndex + 1}`;
+}
+
+function toolViewsInFold(runs: Run[]) {
+  return runs.flatMap((run) => {
+    if (run.kind !== "activity") return [];
+    return groupDeliverySegments(run.blocks).flatMap((segment) => {
+      if (segment.kind === "tool") return [segment.tool];
+      if (segment.kind === "tool-run") return segment.tools;
+      return [];
+    });
+  });
 }
 
 function FoldRun({

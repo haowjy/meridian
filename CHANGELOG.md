@@ -35,6 +35,9 @@
   strict Nx typecheck target included in root `pnpm typecheck`.
 - `tools/dev`: startup failures now print the concrete portless log path, while
   pre-launch port refusals identify the non-owned holder by PID and command.
+- `apps/app`: settled assistant turns fold every tool row behind a per-segment
+  deterministic activity digest while leaving prose, images, and resolved
+  interrupt cards visible; folded reasoning no longer repeats icon chips.
 - `apps/app`: the dock hides Changes when it has no draft or review-receipt
   rows, returning an emptied selected view to Chat.
 - `apps/app`: cancelled assistant turns now say and announce “Stopped” in the
