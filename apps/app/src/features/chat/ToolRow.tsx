@@ -20,10 +20,10 @@ import { rendererFor } from "./tool-renderers";
 
 export type ToolRowProps = {
   tool: ToolView;
-  draftWrite?: boolean;
+  writeMode?: "direct" | "draft";
 };
 
-export function ToolRow({ tool, draftWrite = false }: ToolRowProps) {
+export function ToolRow({ tool, writeMode = "direct" }: ToolRowProps) {
   if (!isToolViewVisible(tool)) return null;
 
   const renderer = rendererFor(tool.toolName);
@@ -34,7 +34,7 @@ export function ToolRow({ tool, draftWrite = false }: ToolRowProps) {
   return (
     <ActivityRow
       Icon={renderer.Icon}
-      title={renderer.title(tool, { writeMode: draftWrite ? "draft" : "direct" })}
+      title={renderer.title(tool, { writeMode })}
       status={status}
       expand={expand}
     />

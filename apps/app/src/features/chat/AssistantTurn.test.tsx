@@ -50,6 +50,7 @@ function turn(id: string, status: Turn["status"] = "complete"): Turn {
     id,
     threadId: "thread-1",
     role: "assistant",
+    writeMode: null,
     status,
     createdAt: "2026-07-04T00:00:00.000Z",
     blocks: [],
@@ -132,6 +133,36 @@ describe("AssistantTurn process fold", () => {
     expect(settledHtml).toContain('aria-label="Thinking"');
     expect(settledToolRow).toBeDefined();
     expect(settledToolRow?.closest("[data-process-fold]")).not.toBeNull();
+  });
+
+  it("reloads settled draft vocabulary from the turn after review data disappears", () => {
+    documentsRef.current = [];
+    const blocks = [
+      block(0, "tool_use", {
+        toolCallId: "write-1",
+        toolName: "write",
+        input: { command: "replace", path: "Chapter 1.md" },
+      }),
+      block(1, "tool_result", {
+        toolCallId: "write-1",
+        toolName: "write",
+        output: "done",
+      }),
+    ];
+    const settledDraftTurn = {
+      ...turn("turn-1", "complete"),
+      writeMode: "draft" as const,
+      blocks,
+    };
+
+    const beforeReviewListEmpties = renderToStaticMarkup(<AssistantTurn turn={settledDraftTurn} />);
+    documentsRef.current = [];
+    const afterReload = renderToStaticMarkup(<AssistantTurn turn={settledDraftTurn} />);
+
+    for (const html of [beforeReviewListEmpties, afterReload]) {
+      expect(html).toContain("Drafted Chapter 1");
+      expect(html).not.toContain("Edited Chapter 1");
+    }
   });
 });
 

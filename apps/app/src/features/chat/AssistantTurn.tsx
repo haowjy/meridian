@@ -10,8 +10,7 @@
  *
  * Draft affordances live OFF the transcript now: pending AI changes are the
  * composer-attached DraftDock's job, and this turn only records what it edited
- * (see `TurnEditsCard`). `draftWrite` stays a per-turn hint so write tool rows
- * can read "Drafted" instead of "Wrote" when the turn produced a draft.
+ * (see `TurnEditsCard`). Write vocabulary comes from the mode frozen on the turn.
  */
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
@@ -45,8 +44,6 @@ export type AssistantTurnProps = {
   turn: Turn;
   isLatestAssistant?: boolean;
   onRespondToInterrupt?: (request: InterruptRespondRequest) => void;
-  /** True when this turn produced an AI draft (write tool rows read "Drafted"). */
-  draftWrite?: boolean;
   changeTrail?: ChangeTrailShell;
   navigateToChange?: NavigateToTrailChange;
 };
@@ -56,7 +53,6 @@ function AssistantTurnComponent({
   turn,
   isLatestAssistant = false,
   onRespondToInterrupt,
-  draftWrite = false,
   changeTrail,
   navigateToChange,
 }: AssistantTurnProps) {
@@ -96,7 +92,7 @@ function AssistantTurnComponent({
           threadId={resolvedThreadId}
           turnStatus={turn.status}
           onRespondToInterrupt={onRespondToInterrupt}
-          draftWrite={draftWrite}
+          writeMode={turn.writeMode ?? "direct"}
         />
       ))}
 
@@ -190,7 +186,7 @@ function TurnSegmentView({
   threadId,
   turnStatus,
   onRespondToInterrupt,
-  draftWrite,
+  writeMode,
 }: {
   segment: TurnSegment;
   segmentIndex: number;
@@ -198,9 +194,9 @@ function TurnSegmentView({
   threadId: string;
   turnStatus: Turn["status"];
   onRespondToInterrupt?: (request: InterruptRespondRequest) => void;
-  draftWrite: boolean;
+  writeMode: "direct" | "draft";
 }) {
-  const digest = thinkingDigest(toolViewsInFold(segment.foldRuns), draftWrite ? "draft" : "direct");
+  const digest = thinkingDigest(toolViewsInFold(segment.foldRuns), writeMode);
   return (
     <div data-turn-segment={segmentIndex + 1}>
       {segment.foldRuns.length > 0 ? (
@@ -215,7 +211,7 @@ function TurnSegmentView({
               threadId={threadId}
               turnStatus={turnStatus}
               onRespondToInterrupt={onRespondToInterrupt}
-              draftWrite={draftWrite}
+              writeMode={writeMode}
             />
           ))}
         </ProcessDisclosure>
@@ -229,7 +225,7 @@ function TurnSegmentView({
             turnStatus={turnStatus}
             mode="frontier"
             onRespondToInterrupt={onRespondToInterrupt}
-            draftWrite={draftWrite}
+            writeMode={writeMode}
           />
         </div>
       ) : null}
@@ -261,13 +257,13 @@ function FoldRun({
   threadId,
   turnStatus,
   onRespondToInterrupt,
-  draftWrite,
+  writeMode,
 }: {
   run: Run;
   threadId: string;
   turnStatus: Turn["status"];
   onRespondToInterrupt?: (request: InterruptRespondRequest) => void;
-  draftWrite: boolean;
+  writeMode: "direct" | "draft";
 }) {
   if (run.kind === "reasoning") {
     return (
@@ -287,7 +283,7 @@ function FoldRun({
         turnStatus={turnStatus}
         mode="fold"
         onRespondToInterrupt={onRespondToInterrupt}
-        draftWrite={draftWrite}
+        writeMode={writeMode}
       />
     </div>
   );
@@ -335,14 +331,14 @@ function DeliverySegments({
   turnStatus,
   mode,
   onRespondToInterrupt,
-  draftWrite,
+  writeMode,
 }: {
   blocks: Block[];
   threadId: string;
   turnStatus: Turn["status"];
   mode: DeliveryMode;
   onRespondToInterrupt?: (request: InterruptRespondRequest) => void;
-  draftWrite: boolean;
+  writeMode: "direct" | "draft";
 }) {
   const segments = useMemo(() => groupDeliverySegments(blocks), [blocks]);
   return (
@@ -353,7 +349,7 @@ function DeliverySegments({
             <ToolRow
               key={blockRenderKey(segment.tool.keyBlock)}
               tool={segment.tool}
-              draftWrite={draftWrite}
+              writeMode={writeMode}
             />,
           ];
         }
@@ -362,7 +358,7 @@ function DeliverySegments({
         // visual weight is low enough that grouping reads as extra chrome.
         if (segment.kind === "tool-run") {
           return segment.tools.map((tool) => (
-            <ToolRow key={blockRenderKey(tool.keyBlock)} tool={tool} draftWrite={draftWrite} />
+            <ToolRow key={blockRenderKey(tool.keyBlock)} tool={tool} writeMode={writeMode} />
           ));
         }
         return [

@@ -52,7 +52,11 @@ type PositionalBlockIdentity = {
 
 type StoreEventTarget = {
   turns(threadId: string): Turn[] | undefined;
-  ensureAssistantTurn(threadId: string, turnId: string, opts?: { createdAt?: string }): void;
+  ensureAssistantTurn(
+    threadId: string,
+    turnId: string,
+    opts?: { createdAt?: string; writeMode?: Turn["writeMode"] },
+  ): void;
   upsertAssistantBlock(threadId: string, turnId: string, block: Block): void;
   patchTurnStatus(
     threadId: string,
@@ -585,6 +589,14 @@ function toolNameFromEvent(event: Record<string, unknown>): string {
   return readString(event.toolCallName) ?? readString(event.toolName) ?? "tool";
 }
 
+function writeModeFromRunStarted(rawEvent: unknown): Turn["writeMode"] | undefined {
+  if (!rawEvent || typeof rawEvent !== "object" || Array.isArray(rawEvent)) return undefined;
+  const writeMode = (rawEvent as Record<string, unknown>).writeMode;
+  return writeMode === "direct" || writeMode === "draft" || writeMode === null
+    ? writeMode
+    : undefined;
+}
+
 /**
  * Applies one live AG-UI event to the unified thread store.
  *
@@ -603,7 +615,10 @@ export function applyAguiEventToStore(
 
   switch (event.type) {
     case EventType.RUN_STARTED:
-      store.ensureAssistantTurn(threadId, event.runId, { createdAt: new Date().toISOString() });
+      store.ensureAssistantTurn(threadId, event.runId, {
+        createdAt: new Date().toISOString(),
+        writeMode: writeModeFromRunStarted(event.rawEvent),
+      });
       return;
 
     case EventType.TEXT_MESSAGE_START: {
