@@ -8,7 +8,7 @@ describe("word counting", () => {
   });
 
   it("counts only inserted and deleted payloads for an edit", () => {
-    expect(wordDeltaBetweenTexts("The old gate opened.", "The jade gate opened slowly.")).toEqual({
+    expect(wordDeltaBetweenTexts("The old gate opened.", "The new gate opened slowly.")).toEqual({
       wordsAdded: 2,
       wordsRemoved: 1,
     });
