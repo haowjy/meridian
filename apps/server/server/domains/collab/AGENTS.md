@@ -27,7 +27,8 @@ propagation between them.
   types; the provenance writer canonically interprets per-run `materialization`
   — callers forward the whole certified IR, never pre-filter it or skip
   provenance wholesale, and the writer excludes retained runs from its insertion
-  stream while atomically writing facts for non-retained runs in the same IR.
+  stream and writes facts for non-retained runs in the same IR, atomically with
+  their prose update.
   Branch-settlement sweep uses recipient-native writer lineage intervals
   instead.
 - **Discard class means card review.** `branch-review-closure.ts` joins
