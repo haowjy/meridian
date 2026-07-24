@@ -205,7 +205,9 @@ describe("AssistantTurn change view", () => {
       version,
       changeCount: 2,
       sweptChangeCount: 0,
-      documentCount: 1,
+      documents: [{ documentId: "document-1", title: "Chapter 1" }],
+      wordsAdded: null,
+      wordsRemoved: null,
       updatedAt: `2026-07-04T00:00:0${version}.000Z`,
       settledAt: state === "settled" ? `2026-07-04T00:00:0${version}.000Z` : null,
     });

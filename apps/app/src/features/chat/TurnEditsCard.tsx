@@ -26,6 +26,8 @@ import { displayContextPath } from "@/lib/context-uri";
 import { cn } from "@/lib/utils";
 import { ChangeViewRows } from "./ChangeViewRows";
 import { useChatContextNavigation } from "./ChatContextNavigation";
+import { documentDisplayName } from "./document-display-name";
+import { DraftStatsLabel } from "./draft-stats";
 import { useAuthorizedChangeTrailDetail } from "./useAuthorizedChangeTrailDetail";
 import type { NavigateToTrailChange } from "./useChangeTrailNavigation";
 
@@ -62,6 +64,23 @@ export function TurnEditsCard({
   const hasEditedDocuments = documents.length > 0 || Boolean(changeTrail);
   const direction: ReversalDirection = receipt?.control === "redo" ? "redo" : "undo";
   const guardCopy = undoGuardCopy(receipt);
+  const trailDocuments = changeTrail?.documents ?? [];
+  const headerDocumentCount = Math.max(documents.length, trailDocuments.length);
+  const singleDocumentTitle =
+    trailDocuments.length === 1
+      ? trailDocuments[0]?.title
+      : !changeTrail && documents.length === 1
+        ? documentDisplayName(documents[0]?.uri ?? "").title
+        : null;
+  const wordStats =
+    changeTrail &&
+    (typeof changeTrail.wordsAdded === "number" || typeof changeTrail.wordsRemoved === "number")
+      ? {
+          kind: "words" as const,
+          added: changeTrail.wordsAdded ?? 0,
+          removed: changeTrail.wordsRemoved ?? 0,
+        }
+      : null;
 
   async function reverseTurn() {
     if (pending || !receipt || receipt.control === "view_change") return;
@@ -109,8 +128,18 @@ export function TurnEditsCard({
           <span aria-hidden className="text-ink-subtle">
             ✎
           </span>
-          <span className="min-w-0 flex-1 truncate font-medium text-prose-foreground">
-            {documentCountLabel(Math.max(documents.length, changeTrail?.documentCount ?? 0))}
+          <span className="flex min-w-0 flex-1 items-baseline">
+            <span className="min-w-0 truncate font-medium text-prose-foreground">
+              {singleDocumentTitle
+                ? documentTitleLabel(singleDocumentTitle)
+                : documentCountLabel(headerDocumentCount)}
+            </span>
+            {wordStats ? (
+              <span className="ml-2 shrink-0">
+                {" "}
+                <DraftStatsLabel stats={wordStats} />
+              </span>
+            ) : null}
           </span>
         </button>
         {hasEditedDocuments ? (
@@ -244,6 +273,10 @@ function DocumentRow({
 
 function documentCountLabel(count: number) {
   return count === 1 ? <Trans>Edited 1 document</Trans> : <Trans>Edited {count} documents</Trans>;
+}
+
+function documentTitleLabel(title: string) {
+  return <Trans>Edited {title}</Trans>;
 }
 
 function basenameOf(document: TurnEditDocument): string {

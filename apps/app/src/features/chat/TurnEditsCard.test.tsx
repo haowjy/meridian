@@ -2,6 +2,7 @@ import type { ReversalOutcome, Turn } from "@meridian/contracts/protocol";
 import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import type { ChangeTrailShell } from "@/client/change-trails";
 import { withReactRoot } from "@/test-support/react-dom-harness";
 
 vi.mock("@lingui/react/macro", () => ({
@@ -34,6 +35,23 @@ function turn(): Turn {
 }
 
 const liveDocument = { uri: "context://doc/chapter-1", path: "/chapter-1", scope: "live" } as const;
+
+function settledTrail(input: Partial<ChangeTrailShell> = {}): ChangeTrailShell {
+  return {
+    trailId: "trail-1",
+    owner: { kind: "turn", threadId: "thread-1", turnId: "turn-1" },
+    state: "settled",
+    version: 1,
+    changeCount: 1,
+    sweptChangeCount: 0,
+    documents: [{ documentId: "doc-1", title: "Chapter 3 — Ashes of the Vale" }],
+    wordsAdded: 42,
+    wordsRemoved: 38,
+    updatedAt: "2026-07-04T00:00:00.000Z",
+    settledAt: "2026-07-04T00:00:00.000Z",
+    ...input,
+  };
+}
 
 async function withInteractiveCard(
   props: Partial<React.ComponentProps<typeof TurnEditsCard>>,
@@ -77,7 +95,7 @@ describe("TurnEditsCard", () => {
     );
 
     expect(html).toContain("data-turn-edits-card");
-    expect(html).toContain("Edited 1 document");
+    expect(html).toContain("Edited chapter-1");
     expect(html).toContain("Undo");
     expect(html).not.toContain("Redo");
   });
@@ -92,7 +110,7 @@ describe("TurnEditsCard", () => {
       />,
     );
 
-    expect(html).toContain("Edited 1 document");
+    expect(html).toContain("Edited chapter-1");
     expect(html).toContain("Undo");
   });
 
@@ -154,5 +172,79 @@ describe("TurnEditsCard", () => {
     );
     expect(html).toContain("Undo is no longer available");
     expect(html).not.toContain("later edits depend");
+  });
+
+  it("names a settled single document and shows its word delta", () => {
+    const html = renderToStaticMarkup(
+      <TurnEditsCard
+        threadId="thread-1"
+        turn={turn()}
+        documents={[]}
+        receipt={null}
+        changeTrail={settledTrail()}
+      />,
+    );
+
+    expect(html).toContain("Edited Chapter 3 — Ashes of the Vale");
+    expect(html).toContain("+42");
+    expect(html).toContain("−38");
+    expect(html).toContain("words");
+    expect(html).toContain("text-diff-added");
+    expect(html).toContain("text-diff-removed");
+  });
+
+  it("keeps the document count for a settled multi-document trail", () => {
+    const html = renderToStaticMarkup(
+      <TurnEditsCard
+        threadId="thread-1"
+        turn={turn()}
+        documents={[]}
+        receipt={null}
+        changeTrail={settledTrail({
+          documents: [
+            { documentId: "doc-1", title: "Chapter 1" },
+            { documentId: "doc-2", title: "Chapter 2" },
+          ],
+        })}
+      />,
+    );
+
+    expect(html).toContain("Edited 2 documents");
+    expect(html).toContain("+42");
+  });
+
+  it("resolves a live single-document title without inventing a delta", () => {
+    const html = renderToStaticMarkup(
+      <TurnEditsCard
+        threadId="thread-1"
+        turn={turn()}
+        documents={[
+          {
+            uri: "manuscript://chapters/ashes-of-the-vale.md",
+            path: "/chapters/ashes-of-the-vale.md",
+            scope: "draft",
+          },
+        ]}
+        receipt={null}
+      />,
+    );
+
+    expect(html).toContain("Edited ashes-of-the-vale");
+    expect(html).not.toContain("words");
+  });
+
+  it("omits the magnitude when an old trail has null word data", () => {
+    const html = renderToStaticMarkup(
+      <TurnEditsCard
+        threadId="thread-1"
+        turn={turn()}
+        documents={[]}
+        receipt={null}
+        changeTrail={settledTrail({ wordsAdded: null, wordsRemoved: null })}
+      />,
+    );
+
+    expect(html).toContain("Edited Chapter 3 — Ashes of the Vale");
+    expect(html).not.toContain("words");
   });
 });

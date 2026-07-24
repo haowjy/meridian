@@ -37,7 +37,9 @@ const shell = (version = 1): ChangeTrailShell => ({
   version,
   changeCount: 1,
   sweptChangeCount: 0,
-  documentCount: 1,
+  documents: [{ documentId: "document-1", title: "Chapter 1" }],
+  wordsAdded: null,
+  wordsRemoved: null,
   updatedAt: "2026-01-01T00:00:00.000Z",
   settledAt: "2026-01-01T00:00:00.000Z",
 });

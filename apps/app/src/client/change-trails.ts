@@ -17,7 +17,9 @@ export type ChangeTrailShell = {
   version: number;
   changeCount: number;
   sweptChangeCount: number;
-  documentCount: number;
+  documents: Array<{ documentId: string; title: string }>;
+  wordsAdded: number | null;
+  wordsRemoved: number | null;
   updatedAt: string;
   settledAt: string | null;
 };
@@ -107,10 +109,12 @@ export function applyTrailShellTransition(
       ? {
           changes: prior.changeCount,
           swept: prior.sweptChangeCount,
-          documents: prior.documentCount,
+          documents: prior.documents.length,
         }
       : null);
-  if (!counts) return state;
+  // Delivery events carry lifecycle counts, not presentation metadata. A
+  // missing shell is reconciled through the lightweight shell endpoint.
+  if (!counts || !prior) return state;
   return upsertTrailShell(state, {
     trailId: transition.trailId,
     owner: transition.turnId
@@ -120,7 +124,9 @@ export function applyTrailShellTransition(
     version: transition.version,
     changeCount: counts.changes,
     sweptChangeCount: counts.swept,
-    documentCount: counts.documents,
+    documents: prior.documents,
+    wordsAdded: prior.wordsAdded,
+    wordsRemoved: prior.wordsRemoved,
     updatedAt: occurredAt,
     settledAt: transition.kind === "settled" ? occurredAt : null,
   });

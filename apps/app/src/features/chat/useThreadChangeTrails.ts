@@ -56,7 +56,7 @@ export function useThreadChangeTrails(threadId: string) {
           return;
         const value = event.value as TrailEventValue;
         if (!value || value.threadId !== threadId || typeof value.version !== "number") return;
-        if (!reconciled.current) {
+        if (!reconciled.current || event.name.endsWith("settled")) {
           const eventEpoch = ++epoch.current;
           void reconcile(eventEpoch);
         }

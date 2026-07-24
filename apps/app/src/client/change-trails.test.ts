@@ -17,14 +17,17 @@ const shell = (
   version,
   changeCount: version,
   sweptChangeCount: 0,
-  documentCount: 1,
+  documents: [{ documentId: "document-1", title: "Chapter 1" }],
+  wordsAdded: null,
+  wordsRemoved: null,
   updatedAt: "2026-01-01T00:00:00.000Z",
   settledAt: state === "settled" ? "2026-01-01T00:00:01.000Z" : null,
 });
 
 describe("change trail shell state", () => {
   it("applies a live updated to settled transition", () => {
-    const updated = applyTrailShellTransition(emptyTrailShellState(), {
+    const initial = upsertTrailShell(emptyTrailShellState(), shell(1));
+    const updated = applyTrailShellTransition(initial, {
       kind: "updated",
       threadId: "thread-1",
       trailId: "trail-1",
