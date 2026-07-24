@@ -35,6 +35,8 @@
   strict Nx typecheck target included in root `pnpm typecheck`.
 - `tools/dev`: startup failures now print the concrete portless log path, while
   pre-launch port refusals identify the non-owned holder by PID and command.
+- `apps/app`: empty unknown turn blocks no longer expose developer block-type
+  labels in chat.
 - `apps/app`: chat-surface guidance now reflects that adjacent tool runs render
   as sibling rows rather than through the deleted tool-run disclosure.
 - `apps/app`: chat composer opens at its one-line height reliably and rotates
