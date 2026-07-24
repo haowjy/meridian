@@ -35,6 +35,8 @@
   strict Nx typecheck target included in root `pnpm typecheck`.
 - `tools/dev`: startup failures now print the concrete portless log path, while
   pre-launch port refusals identify the non-owned holder by PID and command.
+- `packages/design-tokens`: shared light/dark diff-added and diff-removed text colors now give compact edit magnitudes one consistent color story.
+
 - `apps/server`: settled change-trail shells now carry captured document titles and truthful per-document and total word additions/removals for collapsed edit-card headers.
 
 - `apps/app`: a quiet breathing ink drop now marks the growing edge of pending
