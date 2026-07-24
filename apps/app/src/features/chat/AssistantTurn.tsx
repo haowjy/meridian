@@ -35,7 +35,7 @@ import { partitionTurnSegments, type Run, type TurnSegment } from "./partition-t
 import { StreamingText } from "./StreamingText";
 import { ToolRow } from "./ToolRow";
 import { TurnBlockStep } from "./TurnBlockStep";
-import { TurnEditsCard } from "./TurnEditsCard";
+import { hasTurnEditsCardDocuments, TurnEditsCard } from "./TurnEditsCard";
 import { thinkingDigest } from "./thinking-digest";
 import { isToolViewVisible } from "./tool-view-visibility";
 import type { NavigateToTrailChange } from "./useChangeTrailNavigation";
@@ -97,7 +97,7 @@ function AssistantTurnComponent({
         />
       ))}
 
-      {liveLineageDocuments.length > 0 || changeTrail?.state === "settled" ? (
+      {hasTurnEditsCardDocuments(liveLineageDocuments, changeTrail) ? (
         <TurnEditsCard
           threadId={resolvedThreadId}
           turn={turn}

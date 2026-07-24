@@ -84,20 +84,21 @@ async function withInteractiveCard(
 }
 
 describe("TurnEditsCard", () => {
-  it("renders draft-only lineage with turn undo authority", () => {
+  it.each([
+    ["live", undefined],
+    ["reload", settledTrail({ documents: [] })],
+  ])("renders no card for draft-only lineage in the %s shape", (_shape, changeTrail) => {
     const html = renderToStaticMarkup(
       <TurnEditsCard
         threadId="thread-1"
         turn={turn()}
         documents={[{ uri: "context://doc/chapter-1", path: "/chapter-1", scope: "draft" }]}
         receipt={{ state: "branch-active", control: "undo" }}
+        changeTrail={changeTrail}
       />,
     );
 
-    expect(html).toContain("data-turn-edits-card");
-    expect(html).toContain("Edited chapter-1");
-    expect(html).toContain("Undo");
-    expect(html).not.toContain("Redo");
+    expect(html).toBe("");
   });
 
   it("lets live-scope documents own the undo path", () => {
@@ -236,7 +237,7 @@ describe("TurnEditsCard", () => {
           {
             uri: "manuscript://chapters/ashes-of-the-vale.md",
             path: "/chapters/ashes-of-the-vale.md",
-            scope: "draft",
+            scope: "live",
           },
         ]}
         receipt={null}

@@ -38,6 +38,16 @@ export type TurnEditDocument = {
   scope: "live" | "draft";
 };
 
+export function hasTurnEditsCardDocuments(
+  documents: TurnEditDocument[],
+  changeTrail?: ChangeTrailShell,
+): boolean {
+  return (
+    documents.some((document) => document.scope === "live") ||
+    (changeTrail?.state === "settled" && changeTrail.documents.length > 0)
+  );
+}
+
 export type TurnEditsCardProps = {
   threadId: string;
   turn: Turn;
@@ -63,14 +73,16 @@ export function TurnEditsCard({
 
   const direction: ReversalDirection = receipt?.control === "redo" ? "redo" : "undo";
   const guardCopy = undoGuardCopy(receipt);
+  const liveDocuments = documents.filter((document) => document.scope === "live");
   const trailDocuments = changeTrail?.documents ?? [];
-  const hasEditedDocuments = documents.length > 0 || trailDocuments.length > 0;
-  const headerDocumentCount = changeTrail ? trailDocuments.length : documents.length;
+  const hasEditedDocuments = hasTurnEditsCardDocuments(liveDocuments, changeTrail);
+  const headerDocuments = trailDocuments.length > 0 ? trailDocuments : liveDocuments;
+  const headerDocumentCount = headerDocuments.length;
   const singleDocumentTitle =
     trailDocuments.length === 1
       ? trailDocuments[0]?.title
-      : !changeTrail && documents.length === 1
-        ? documentDisplayName(documents[0]?.uri ?? "").title
+      : trailDocuments.length === 0 && liveDocuments.length === 1
+        ? documentDisplayName(liveDocuments[0]?.uri ?? "").title
         : null;
   const wordStats =
     changeTrail &&
@@ -164,7 +176,7 @@ export function TurnEditsCard({
       {expanded ? (
         <div id={panelId} className="border-border-subtle border-t py-1">
           <ul className="flex flex-col">
-            {documents.map((doc) => (
+            {liveDocuments.map((doc) => (
               <li key={doc.uri}>
                 <DocumentRow document={doc} onOpenContextUri={openContextUri} />
               </li>
