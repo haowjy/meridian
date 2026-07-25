@@ -130,6 +130,7 @@ export function parseGitWorktreePorcelain(output: string): GitWorktree[] {
       branch: record.branch,
       detached: record.detached,
       bare: record.bare,
+      locked: record.locked,
       isPrimary: worktrees.length === 0,
     });
     record = {};
@@ -413,11 +414,7 @@ export async function executeCleanupPlan(
   for (const target of plan.targets) {
     hooks.onTargetStart?.(target);
     for (const action of target.actions) {
-      if (
-        action.kind === "stop-dev" ||
-        action.kind === "drop-database" ||
-        action.kind === "remove-worktree"
-      ) {
+      if (action.kind === "stop-dev" || action.kind === "drop-database") {
         const readiness = await validateReadiness(target);
         if (!readiness.ready) {
           return {

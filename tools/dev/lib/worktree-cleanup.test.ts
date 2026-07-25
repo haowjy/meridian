@@ -4,6 +4,7 @@ import {
   type CleanupContext,
   createCleanupPlan,
   executeCleanupPlan,
+  parseGitWorktreePorcelain,
   resolveAutoTargets,
   resolveTarget,
 } from "./worktree-cleanup";
@@ -56,6 +57,24 @@ function makeContext(overrides?: { eligible?: boolean; baseBranch?: string }): C
 }
 
 describe("worktree cleanup resolver", () => {
+  it("preserves Git's locked worktree marker", () => {
+    expect(
+      parseGitWorktreePorcelain(
+        [
+          "worktree /repo/main",
+          "HEAD 1111111111111111111111111111111111111111",
+          "branch refs/heads/main",
+          "",
+          "worktree /repo/wt/feature",
+          "HEAD 2222222222222222222222222222222222222222",
+          "branch refs/heads/feature",
+          "locked maintenance",
+          "",
+        ].join("\n"),
+      )[1],
+    ).toMatchObject({ path: "/repo/wt/feature", branch: "feature", locked: true });
+  });
+
   it("deletes the branch ref atomically at its planned OID", () => {
     const context = makeContext();
     const plan = createCleanupPlan(context, [
