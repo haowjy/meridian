@@ -131,6 +131,13 @@ by its final output span and intersects that span with newly inserted strings.
 not exercise this seam. Provenance ordering tests must compose the real
 `applyEdits`.
 
+For a certified whole-block structural carry, lowering tombstones the input
+block before provenance materialization. The writer may locate its output only
+through one adjacent visible replacement block whose entire prose belongs to
+the current lowering and matches the certified output length. Partial, absent,
+or multiple matches fail closed through the length-conservation guard; rendered
+text equality is never continuity evidence.
+
 Restoration length is validated independently at both the certification and the
 writer boundary; neither check assumes the other ran.
 
