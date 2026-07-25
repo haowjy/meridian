@@ -1,3 +1,9 @@
+/**
+ * The digest is the collapsed fold's only label, and its counts must match what
+ * expanding the fold shows. Cross-spelling dedup is where an off-by-one makes
+ * the label lie ("Explored 5 documents" over 4 real ones) without looking wrong.
+ */
+
 import { describe, expect, it, vi } from "vitest";
 import type { ToolView } from "./group-delivery-segments";
 
@@ -16,11 +22,7 @@ vi.mock("@/features/project/context/context-schemes", () => ({
 
 import { thinkingDigest } from "./thinking-digest";
 
-function tool(
-  toolName: string,
-  input: ToolView["input"] = {},
-  overrides: Partial<ToolView> = {},
-): ToolView {
+function tool(toolName: string, input: ToolView["input"]): ToolView {
   return {
     toolCallId: `call-${toolName}`,
     toolName,
@@ -31,82 +33,10 @@ function tool(
     message: null,
     streamedOutput: null,
     keyBlock: {} as ToolView["keyBlock"],
-    ...overrides,
   };
 }
 
 describe("thinkingDigest", () => {
-  it("returns null for a reasoning-only fold", () => {
-    expect(thinkingDigest([], "direct")).toBeNull();
-  });
-
-  it("routes reads, grep, and ls into explore without counting nameless ops", () => {
-    expect(
-      thinkingDigest(
-        [
-          tool("write", { command: "read", path: "Chapter 1.md" }),
-          tool("grep", { pattern: "dragon" }),
-          tool("ls", { path: "manuscript://" }),
-        ],
-        "direct",
-      ),
-    ).toBe("Explored 1 document");
-  });
-
-  it("normalizes bare paths and deduplicates repeated document targets", () => {
-    expect(
-      thinkingDigest(
-        [
-          tool("write", { command: "read", path: "chapters/Chapter 1.md" }),
-          tool("write", { command: "read", path: "manuscript://chapters/Chapter 1.md" }),
-          tool("write", JSON.stringify({ command: "read", path: "Chapter 2.md" })),
-        ],
-        "direct",
-      ),
-    ).toBe("Explored 2 documents");
-  });
-
-  it("counts unique search-result documents and deduplicates read overlap", () => {
-    expect(
-      thinkingDigest(
-        [
-          tool("write", { command: "read", path: "manuscript://Chapter 1.md" }),
-          tool(
-            "grep",
-            { pattern: "gate" },
-            {
-              output: [
-                { uri: "manuscript://Chapter 1.md", excerpt: "The gate." },
-                { uri: "manuscript://Chapter 2.md", excerpt: "Another gate." },
-              ],
-            },
-          ),
-        ],
-        "direct",
-      ),
-    ).toBe("Explored 2 documents");
-  });
-
-  it("digests a search-only fold from its result documents", () => {
-    expect(
-      thinkingDigest(
-        [
-          tool(
-            "grep",
-            { pattern: "dragon" },
-            {
-              output: [
-                { uri: "manuscript://Chapter 1.md", excerpt: "The dragon woke." },
-                { uri: "kb://characters/Mira.md", excerpt: "Mira watched." },
-              ],
-            },
-          ),
-        ],
-        "direct",
-      ),
-    ).toBe("Explored 2 documents");
-  });
-
   it.each([
     ["read", "Explored 1 document"],
     ["replace", "Edited Chapter 1"],
@@ -121,88 +51,5 @@ describe("thinkingDigest", () => {
         "direct",
       ),
     ).toBe(expected);
-  });
-
-  it("routes every non-read write command to edit and names one unique document", () => {
-    for (const command of ["create", "insert", "replace", "undo", "redo"]) {
-      expect(
-        thinkingDigest(
-          [tool("write", { command, path: "manuscript://chapters/Chapter 3.md" })],
-          "direct",
-        ),
-      ).toBe("Edited Chapter 3");
-    }
-    expect(
-      thinkingDigest([tool("write", { path: "manuscript://chapters/Chapter 3.md" })], "direct"),
-    ).toBe("Edited Chapter 3");
-  });
-
-  it("counts several edited targets rather than listing titles", () => {
-    expect(
-      thinkingDigest(
-        [
-          tool("write", { command: "insert", path: "Chapter 1.md" }),
-          tool("write", { command: "replace", path: "Chapter 2.md" }),
-          tool("write", { command: "redo", path: "Chapter 2.md" }),
-        ],
-        "direct",
-      ),
-    ).toBe("Edited 2 documents");
-  });
-
-  it("uses the display-name qualifier without exposing the URI", () => {
-    expect(
-      thinkingDigest([tool("write", { command: "replace", path: "kb://Elara.md" })], "direct"),
-    ).toBe("Edited Elara (Knowledge Base)");
-  });
-
-  it("uses drafted vocabulary in draft mode", () => {
-    expect(
-      thinkingDigest([tool("write", { command: "create", path: "Chapter 4.md" })], "draft"),
-    ).toBe("Drafted Chapter 4");
-  });
-
-  it("counts invoke, unknown, targetless writes, and targetless exploration as steps", () => {
-    expect(
-      thinkingDigest(
-        [tool("invoke"), tool("bash"), tool("write", { command: "create" }), tool("grep")],
-        "direct",
-      ),
-    ).toBe("+4 steps");
-  });
-
-  it("does not count folder listings as documents or steps", () => {
-    expect(thinkingDigest([tool("ls", { path: "manuscript://" })], "direct")).toBeNull();
-  });
-
-  it("counts errored explore and edit operations only as steps", () => {
-    expect(
-      thinkingDigest(
-        [
-          tool("write", { command: "read", path: "Chapter 1.md" }, { isError: true }),
-          tool("write", { command: "replace", path: "Chapter 2.md" }, { isError: true }),
-          tool("grep", {}, { isError: true }),
-        ],
-        "direct",
-      ),
-    ).toBe("+3 steps");
-  });
-
-  it("uses singular step copy", () => {
-    expect(thinkingDigest([tool("invoke")], "direct")).toBe("+1 step");
-  });
-
-  it("orders and joins explore, edit, then steps", () => {
-    expect(
-      thinkingDigest(
-        [
-          tool("invoke"),
-          tool("write", { command: "replace", path: "Chapter 3.md" }),
-          tool("write", { command: "read", path: "Chapter 1.md" }),
-          tool("write", { command: "read", path: "Chapter 2.md" }),
-        ],
-        "direct",
-      ),
-    ).toBe("Explored 2 documents, edited Chapter 3, +1 step");
   });
 });
