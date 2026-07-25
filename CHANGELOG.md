@@ -64,6 +64,9 @@
 - `apps/app`: change-trail reconciliation converges under event bursts. Long
   threads previously reconciled forever without ever committing a response,
   which dropped edit-card receipts until a new turn happened to settle.
+- `apps/app`: expanded edit cards keep loading their change rows on threads that
+  gap continuously — trail detail is keyed by version and no longer evicted per
+  gap, so in-flight fetches survive.
 - `packages/contracts`, `apps/server`: the request-ID wire grammar lives in
   contracts, so context-URI Work authorities parse under the same canonical
   grammar as every other request ID rather than a stale stricter copy.

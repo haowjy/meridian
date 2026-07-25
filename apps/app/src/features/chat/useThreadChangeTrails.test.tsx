@@ -74,7 +74,7 @@ function mount() {
     act(() => root.unmount());
     container.remove();
   };
-  return { latest: () => seen.at(-1) };
+  return { latest: () => seen.at(-1), queryClient: () => client };
 }
 
 afterEach(() => {
@@ -115,6 +115,24 @@ describe("useThreadChangeTrails", () => {
     expect(mocks.listChangeTrailShells).toHaveBeenCalledTimes(2);
     expect(Object.keys(view.latest()?.byId ?? {})).toEqual(["trail-1", "trail-2"]);
     expect(view.latest()?.gapPending).toBe(false);
+  });
+
+  it("leaves in-flight change-trail detail alone across a gap", async () => {
+    // Continuous gaps used to evict detail queries faster than they could resolve,
+    // so expanded cards on long threads never showed their change rows.
+    mocks.listChangeTrailShells.mockResolvedValue([shell("trail-1")]);
+    const view = mount();
+    await act(async () => {});
+
+    const client = view.queryClient();
+    const detailKey = ["change-trail-detail", "thread-1", "trail-1", 1];
+    client.setQueryData(detailKey, [{ changeId: "change-1" }]);
+
+    await act(async () => {
+      for (let i = 0; i < 10; i += 1) mocks.handlers?.onGap();
+    });
+
+    expect(client.getQueryData(detailKey)).toEqual([{ changeId: "change-1" }]);
   });
 
   it("commits the first response when no further triggers arrive", async () => {

@@ -114,7 +114,12 @@ export function useThreadChangeTrails(threadId: string) {
       onGap: () => {
         reconciled.current = false;
         setState((current) => (current.gapPending ? current : { ...current, gapPending: true }));
-        void queryClient.removeQueries({ queryKey: ["change-trail-detail", threadId] });
+        // Deliberately NOT dropping change-trail detail here. Detail is immutable
+        // for a given (trailId, version) and the detail query is keyed by version,
+        // so a changed trail refetches on its own once the reconcile below lands.
+        // Dropping it per gap destroyed in-flight fetches, and threads whose
+        // journal outgrows the server's replay window gap continuously — there,
+        // an expanded card's change rows could never finish loading at all.
         void reconcile(threadGeneration);
       },
     });
