@@ -1025,6 +1025,15 @@ export function applyAguiEventToStore(
         return;
       }
       if (event.name === "meridian.usage" || event.name === "meridian.permission.denied") return;
+      // Change-trail signals are consumed by useThreadChangeTrails' own event
+      // listener; falling through here rendered each one as an "Unknown
+      // component" note under the digest for the duration of the turn.
+      if (
+        event.name === "meridian.turn_change_trail.updated" ||
+        event.name === "meridian.turn_change_trail.settled"
+      ) {
+        return;
+      }
       const turn = activeAssistantTurn(store, threadId);
       if (!turn) return;
       store.upsertAssistantBlock(
