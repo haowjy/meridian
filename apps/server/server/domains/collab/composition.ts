@@ -53,7 +53,7 @@ import { createDrizzleBranchStore } from "./adapters/drizzle-branches.js";
 import { createDrizzleChangeTrailPersistence } from "./adapters/drizzle-change-trails.js";
 import {
   createDrizzleDocumentAuthorityHeads,
-  readDocumentAuthority,
+  ensureAndReadDocumentAuthority,
   replaceDocumentAuthorityGeneration,
 } from "./adapters/drizzle-document-authority.js";
 import { createDrizzleCollabPersistence } from "./adapters/drizzle-journal.js";
@@ -582,7 +582,7 @@ export function createCollabDomain(deps: CollabDomainDeps): CollabDomain {
       if (failed?.status === "rejected") throw failed.reason;
     },
     readAuthorityGeneration: async (documentId) =>
-      (await readDocumentAuthority(deps.db, documentId)).generation,
+      (await ensureAndReadDocumentAuthority(deps.db, documentId)).generation,
     replaceAuthorityGeneration: async ({ documentId, checkpointId, expectedGeneration }) => {
       const result = await replaceDocumentAuthorityGeneration(deps.db, {
         documentId,
