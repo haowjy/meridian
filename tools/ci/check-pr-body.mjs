@@ -65,9 +65,7 @@ function hasAuthoredLine(content) {
 }
 
 const body = process.env.PR_BODY ?? readFileSync(process.argv[3], "utf8");
-const changedFiles = readFileSync(process.argv[2], "utf8")
-  .split("\n")
-  .filter(Boolean);
+const changedFiles = readFileSync(process.argv[2], "utf8").split("\n").filter(Boolean);
 
 const failures = [];
 
