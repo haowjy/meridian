@@ -7,7 +7,6 @@
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -29,6 +28,44 @@ interface ProcessWithHiddenCwd {
 interface TmuxPane {
   readonly sessionName: string;
   readonly cwd: string;
+}
+
+function tmuxSocketPath(): string | undefined {
+  const tmuxSocket = process.env.TMUX?.split(",", 1)[0];
+  if (tmuxSocket) return tmuxSocket;
+  const uid = process.getuid?.();
+  return uid === undefined
+    ? undefined
+    : path.join(process.env.TMUX_TMPDIR || "/tmp", `tmux-${uid}`, "default");
+}
+
+function tmuxServerIsLive(socketPath: string): boolean {
+  const tmuxPid = Number(process.env.TMUX?.split(",", 3)[1]);
+  if (Number.isSafeInteger(tmuxPid) && tmuxPid > 0) {
+    try {
+      process.kill(tmuxPid, 0);
+      return true;
+    } catch {
+      // The recorded server PID is no longer alive; check the kernel socket table.
+    }
+  }
+
+  try {
+    return fs
+      .readFileSync("/proc/net/unix", "utf8")
+      .split(/\r?\n/)
+      .some((line) => {
+        const fields = line.trim().split(/\s+/);
+        return (
+          fields[3] === "00010000" &&
+          fields[4] === "0001" &&
+          fields[5] === "01" &&
+          fields[7] === socketPath
+        );
+      });
+  } catch {
+    return false;
+  }
 }
 
 interface LivenessSnapshot {
@@ -188,18 +225,12 @@ function tmuxPanes(cwd: string): {
     return { entries: [], failures: [] };
   }
   if (result.status !== 0) {
-    const tmuxSocket = process.env.TMUX?.split(",", 1)[0];
-    const uid = process.getuid?.();
-    const socketPath =
-      tmuxSocket ||
-      (uid === undefined
-        ? undefined
-        : path.join(process.env.TMUX_TMPDIR || os.tmpdir(), `tmux-${uid}`, "default"));
+    const socketPath = tmuxSocketPath();
     if (socketPath) {
       try {
         fs.statSync(socketPath);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT" && !tmuxServerIsLive(socketPath)) {
           return { entries: [], failures: [] };
         }
       }

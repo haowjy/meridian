@@ -12,6 +12,7 @@ export interface GitWorktree {
   readonly branch?: string;
   readonly detached?: boolean;
   readonly bare?: boolean;
+  readonly locked?: boolean;
   readonly isPrimary: boolean;
 }
 
@@ -148,6 +149,7 @@ export function parseGitWorktreePorcelain(output: string): GitWorktree[] {
       ...(key === "branch" ? { branch: stripRefPrefix(value) } : {}),
       ...(key === "detached" ? { detached: true } : {}),
       ...(key === "bare" ? { bare: true } : {}),
+      ...(key === "locked" ? { locked: true } : {}),
     };
   }
   flush();
@@ -242,6 +244,9 @@ function assertSafeTarget(
   if (target.branch === context.baseBranch) {
     throw new CleanupResolverError(`Refusing to delete base branch '${context.baseBranch}'.`);
   }
+  if (target.worktree.locked) {
+    throw new CleanupResolverError(`Refusing to remove locked worktree: ${target.worktree.path}`);
+  }
   if (!context.eligibilityByBranch.has(target.branch)) {
     throw new CleanupResolverError(
       `Refusing to clean branch '${target.branch}': its current commit is not merged into ` +
@@ -329,6 +334,7 @@ export function resolveAutoTargets(context: CleanupContext): CleanupTarget[] {
     if (normalizePath(worktree.path) === context.currentWorktreePath) continue;
     if (!worktree.branch) continue;
     if (worktree.branch === context.baseBranch) continue;
+    if (worktree.locked) continue;
     const eligibility = context.eligibilityByBranch.get(worktree.branch);
     if (eligibility?.kind !== "pull-request") continue;
     const readiness = context.autoReadinessByWorktree.get(autoCleanupReadinessKey(worktree.path));
@@ -406,16 +412,22 @@ export async function executeCleanupPlan(
 ): Promise<CleanupExecutionResult> {
   for (const target of plan.targets) {
     hooks.onTargetStart?.(target);
-    const readiness = await validateReadiness(target);
-    if (!readiness.ready) {
-      return {
-        ok: false,
-        failedTarget: target,
-        failedAction: target.actions[0],
-        readinessFailure: readiness.reasons.join("; "),
-      };
-    }
     for (const action of target.actions) {
+      if (
+        action.kind === "stop-dev" ||
+        action.kind === "drop-database" ||
+        action.kind === "remove-worktree"
+      ) {
+        const readiness = await validateReadiness(target);
+        if (!readiness.ready) {
+          return {
+            ok: false,
+            failedTarget: target,
+            failedAction: action,
+            readinessFailure: readiness.reasons.join("; "),
+          };
+        }
+      }
       const eligibility = await validateEligibility(target);
       if (!eligibility.eligible) {
         return {

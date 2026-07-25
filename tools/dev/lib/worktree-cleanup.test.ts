@@ -159,6 +159,21 @@ describe("worktree cleanup resolver", () => {
     expect(resolveAutoTargets(context)).toEqual([]);
   });
 
+  it("refuses locked targeted worktrees and skips them in auto selection", () => {
+    const base = makeContext();
+    const context: CleanupContext = {
+      ...base,
+      worktrees: base.worktrees.map((worktree) =>
+        worktree.branch === "feature" ? { ...worktree, locked: true } : worktree,
+      ),
+    };
+
+    expect(() => resolveTarget(context, { kind: "direct", value: "feature" })).toThrow(
+      /Refusing to remove locked worktree/,
+    );
+    expect(resolveAutoTargets(context)).toEqual([]);
+  });
+
   it("refuses every action after a post-plan ref movement", async () => {
     const context = makeContext();
     const plan = createCleanupPlan(context, [
@@ -230,5 +245,39 @@ describe("worktree cleanup resolver", () => {
       readinessFailure: "worktree has uncommitted changes",
     });
     expect(actionsRun).toBe(0);
+  });
+
+  it("revalidates readiness again before dropping the database", async () => {
+    const context = makeContext();
+    const plan = createCleanupPlan(context, [
+      resolveTarget(context, { kind: "direct", value: "feature" }),
+    ]);
+    const actionsRun: string[] = [];
+    let readinessChecks = 0;
+
+    const result = await executeCleanupPlan(
+      plan,
+      () => ({
+        eligible: true,
+        evidence: plan.targets[0].eligibility,
+      }),
+      () => {
+        readinessChecks += 1;
+        return readinessChecks === 1
+          ? { ready: true, evidence: { worktreePath: "/repo/wt/feature" } }
+          : { ready: false, reasons: ["worktree is locked"] };
+      },
+      (action) => {
+        actionsRun.push(action.kind);
+        return { ok: true };
+      },
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      failedAction: { kind: "drop-database" },
+      readinessFailure: "worktree is locked",
+    });
+    expect(actionsRun).toEqual(["stop-dev"]);
   });
 });

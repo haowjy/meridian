@@ -429,6 +429,10 @@ function printAutoReadinessSkips(
       continue;
     }
     const readiness = readinessByWorktree.get(autoCleanupReadinessKey(worktree.path));
+    if (worktree.locked) {
+      console.log(`Skipping ${worktree.path}: worktree is locked`);
+      continue;
+    }
     if (readiness && !readiness.ready) {
       console.log(`Skipping ${worktree.path}: ${readiness.reasons.join("; ")}`);
     }
@@ -527,7 +531,23 @@ async function revalidateCleanupReadiness(
 ): Promise<AutoCleanupReadinessDecision> {
   try {
     if (mode === "target") {
-      return inspectCleanupCleanliness(target.worktree.path);
+      const cleanliness = inspectCleanupCleanliness(target.worktree.path);
+      if (!cleanliness.ready) return cleanliness;
+      const primaryCwd =
+        target.actions.find((action) => action.kind === "remove-worktree")?.cwd ?? process.cwd();
+      const currentWorktree = parseGitWorktreePorcelain(
+        runText("git", ["worktree", "list", "--porcelain"], primaryCwd),
+      ).find(
+        (worktree) =>
+          autoCleanupReadinessKey(worktree.path) === autoCleanupReadinessKey(target.worktree.path),
+      );
+      if (!currentWorktree) {
+        return { ready: false, reasons: ["worktree is no longer registered"] };
+      }
+      if (currentWorktree.locked) {
+        return { ready: false, reasons: ["worktree is locked"] };
+      }
+      return cleanliness;
     }
     const primaryCwd =
       target.actions.find((action) => action.kind === "remove-worktree")?.cwd ?? process.cwd();

@@ -140,6 +140,46 @@ describe("decideAutoCleanupReadiness", () => {
     }
   });
 
+  it("still blocks when a live tmux server has lost its socket", () => {
+    const repo = temporaryRepository();
+    const tmuxTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "meridian-tmux-"));
+    const socketPath = path.join(tmuxTmpDir, `tmux-${process.getuid?.()}`, "default");
+    const previousTmux = process.env.TMUX;
+    const previousTmuxTmpDir = process.env.TMUX_TMPDIR;
+    let serverPid: number | undefined;
+    try {
+      const env = { ...process.env, TMUX: "", TMUX_TMPDIR: tmuxTmpDir };
+      const start = spawnSync("tmux", ["new-session", "-d", "-s", "meridian-readiness"], {
+        cwd: os.tmpdir(),
+        env,
+      });
+      if (start.status !== 0) throw new Error("could not start isolated tmux server");
+      const pid = spawnSync("tmux", ["display-message", "-p", "#{pid}"], {
+        env,
+        encoding: "utf8",
+      });
+      serverPid = Number(pid.stdout.trim());
+      fs.unlinkSync(socketPath);
+
+      delete process.env.TMUX;
+      process.env.TMUX_TMPDIR = tmuxTmpDir;
+      expect(inspectAutoCleanupReadiness(repo, [])).toMatchObject({
+        ready: false,
+        reasons: expect.arrayContaining([
+          expect.stringMatching(/^could not inspect tmux dev sessions/),
+        ]),
+      });
+    } finally {
+      if (previousTmux === undefined) delete process.env.TMUX;
+      else process.env.TMUX = previousTmux;
+      if (previousTmuxTmpDir === undefined) delete process.env.TMUX_TMPDIR;
+      else process.env.TMUX_TMPDIR = previousTmuxTmpDir;
+      if (serverPid && Number.isSafeInteger(serverPid)) process.kill(serverPid, "SIGTERM");
+      fs.rmSync(tmuxTmpDir, { recursive: true, force: true });
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
   it("checks target cleanliness without applying auto-only ownership gates", () => {
     const repo = temporaryRepository();
     try {
