@@ -73,6 +73,18 @@ export type ActivityRowProps = {
  */
 const ICON_TOP_PAD = "pt-[3px]";
 
+/**
+ * Left inset that puts non-row content on the same text edge as a row's
+ * content column: the 19px icon gutter plus the row's `gap-2.5`.
+ *
+ * Exported because content that deliberately breaks the timeline (assistant
+ * prose inside a process fold) still has to agree with it on where text
+ * starts. Owning the number here keeps the two from drifting — a fold whose
+ * prose sits 29px left of every row around it reads as a broken rail rather
+ * than a change of register.
+ */
+export const ACTIVITY_ROW_TEXT_INSET = "pl-[29px]";
+
 export function ActivityRow({
   Icon,
   quietIcon = false,

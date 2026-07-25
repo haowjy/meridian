@@ -25,6 +25,7 @@ import type { ChangeTrailShell } from "@/client/change-trails";
 import { useTurnLiveLineage } from "@/client/query/useTurnLiveLineage";
 import { ImageBlock } from "@/rich-content/ImageBlock";
 import { Markdown } from "@/rich-content/Markdown";
+import { ACTIVITY_ROW_TEXT_INSET } from "./ActivityRow";
 import { imageContentForBlock, isImageBlock } from "./block-kind";
 import { blockRenderKey } from "./block-render-key";
 import { CustomBlockRenderer, type InterruptRespondRequest } from "./CustomBlockRenderer";
@@ -431,11 +432,20 @@ function DeliveryBlock({
     const text = block.textContent ?? "";
     if (!text.trim()) return null;
     // Text stays as full prose in both modes — it's the assistant's voice and
-    // shouldn't read like another process row. The `mode` arg is kept on the
-    // signature so future per-mode polish (e.g. fold-text size/tint shift) can
-    // dispatch here without re-plumbing the prop chain.
+    // shouldn't read like another process row, so it carries no icon and no
+    // rail segment.
     if (block.status === "partial" && mode === "frontier") {
       return <StreamingText text={text} />;
+    }
+    // Inside a fold it still shares a left edge with the rows around it.
+    // Breaking the rail is the intended signal; shifting the text 29px left
+    // as well made the same break read as a rendering fault.
+    if (mode === "fold") {
+      return (
+        <div className={ACTIVITY_ROW_TEXT_INSET}>
+          <Markdown>{text}</Markdown>
+        </div>
+      );
     }
     return <Markdown>{text}</Markdown>;
   }
