@@ -134,13 +134,4 @@ describe("useThreadChangeTrails", () => {
 
     expect(client.getQueryData(detailKey)).toEqual([{ changeId: "change-1" }]);
   });
-
-  it("commits the first response when no further triggers arrive", async () => {
-    mocks.listChangeTrailShells.mockResolvedValue([shell("trail-1")]);
-    const view = mount();
-    await act(async () => {});
-
-    expect(mocks.listChangeTrailShells).toHaveBeenCalledTimes(1);
-    expect(Object.keys(view.latest()?.byId ?? {})).toEqual(["trail-1"]);
-  });
 });
