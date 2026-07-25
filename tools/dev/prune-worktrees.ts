@@ -430,21 +430,25 @@ async function buildPlan(options: CliOptions, cwd: string): Promise<CleanupPlan>
     collectMeridianWorkItems(cwd),
   ]);
   const worktrees = parseGitWorktreePorcelain(gitWorktreePorcelain);
-  const autoReadinessByWorktree =
+  const autoReadiness =
     options.mode === "auto"
       ? collectAutoCleanupReadiness(
           worktrees.map((worktree) => worktree.path),
           meridianWorkItems,
           cwd,
         )
-      : new Map<string, AutoCleanupReadinessDecision>();
+      : {
+          decisions: new Map<string, AutoCleanupReadinessDecision>(),
+          caveats: [],
+        };
   if (options.mode === "auto") {
-    printAutoReadinessSkips(gitWorktreePorcelain, eligibilityByBranch, autoReadinessByWorktree);
+    for (const caveat of autoReadiness.caveats) console.log(`Caveat: ${caveat}`);
+    printAutoReadinessSkips(gitWorktreePorcelain, eligibilityByBranch, autoReadiness.decisions);
   }
   const context = buildCleanupContext({
     gitWorktreePorcelain,
     eligibilityByBranch,
-    autoReadinessByWorktree,
+    autoReadinessByWorktree: autoReadiness.decisions,
     baseBranch,
     meridianWorkItems,
     currentWorktreePath,

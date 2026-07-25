@@ -8,6 +8,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 interface WorkItemWithTaskDir {
   readonly id: string;
@@ -19,6 +20,11 @@ interface ProcessCwd {
   readonly cwd: string;
 }
 
+interface ProcessWithHiddenCwd {
+  readonly pid: number;
+  readonly commandLine: readonly string[];
+}
+
 interface TmuxPane {
   readonly sessionName: string;
   readonly cwd: string;
@@ -26,8 +32,14 @@ interface TmuxPane {
 
 interface LivenessSnapshot {
   readonly processCwds: readonly ProcessCwd[];
+  readonly processesWithHiddenCwds: readonly ProcessWithHiddenCwd[];
   readonly tmuxPanes: readonly TmuxPane[];
   readonly inspectionFailures: readonly string[];
+}
+
+export interface AutoCleanupReadinessCollection {
+  readonly decisions: ReadonlyMap<string, AutoCleanupReadinessDecision>;
+  readonly caveats: readonly string[];
 }
 
 export interface AutoCleanupReadiness {
@@ -44,6 +56,7 @@ export interface AutoCleanupReadinessInput {
   readonly activeWorkItemIds: readonly string[];
   readonly liveDevSessionNames: readonly string[];
   readonly liveProcessIds: readonly number[];
+  readonly liveProcessCommandLineIds: readonly number[];
   readonly inspectionFailures: readonly string[];
 }
 
@@ -78,6 +91,11 @@ export function decideAutoCleanupReadiness(
   if (input.liveProcessIds.length > 0) {
     reasons.push(`live processes have cwd under worktree: ${input.liveProcessIds.join(", ")}`);
   }
+  if (input.liveProcessCommandLineIds.length > 0) {
+    reasons.push(
+      `live processes reference worktree path: ${input.liveProcessCommandLineIds.join(", ")}`,
+    );
+  }
   reasons.push(...input.inspectionFailures);
 
   return reasons.length === 0
@@ -90,6 +108,7 @@ export function decideAutoCleanupReadiness(
 
 function currentUserProcessCwds(): {
   readonly entries: readonly ProcessCwd[];
+  readonly hiddenEntries: readonly ProcessWithHiddenCwd[];
   readonly failures: readonly string[];
 } {
   let procEntries: string[];
@@ -98,14 +117,15 @@ function currentUserProcessCwds(): {
   } catch (error) {
     return {
       entries: [],
+      hiddenEntries: [],
       failures: [`could not scan process cwd state: ${(error as Error).message}`],
     };
   }
 
   const uid = process.getuid?.();
   const entries: ProcessCwd[] = [];
+  const hiddenEntries: ProcessWithHiddenCwd[] = [];
   const failures: string[] = [];
-  const hiddenCwdPids: number[] = [];
   for (const entry of procEntries) {
     if (!/^\d+$/.test(entry)) continue;
     const pid = Number(entry);
@@ -130,17 +150,23 @@ function currentUserProcessCwds(): {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === "ENOENT") continue;
       if (code === "EACCES" || code === "EPERM") {
-        hiddenCwdPids.push(pid);
+        try {
+          const commandLine = fs
+            .readFileSync(`/proc/${entry}/cmdline`, "utf8")
+            .split("\0")
+            .filter(Boolean);
+          hiddenEntries.push({ pid, commandLine });
+        } catch (commandLineError) {
+          if ((commandLineError as NodeJS.ErrnoException).code === "ENOENT") continue;
+          hiddenEntries.push({ pid, commandLine: [] });
+        }
         continue;
       }
       failures.push(`could not inspect process ${pid} cwd`);
     }
   }
-  if (hiddenCwdPids.length > 0) {
-    failures.push(`could not inspect cwd for same-user processes: ${hiddenCwdPids.join(", ")}`);
-  }
 
-  return { entries, failures };
+  return { entries, hiddenEntries, failures };
 }
 
 function tmuxPanes(cwd: string): {
@@ -187,9 +213,35 @@ function collectLivenessSnapshot(cwd: string): LivenessSnapshot {
   const panes = tmuxPanes(cwd);
   return {
     processCwds: processes.entries,
+    processesWithHiddenCwds: processes.hiddenEntries,
     tmuxPanes: panes.entries,
     inspectionFailures: [...processes.failures, ...panes.failures],
   };
+}
+
+function commandLineReferencesPath(commandLine: readonly string[], root: string): boolean {
+  const normalizedRoot = autoCleanupReadinessKey(root);
+  return commandLine.some((argument) => {
+    if (argument.startsWith("file:")) {
+      try {
+        if (isWithinPath(fileURLToPath(argument), normalizedRoot)) return true;
+      } catch {
+        // A malformed file URI can still contain an ordinary path reference.
+      }
+    }
+
+    let offset = argument.indexOf(normalizedRoot);
+    while (offset >= 0) {
+      const previous = argument[offset - 1];
+      const next = argument[offset + normalizedRoot.length];
+      const hasLeadingBoundary = previous === undefined || !/[A-Za-z0-9._~+@%/-]/.test(previous);
+      const hasTrailingBoundary =
+        next === undefined || next === "/" || !/[A-Za-z0-9._~+@%-]/.test(next);
+      if (hasLeadingBoundary && hasTrailingBoundary) return true;
+      offset = argument.indexOf(normalizedRoot, offset + 1);
+    }
+    return false;
+  });
 }
 
 function readDevSessionName(worktreePath: string): {
@@ -257,6 +309,10 @@ function decideForWorktree(
     .filter((entry) => isWithinPath(entry.cwd, normalizedPath))
     .map((entry) => entry.pid)
     .sort((a, b) => a - b);
+  const liveProcessCommandLineIds = liveness.processesWithHiddenCwds
+    .filter((entry) => commandLineReferencesPath(entry.commandLine, normalizedPath))
+    .map((entry) => entry.pid)
+    .sort((a, b) => a - b);
   const inspectionFailures = [
     ...liveness.inspectionFailures,
     ...(status.failure ? [status.failure] : []),
@@ -269,6 +325,7 @@ function decideForWorktree(
     activeWorkItemIds,
     liveDevSessionNames,
     liveProcessIds,
+    liveProcessCommandLineIds,
     inspectionFailures,
   });
 }
@@ -284,12 +341,28 @@ export function collectAutoCleanupReadiness(
   worktreePaths: readonly string[],
   workItems: readonly WorkItemWithTaskDir[],
   cwd: string,
-): ReadonlyMap<string, AutoCleanupReadinessDecision> {
+): AutoCleanupReadinessCollection {
   const liveness = collectLivenessSnapshot(cwd);
-  return new Map(
+  const decisions = new Map(
     worktreePaths.map((worktreePath) => [
       autoCleanupReadinessKey(worktreePath),
       decideForWorktree(worktreePath, workItems, liveness),
     ]),
   );
+  const unattributedHiddenCwdPids = liveness.processesWithHiddenCwds
+    .filter(
+      (process) =>
+        !worktreePaths.some((worktreePath) =>
+          commandLineReferencesPath(process.commandLine, worktreePath),
+        ),
+    )
+    .map((process) => process.pid)
+    .sort((a, b) => a - b);
+  const caveats =
+    unattributedHiddenCwdPids.length === 0
+      ? []
+      : [
+          `could not inspect cwd for same-user processes not attributed to a worktree: ${unattributedHiddenCwdPids.join(", ")}`,
+        ];
+  return { decisions, caveats };
 }

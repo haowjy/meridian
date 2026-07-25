@@ -2,8 +2,10 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  collectAutoCleanupReadiness,
   decideAutoCleanupReadiness,
   inspectAutoCleanupReadiness,
 } from "./worktree-cleanup-readiness";
@@ -22,6 +24,23 @@ async function waitForOutput(child: ReturnType<typeof spawn>): Promise<void> {
   });
 }
 
+function spawnWithHiddenCwd(...args: string[]): ReturnType<typeof spawn> {
+  return spawn(
+    "python3",
+    [
+      "-c",
+      [
+        "import ctypes, time",
+        "ctypes.CDLL(None).prctl(4, 0, 0, 0, 0)",
+        "print('ready', flush=True)",
+        "time.sleep(30)",
+      ].join("; "),
+      ...args,
+    ],
+    { cwd: os.tmpdir(), stdio: ["ignore", "pipe", "ignore"] },
+  );
+}
+
 describe("decideAutoCleanupReadiness", () => {
   it("requires a clean worktree with no owner or liveness evidence", () => {
     expect(
@@ -31,6 +50,7 @@ describe("decideAutoCleanupReadiness", () => {
         activeWorkItemIds: [],
         liveDevSessionNames: [],
         liveProcessIds: [],
+        liveProcessCommandLineIds: [],
         inspectionFailures: [],
       }),
     ).toEqual({
@@ -47,6 +67,7 @@ describe("decideAutoCleanupReadiness", () => {
         activeWorkItemIds: ["backlog-audit"],
         liveDevSessionNames: ["meridian-live"],
         liveProcessIds: [1234, 5678],
+        liveProcessCommandLineIds: [9012],
         inspectionFailures: ["process cwd scan incomplete"],
       }),
     ).toEqual({
@@ -56,6 +77,7 @@ describe("decideAutoCleanupReadiness", () => {
         "active Meridian work items: backlog-audit",
         "live dev sessions: meridian-live",
         "live processes have cwd under worktree: 1234, 5678",
+        "live processes reference worktree path: 9012",
         "process cwd scan incomplete",
       ],
     });
@@ -100,30 +122,98 @@ describe("decideAutoCleanupReadiness", () => {
     }
   });
 
-  it("fails closed when a same-user process hides its cwd", async () => {
+  it("does not block for a same-user process with an unreadable cwd unrelated to the worktree", async () => {
     const repo = temporaryRepository();
-    const child = spawn(
-      "python3",
-      [
-        "-c",
-        [
-          "import ctypes, time",
-          "ctypes.CDLL(None).prctl(4, 0, 0, 0, 0)",
-          "print('ready', flush=True)",
-          "time.sleep(30)",
-        ].join("; "),
-      ],
-      { cwd: repo, stdio: ["ignore", "pipe", "ignore"] },
-    );
+    const child = spawnWithHiddenCwd();
+    try {
+      await waitForOutput(child);
+      expect(inspectAutoCleanupReadiness(repo, [])).toEqual({
+        ready: true,
+        evidence: { worktreePath: repo },
+      });
+      const collection = collectAutoCleanupReadiness([repo], [], repo);
+      expect(collection.decisions.get(repo)).toEqual({
+        ready: true,
+        evidence: { worktreePath: repo },
+      });
+      expect(collection.caveats).toEqual([
+        expect.stringMatching(
+          new RegExp(
+            `^could not inspect cwd for same-user processes not attributed to a worktree:.*\\b${child.pid}\\b`,
+          ),
+        ),
+      ]);
+    } finally {
+      child.kill("SIGTERM");
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("blocks when a same-user process with an unreadable cwd names the worktree", async () => {
+    const repo = temporaryRepository();
+    const child = spawnWithHiddenCwd(repo);
     try {
       await waitForOutput(child);
       expect(inspectAutoCleanupReadiness(repo, [])).toMatchObject({
         ready: false,
         reasons: expect.arrayContaining([
           expect.stringMatching(
-            new RegExp(`could not inspect cwd for same-user processes:.*\\b${child.pid}\\b`),
+            new RegExp(`live processes reference worktree path:.*\\b${child.pid}\\b`),
           ),
         ]),
+      });
+    } finally {
+      child.kill("SIGTERM");
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("recognizes a worktree path next to a shell operator", async () => {
+    const repo = temporaryRepository();
+    const child = spawnWithHiddenCwd(`ls ${repo}>/tmp/meridian-review.log`);
+    try {
+      await waitForOutput(child);
+      expect(inspectAutoCleanupReadiness(repo, [])).toMatchObject({
+        ready: false,
+        reasons: expect.arrayContaining([
+          expect.stringMatching(
+            new RegExp(`live processes reference worktree path:.*\\b${child.pid}\\b`),
+          ),
+        ]),
+      });
+    } finally {
+      child.kill("SIGTERM");
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("recognizes a worktree path in a file URI", async () => {
+    const repo = temporaryRepository();
+    const child = spawnWithHiddenCwd(pathToFileURL(repo).href);
+    try {
+      await waitForOutput(child);
+      expect(inspectAutoCleanupReadiness(repo, [])).toMatchObject({
+        ready: false,
+        reasons: expect.arrayContaining([
+          expect.stringMatching(
+            new RegExp(`live processes reference worktree path:.*\\b${child.pid}\\b`),
+          ),
+        ]),
+      });
+    } finally {
+      child.kill("SIGTERM");
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("does not mistake a worktree path embedded in a longer path for the target", async () => {
+    const repo = temporaryRepository();
+    const child = spawnWithHiddenCwd(`/shadow${repo}`);
+    try {
+      await waitForOutput(child);
+      expect(inspectAutoCleanupReadiness(repo, [])).toEqual({
+        ready: true,
+        evidence: { worktreePath: repo },
       });
     } finally {
       child.kill("SIGTERM");

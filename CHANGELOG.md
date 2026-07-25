@@ -22,7 +22,9 @@
   PR evidence, GitHub failures, and refs that move before execution are refused.
 - `tools/dev`: automatic worktree pruning now requires exact merged-PR evidence,
   skips dirty or active worktrees, rechecks readiness before teardown, deletes
-  refs atomically, and batches discovery instead of pausing silently per lane.
+  refs atomically, attributes cwd-hidden processes by command line instead of
+  blocking every candidate, and batches discovery instead of pausing silently
+  per lane.
 - `apps/server`: structured event writes under `logs/` no longer trigger Nitro
   dev rebuilds or restart in-flight turns.
 - `tools/dev`: restart now terminates only its owned tmux session, waits for
