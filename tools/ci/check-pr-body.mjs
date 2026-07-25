@@ -64,8 +64,19 @@ function hasAuthoredLine(content) {
     .some((line) => line && !scaffoldLines.has(line));
 }
 
+if (!process.argv[2] || (process.env.PR_BODY === undefined && !process.argv[3])) {
+  console.error("usage: node tools/ci/check-pr-body.mjs <changed-files.txt> [body.md]");
+  console.error("       (PR_BODY env replaces body.md in CI)");
+  process.exit(1);
+}
+
 const body = process.env.PR_BODY ?? readFileSync(process.argv[3], "utf8");
-const changedFiles = readFileSync(process.argv[2], "utf8").split("\n").filter(Boolean);
+// Trimmed like the body lines: a CRLF or copy-pasted entry must not slip past
+// the anchored UI_FILE match and silently skip the visual-evidence rule.
+const changedFiles = readFileSync(process.argv[2], "utf8")
+  .split("\n")
+  .map((line) => line.trim())
+  .filter(Boolean);
 
 const failures = [];
 
