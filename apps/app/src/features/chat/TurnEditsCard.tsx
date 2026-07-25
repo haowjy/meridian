@@ -75,7 +75,11 @@ export function TurnEditsCard({
   const guardCopy = undoGuardCopy(receipt);
   const liveDocuments = documents.filter((document) => document.scope === "live");
   const trailDocuments = changeTrail?.documents ?? [];
-  const hasEditedDocuments = hasTurnEditsCardDocuments(liveDocuments, changeTrail);
+  // Asks the predicate about the full lineage, not the pre-filtered live subset.
+  // Both callers must hand it the same thing or it owns the "is there a committed
+  // receipt?" decision in name only — filtering first made its scope check dead
+  // here while `AssistantTurn` still depends on it.
+  const hasEditedDocuments = hasTurnEditsCardDocuments(documents, changeTrail);
   const headerDocuments = trailDocuments.length > 0 ? trailDocuments : liveDocuments;
   const headerDocumentCount = headerDocuments.length;
   const singleDocumentTitle =
