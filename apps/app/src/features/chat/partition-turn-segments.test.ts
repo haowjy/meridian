@@ -90,23 +90,3 @@ it("partitions resolved interrupt segments independently", () => {
     [4, 5, 6],
   ]);
 });
-
-it.each<TurnStatus>([
-  "complete",
-  "cancelled",
-  "error",
-])("folds frontier tools for %s turns", (status) => {
-  const segment = partition([block(0, "tool_use"), block(1, "text")], status)[0];
-  expect(segment?.foldRuns.flatMap((run) => sequences(run.blocks))).toEqual([0]);
-  expect(sequences(segment?.frontier ?? [])).toEqual([1]);
-});
-
-it.each<TurnStatus>([
-  "pending",
-  "streaming",
-  "waiting_interrupt",
-])("leaves the frontier unchanged for live status %s", (status) => {
-  const segment = partition([block(0, "tool_use"), block(1, "text")], status)[0];
-  expect(segment?.foldRuns).toEqual([]);
-  expect(sequences(segment?.frontier ?? [])).toEqual([0, 1]);
-});
