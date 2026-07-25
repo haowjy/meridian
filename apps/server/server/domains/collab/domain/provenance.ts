@@ -351,7 +351,7 @@ function writeCertifiedProvenanceFacts(
       0,
     );
     const outputLength = runs.at(-1)?.output.to ?? 0;
-    const outputWindow = visibleOutputWindow(edit, ir.intent.edits, outputLength);
+    const outputWindow = visibleOutputWindow(edit, ir.intent.edits, outputLength, allInserted);
     const inserted = intersectRangesInOrder(outputWindow, allInserted);
     const insertedLength = inserted.reduce((sum, range) => sum + range.length, 0);
     if (insertedLength !== declaredLength) {
@@ -408,14 +408,20 @@ function visibleOutputWindow(
   edit: MappedEdit["edit"],
   declarations: readonly MappedEdit[],
   outputLength: number,
+  inserted: readonly WriterLineageRange[],
 ): WriterLineageRange[] {
   if (edit.kind === "insert" || edit.kind === "delete") {
     throw new ProvenanceMaterializationError(
       `Certified ${edit.kind} output cannot materialize continuation or restoration facts`,
     );
   }
-  const ranges = visibleStringRanges(unwrapBlock(edit.block));
-  if (edit.kind === "block") return sliceRanges(ranges, 0, outputLength);
+  const block = unwrapBlock(edit.block);
+  const ranges = visibleStringRanges(block);
+  if (edit.kind === "block") {
+    const outputRanges =
+      ranges.length > 0 ? ranges : replacedBlockOutputRanges(block, inserted, outputLength);
+    return sliceRanges(outputRanges, 0, outputLength);
+  }
   const inputSpan = textEditInputSpan(edit);
   if (!inputSpan) {
     throw new ProvenanceMaterializationError("Certified text edit has no output window");
@@ -441,6 +447,41 @@ function visibleOutputWindow(
     }
   }
   return sliceRanges(ranges, finalStart, outputLength);
+}
+
+function replacedBlockOutputRanges(
+  block: Y.XmlElement,
+  inserted: readonly WriterLineageRange[],
+  outputLength: number,
+): WriterLineageRange[] {
+  const item = (block as unknown as { _item: YItemLike | null })._item;
+  if (!item?.deleted) return [];
+  // A structural remint inserts beside the input tombstone. Accept only one adjacent
+  // block whose complete prose was inserted by this lowering, or let the length guard fail.
+  const candidates = [
+    nearestVisibleType(item.left, "left"),
+    nearestVisibleType(item.right, "right"),
+  ];
+  const matches = candidates.flatMap((candidate) => {
+    if (!(candidate instanceof Y.XmlElement)) return [];
+    const ranges = visibleStringRanges(candidate);
+    const visibleLength = ranges.reduce((sum, range) => sum + range.length, 0);
+    const insertedLength = intersectRangesInOrder(ranges, inserted).reduce(
+      (sum, range) => sum + range.length,
+      0,
+    );
+    return visibleLength === outputLength && insertedLength === outputLength ? [ranges] : [];
+  });
+  return matches.length === 1 ? (matches[0] ?? []) : [];
+}
+
+function nearestVisibleType(
+  item: YItemLike | null | undefined,
+  direction: "left" | "right",
+): unknown {
+  let current = item;
+  while (current?.deleted) current = current[direction];
+  return current?.content.type;
 }
 
 function textEditInputSpan(edit: MappedEdit["edit"]): { from: number; to: number } | undefined {
@@ -806,7 +847,8 @@ type YItemLike = {
   length: number;
   deleted: boolean;
   parent: unknown;
-  content: { constructor?: { name?: string } };
+  content: { constructor?: { name?: string }; type?: unknown };
+  left?: YItemLike | null;
   right?: YItemLike | null;
 };
 

@@ -401,6 +401,53 @@ describe("provenance materialization", () => {
     expect(replica.getArray(PROVENANCE_TARGETS_TYPE)).toHaveLength(1);
   });
 
+  it("locates a certified structural carry from its replaced input block", () => {
+    const doc = proseDoc("old");
+    const block = proseBlock(doc);
+    const source = textRange(doc);
+    const before = Y.encodeStateVector(doc);
+    const fragment = doc.getXmlFragment("prosemirror");
+    fragment.delete(0, 1);
+    const replacementBlock = new Y.XmlElement("heading");
+    replacementBlock.push([new Y.XmlText("old")]);
+    fragment.push([replacementBlock]);
+
+    createSemanticProvenanceWriter().writeCertifiedFacts(
+      doc as never,
+      structuralCarryIr(block, source),
+      before,
+    );
+
+    expect(
+      materializeCandidateProvenance(doc, [
+        { target: source, root: source, birthClass: "writer_protected" },
+      ]),
+    ).toContainEqual({
+      target: textRange(doc),
+      root: source,
+      birthClass: "writer_protected",
+    });
+  });
+
+  it("rejects an adjacent block with only partially inserted prose as a structural carry", () => {
+    const doc = proseDoc("tail");
+    const source = appendVisibleText(doc, "old");
+    const fragment = doc.getXmlFragment("prosemirror");
+    const block = fragment.get(1) as Y.XmlElement;
+    const before = Y.encodeStateVector(doc);
+    proseText(doc).insert(0, "new");
+    fragment.delete(1, 1);
+
+    expect(() =>
+      createSemanticProvenanceWriter().writeCertifiedFacts(
+        doc as never,
+        structuralCarryIr(block, source),
+        before,
+      ),
+    ).toThrow(ProvenanceMaterializationError);
+    expect(doc.getArray(PROVENANCE_TARGETS_TYPE)).toHaveLength(0);
+  });
+
   it("attributes a pending insertion to the row that originated its clocks", () => {
     const source = createCollabYDoc({ gc: false });
     const fragment = source.getXmlFragment("prosemirror");
@@ -844,6 +891,40 @@ function proseText(doc: Y.Doc): Y.XmlText {
 
 function proseBlock(doc: Y.Doc): Y.XmlElement {
   return doc.getXmlFragment("prosemirror").get(0) as Y.XmlElement;
+}
+
+function structuralCarryIr(
+  block: Y.XmlElement,
+  source: { clientID: number; clock: number; length: number },
+): SemanticEditIRV1 {
+  return {
+    version: 1,
+    documentId: "document",
+    inputRevision: "revision" as never,
+    scope: [source],
+    deleted: [source],
+    intent: {
+      kind: "mappedEdits",
+      edits: [
+        {
+          edit: {
+            kind: "block",
+            documentId: "document",
+            file: "document.md",
+            block: block as never,
+            replacement: {} as never,
+          },
+          outputRuns: [
+            {
+              kind: "preserved",
+              source,
+              output: { from: 0, to: source.length },
+            },
+          ],
+        },
+      ],
+    },
+  };
 }
 
 function restorationTextEdit(
