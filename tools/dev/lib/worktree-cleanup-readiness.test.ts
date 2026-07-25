@@ -8,6 +8,7 @@ import {
   collectAutoCleanupReadiness,
   decideAutoCleanupReadiness,
   inspectAutoCleanupReadiness,
+  inspectCleanupCleanliness,
 } from "./worktree-cleanup-readiness";
 
 function temporaryRepository(): string {
@@ -90,6 +91,66 @@ describe("decideAutoCleanupReadiness", () => {
       expect(inspectAutoCleanupReadiness(repo, [])).toMatchObject({
         ready: false,
         reasons: expect.arrayContaining(["worktree has uncommitted changes"]),
+      });
+    } finally {
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("reports missing tmux server state as no live sessions", () => {
+    const repo = temporaryRepository();
+    const tmuxTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "meridian-tmux-"));
+    const previousTmux = process.env.TMUX;
+    const previousTmuxTmpDir = process.env.TMUX_TMPDIR;
+    try {
+      delete process.env.TMUX;
+      process.env.TMUX_TMPDIR = tmuxTmpDir;
+      expect(inspectAutoCleanupReadiness(repo, [])).toEqual({
+        ready: true,
+        evidence: { worktreePath: repo },
+      });
+    } finally {
+      if (previousTmux === undefined) delete process.env.TMUX;
+      else process.env.TMUX = previousTmux;
+      if (previousTmuxTmpDir === undefined) delete process.env.TMUX_TMPDIR;
+      else process.env.TMUX_TMPDIR = previousTmuxTmpDir;
+      fs.rmSync(tmuxTmpDir, { recursive: true, force: true });
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("still blocks when a tmux socket exists but the query fails", () => {
+    const repo = temporaryRepository();
+    const socketPath = path.join(os.tmpdir(), `meridian-tmux-socket-${process.pid}`);
+    const previousTmux = process.env.TMUX;
+    try {
+      fs.writeFileSync(socketPath, "not a tmux socket");
+      process.env.TMUX = `${socketPath},1,0`;
+      expect(inspectAutoCleanupReadiness(repo, [])).toMatchObject({
+        ready: false,
+        reasons: expect.arrayContaining([
+          expect.stringMatching(/^could not inspect tmux dev sessions/),
+        ]),
+      });
+    } finally {
+      if (previousTmux === undefined) delete process.env.TMUX;
+      else process.env.TMUX = previousTmux;
+      fs.rmSync(socketPath, { force: true });
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("checks target cleanliness without applying auto-only ownership gates", () => {
+    const repo = temporaryRepository();
+    try {
+      expect(inspectCleanupCleanliness(repo)).toEqual({
+        ready: true,
+        evidence: { worktreePath: repo },
+      });
+      fs.writeFileSync(path.join(repo, "unsaved.txt"), "draft");
+      expect(inspectCleanupCleanliness(repo)).toEqual({
+        ready: false,
+        reasons: ["worktree has uncommitted changes"],
       });
     } finally {
       fs.rmSync(repo, { recursive: true, force: true });

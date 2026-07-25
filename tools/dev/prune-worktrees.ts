@@ -32,6 +32,7 @@ import {
   autoCleanupReadinessKey,
   collectAutoCleanupReadiness,
   inspectAutoCleanupReadiness,
+  inspectCleanupCleanliness,
 } from "./lib/worktree-cleanup-readiness";
 
 interface CliOptions {
@@ -474,7 +475,14 @@ async function buildPlan(options: CliOptions, cwd: string): Promise<CleanupPlan>
     const reference: TargetReference = isPrNumberTarget(options.target)
       ? { kind: "pr", value: options.target, headBranch: resolvePrHeadBranch(options.target, cwd) }
       : { kind: "direct", value: options.target };
-    return [resolveTarget(context, reference)];
+    const target = resolveTarget(context, reference);
+    const cleanliness = inspectCleanupCleanliness(target.worktree.path);
+    if (!cleanliness.ready) {
+      throw new CleanupResolverError(
+        `Refusing to clean '${target.worktree.path}': ${cleanliness.reasons.join("; ")}.`,
+      );
+    }
+    return [target];
   })();
 
   return createCleanupPlan(context, targets);
@@ -513,10 +521,14 @@ function revalidateTarget(target: CleanupPlan["targets"][number]) {
   return validateCleanupEligibility({ evidence: target.eligibility, currentOid, isAncestor });
 }
 
-async function revalidateAutoReadiness(
+async function revalidateCleanupReadiness(
   target: CleanupPlan["targets"][number],
+  mode: CliOptions["mode"],
 ): Promise<AutoCleanupReadinessDecision> {
   try {
+    if (mode === "target") {
+      return inspectCleanupCleanliness(target.worktree.path);
+    }
     const primaryCwd =
       target.actions.find((action) => action.kind === "remove-worktree")?.cwd ?? process.cwd();
     const workItems = await collectMeridianWorkItems(primaryCwd);
@@ -525,7 +537,7 @@ async function revalidateAutoReadiness(
     return {
       ready: false,
       reasons: [
-        `could not revalidate auto-cleanup readiness: ${
+        `could not revalidate cleanup readiness: ${
           error instanceof Error ? error.message : String(error)
         }`,
       ],
@@ -533,11 +545,11 @@ async function revalidateAutoReadiness(
   }
 }
 
-async function executePlan(plan: CleanupPlan): Promise<number> {
+async function executePlan(plan: CleanupPlan, mode: CliOptions["mode"]): Promise<number> {
   const result = await executeCleanupPlan(
     plan,
     revalidateTarget,
-    revalidateAutoReadiness,
+    (target) => revalidateCleanupReadiness(target, mode),
     (action) => runAction(action),
     {
       onTargetStart: (target) =>
@@ -547,7 +559,7 @@ async function executePlan(plan: CleanupPlan): Promise<number> {
   );
   if (result.ok) return 0;
   if (result.readinessFailure) {
-    console.error(`✗ auto-cleanup readiness changed: ${result.readinessFailure}`);
+    console.error(`✗ cleanup readiness changed: ${result.readinessFailure}`);
     return 1;
   }
   if (result.eligibilityFailure) {
@@ -598,7 +610,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const failures = await executePlan(plan);
+  const failures = await executePlan(plan, options.mode);
   if (failures > 0) {
     console.error(`\nCleanup completed with ${failures} failure(s).`);
     process.exit(1);

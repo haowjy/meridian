@@ -7,6 +7,7 @@
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -187,10 +188,23 @@ function tmuxPanes(cwd: string): {
     return { entries: [], failures: [] };
   }
   if (result.status !== 0) {
-    const detail = `${result.stderr ?? ""}`.trim();
-    if (/no server running|failed to connect to server/i.test(detail)) {
-      return { entries: [], failures: [] };
+    const tmuxSocket = process.env.TMUX?.split(",", 1)[0];
+    const uid = process.getuid?.();
+    const socketPath =
+      tmuxSocket ||
+      (uid === undefined
+        ? undefined
+        : path.join(process.env.TMUX_TMPDIR || os.tmpdir(), `tmux-${uid}`, "default"));
+    if (socketPath) {
+      try {
+        fs.statSync(socketPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          return { entries: [], failures: [] };
+        }
+      }
     }
+    const detail = `${result.stderr ?? ""}`.trim();
     return {
       entries: [],
       failures: [`could not inspect tmux dev sessions${detail ? `: ${detail}` : ""}`],
@@ -280,6 +294,19 @@ function worktreeIsClean(worktreePath: string): {
     return { clean: false, failure: `could not inspect worktree status: ${detail}` };
   }
   return { clean: `${result.stdout ?? ""}`.trim().length === 0 };
+}
+
+export function inspectCleanupCleanliness(worktreePath: string): AutoCleanupReadinessDecision {
+  const status = worktreeIsClean(worktreePath);
+  return decideAutoCleanupReadiness({
+    worktreePath,
+    clean: status.clean,
+    activeWorkItemIds: [],
+    liveDevSessionNames: [],
+    liveProcessIds: [],
+    liveProcessCommandLineIds: [],
+    inspectionFailures: status.failure ? [status.failure] : [],
+  });
 }
 
 function decideForWorktree(

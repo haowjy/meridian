@@ -89,7 +89,7 @@ export type CleanupEligibilityValidator = (
   target: CleanupTargetPlan,
 ) => EligibilityDecision | Promise<EligibilityDecision>;
 
-export type AutoCleanupReadinessValidator = (
+export type CleanupReadinessValidator = (
   target: CleanupTargetPlan,
 ) => AutoCleanupReadinessDecision | Promise<AutoCleanupReadinessDecision>;
 
@@ -400,22 +400,20 @@ export function parsePrNumber(value: string): string {
 export async function executeCleanupPlan(
   plan: CleanupPlan,
   validateEligibility: CleanupEligibilityValidator,
-  validateAutoReadiness: AutoCleanupReadinessValidator,
+  validateReadiness: CleanupReadinessValidator,
   runAction: CleanupActionRunner,
   hooks: CleanupExecutionHooks = {},
 ): Promise<CleanupExecutionResult> {
   for (const target of plan.targets) {
     hooks.onTargetStart?.(target);
-    if (target.autoReadiness) {
-      const readiness = await validateAutoReadiness(target);
-      if (!readiness.ready) {
-        return {
-          ok: false,
-          failedTarget: target,
-          failedAction: target.actions[0],
-          readinessFailure: readiness.reasons.join("; "),
-        };
-      }
+    const readiness = await validateReadiness(target);
+    if (!readiness.ready) {
+      return {
+        ok: false,
+        failedTarget: target,
+        failedAction: target.actions[0],
+        readinessFailure: readiness.reasons.join("; "),
+      };
     }
     for (const action of target.actions) {
       const eligibility = await validateEligibility(target);
