@@ -24,7 +24,8 @@
   skips dirty or active worktrees, rechecks readiness before teardown, deletes
   refs atomically, attributes cwd-hidden processes by command line instead of
   blocking every candidate, and batches discovery instead of pausing silently
-  per lane.
+  per lane. Cleanup now leads with deliberate `--target` selection; advanced
+  `--auto` batch selection requires an explicit risk acknowledgement.
 - `apps/server`: structured event writes under `logs/` no longer trigger Nitro
   dev rebuilds or restart in-flight turns.
 - `tools/dev`: restart now terminates only its owned tmux session, waits for

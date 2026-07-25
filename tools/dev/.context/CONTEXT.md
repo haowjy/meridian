@@ -109,9 +109,10 @@ tools/dev/
 
 ## Worktree cleanup contract
 
-`pnpm dev:prune-worktrees` safely tears down merged worktree resources:
+`pnpm dev:prune-worktrees` safely tears down merged worktree resources, one deliberate target at a time:
 
-- **Two modes:** `--auto` (merged non-primary worktrees that pass the readiness gates below) or `--target <value>` (work id, worktree path, branch name, or PR number via `gh`).
+- **Target-first cleanup:** `--target <value>` accepts a work id, worktree path, branch name, or PR number via `gh`.
+- **Advanced batch cleanup:** `--auto` is not yet trusted for routine use and requires `--acknowledge-batch-risk`. The acknowledgement permits batch selection only; it bypasses no eligibility or readiness gate.
 - **Resolver** (`lib/worktree-cleanup.ts`) correlates work item ↔ task dir/worktree ↔ branch ↔ PR head branch. Ambiguous matches (multiple worktrees for a target, multiple work items for a worktree) refuse to resolve with candidate lists.
 - **Commit-bound eligibility.** The base branch is detected from `origin/HEAD` (fallback `main`), not hardcoded. Planning resolves the local branch ref OID. Explicit `--target` cleanup requires that exact OID to be either an ancestor of the base or the unique head OID of a merged PR matching the base, branch, and repository owner. Historical same-name PRs, ambiguous matches, GitHub discovery failures, and moved refs are safe refusals. The OID (and ancestry evidence when used) is revalidated immediately before every action.
 - **Auto readiness is separate.** `--auto` accepts exact merged-PR evidence only—ancestry alone is not stale evidence—and skips dirty worktrees, active Meridian work items, live tmux dev sessions, and processes whose cwd is inside the worktree. These gates run during planning and again immediately before that target's first teardown action.

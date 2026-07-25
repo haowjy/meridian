@@ -42,14 +42,20 @@ interface CliOptions {
 }
 
 const USAGE = `Usage:
-  pnpm dev:prune-worktrees -- --auto [--dry-run] [--yes]
   pnpm dev:prune-worktrees -- --target <value> [--dry-run] [--yes]
+  pnpm dev:prune-worktrees -- --auto --acknowledge-batch-risk [--dry-run] [--yes]
   pnpm dev:prune-worktrees -- -h|--help
 
-Target values may be a Meridian work id, worktree path, local branch name, or PR number (123 or #123).`;
+Target values may be a Meridian work id, worktree path, local branch name, or PR number (123 or #123).
+Batch cleanup via --auto is advanced and not yet trusted for routine use.`;
+
+const AUTO_NOTICE = `Batch cleanup via --auto is advanced and not yet trusted for routine use.
+Clean up one lane at a time with --target <work-id|path|branch|pr>.
+To proceed anyway, add --acknowledge-batch-risk.`;
 
 function parseArgs(argv: readonly string[]): CliOptions {
   let auto = false;
+  let acknowledgeBatchRisk = false;
   let target: string | undefined;
   let dryRun = false;
   let yes = false;
@@ -60,6 +66,10 @@ function parseArgs(argv: readonly string[]): CliOptions {
     if (arg === "-h" || arg === "--help") return { mode: "help", dryRun, yes };
     if (arg === "--auto") {
       auto = true;
+      continue;
+    }
+    if (arg === "--acknowledge-batch-risk") {
+      acknowledgeBatchRisk = true;
       continue;
     }
     if (arg === "--target") {
@@ -81,6 +91,10 @@ function parseArgs(argv: readonly string[]): CliOptions {
 
   if (auto && target) throw new Error(`Use either --auto or --target, not both.\n\n${USAGE}`);
   if (!auto && !target) throw new Error(`Missing --auto or --target.\n\n${USAGE}`);
+  if (acknowledgeBatchRisk && !auto) {
+    throw new Error(`--acknowledge-batch-risk requires --auto.\n\n${USAGE}`);
+  }
+  if (auto && !acknowledgeBatchRisk) throw new Error(AUTO_NOTICE);
   return auto ? { mode: "auto", dryRun, yes } : { mode: "target", target, dryRun, yes };
 }
 
