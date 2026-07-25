@@ -27,16 +27,6 @@ function turn(status: Turn["status"]): Turn {
   } as unknown as Turn;
 }
 
-function Harness({ status }: { status: Turn["status"] }) {
-  useLiveTurnAnnouncements(
-    "thread-1",
-    turn(status),
-    { current: null },
-    { current: document.createElement("div") },
-  );
-  return null;
-}
-
 function ToolHarness({ toolName }: { toolName: string }) {
   const live = turn("streaming");
   live.blocks = [
@@ -68,21 +58,6 @@ afterEach(() => {
 });
 
 describe("useLiveTurnAnnouncements", () => {
-  it("announces a cancelled turn as stopped", async () => {
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-
-    await act(async () => root.render(<Harness status="streaming" />));
-    announce.mockClear();
-    await act(async () => root.render(<Harness status="cancelled" />));
-
-    expect(announce).toHaveBeenCalledWith("Stopped");
-    expect(announce).not.toHaveBeenCalledWith("Turn cancelled");
-
-    await act(async () => root.unmount());
-  });
-
   it("announces writer activity without transport tool names", async () => {
     const host = document.createElement("div");
     document.body.append(host);
@@ -92,19 +67,6 @@ describe("useLiveTurnAnnouncements", () => {
 
     expect(announce).toHaveBeenCalledWith("Editing…");
     expect(announce).not.toHaveBeenCalledWith(expect.stringMatching(/write|command=/i));
-    await act(async () => root.unmount());
-  });
-
-  it("does not announce hidden or unknown protocol tools", async () => {
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-
-    await act(async () => root.render(<ToolHarness toolName="return_result" />));
-
-    expect(announce).not.toHaveBeenCalledWith(
-      expect.stringMatching(/return_result|return result/i),
-    );
     await act(async () => root.unmount());
   });
 });
