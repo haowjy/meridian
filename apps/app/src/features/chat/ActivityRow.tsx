@@ -90,8 +90,11 @@ export function ActivityRow({
   // Icon column owns the rail. `items-stretch` on the row + `flex-1` on the
   // line span makes the rail fill from below the chip to the row's bottom
   // edge regardless of how tall the content column grows.
+  // `flex-col` is load-bearing, not stylistic: `flex-1` grows along the main
+  // axis, so in a row-direction parent it overrides `w-px` and paints the rail
+  // as a 19px-wide filled block instead of a hairline.
   const iconColumn = quietIcon ? (
-    <div className="flex w-[19px] shrink-0 justify-center" aria-hidden>
+    <div className="flex w-[19px] shrink-0 flex-col items-center" aria-hidden>
       <span className="w-px flex-1 bg-border" data-activity-rail />
     </div>
   ) : (

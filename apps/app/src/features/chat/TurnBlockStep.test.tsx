@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import type { Block } from "@meridian/contracts/protocol";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -40,8 +41,15 @@ describe("TurnBlockStep", () => {
     );
 
     expect(html).toContain("A quiet thought");
-    expect(html).toContain("data-activity-rail");
-    expect(html).toContain("w-px");
     expect(html).not.toContain("lucide-clock");
+
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    const rail = host.querySelector("[data-activity-rail]");
+    expect(rail?.className).toContain("w-px");
+    // `w-px` alone proves nothing: `flex-1` grows along the *main* axis, so a
+    // row-direction parent overrides the width and paints the rail as a
+    // 19px-wide filled block. Only a column parent keeps it a hairline.
+    expect(rail?.parentElement?.className).toContain("flex-col");
   });
 });
