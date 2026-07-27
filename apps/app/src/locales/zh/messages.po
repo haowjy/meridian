@@ -100,6 +100,11 @@ msgstr ""
 msgid "{0} documents"
 msgstr ""
 
+#. placeholder {0}: destination.name
+#: src/features/project/context/ContextViewer.tsx
+msgid "{0} isn't in {section}."
+msgstr ""
+
 #: src/lib/date-groups.ts
 msgid "{days}d"
 msgstr "{days}天"
@@ -1848,6 +1853,10 @@ msgstr ""
 
 #: src/features/chat/ThreadSwitcherPopover.tsx
 msgid "The AI asked you a question"
+msgstr ""
+
+#: src/features/project/context/ContextViewer.tsx
+msgid "The assistant referred to this document, but it isn't there now. It may have been renamed, deleted, or never finished being created."
 msgstr ""
 
 #: src/routes/dev-login.tsx

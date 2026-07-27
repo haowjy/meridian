@@ -100,6 +100,11 @@ msgstr "{0} additional balance"
 msgid "{0} documents"
 msgstr "{0} documents"
 
+#. placeholder {0}: destination.name
+#: src/features/project/context/ContextViewer.tsx
+msgid "{0} isn't in {section}."
+msgstr "{0} isn't in {section}."
+
 #: src/lib/date-groups.ts
 msgid "{days}d"
 msgstr "{days}d"
@@ -1849,6 +1854,10 @@ msgstr "The {skillName} skill isn't available in this chat."
 #: src/features/chat/ThreadSwitcherPopover.tsx
 msgid "The AI asked you a question"
 msgstr "The AI asked you a question"
+
+#: src/features/project/context/ContextViewer.tsx
+msgid "The assistant referred to this document, but it isn't there now. It may have been renamed, deleted, or never finished being created."
+msgstr "The assistant referred to this document, but it isn't there now. It may have been renamed, deleted, or never finished being created."
 
 #: src/routes/dev-login.tsx
 msgid "The endpoint reports its own env-presence checklist in the body above (presence only, never values). Fix the indicated env var in your gitignored .env and restart the dev server before retrying."

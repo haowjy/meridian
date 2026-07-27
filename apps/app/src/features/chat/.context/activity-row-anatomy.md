@@ -34,7 +34,10 @@ navigation policy per renderer to remember or uphold.
 - **The timeline promises the URI the agent used, not that the document still
   exists.** Do not pre-check against the cached context tree: the same row
   would link or not depending on cache warmth. Missing documents degrade at the
-  destination.
+  destination, which names the document and says it is gone
+  (`features/project/context/context-pane-state.ts`, `dead-route`). That
+  explanatory pane is the other half of this decision: without it, not
+  pre-checking would be the wrong call.
 - **`insideDoor`** is for the one case where an ancestor is already the door
   (the receipt's full-width document rows). A door inside a door is invalid
   HTML and a second competing tab stop.

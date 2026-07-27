@@ -18,6 +18,12 @@
  * while the underline holds it up; muted with no decoration reads as a disabled
  * control. So a door is muted + underlined, and a plain name is prose-toned +
  * undecorated. Never muted and undecorated.
+ *
+ * **A door never checks whether its document still exists.** Pre-checking
+ * against the cached context tree would make the same row clickable or not
+ * depending on cache warmth, and absence is unprovable from a cold cache. The
+ * promise is the URI the agent used, nothing more; the destination explains a
+ * document that has gone (`context-pane-state.ts`, `dead-route`).
  */
 import { t } from "@lingui/core/macro";
 

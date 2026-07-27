@@ -18,6 +18,9 @@
 - `apps/app`: the turn edits card header now counts documents ("Edited 1
   document") instead of naming one. Names live in the card's rows, where they
   open the document.
+- `apps/app`: opening a document the assistant referred to that is no longer in
+  the project now explains what happened and names the document, instead of
+  showing the generic empty desk with a "New document" button.
 
 - `apps/server`: Anthropic-format cache usage now normalizes to inclusive input
   totals, so uncached prompt tokens are priced instead of silently clamped away;
