@@ -14,7 +14,7 @@ import { type ChangeEventWsMessage, WS_CLOSE } from "@meridian/contracts/protoco
 import { COLLAB_SCHEMA_VERSION } from "@meridian/prosemirror-schema";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Awareness } from "y-protocols/awareness";
-
+import { memoryStorage } from "@/test-support/memory-storage";
 import {
   DocumentSession,
   type DocumentSessionConnectionState,
@@ -118,21 +118,7 @@ function track(session: DocumentSession): {
 }
 
 function installBrowserReloadHarness(reload = vi.fn()) {
-  const values = new Map<string, string>();
-  const storage: Storage = {
-    get length() {
-      return values.size;
-    },
-    clear: () => values.clear(),
-    getItem: (key: string) => values.get(key) ?? null,
-    key: (index: number) => [...values.keys()][index] ?? null,
-    removeItem: (key: string) => {
-      values.delete(key);
-    },
-    setItem: (key: string, value: string) => {
-      values.set(key, value);
-    },
-  };
+  const storage = memoryStorage();
   vi.stubGlobal("sessionStorage", storage);
   vi.stubGlobal("location", { reload });
   return { storage, reload };

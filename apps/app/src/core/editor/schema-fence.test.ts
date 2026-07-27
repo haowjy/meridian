@@ -3,21 +3,8 @@
 import { COLLAB_SCHEMA_VERSION } from "@meridian/prosemirror-schema";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { memoryStorage } from "@/test-support/memory-storage";
 import { readSchemaFenceQuarantine, writeSchemaFenceQuarantine } from "./schema-fence";
-
-function memoryStorage(): Storage {
-  const values = new Map<string, string>();
-  return {
-    get length() {
-      return values.size;
-    },
-    clear: () => values.clear(),
-    getItem: (key) => values.get(key) ?? null,
-    key: (index) => [...values.keys()][index] ?? null,
-    removeItem: (key) => values.delete(key),
-    setItem: (key, value) => values.set(key, value),
-  };
-}
 
 afterEach(() => {
   vi.unstubAllGlobals();

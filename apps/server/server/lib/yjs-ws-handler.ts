@@ -49,7 +49,6 @@ type YjsAdmissionTarget =
   | {
       kind: "live";
       documentId: DocumentId;
-      headSchemaVersion: number | null;
       liveGeneration: bigint;
     }
   | {
@@ -57,7 +56,6 @@ type YjsAdmissionTarget =
       branchId: Extract<ParsedYjsRoom, { kind: "branch" }>["branchId"];
       documentId: DocumentId;
       generation: number;
-      headSchemaVersion: number | null;
     };
 
 type YjsConnectionAdmission =
@@ -191,7 +189,6 @@ async function classifyYjsConnectionAdmission(input: {
       target: {
         kind: "live",
         documentId,
-        headSchemaVersion,
         liveGeneration: await services.documentSync.currentLiveGeneration(documentId),
       },
     };
@@ -203,7 +200,6 @@ async function classifyYjsConnectionAdmission(input: {
       branchId: room.branchId,
       documentId,
       generation: room.generation,
-      headSchemaVersion,
     },
   };
 }
