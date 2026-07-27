@@ -18,6 +18,9 @@ peers to domain-owned collaboration and thread services.
 - Accept rejected WebSocket upgrades, then close with a registered code/reason:
   Nitro development infrastructure cannot safely return non-101 responses.
   Emit an error frame first only when that WebSocket protocol defines one.
+- Every Meridian WebSocket close pair used by a classifier is defined in
+  `WS_CLOSE`; classifiers reference registry entries. Transport-local lifecycle
+  and failure closes remain owned by their emitting transport.
 - Preserve the dependency direction `lib/ → domains/`; domain code must not
   reach back into this directory.
 

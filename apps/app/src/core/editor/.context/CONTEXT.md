@@ -7,8 +7,9 @@ Yjs document session. It must stay structurally aligned with
 ## Contracts
 
 - `createEditorExtensions()` is the only app-side extension assembly point for
-  collaborative documents. `schema-parity.test.ts` compares its TipTap schema
-  against `buildDocumentSchema()`.
+  collaborative documents. The editor schema and
+  `@meridian/prosemirror-schema` are built separately; parity is not enforced,
+  so structural changes must update both surfaces together.
 - Collaboration uses the shared `PROSEMIRROR_FRAGMENT_NAME` Y.XmlFragment. Do
   not create a second fragment name or a second editor sync path.
 - `DocumentSessionRegistry` is keyed by the Yjs room key, not by editor surface:
@@ -94,13 +95,12 @@ Yjs document session. It must stay structurally aligned with
   recovery must not materialize or replace a detached session implicitly.
 - A schema fence is orthogonal session state, not a connection status:
   `DocumentSessionSnapshot.schemaFence` composes with detached, synced, offline,
-  and terminal states. The first fence wins, suspends local presence, and remains
-  observable for the session lifetime; it never changes `deriveStatus()`.
-  `DocumentSessionRegistry` applies version-keyed localStorage quarantine before
-  transport attachment, so a quarantined room may replay IndexedDB locally but
-  cannot reconnect. Storage failure leaves the in-memory fence effective and is
-  reported by `quarantineRoom()` as non-durable. Clearing quarantine is explicit;
-  no acquisition path revalidates or clears it.
+  and access-lost states. The first fence wins, is persisted through the
+  version-keyed localStorage quarantine producer, and remains observable for the
+  session lifetime; it never changes `deriveStatus()`. A quarantine loaded
+  before attachment keeps the room detached. Raising a fence on an attached
+  session pauses editing and presence but does not itself detach transport.
+  Storage failure leaves the in-memory fence effective but not durable.
 - A `4406 client-schema-superseded` reset gets one silent reload before the
   session raises `client-superseded`. The sessionStorage guard is keyed by room
   and `COLLAB_SCHEMA_VERSION`, is written before `location.reload()`, and clears
