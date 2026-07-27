@@ -63,6 +63,23 @@ export type ToolActivityVocabulary = {
   complete: ToolActivityPhrase;
 };
 
+/**
+ * What a command's row shows behind its chevron. The registry keys expands by
+ * tool name, but one `write` tool covers reading, skimming, creating and
+ * editing, and those show different things. Naming the shape here keeps that
+ * per-command decision beside the command's other policy instead of becoming
+ * another switch in a renderer.
+ */
+export type CommandExpand =
+  /** Nothing worth an affordance. A chevron is a promise. */
+  | "none"
+  /** The passage the model read, as quoted prose. */
+  | "output-preview"
+  /** The headings a skim saw, as a list. */
+  | "output-outline"
+  /** Curated per-tool content the registry builds itself. */
+  | "renderer";
+
 export type CommandDescriptor = {
   /** One glyph per command. Read down the icon column and the turn has a shape. */
   Icon: LucideIcon;
@@ -80,6 +97,7 @@ export type CommandDescriptor = {
    * sentence.
    */
   pathlessTitle: ((writeMode: WriteMode) => string) | null;
+  expand: CommandExpand;
 };
 
 /** A phrase pair with no parameter of its own. */
@@ -99,6 +117,7 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
     phrases: () => tenses(t`Reading…`, t`Read`),
     failureVerb: () => t`Couldn't read`,
     pathlessTitle: () => t`Read file`,
+    expand: "output-preview",
   },
   // An outline read returns heading structure, not prose. A row saying "Read"
   // over that payload claims the model saw the words.
@@ -108,6 +127,7 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
     phrases: () => tenses(t`Skimming…`, t`Skimmed`),
     failureVerb: () => t`Couldn't read`,
     pathlessTitle: () => t`Read file`,
+    expand: "output-outline",
   },
   create: {
     Icon: FilePlus2,
@@ -116,6 +136,7 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
       writeMode === "draft" ? tenses(t`Drafting…`, t`Drafted`) : tenses(t`Writing…`, t`Wrote`),
     failureVerb: (writeMode) => (writeMode === "draft" ? t`Couldn't draft` : t`Couldn't write`),
     pathlessTitle: (writeMode) => (writeMode === "draft" ? t`Drafted file` : t`Wrote file`),
+    expand: "none",
   },
   edit: {
     Icon: PenLine,
@@ -124,6 +145,7 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
       writeMode === "draft" ? tenses(t`Drafting…`, t`Drafted`) : tenses(t`Editing…`, t`Edited`),
     failureVerb: (writeMode) => (writeMode === "draft" ? t`Couldn't draft` : t`Couldn't edit`),
     pathlessTitle: (writeMode) => (writeMode === "draft" ? t`Drafted file` : t`Edited file`),
+    expand: "none",
   },
   // Reverting a change is not editing. Telling a writer their chapter was
   // edited when it was put back is the same over-claim as calling a skim a
@@ -134,6 +156,7 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
     phrases: () => tenses(t`Undoing…`, t`Undid`),
     failureVerb: () => t`Couldn't undo`,
     pathlessTitle: null,
+    expand: "none",
   },
   redo: {
     Icon: Redo2,
@@ -141,6 +164,7 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
     phrases: () => tenses(t`Redoing…`, t`Redid`),
     failureVerb: () => t`Couldn't redo`,
     pathlessTitle: null,
+    expand: "none",
   },
   review: {
     Icon: History,
@@ -148,6 +172,7 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
     phrases: () => tenses(t`Checking recent changes…`, t`Checked recent changes`),
     failureVerb: () => t`Couldn't check recent changes`,
     pathlessTitle: null,
+    expand: "none",
   },
   search: {
     Icon: Search,
@@ -163,6 +188,7 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
     },
     failureVerb: () => t`Couldn't search`,
     pathlessTitle: null,
+    expand: "renderer",
   },
   list: {
     Icon: FolderTree,
@@ -178,6 +204,7 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
     },
     failureVerb: () => t`Couldn't explore`,
     pathlessTitle: null,
+    expand: "renderer",
   },
   invoke: {
     Icon: Sparkles,
@@ -190,6 +217,7 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
     },
     failureVerb: () => t`Couldn't run that skill`,
     pathlessTitle: null,
+    expand: "renderer",
   },
   unknown: {
     Icon: Wrench,
@@ -200,6 +228,7 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
     },
     failureVerb: () => t`Couldn't finish that step`,
     pathlessTitle: null,
+    expand: "none",
   },
 };
 

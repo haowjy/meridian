@@ -40,9 +40,17 @@ export type DocumentNameProps = {
    * invalid HTML and a second, competing tab stop.
    */
   insideDoor?: boolean;
+  /**
+   * `name` reads as prose mid-sentence ("Read ⟨Chapter 3⟩"). `open` names the
+   * action, for a door that stands alone with no verb in front of it — the one
+   * under a clipped preview, where the writer has read to the bound. Never
+   * "Show more": more promises more of the same finite payload, and the
+   * document is a larger and different thing.
+   */
+  label?: "name" | "open";
 };
 
-export function DocumentName({ path, insideDoor = false }: DocumentNameProps) {
+export function DocumentName({ path, insideDoor = false, label = "name" }: DocumentNameProps) {
   const openContextUri = useChatContextNavigation();
   const canOpenContextUri = useChatContextRoutability();
   const { title, qualifier } = documentDisplayName(path);
@@ -52,9 +60,12 @@ export function DocumentName({ path, insideDoor = false }: DocumentNameProps) {
   const uri = contextUriFromWritePath(path);
   const isDoor = !insideDoor && openContextUri !== null && canOpenContextUri?.(uri) === true;
 
+  const fullName = qualifier ? `${title} (${qualifier})` : title;
+  const openLabel = t`Open ${fullName}`;
+
   const name = (
     <>
-      <span className="min-w-0 truncate">{title}</span>
+      <span className="min-w-0 truncate">{label === "open" ? openLabel : title}</span>
       {/* The separating space lives inside the qualifier rather than in a flex
           gap, so the door's underline runs unbroken under the whole name while
           the qualifier still refuses to truncate. */}
@@ -66,12 +77,10 @@ export function DocumentName({ path, insideDoor = false }: DocumentNameProps) {
     return <span className="flex min-w-0 items-baseline text-prose-foreground">{name}</span>;
   }
 
-  const fullName = qualifier ? `${title} (${qualifier})` : title;
-
   return (
     <button
       type="button"
-      aria-label={t`Open ${fullName}`}
+      aria-label={openLabel}
       // The row behind this name is the expand toggle; navigating must not also
       // fold the row open.
       onClick={(event) => {

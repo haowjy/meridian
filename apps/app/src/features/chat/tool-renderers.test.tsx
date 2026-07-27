@@ -243,6 +243,62 @@ describe("runtime tool registry", () => {
     ).toBe(null);
   });
 
+  it("shows the passage a read returned, without its block hashes", () => {
+    const tool = writeToolView({
+      input: { path: "manuscript://chapter-3.md", command: "read" },
+      output: "10aa|# The Long Descent\n7f21|The stair spiralled downward.",
+    });
+
+    const html = expandMarkup(rendererFor("write").expand?.(tool));
+
+    expect(html).toContain("The Long Descent");
+    expect(html).toContain("The stair spiralled downward.");
+    expect(html).not.toContain("10aa");
+    expect(html).not.toContain("|");
+  });
+
+  it("shows a skim as the headings it saw, never the locator lines", () => {
+    const tool = writeToolView({
+      input: { path: "manuscript://chapter-3.md", command: "read", format: "outline" },
+      output: [
+        "10aa|# The Long Descent",
+        'write(command="read", file="manuscript://chapter-3.md#10aa")',
+        "7f21|## What the forge remembered",
+        'write(command="read", file="manuscript://chapter-3.md#7f21")',
+      ].join("\n"),
+    });
+
+    const html = expandMarkup(rendererFor("write").expand?.(tool));
+
+    expect(html).toContain("The Long Descent");
+    expect(html).toContain("What the forge remembered");
+    // The locator is how the model reads further. It is not writer vocabulary.
+    expect(html).not.toContain("write(command=");
+    expect(html).not.toContain("#");
+  });
+
+  it("falls back to prose when an outline read found no headings", () => {
+    // renderOutline returns whole blocks for a document with no headings, so
+    // the payload really is prose.
+    const tool = writeToolView({
+      input: { path: "manuscript://notes.md", command: "read", format: "outline" },
+      output: "10aa|Just a paragraph, no headings anywhere.",
+    });
+
+    const html = expandMarkup(rendererFor("write").expand?.(tool));
+
+    expect(html).toContain("Just a paragraph, no headings anywhere.");
+  });
+
+  it("offers no read expand for an empty document", () => {
+    const tool = writeToolView({
+      input: { path: "manuscript://empty.md", command: "read" },
+      output: "",
+    });
+
+    expect(rendererFor("write").expand?.(tool)).toBe(null);
+  });
+
   it("maps an ls listing to doors and inert folders", () => {
     const tool = writeToolView({
       toolName: "ls",

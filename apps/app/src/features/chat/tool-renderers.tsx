@@ -29,8 +29,12 @@ import {
 } from "@meridian/contracts/protocol";
 import { FileText, Folder } from "lucide-react";
 import type { ReactNode } from "react";
-import { BoundLine } from "./ClippedExpand";
+
+import { cn } from "@/lib/utils";
+import { Markdown } from "@/rich-content/Markdown";
+import { BoundLine, ClippedProse } from "./ClippedExpand";
 import {
+  type CommandExpand,
   descriptorFor,
   humanizeToolName,
   type ToolActivityPhrase,
@@ -39,6 +43,7 @@ import {
 import { DocumentName } from "./DocumentName";
 import { documentDisplayName, folderDisplayName } from "./document-display-name";
 import type { ToolView } from "./group-delivery-segments";
+import { type OutlineHeading, readPayloadMarkup, readPayloadOutline } from "./read-payload";
 import { humanizeSkillSlug, toolInputObject, type WriteMode } from "./tool-command";
 import {
   normalizeToolResultRows,
@@ -334,9 +339,43 @@ function WriteToolTitle({ tool, context }: { tool: ToolView; context?: ToolRende
   return <CommandTitle verb={phrase.verb} parameter={<DocumentName path={path} />} />;
 }
 
+/**
+ * What a `write` row opens onto, by command. A failure always wins: the most
+ * useful thing a failed write can say is why it failed.
+ */
+const COMMAND_EXPANDS: Record<CommandExpand, (tool: ToolView) => ToolExpand | null> = {
+  none: () => null,
+  renderer: () => null,
+  "output-preview": outputPreview,
+  "output-outline": outputOutline,
+};
+
 function writeExpand(tool: ToolView): ToolExpand | null {
-  if (!tool.isError) return null;
-  return () => <div className="text-compact text-destructive">{writeToolFailureCopy(tool)}</div>;
+  if (tool.isError) {
+    return () => <div className="text-compact text-destructive">{writeToolFailureCopy(tool)}</div>;
+  }
+  return COMMAND_EXPANDS[descriptorFor(tool).expand](tool);
+}
+
+function readPath(tool: ToolView): string | undefined {
+  return asString(inputObject(tool).path);
+}
+
+function outputPreview(tool: ToolView): ToolExpand | null {
+  if (typeof tool.output !== "string") return null;
+  const markup = readPayloadMarkup(tool.output);
+  if (!markup) return null;
+  const path = readPath(tool);
+  return () => <QuotedPreview markup={markup} path={path} />;
+}
+
+function outputOutline(tool: ToolView): ToolExpand | null {
+  if (typeof tool.output !== "string") return null;
+  const headings = readPayloadOutline(tool.output);
+  // A document with no headings falls back to whole blocks server-side, so the
+  // payload really is prose and the row should show it as prose.
+  if (!headings) return outputPreview(tool);
+  return () => <OutlineRows headings={headings} />;
 }
 
 function invokeExpand(tool: ToolView): ToolExpand | null {
@@ -380,6 +419,57 @@ function resultRowsOrNothing(tool: ToolView): ToolExpand | null {
   const results = normalizeToolResultRows(tool.output ?? undefined);
   if (results.rows.length === 0) return null;
   return () => <ResultRows results={results} />;
+}
+
+/**
+ * The passage the model read, or the content it submitted, as quoted matter.
+ *
+ * Top-anchored: the opening of the passage is what the writer wants. When it
+ * doesn't fit, the door at the fade offers the whole document, which is a
+ * different and larger thing than "more" of a finite payload.
+ */
+function QuotedPreview({ markup, path }: { markup: string; path?: string }) {
+  return (
+    <ClippedProse
+      className="text-tier-quoted"
+      footer={path ? <OpenDocumentDoor path={path} /> : null}
+    >
+      <Markdown>{markup}</Markdown>
+    </ClippedProse>
+  );
+}
+
+/**
+ * The second door, at the point of need. The row title carries the first one,
+ * at the top; this one sits where the writer has read to the bound.
+ */
+function OpenDocumentDoor({ path }: { path: string }) {
+  return (
+    <span className="flex min-w-0 text-meta">
+      <DocumentName path={path} label="open" />
+    </span>
+  );
+}
+
+/**
+ * What a skim saw. A list, not prose, so it wears the listing rhythm rather
+ * than the preview's: an outline read returned structure, and rendering it as
+ * paragraphs would claim the model read the words under them.
+ */
+function OutlineRows({ headings }: { headings: OutlineHeading[] }) {
+  return (
+    <ul>
+      {headings.map((heading, index) => (
+        <li
+          key={`${index}:${heading.text}`}
+          className={cn(LISTING_ROW, "text-prose-foreground")}
+          style={{ paddingLeft: `${heading.level * 16}px` }}
+        >
+          <span className="min-w-0 truncate">{heading.text}</span>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 /* ── registry ──────────────────────────────────────────────────────────── */

@@ -21,6 +21,11 @@
 - `apps/app`: opening a document the assistant referred to that is no longer in
   the project now explains what happened and names the document, instead of
   showing the generic empty desk with a "New document" button.
+- `apps/app`: Explored rows now open onto the folder listing the assistant
+  received; document names in it open the document, folders stay plain.
+- `apps/app`: Read rows now open onto the passage the assistant read, as quoted
+  material. A clipped passage fades at its bound and offers to open the whole
+  document. Skimmed rows show the headings the assistant saw.
 
 - `apps/server`: Anthropic-format cache usage now normalizes to inclusive input
   totals, so uncached prompt tokens are priced instead of silently clamped away;
