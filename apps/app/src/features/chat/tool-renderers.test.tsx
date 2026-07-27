@@ -1,9 +1,21 @@
 import type { Block } from "@meridian/contracts/protocol";
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ToolView } from "./group-delivery-segments";
 import { rendererFor } from "./tool-renderers";
+
+/**
+ * Row titles are composed of styled spans separated by flex gaps; assertions
+ * read them the way a writer does, with element boundaries as word breaks.
+ */
+function titleText(node: ReactNode): string {
+  return renderToStaticMarkup(node)
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 vi.mock("@lingui/core/macro", () => ({
   t: (strings: TemplateStringsArray, ...values: unknown[]) =>
@@ -102,9 +114,8 @@ describe("streaming tool labels", () => {
     ["grep", { pattern: "dragon" }, "Searching"],
   ])("uses present tense for a partial %s call", (toolName, input, expected) => {
     const tool = writeToolView({ toolName, input, status: "partial" });
-    const html = renderToStaticMarkup(rendererFor(toolName).title(tool));
 
-    expect(html).toContain(expected);
+    expect(titleText(rendererFor(toolName).title(tool))).toContain(expected);
   });
 
   it.each([
@@ -128,7 +139,7 @@ describe("runtime tool registry", () => {
   it("uses writer-friendly copy when ls has no path", () => {
     const tool = writeToolView({ toolName: "ls", input: {} });
 
-    expect(rendererFor("ls").title(tool)).toBe("Explored folders");
+    expect(titleText(rendererFor("ls").title(tool))).toBe("Explored folders");
   });
 
   it("reads grep's pattern input", () => {

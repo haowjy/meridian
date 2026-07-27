@@ -12,7 +12,7 @@ import { announce, announceError } from "@/client/stores";
 import type { ComposerHandle } from "./Composer";
 import { reportChatError } from "./error-telemetry";
 import { groupDeliverySegments, type ToolView } from "./group-delivery-segments";
-import { toolActivityVocabulary } from "./tool-activity-vocabulary";
+import { toolActivityAnnouncement, toolActivityVocabulary } from "./tool-command";
 
 function runningTool(turn: Turn | null): ToolView | null {
   const block = [...(turn?.blocks ?? [])]
@@ -33,9 +33,10 @@ export function useLiveTurnAnnouncements(
   const status = liveTurn?.status ?? "pending";
   const prevStatusRef = useRef(status);
   const tool = useMemo(() => runningTool(liveTurn), [liveTurn]);
-  const toolAnnouncement = tool
+  const activePhrase = tool
     ? toolActivityVocabulary(tool, liveTurn?.writeMode ?? "direct")?.active
     : null;
+  const toolAnnouncement = activePhrase ? toolActivityAnnouncement(activePhrase) : null;
   const hasPartialText = Boolean(
     liveTurn?.blocks.some((block) => block.blockType === "text" && block.status === "partial"),
   );

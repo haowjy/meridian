@@ -3,7 +3,7 @@
  * timeline's tier-2 rows.
  *
  * Each registered tool contributes: an icon, a single-line title that reads
- * the tool's input (e.g. `Read Chapter 1`, `Searched "dragon"`, `Ran the Outline skill`),
+ * the tool's input (e.g. `Read Chapter 1`, `Searched "dragon"`, `Invoked the Outline skill`),
  * an optional inline expansion (curated — search result rows, stream tail, or
  * skill output).
  *
@@ -13,6 +13,9 @@
  *   - **Tier 2 (registered)** — the entries in this file. Per-tool one-liner
  *     plus optional curated expansion.
  *   - **Tier 3 (generative)** — model-authored React. Not implemented here.
+ *
+ * Titles never derive their own tense: both forms come from `tool-command`, so
+ * the visible row and the screen-reader announcement cannot disagree.
  *
  * Hard rule: **never expose raw JSON in default UX**. Renderers produce
  * curated content (titles, result rows, terminal tail) only. If we need raw
@@ -25,18 +28,20 @@ import {
 } from "@meridian/contracts/protocol";
 import { FilePen, FolderTree, type LucideIcon, Search, Sparkles, Wrench } from "lucide-react";
 import type { ReactNode } from "react";
-import { documentDisplayName, folderDisplayName, isContextUri } from "./document-display-name";
+import { documentDisplayName, isContextUri } from "./document-display-name";
 import type { ToolView } from "./group-delivery-segments";
 import {
   humanizeSkillSlug,
-  stringInput,
+  type ToolActivityPhrase,
   toolActivityVocabulary,
+  toolCommand,
   toolInputObject,
-} from "./tool-activity-vocabulary";
+  type WriteMode,
+} from "./tool-command";
 import { normalizeToolResultRows, truncate } from "./tool-result-preview";
 
 export type ToolRenderContext = {
-  writeMode?: "direct" | "draft";
+  writeMode?: WriteMode;
 };
 
 export type ToolRenderer = {
@@ -57,8 +62,11 @@ function asString(value: JsonValue | undefined): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function toolVerb(tool: ToolView, complete: ReactNode, active: ReactNode): ReactNode {
-  return tool.status === "complete" ? complete : active;
+/** The phrase for the tool's current protocol state — never guessed from timing. */
+function activityPhrase(tool: ToolView, writeMode?: WriteMode): ToolActivityPhrase | null {
+  const vocabulary = toolActivityVocabulary(tool, writeMode);
+  if (!vocabulary) return null;
+  return tool.status === "complete" ? vocabulary.complete : vocabulary.active;
 }
 
 export function DocumentName({ path }: { path: string }) {
@@ -73,12 +81,27 @@ export function DocumentName({ path }: { path: string }) {
   );
 }
 
-function DisplayNameTitle({ verb, path }: { verb: ReactNode; path: string }) {
+/** A command and what it acted on, laid out as one line. */
+function CommandTitle({ verb, parameter }: { verb: ReactNode; parameter?: ReactNode }) {
   return (
     <span className="flex w-full min-w-0 items-baseline gap-1.5">
       <span className="shrink-0">{verb}</span>
-      <DocumentName path={path} />
+      {parameter ? <span className="flex min-w-0 items-baseline">{parameter}</span> : null}
     </span>
+  );
+}
+
+/** A parameter the timeline shows as text rather than as a destination. */
+function TextParameter({ children }: { children: ReactNode }) {
+  return <span className="min-w-0 truncate">{children}</span>;
+}
+
+function PhraseTitle({ phrase }: { phrase: ToolActivityPhrase }) {
+  return (
+    <CommandTitle
+      verb={phrase.verb}
+      parameter={phrase.parameter ? <TextParameter>{phrase.parameter}</TextParameter> : undefined}
+    />
   );
 }
 
@@ -136,7 +159,7 @@ function PlainOutput({ value }: { value: string }) {
 }
 
 function invokeSkillSlug(tool: ToolView): string | undefined {
-  return stringInput(inputObject(tool), "skillname");
+  return asString(inputObject(tool).skillname);
 }
 
 /**
@@ -176,19 +199,6 @@ export function invokeSkillFailureCopy(
       : t`This skill is no longer available in this chat — start a new chat to use the current version.`;
   }
   return null;
-}
-
-function InvokeSkillTitle({ tool }: { tool: ToolView }) {
-  const slug = invokeSkillSlug(tool);
-  if (!slug) {
-    return toolVerb(tool, t`Ran skill`, toolActivityVocabulary(tool)?.active ?? t`Running skill…`);
-  }
-  const skillName = humanizeSkillSlug(slug);
-  return toolVerb(
-    tool,
-    t`Ran the ${skillName} skill`,
-    toolActivityVocabulary(tool)?.active ?? t`Running skill…`,
-  );
 }
 
 function writeFailureStatus(output: JsonValue | null): string | null {
@@ -235,36 +245,58 @@ export function writeToolFailureCopy(tool: ToolView): string {
   }
 }
 
+/**
+ * What a failed command is called. A failure is its own claim — "Read
+ * chapter-3" over an error is as wrong as any other over-claim — so it never
+ * reuses the success verb.
+ */
+function writeFailureVerb(tool: ToolView, writeMode: WriteMode | undefined): string {
+  switch (toolCommand(tool)) {
+    case "read":
+    case "skim":
+      return t`Couldn't read`;
+    case "undo":
+      return t`Couldn't undo`;
+    case "redo":
+      return t`Couldn't redo`;
+    case "review":
+      return t`Couldn't check recent changes`;
+    case "edit":
+      return writeMode === "draft" ? t`Couldn't draft` : t`Couldn't edit`;
+    default:
+      return writeMode === "draft" ? t`Couldn't draft` : t`Couldn't write`;
+  }
+}
+
+/** The verb with no document to attach it to — `Wrote` alone reads as a fragment. */
+function pathlessWriteTitle(phrase: ToolActivityPhrase, tool: ToolView): ReactNode {
+  switch (toolCommand(tool)) {
+    case "read":
+    case "skim":
+      return t`Read file`;
+    case "create":
+      return t`Wrote file`;
+    case "edit":
+      return t`Edited file`;
+    default:
+      return <PhraseTitle phrase={phrase} />;
+  }
+}
+
 function WriteToolTitle({ tool, context }: { tool: ToolView; context?: ToolRenderContext }) {
-  const input = inputObject(tool);
-  const path = asString(input.path);
-  const command = asString(input.command);
-  if (command === "read") {
-    const complete = path ? <DisplayNameTitle verb={t`Read`} path={path} /> : t`Read file`;
-    return toolVerb(tool, complete, t`Reading…`);
-  }
-  const isEdit = ["insert", "replace", "undo", "redo"].includes(command ?? "");
+  const path = asString(inputObject(tool).path);
   if (tool.isError) {
-    const verb =
-      context?.writeMode === "draft"
-        ? t`Couldn't draft`
-        : isEdit
-          ? t`Couldn't edit`
-          : t`Couldn't write`;
-    return path ? <DisplayNameTitle verb={verb} path={path} /> : verb;
+    const verb = writeFailureVerb(tool, context?.writeMode);
+    return path ? <CommandTitle verb={verb} parameter={<DocumentName path={path} />} /> : verb;
   }
-  const verb = context?.writeMode === "draft" ? t`Drafted` : isEdit ? t`Edited` : t`Wrote`;
-  const complete = path ? (
-    <DisplayNameTitle verb={verb} path={path} />
-  ) : context?.writeMode === "draft" ? (
-    t`Drafted file`
-  ) : isEdit ? (
-    t`Edited file`
-  ) : (
-    t`Wrote file`
-  );
-  const active = toolActivityVocabulary(tool, context?.writeMode)?.active ?? t`Writing…`;
-  return toolVerb(tool, complete, active);
+
+  const phrase = activityPhrase(tool, context?.writeMode);
+  if (!phrase) return path ? <DocumentName path={path} /> : humanizeToolName(tool.toolName);
+  // A partial call has no settled path yet, so the row names no document —
+  // and therefore offers no door onto one.
+  if (tool.status !== "complete") return <PhraseTitle phrase={phrase} />;
+  if (!path) return pathlessWriteTitle(phrase, tool);
+  return <CommandTitle verb={phrase.verb} parameter={<DocumentName path={path} />} />;
 }
 
 function writeExpand(tool: ToolView): ReactNode | null {
@@ -310,6 +342,12 @@ function humanizeToolName(toolName: string): string {
   return words.length > 0 ? words[0].toUpperCase() + words.slice(1) : words;
 }
 
+/** A registered tool whose whole title is its phrase, with no document to name. */
+function phraseTitle(tool: ToolView): ReactNode {
+  const phrase = activityPhrase(tool);
+  return phrase ? <PhraseTitle phrase={phrase} /> : humanizeToolName(tool.toolName);
+}
+
 /**
  * Tier-1 default — unknown tool. Static one-liner; no expand affordance,
  * no destination. Arguments are developer detail and never enter the title.
@@ -327,46 +365,16 @@ const RENDERERS: Record<string, ToolRenderer> = {
   },
   ls: {
     Icon: FolderTree,
-    title: (tool) => {
-      const path = asString(inputObject(tool).path);
-      // `ls` walks folder structure — "exploring", not reading content.
-      const folder = path ? folderDisplayName(path) : undefined;
-      const complete = path ? (
-        <span className="flex min-w-0 items-baseline gap-1.5">
-          <span>{t`Explored`}</span>
-          <span className="truncate">{folder}</span>
-        </span>
-      ) : (
-        t`Explored folders`
-      );
-      const active = folder
-        ? t`Exploring ${folder}…`
-        : (toolActivityVocabulary(tool)?.active ?? t`Exploring folders…`);
-      return toolVerb(tool, complete, active);
-    },
+    title: phraseTitle,
   },
   grep: {
     Icon: Search,
-    title: (tool) => {
-      const pattern = asString(inputObject(tool).pattern);
-      const verb = toolVerb(
-        tool,
-        t`Searched`,
-        toolActivityVocabulary(tool)?.active ?? t`Searching…`,
-      );
-      return pattern ? (
-        <span>
-          {verb} &quot;{truncate(pattern, 60)}&quot;
-        </span>
-      ) : (
-        toolVerb(tool, t`Searched context`, verb)
-      );
-    },
+    title: phraseTitle,
     expand: resultRowsOrNothing,
   },
   invoke: {
     Icon: Sparkles,
-    title: (tool) => <InvokeSkillTitle tool={tool} />,
+    title: phraseTitle,
     expand: invokeExpand,
   },
 };

@@ -365,8 +365,16 @@ msgstr "随便聊聊"
 msgid "Chat context"
 msgstr ""
 
+#: src/features/chat/tool-command.ts
+msgid "Checked recent changes"
+msgstr ""
+
 #: src/features/chat/ComposerWriteModeControl.tsx
 msgid "Checking pending changes…"
+msgstr ""
+
+#: src/features/chat/tool-command.ts
+msgid "Checking recent changes…"
 msgstr ""
 
 #: src/features/billing/BillingPage.tsx
@@ -479,6 +487,10 @@ msgstr ""
 msgid "Couldn't apply. Check your connection and try again."
 msgstr ""
 
+#: src/features/chat/tool-renderers.tsx
+msgid "Couldn't check recent changes"
+msgstr ""
+
 #: src/features/chat/DraftDock.tsx
 #: src/features/editor/DraftReviewHeader.tsx
 #: src/features/project/dock/DockChangesView.tsx
@@ -545,12 +557,24 @@ msgstr ""
 msgid "Couldn't open this document."
 msgstr ""
 
+#: src/features/chat/tool-renderers.tsx
+msgid "Couldn't read"
+msgstr ""
+
+#: src/features/chat/tool-renderers.tsx
+msgid "Couldn't redo"
+msgstr ""
+
 #: src/features/project/context/IdentityPlacementField.tsx
 msgid "Couldn't rename this document. Try another name."
 msgstr ""
 
 #: src/features/project/context/use-identity-commit.ts
 msgid "Couldn't save this document's home. Try again."
+msgstr ""
+
+#: src/features/chat/tool-renderers.tsx
+msgid "Couldn't undo"
 msgstr ""
 
 #: src/features/chat/tool-renderers.tsx
@@ -652,7 +676,7 @@ msgstr ""
 msgid "Draft and iterate on lab protocols with reagent + step suggestions."
 msgstr ""
 
-#: src/features/chat/tool-renderers.tsx
+#: src/features/chat/tool-command.ts
 msgid "Drafted"
 msgstr ""
 
@@ -662,10 +686,10 @@ msgid "drafted {0}"
 msgstr ""
 
 #: src/features/chat/tool-renderers.tsx
-msgid "Drafted file"
-msgstr ""
+#~ msgid "Drafted file"
+#~ msgstr ""
 
-#: src/features/chat/tool-activity-vocabulary.ts
+#: src/features/chat/tool-command.ts
 msgid "Drafting…"
 msgstr ""
 
@@ -681,7 +705,7 @@ msgstr ""
 msgid "Drop image to upload a figure"
 msgstr ""
 
-#: src/features/chat/tool-renderers.tsx
+#: src/features/chat/tool-command.ts
 msgid "Edited"
 msgstr ""
 
@@ -706,7 +730,7 @@ msgstr ""
 msgid "Edited file"
 msgstr ""
 
-#: src/features/chat/tool-activity-vocabulary.ts
+#: src/features/chat/tool-command.ts
 msgid "Editing…"
 msgstr ""
 
@@ -765,20 +789,23 @@ msgstr ""
 msgid "expires {0}"
 msgstr ""
 
-#: src/features/chat/tool-renderers.tsx
+#: src/features/chat/tool-command.ts
 msgid "Explored"
 msgstr "已浏览"
 
-#: src/features/chat/tool-renderers.tsx
+#: src/features/chat/tool-command.ts
 msgid "Explored folders"
 msgstr "已浏览文件夹"
 
-#: src/features/chat/tool-renderers.tsx
-msgid "Exploring {folder}…"
+#: src/features/chat/tool-command.ts
+msgid "Exploring"
 msgstr ""
 
-#: src/features/chat/tool-activity-vocabulary.ts
 #: src/features/chat/tool-renderers.tsx
+#~ msgid "Exploring {folder}…"
+#~ msgstr ""
+
+#: src/features/chat/tool-command.ts
 msgid "Exploring folders…"
 msgstr "正在浏览文件夹…"
 
@@ -891,6 +918,22 @@ msgstr "界面语言"
 #: src/features/chat/placeholders.ts
 msgid "Interject"
 msgstr "插一句"
+
+#: src/features/chat/tool-command.ts
+msgid "Invoked a skill"
+msgstr ""
+
+#: src/features/chat/tool-command.ts
+msgid "Invoked the {skill} skill"
+msgstr ""
+
+#: src/features/chat/tool-command.ts
+msgid "Invoking a skill…"
+msgstr ""
+
+#: src/features/chat/tool-command.ts
+msgid "Invoking the {skill} skill…"
+msgstr ""
 
 #: src/features/editor/EditorToolbar.tsx
 msgid "Italic"
@@ -1235,6 +1278,10 @@ msgstr ""
 msgid "Only part of this change could be reversed."
 msgstr ""
 
+#: src/features/chat/DocumentName.tsx
+msgid "Open {fullName}"
+msgstr ""
+
 #: src/features/project/shell/ContextSidebar.tsx
 msgid "Open a chat to see its uploads."
 msgstr ""
@@ -1342,14 +1389,14 @@ msgid "Quick thought"
 msgstr "突然想到"
 
 #: src/features/chat/tool-renderers.tsx
-msgid "Ran skill"
-msgstr ""
+#~ msgid "Ran skill"
+#~ msgstr ""
 
 #: src/features/chat/tool-renderers.tsx
-msgid "Ran the {skillName} skill"
-msgstr ""
+#~ msgid "Ran the {skillName} skill"
+#~ msgstr ""
 
-#: src/features/chat/tool-renderers.tsx
+#: src/features/chat/tool-command.ts
 msgid "Read"
 msgstr ""
 
@@ -1369,8 +1416,7 @@ msgstr ""
 msgid "Reading text size"
 msgstr ""
 
-#: src/features/chat/tool-activity-vocabulary.ts
-#: src/features/chat/tool-renderers.tsx
+#: src/features/chat/tool-command.ts
 msgid "Reading…"
 msgstr ""
 
@@ -1407,6 +1453,10 @@ msgstr ""
 msgid "Reconnecting… attempt {0}"
 msgstr ""
 
+#: src/features/chat/tool-command.ts
+msgid "Redid"
+msgstr ""
+
 #: src/features/chat/TurnEditsReceipt.tsx
 msgid "Redo"
 msgstr ""
@@ -1417,6 +1467,10 @@ msgstr ""
 
 #: src/features/chat/TurnEditsReceipt.tsx
 msgid "Redo is no longer available because the manuscript changed."
+msgstr ""
+
+#: src/features/chat/tool-command.ts
+msgid "Redoing…"
 msgstr ""
 
 #: src/components/app/ConnectionBanner.tsx
@@ -1520,13 +1574,13 @@ msgstr "运行中"
 
 #: src/features/chat/tool-activity-vocabulary.ts
 #: src/features/chat/tool-renderers.tsx
-msgid "Running skill…"
-msgstr ""
+#~ msgid "Running skill…"
+#~ msgstr ""
 
 #. placeholder {0}: humanizeSkillSlug(slug)
 #: src/features/chat/tool-activity-vocabulary.ts
-msgid "Running the {0} skill…"
-msgstr ""
+#~ msgid "Running the {0} skill…"
+#~ msgstr ""
 
 #: src/features/project/context/IdentityPlacementField.tsx
 msgid "Save name and location"
@@ -1548,16 +1602,19 @@ msgstr ""
 msgid "Search papers, extract findings, and synthesize a summary across sources."
 msgstr ""
 
-#: src/features/chat/tool-renderers.tsx
+#: src/features/chat/tool-command.ts
 msgid "Searched"
 msgstr "已搜索"
 
-#: src/features/chat/tool-renderers.tsx
+#: src/features/chat/tool-command.ts
 msgid "Searched context"
 msgstr "已搜索上下文"
 
-#: src/features/chat/tool-activity-vocabulary.ts
-#: src/features/chat/tool-renderers.tsx
+#: src/features/chat/tool-command.ts
+msgid "Searching"
+msgstr ""
+
+#: src/features/chat/tool-command.ts
 msgid "Searching…"
 msgstr "正在搜索…"
 
@@ -1603,6 +1660,14 @@ msgstr "已登录"
 
 #: src/routes/dev-login.tsx
 msgid "Signing in…"
+msgstr ""
+
+#: src/features/chat/tool-command.ts
+msgid "Skimmed"
+msgstr ""
+
+#: src/features/chat/tool-command.ts
+msgid "Skimming…"
 msgstr ""
 
 #: src/features/account/SettingsDialog.tsx
@@ -1905,6 +1970,10 @@ msgstr ""
 msgid "Type your answer…"
 msgstr ""
 
+#: src/features/chat/tool-command.ts
+msgid "Undid"
+msgstr ""
+
 #: src/features/chat/TurnEditsReceipt.tsx
 msgid "Undo"
 msgstr "撤销"
@@ -1915,6 +1984,10 @@ msgstr ""
 
 #: src/features/chat/TurnEditsReceipt.tsx
 msgid "Undo is no longer available."
+msgstr ""
+
+#: src/features/chat/tool-command.ts
+msgid "Undoing…"
 msgstr ""
 
 #: src/features/chat/CustomBlockRenderer.tsx
@@ -2010,12 +2083,11 @@ msgstr ""
 msgid "Write away"
 msgstr "开始写吧"
 
-#: src/features/chat/tool-activity-vocabulary.ts
-#: src/features/chat/tool-renderers.tsx
+#: src/features/chat/tool-command.ts
 msgid "Writing…"
 msgstr ""
 
-#: src/features/chat/tool-renderers.tsx
+#: src/features/chat/tool-command.ts
 msgid "Wrote"
 msgstr ""
 
