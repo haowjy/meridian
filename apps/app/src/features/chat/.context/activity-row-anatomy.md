@@ -1,0 +1,99 @@
+# features/chat — Activity row anatomy and navigation
+
+How one tool row is composed, and the rules that make the timeline readable at
+fold density. The composition model above it (zones, partitioning, settlement)
+lives in [turn-composition.md](turn-composition.md).
+
+## Names are doors
+
+> Every writer-facing document name rendered anywhere in the timeline opens
+> that document. Folders, patterns, skills and chrome are not documents and
+> render as inert text.
+
+`DocumentName.tsx` is the whole rule. It renders every document name — row
+titles via `tool-renderers`, `grep` match rows via `ResultRows`, receipt rows
+via `TurnEditsReceipt` — and it alone decides linkability. There is no
+navigation policy per renderer to remember or uphold.
+
+### Contracts
+
+- **One predicate for both linkability and navigation.** `DocumentName` asks
+  `useChatContextRoutability()` and routes through `useChatContextNavigation()`.
+  Deriving "is this a link" from anything else makes a control that looks live
+  and does nothing reachable again.
+- **Normalize before asking.** `write` input commonly carries a bare path
+  (`chapter.md`); `contextUriFromWritePath` runs before the predicate. Without
+  it most write rows silently stop linking.
+- **Tone and decoration move together.** A door is `--muted` with a persistent
+  1px underline at the border token, 3px offset, jade on hover and focus. A
+  plain name is `--prose` with no decoration. Never muted and undecorated: that
+  reads as a control that has been turned off.
+- **Degradation is structural.** Outside a project shell both hooks are `null`,
+  so nothing is a link and no underline renders. The underline carries
+  clickability only, never meaning.
+- **The timeline promises the URI the agent used, not that the document still
+  exists.** Do not pre-check against the cached context tree: the same row
+  would link or not depending on cache warmth. Missing documents degrade at the
+  destination.
+- **`insideDoor`** is for the one case where an ancestor is already the door
+  (the receipt's full-width document rows). A door inside a door is invalid
+  HTML and a second competing tab stop.
+
+## Two actions, one row
+
+A row expands; a name inside it navigates. Never invert: the large forgiving
+target carries the safe reversible action, the small precise one carries
+leaving the transcript.
+
+`ActivityRow` builds this as the stretched-button pattern — an empty
+absolutely-positioned toggle rendered **after** the title content, with the
+door lifted above it at `z-10`. The two buttons are DOM siblings; authoring the
+door as a JSX child of the toggle is not rescued the way the HTML parser
+rescues static markup.
+
+- The stretched area covers the **title row only**, so a click inside an open
+  expand cannot collapse it.
+- The toggle has no text, so it takes `aria-labelledby` pointing at the title.
+  Two tab stops per row: `Open ‹document›`, and the title with `aria-expanded`.
+- The title row must not clip: the door grows past its line box to reach a
+  ~37px touch target, bounded so it never covers a neighbouring row. Each title
+  renderer truncates its own content instead.
+
+## The command outranks the parameter
+
+Did the agent *look at* my book or *change* it is the timeline's most important
+distinction, and doors add weight to the parameter. Three layers answer it, in
+order of strength:
+
+1. **One glyph per command, not per tool** (`COMMAND_GLYPH` in `ToolRow`). The
+   icon column is already an aligned channel; bound to the command it becomes
+   scannable.
+2. **Chip tone.** `primary` means *your document changed*. Drafts stay neutral
+   (a proposal has not mutated anything) and so do failed writes.
+3. **Type.** Command at `--ink`/500, parameter at `--muted`/400.
+
+A fixed-width command column is the escalation if type is not enough. It is
+deferred, not rejected: 64px is 21% of a 360px docked chat.
+
+## Verbs live in one place
+
+`tool-command.ts` classifies the writer-facing command and names it in both
+tenses. Renderers consume both; nothing derives past tense inline. The same
+vocabulary feeds `useLiveTurnAnnouncements`, so the visible row and the
+announced string cannot drift — they had, for `ls`.
+
+Tense is a pure function of protocol state (`status === "complete"`), never of
+timing. A partial write names no document: its path has not settled, so the row
+offers no door onto one.
+
+## Expands
+
+- **No chevron unless there is something behind it.** An expand affordance is a
+  promise.
+- **Built on open, not on render.** `ToolRenderer.expand` returns a builder;
+  deciding *whether* there is content is cheap, rendering it is not.
+- **Open state is local to the row.** It resets when frontier rows fold at
+  settle. That is correct — the fold reopens calm — so do not hoist it.
+- **Discrete lists state their bound.** A clipped list prints `4 of 42`, a fact
+  and never "Showing…". Continuous prose gets a fade instead: a clipped passage
+  never looks complete, so a count would add clutter without adding honesty.

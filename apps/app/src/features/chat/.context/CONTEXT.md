@@ -5,6 +5,9 @@ draft-control changes can be understood independently.
 
 - [Turn composition](turn-composition.md) — the `Thinking`/`ActivityBlock`
   rendering model, interrupt segmentation, tool rendering, and positional keys.
+- [Activity row anatomy](activity-row-anatomy.md) — document names as doors,
+  the stretched-button row, command glyph and chip tone, verb vocabulary, and
+  expand rules.
 - [Turn edit receipts](turn-edit-receipts.md) — committed change records, Undo/Redo,
   and conversation reveal.
 - [Composer write mode](composer-write-mode.md) — the Work-scoped Draft /
