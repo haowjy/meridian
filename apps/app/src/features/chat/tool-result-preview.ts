@@ -2,10 +2,16 @@
  * Pure, i18n-aware helpers for curated tool-result rows and bounded preview
  * text. Owns only display formatting.
  *
- * One parser reads every array-shaped tool payload. It stops at the payload's
+ * One parser per payload the timeline knows how to read. Each stops at its own
  * cap, which is what lets a closed row ask "is there anything behind this
- * chevron?" without paying for the whole list, and it answers that question
+ * chevron?" without paying for the whole list, and each answers that question
  * with the same code that fills the expand, so the two can't disagree.
+ *
+ * **The caller picks the parser, because the caller knows the tool.** A search
+ * hit and a listing entry are both `{uri, …}` objects, and guessing which one a
+ * payload holds by looking at its first recognizable entry throws away every
+ * later row that disagrees with the guess. Tool identity selects the parser;
+ * the row's own discriminant then selects how it renders.
  *
  * Rows say what they *are* rather than carrying a string the renderer has to
  * sniff: a document's name is a door, a folder's name is not, and only the
@@ -25,9 +31,7 @@ export type ToolResultRow =
   /** A document the tool found or listed. Its name opens it. */
   | { kind: "document"; uri: string; subtitle?: string; snippet?: string }
   /** A folder in a listing. Never a door: folders are not documents. */
-  | { kind: "folder"; uri: string }
-  /** A result with no context document behind it. */
-  | { kind: "plain"; title: string; subtitle?: string; snippet?: string };
+  | { kind: "folder"; uri: string };
 
 /**
  * Capped rows plus what they were cut from. `total` counts every entry the
@@ -49,46 +53,19 @@ type RowSpec = {
 const SEARCH_HITS: RowSpec = { cap: 4, toRow: searchHit };
 /** One line each. */
 const LISTING: RowSpec = { cap: 8, toRow: listingEntry };
-const WEB_RESULTS: RowSpec = { cap: 4, toRow: webResult };
 
-export function normalizeToolResultRows(output: JsonValue | undefined): ToolResultRows {
-  if (Array.isArray(output)) return capped(output, arraySpec(output));
-  if (!output || typeof output !== "object") return { rows: [], total: 0 };
-  const obj = output as Record<string, JsonValue>;
-
-  if (Array.isArray(obj.results)) return capped(obj.results, WEB_RESULTS);
-
-  if (typeof obj.url === "string" || typeof obj.summary === "string") {
-    return {
-      rows: [
-        {
-          kind: "plain",
-          title: (typeof obj.title === "string" && obj.title) || t`(fetched)`,
-          subtitle: typeof obj.url === "string" ? obj.url : undefined,
-          snippet:
-            (typeof obj.summary === "string" && obj.summary) ||
-            (typeof obj.excerpt === "string" ? obj.excerpt : undefined),
-        },
-      ],
-      total: 1,
-    };
-  }
-
-  return { rows: [], total: 0 };
+/** What `grep` returned: one document per hit, with the passage it matched. */
+export function normalizeSearchHits(output: JsonValue | undefined): ToolResultRows {
+  return normalizeEntries(output, SEARCH_HITS);
 }
 
-/**
- * `grep` and `ls` both return a bare array; their entries are what tell them
- * apart. A search hit carries the passage it matched, a listing entry carries
- * what kind of thing it is.
- */
-function arraySpec(entries: readonly JsonValue[]): RowSpec {
-  for (const entry of entries) {
-    if (!isRecord(entry)) continue;
-    if (typeof entry.excerpt === "string") return SEARCH_HITS;
-    if (entry.kind === "file" || entry.kind === "directory") return LISTING;
-  }
-  return SEARCH_HITS;
+/** What `ls` returned: the folders and documents the model was shown. */
+export function normalizeListing(output: JsonValue | undefined): ToolResultRows {
+  return normalizeEntries(output, LISTING);
+}
+
+function normalizeEntries(output: JsonValue | undefined, spec: RowSpec): ToolResultRows {
+  return Array.isArray(output) ? capped(output, spec) : { rows: [], total: 0 };
 }
 
 /** Takes rows until the cap is full, so a long payload is never fully walked. */
@@ -126,25 +103,6 @@ function listingEntry(row: Record<string, JsonValue>): ToolResultRow | null {
   if (row.kind === "directory") return { kind: "folder", uri: row.uri };
   if (row.kind === "file") return { kind: "document", uri: row.uri };
   return null;
-}
-
-function webResult(row: Record<string, JsonValue>): ToolResultRow {
-  return {
-    kind: "plain",
-    title: typeof row.title === "string" ? row.title : t`(untitled)`,
-    subtitle:
-      typeof row.url === "string"
-        ? row.url
-        : typeof row.source === "string"
-          ? row.source
-          : undefined,
-    snippet:
-      typeof row.snippet === "string"
-        ? row.snippet
-        : typeof row.note === "string"
-          ? row.note
-          : undefined,
-  };
 }
 
 /** `4 of 42` — a fact about the payload, never an invitation to see more. */

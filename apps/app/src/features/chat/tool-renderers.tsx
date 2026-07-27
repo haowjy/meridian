@@ -46,7 +46,8 @@ import type { ToolView } from "./group-delivery-segments";
 import { type OutlineHeading, readPayloadMarkup, readPayloadOutline } from "./read-payload";
 import { humanizeSkillSlug, toolInputObject, type WriteMode } from "./tool-command";
 import {
-  normalizeToolResultRows,
+  normalizeListing,
+  normalizeSearchHits,
   resultBoundLabel,
   type ToolResultRow,
   type ToolResultRows,
@@ -127,7 +128,7 @@ function PhraseTitle({ phrase }: { phrase: ToolActivityPhrase }) {
 /* ── inline-expand renderers (curated, never JSON) ─────────────────────── */
 
 function rowKey(row: ToolResultRow, index: number): string {
-  return row.kind === "plain" ? `${index}:${row.title}` : `${index}:${row.uri}`;
+  return `${index}:${row.uri}`;
 }
 
 /** Search hits: the document, where it matched, and the passage. */
@@ -141,14 +142,14 @@ function ResultRows({ results }: { results: ToolResultRows }) {
             {/* A match row is about a document, and the uniform rule covers it:
                 the same door, the same underline as a row title. */}
             <div className="flex min-w-0 text-compact font-medium text-prose-foreground">
-              {row.kind === "plain" ? row.title : <DocumentName path={row.uri} />}
+              <DocumentName path={row.uri} />
             </div>
-            {row.kind !== "folder" && row.subtitle ? (
+            {row.kind === "document" && row.subtitle ? (
               <div className="truncate font-mono text-meta text-muted-foreground">
                 {row.subtitle}
               </div>
             ) : null}
-            {row.kind !== "folder" && row.snippet ? (
+            {row.kind === "document" && row.snippet ? (
               <div className="text-xs leading-relaxed text-ink-muted">{row.snippet}</div>
             ) : null}
           </li>
@@ -188,11 +189,7 @@ function ListingRows({ results }: { results: ToolResultRows }) {
             ) : (
               <>
                 <FileText className="size-3 shrink-0 self-center text-ink-subtle" aria-hidden />
-                {row.kind === "document" ? (
-                  <DocumentName path={row.uri} />
-                ) : (
-                  <span className="min-w-0 truncate text-prose-foreground">{row.title}</span>
-                )}
+                <DocumentName path={row.uri} />
               </>
             )}
           </li>
@@ -425,7 +422,7 @@ function streamOrOutput(tool: ToolView): ToolExpand | null {
 }
 
 function listingOrNothing(tool: ToolView): ToolExpand | null {
-  const results = normalizeToolResultRows(tool.output ?? undefined);
+  const results = normalizeListing(tool.output ?? undefined);
   if (results.rows.length === 0) return null;
   return () => <ListingRows results={results} />;
 }
@@ -434,7 +431,7 @@ function resultRowsOrNothing(tool: ToolView): ToolExpand | null {
   // A chevron is a promise, so the answer to "is there anything here?" comes
   // from the same parse that will fill the expand. The parse stops at the row
   // cap; only the React tree waits for the writer to open the row.
-  const results = normalizeToolResultRows(tool.output ?? undefined);
+  const results = normalizeSearchHits(tool.output ?? undefined);
   if (results.rows.length === 0) return null;
   return () => <ResultRows results={results} />;
 }
