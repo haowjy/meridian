@@ -149,8 +149,12 @@ msgid "A folder named {trimmed} already exists in this location."
 msgstr "A folder named {trimmed} already exists in this location."
 
 #: src/features/editor/EditorView.tsx
-msgid "A project is required before figures can be uploaded."
-msgstr "A project is required before figures can be uploaded."
+#~ msgid "A project is required before figures can be uploaded."
+#~ msgstr "A project is required before figures can be uploaded."
+
+#: src/features/editor/EditorView.tsx
+msgid "A project is required before images can be uploaded."
+msgstr "A project is required before images can be uploaded."
 
 #: src/features/editor/SyncStatus.tsx
 msgid "Access lost (not saving to the server)"
@@ -182,6 +186,26 @@ msgstr "Actually…"
 msgid "Add a caption for this figure."
 msgstr "Add a caption for this figure."
 
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Add column left"
+msgstr "Add column left"
+
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Add column right"
+msgstr "Add column right"
+
+#: src/features/editor/EditorLinkBubble.tsx
+msgid "Add link"
+msgstr "Add link"
+
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Add row above"
+msgstr "Add row above"
+
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Add row below"
+msgstr "Add row below"
+
 #: src/features/project/dock/ReviewOperationCard.tsx
 msgid "Added"
 msgstr "Added"
@@ -212,7 +236,20 @@ msgstr "AI edits wait here for your review."
 msgid "AI write mode"
 msgstr "AI write mode"
 
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Align column center"
+msgstr "Align column center"
+
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Align column left"
+msgstr "Align column left"
+
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Align column right"
+msgstr "Align column right"
+
 #: src/core/editor/FigureNodeView.tsx
+#: src/features/editor/EditorImageBubble.tsx
 msgid "Alt text"
 msgstr "Alt text"
 
@@ -296,6 +333,14 @@ msgid "Billing"
 msgstr "Billing"
 
 #: src/features/editor/EditorToolbar.tsx
+msgid "Block alignment"
+msgstr "Block alignment"
+
+#: src/features/editor/EditorView.tsx
+msgid "blockquote"
+msgstr "blockquote"
+
+#: src/features/editor/EditorToolbar.tsx
 msgid "Bold"
 msgstr "Bold"
 
@@ -307,11 +352,16 @@ msgstr "Brainstorm away"
 msgid "Breadcrumb"
 msgstr "Breadcrumb"
 
+#: src/features/editor/EditorView.tsx
+msgid "break"
+msgstr "break"
+
 #: src/features/agents/AgentPicker.tsx
 msgid "Built-in"
 msgstr "Built-in"
 
 #: src/features/editor/EditorToolbar.tsx
+#: src/features/editor/EditorView.tsx
 msgid "Bullet list"
 msgstr "Bullet list"
 
@@ -340,6 +390,10 @@ msgstr "Caption"
 msgid "Capture experiments, methods, and observations in a structured log."
 msgstr "Capture experiments, methods, and observations in a structured log."
 
+#: src/features/editor/EditorToolbar.tsx
+msgid "Center"
+msgstr "Center"
+
 #: src/features/editor/PeerMarkPopover.tsx
 msgid "Changed {relativeTime}"
 msgstr "Changed {relativeTime}"
@@ -347,6 +401,10 @@ msgstr "Changed {relativeTime}"
 #: src/features/project/dock/DockHeader.tsx
 msgid "Changes"
 msgstr "Changes"
+
+#: src/features/editor/EditorView.tsx
+msgid "chart"
+msgstr "chart"
 
 #: src/features/chat/ChatView.tsx
 #: src/features/project/chat/ChatSurface.tsx
@@ -385,6 +443,10 @@ msgstr "Choose a home"
 msgid "Choose a listed option"
 msgstr "Choose a listed option"
 
+#: src/features/editor/EditorView.tsx
+msgid "Choose an image file."
+msgstr "Choose an image file."
+
 #: src/features/chat/ChoiceBlock.tsx
 msgid "Choose an option"
 msgstr "Choose an option"
@@ -412,8 +474,21 @@ msgid "Closed"
 msgstr "Closed"
 
 #: src/features/editor/EditorToolbar.tsx
+#: src/features/editor/EditorView.tsx
 msgid "Code"
 msgstr "Code"
+
+#: src/features/editor/EditorCodeBubble.tsx
+msgid "Code block options"
+msgstr "Code block options"
+
+#: src/features/editor/EditorCodeBubble.tsx
+msgid "Code language"
+msgstr "Code language"
+
+#: src/features/editor/EditorView.tsx
+msgid "codeblock"
+msgstr "codeblock"
 
 #: src/features/editor/EditorView.tsx
 msgid "Collaborative document editor"
@@ -438,6 +513,14 @@ msgstr "Collapse sidebar  ["
 #: src/features/account/SettingsDialog.tsx
 msgid "Color theme"
 msgstr "Color theme"
+
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Column text alignment"
+msgstr "Column text alignment"
+
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Columns"
+msgstr "Columns"
 
 #. placeholder {0}: proposal.contributingTurnIds.length
 #: src/features/project/dock/ReviewOperationCard.tsx
@@ -577,10 +660,18 @@ msgstr "Dark"
 msgid "Data Analysis"
 msgstr "Data Analysis"
 
+#: src/features/editor/EditorToolbar.tsx
+msgid "Default alignment"
+msgstr "Default alignment"
+
 #: src/features/project/context/ContextEntryActions.tsx
 #: src/features/project/mobile/MobileEntryActionsMenu.tsx
 msgid "Delete"
 msgstr "Delete"
+
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Delete column"
+msgstr "Delete column"
 
 #: src/features/project/context/ContextEntryActions.tsx
 msgid "Delete file?"
@@ -589,6 +680,14 @@ msgstr "Delete file?"
 #: src/features/project/context/ContextEntryActions.tsx
 msgid "Delete folder?"
 msgstr "Delete folder?"
+
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Delete row"
+msgstr "Delete row"
+
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Delete table"
+msgstr "Delete table"
 
 #: src/features/project/context/ContextEntryActions.tsx
 msgid "Deleting…"
@@ -610,6 +709,18 @@ msgstr "Dev login"
 msgid "Dev-login failed"
 msgstr "Dev-login failed"
 
+#: src/features/editor/EditorView.tsx
+msgid "Diagram"
+msgstr "Diagram"
+
+#: src/core/editor/MermaidCodeBlock.tsx
+msgid "Diagram could not be rendered"
+msgstr "Diagram could not be rendered"
+
+#: src/features/editor/EditorCodeBubble.tsx
+msgid "Diagram view"
+msgstr "Diagram view"
+
 #: src/features/chat/DraftDock.tsx
 #: src/features/project/dock/ReviewOperationCard.tsx
 msgid "Discard"
@@ -623,6 +734,10 @@ msgstr "Discard all"
 #: src/features/chat/DraftDock.tsx
 msgid "Discard all changes?"
 msgstr "Discard all changes?"
+
+#: src/features/editor/EditorView.tsx
+msgid "divider"
+msgstr "divider"
 
 #: src/features/project/dock/DockHeader.tsx
 msgid "Dock view"
@@ -674,12 +789,32 @@ msgid "Drafts are waiting"
 msgstr "Drafts are waiting"
 
 #: src/features/editor/EditorView.tsx
-msgid "Drop an image file to insert a figure."
-msgstr "Drop an image file to insert a figure."
+#~ msgid "Drop an image file to insert a figure."
+#~ msgstr "Drop an image file to insert a figure."
 
 #: src/features/editor/EditorView.tsx
-msgid "Drop image to upload a figure"
-msgstr "Drop image to upload a figure"
+msgid "Drop image to insert it"
+msgstr "Drop image to insert it"
+
+#: src/features/editor/EditorView.tsx
+#~ msgid "Drop image to upload a figure"
+#~ msgstr "Drop image to upload a figure"
+
+#: src/features/editor/EditorCodeBubble.tsx
+msgid "Edit"
+msgstr "Edit"
+
+#: src/core/editor/MermaidCodeBlock.tsx
+msgid "Edit diagram"
+msgstr "Edit diagram"
+
+#: src/features/editor/EditorLinkBubble.tsx
+msgid "Edit link"
+msgstr "Edit link"
+
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Edit table"
+msgstr "Edit table"
 
 #: src/features/chat/tool-renderers.tsx
 msgid "Edited"
@@ -733,6 +868,10 @@ msgstr "Enclosing folder"
 #: src/features/billing/ExtraUsagePicker.tsx
 msgid "Enter an amount in USD."
 msgstr "Enter an amount in USD."
+
+#: src/features/editor/EditorLinkBubble.tsx
+msgid "Enter an http, https, or mailto link."
+msgstr "Enter an http, https, or mailto link."
 
 #: src/features/chat/ErrorBlock.tsx
 #: src/features/project/home/HomeScreen.tsx
@@ -790,17 +929,21 @@ msgstr "Extra usage"
 msgid "Failed to load image"
 msgstr "Failed to load image"
 
+#: src/features/editor/EditorView.tsx
+msgid "fence"
+msgstr "fence"
+
 #: src/core/editor/FigureNodeView.tsx
 msgid "fig:result"
 msgstr "fig:result"
 
-#: src/core/editor/FigureNodeView.tsx
+#: src/core/editor/asset-image-render-state.ts
 msgid "Figure could not be loaded."
 msgstr "Figure could not be loaded."
 
 #: src/features/editor/EditorView.tsx
-msgid "Figure upload failed."
-msgstr "Figure upload failed."
+#~ msgid "Figure upload failed."
+#~ msgstr "Figure upload failed."
 
 #: src/features/project/context/use-create-entry-form.ts
 msgid "File name"
@@ -818,6 +961,10 @@ msgstr "Files"
 msgid "First name"
 msgstr "First name"
 
+#: src/features/editor/EditorView.tsx
+msgid "flowchart"
+msgstr "flowchart"
+
 #: src/features/project/context/use-create-entry-form.ts
 msgid "Folder name"
 msgstr "Folder name"
@@ -830,11 +977,24 @@ msgstr "Form payload is malformed."
 msgid "Go ahead"
 msgstr "Go ahead"
 
+#: src/features/editor/EditorView.tsx
+msgid "grid"
+msgstr "grid"
+
 #: src/features/project/lifecycle.ts
 msgid "Grilling"
 msgstr "Grilling"
 
+#: src/features/editor/EditorView.tsx
+msgid "h1"
+msgstr "h1"
+
+#: src/features/editor/EditorView.tsx
+msgid "h2"
+msgstr "h2"
+
 #: src/features/editor/EditorToolbar.tsx
+#: src/features/editor/EditorView.tsx
 msgid "Heading"
 msgstr "Heading"
 
@@ -854,6 +1014,10 @@ msgstr "Home"
 msgid "How much of your plan you have used this month."
 msgstr "How much of your plan you have used this month."
 
+#: src/features/editor/EditorView.tsx
+msgid "hr"
+msgstr "hr"
+
 #: src/features/account/SettingsDialog.tsx
 msgid "Id"
 msgstr "Id"
@@ -867,18 +1031,51 @@ msgstr "Identity"
 msgid "Idle"
 msgstr "Idle"
 
+#: src/features/editor/EditorView.tsx
+msgid "Image"
+msgstr "Image"
+
 #: src/features/chat/FormBlock.tsx
 msgid "Image artifact"
 msgstr "Image artifact"
+
+#: src/features/editor/EditorImageBubble.tsx
+msgid "Image controls"
+msgstr "Image controls"
+
+#: src/core/editor/asset-image-render-state.ts
+msgid "Image could not be displayed."
+msgstr "Image could not be displayed."
+
+#: src/features/editor/EditorView.tsx
+msgid "Image upload failed."
+msgstr "Image upload failed."
+
+#: src/features/editor/EditorImageBubble.tsx
+msgid "Image URL"
+msgstr "Image URL"
 
 #: src/features/project/dock/ReviewOperationCard.tsx
 msgid "Includes your edits"
 msgstr "Includes your edits"
 
+#: src/features/editor/EditorView.tsx
+msgid "Insert block"
+msgstr "Insert block"
+
+#: src/features/editor/EditorToolbar.tsx
+msgid "Insert image"
+msgstr "Insert image"
+
 #. placeholder {0}: state.filename
 #: src/features/editor/EditorView.tsx
-msgid "Inserted {0} as a figure."
-msgstr "Inserted {0} as a figure."
+#~ msgid "Inserted {0} as a figure."
+#~ msgstr "Inserted {0} as a figure."
+
+#. placeholder {0}: state.filename
+#: src/features/editor/EditorView.tsx
+msgid "Inserted {0}."
+msgstr "Inserted {0}."
 
 #: src/features/agents/AgentPicker.tsx
 msgid "Installed"
@@ -945,13 +1142,25 @@ msgstr "Light"
 msgid "Line {0}"
 msgstr "Line {0}"
 
-#: src/features/editor/EditorToolbar.tsx
+#: src/features/editor/EditorLinkBubble.tsx
 msgid "Link"
 msgstr "Link"
+
+#: src/features/editor/EditorLinkBubble.tsx
+msgid "Link URL"
+msgstr "Link URL"
+
+#: src/features/editor/EditorView.tsx
+msgid "list"
+msgstr "list"
 
 #: src/features/home/first-party-packages.ts
 msgid "Literature Review"
 msgstr "Literature Review"
+
+#: src/features/editor/EditorView.tsx
+msgid "litrpg"
+msgstr "litrpg"
 
 #: src/features/chat/FormBlock.tsx
 msgid "Live artifact view"
@@ -988,6 +1197,7 @@ msgstr "Loading file…"
 msgid "Loading files…"
 msgstr "Loading files…"
 
+#: src/core/editor/FigureNodeView.tsx
 #: src/rich-content/ImageBlock.tsx
 msgid "Loading image"
 msgstr "Loading image"
@@ -1041,12 +1251,16 @@ msgstr "Medium"
 msgid "Merged"
 msgstr "Merged"
 
+#: src/features/editor/EditorView.tsx
+msgid "mermaid"
+msgstr "mermaid"
+
 #. placeholder {0}: formatPreset(amountOptions.minUsd)
 #: src/features/billing/ExtraUsagePicker.tsx
 msgid "Minimum is {0}."
 msgstr "Minimum is {0}."
 
-#: src/core/editor/FigureNodeView.tsx
+#: src/core/editor/asset-image-render-state.ts
 msgid "Missing figure source"
 msgstr "Missing figure source"
 
@@ -1057,6 +1271,22 @@ msgstr "missing kind"
 #: src/features/billing/UsageCard.tsx
 msgid "Monthly usage"
 msgstr "Monthly usage"
+
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Move column left"
+msgstr "Move column left"
+
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Move column right"
+msgstr "Move column right"
+
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Move row down"
+msgstr "Move row down"
+
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Move row up"
+msgstr "Move row up"
 
 #: src/features/chat/FormBlock.tsx
 msgid "Must be a number"
@@ -1215,6 +1445,10 @@ msgstr "Nothing matches this filter."
 msgid "now"
 msgstr "now"
 
+#: src/features/editor/EditorView.tsx
+msgid "Numbered list"
+msgstr "Numbered list"
+
 #: src/features/chat/FormBlock.tsx
 msgid "Object"
 msgstr "Object"
@@ -1259,6 +1493,10 @@ msgstr "Open conversation"
 msgid "Open existing"
 msgstr "Open existing"
 
+#: src/features/editor/EditorLinkBubble.tsx
+msgid "Open link"
+msgstr "Open link"
+
 #: src/features/project/mobile/MobileTopBar.tsx
 msgid "Open navigation"
 msgstr "Open navigation"
@@ -1292,6 +1530,10 @@ msgstr "Opening document…"
 msgid "Or pick a file from the tree."
 msgstr "Or pick a file from the tree."
 
+#: src/features/editor/EditorView.tsx
+msgid "ordered"
+msgstr "ordered"
+
 #: src/features/billing/UsageCard.tsx
 msgid "Over your monthly usage"
 msgstr "Over your monthly usage"
@@ -1303,6 +1545,22 @@ msgstr "Parent unknown"
 #: src/features/project/chat/SubagentBanner.tsx
 msgid "Parent:"
 msgstr "Parent:"
+
+#: src/features/editor/EditorLinkBubble.tsx
+msgid "Paste or type a link"
+msgstr "Paste or type a link"
+
+#: src/features/editor/EditorView.tsx
+msgid "photo"
+msgstr "photo"
+
+#: src/features/editor/EditorView.tsx
+msgid "picture"
+msgstr "picture"
+
+#: src/features/editor/EditorCodeBubble.tsx
+msgid "Plain text"
+msgstr "Plain text"
 
 #: src/features/billing/BillingPage.tsx
 msgid "Plans"
@@ -1319,6 +1577,14 @@ msgstr "Popular"
 #: src/features/account/SettingsDialog.tsx
 msgid "Preferences"
 msgstr "Preferences"
+
+#: src/features/editor/EditorCodeBubble.tsx
+msgid "Press Enter to use this language"
+msgstr "Press Enter to use this language"
+
+#: src/features/editor/EditorCodeBubble.tsx
+msgid "Preview"
+msgstr "Preview"
 
 #: src/features/project/context/viewers/DownloadFallback.tsx
 msgid "Preview not available"
@@ -1340,6 +1606,10 @@ msgstr "Protocol Designer"
 #: src/features/chat/placeholders.ts
 msgid "Quick thought"
 msgstr "Quick thought"
+
+#: src/features/editor/EditorView.tsx
+msgid "Quote"
+msgstr "Quote"
 
 #: src/features/chat/tool-renderers.tsx
 msgid "Ran skill"
@@ -1427,6 +1697,14 @@ msgstr "Refresh"
 msgid "remaining"
 msgstr "remaining"
 
+#: src/features/editor/EditorImageBubble.tsx
+msgid "Remove image"
+msgstr "Remove image"
+
+#: src/features/editor/EditorLinkBubble.tsx
+msgid "Remove link"
+msgstr "Remove link"
+
 #: src/features/project/dock/ReviewOperationCard.tsx
 msgid "Removed"
 msgstr "Removed"
@@ -1452,13 +1730,25 @@ msgstr "Rename this document or move it somewhere else in your project."
 msgid "Renamed to {trimmed}"
 msgstr "Renamed to {trimmed}"
 
+#: src/core/editor/MermaidCodeBlock.tsx
+msgid "Rendering diagram…"
+msgstr "Rendering diagram…"
+
 #: src/features/account/SettingsDialog.tsx
 msgid "Reopens your last document and chat when you switch devices"
 msgstr "Reopens your last document and chat when you switch devices"
 
+#: src/features/editor/EditorImageBubble.tsx
+msgid "Replace image"
+msgstr "Replace image"
+
 #: src/features/chat/FormBlock.tsx
 msgid "Required"
 msgstr "Required"
+
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Reset table layout"
+msgstr "Reset table layout"
 
 #: src/features/project/shell/ProjectShell.tsx
 msgid "Resize right rail"
@@ -1514,6 +1804,18 @@ msgstr "Review draft"
 msgid "Rewrote"
 msgstr "Rewrote"
 
+#: src/features/editor/EditorToolbar.tsx
+msgid "Right"
+msgstr "Right"
+
+#: src/features/editor/EditorTableBubble.tsx
+msgid "Rows"
+msgstr "Rows"
+
+#: src/features/editor/EditorView.tsx
+msgid "rule"
+msgstr "rule"
+
 #: src/features/project/home/HomeScreen.tsx
 msgid "Running"
 msgstr "Running"
@@ -1535,6 +1837,10 @@ msgstr "Save name and location"
 #: src/features/editor/SyncStatus.tsx
 msgid "Saved locally (offline)"
 msgstr "Saved locally (offline)"
+
+#: src/features/editor/EditorView.tsx
+msgid "Scene break"
+msgstr "Scene break"
 
 #: src/features/project/context/context-schemes.ts
 msgid "Scratch"
@@ -1560,6 +1866,10 @@ msgstr "Searched context"
 #: src/features/chat/tool-renderers.tsx
 msgid "Searching…"
 msgstr "Searching…"
+
+#: src/features/editor/EditorView.tsx
+msgid "section"
+msgstr "section"
 
 #: src/features/project/mobile/MobileDocumentHost.tsx
 msgid "Select a document."
@@ -1644,6 +1954,14 @@ msgstr "Start a quick chat without a project"
 msgid "Start writing…"
 msgstr "Start writing…"
 
+#: src/features/editor/EditorView.tsx
+msgid "stat block"
+msgstr "stat block"
+
+#: src/features/editor/EditorView.tsx
+msgid "status"
+msgstr "status"
+
 #: src/features/project/home/HomeScreen.tsx
 msgid "Status"
 msgstr "Status"
@@ -1700,6 +2018,10 @@ msgstr "Switch screens or manage your account."
 #: src/features/project/context/ContextTreePanel.tsx
 msgid "Switch work"
 msgstr "Switch work"
+
+#: src/features/editor/EditorView.tsx
+msgid "Table"
+msgstr "Table"
 
 #: src/features/chat/placeholders.ts
 msgid "Talk it out"
@@ -1762,8 +2084,12 @@ msgid "The endpoint reports its own env-presence checklist in the body above (pr
 msgstr "The endpoint reports its own env-presence checklist in the body above (presence only, never values). Fix the indicated env var in your gitignored .env and restart the dev server before retrying."
 
 #: src/features/editor/EditorView.tsx
-msgid "The figure uploaded, but the editor could not insert it."
-msgstr "The figure uploaded, but the editor could not insert it."
+#~ msgid "The figure uploaded, but the editor could not insert it."
+#~ msgstr "The figure uploaded, but the editor could not insert it."
+
+#: src/features/editor/EditorView.tsx
+msgid "The image uploaded, but the editor could not insert it."
+msgstr "The image uploaded, but the editor could not insert it."
 
 #: src/features/chat/tool-renderers.tsx
 msgid "The requested passage in {name} wasn't specific enough."
@@ -1869,8 +2195,12 @@ msgid "This skill is no longer available in this chat — start a new chat to us
 msgstr "This skill is no longer available in this chat — start a new chat to use the current version."
 
 #: src/core/editor/FigureNodeView.tsx
-msgid "This stored figure needs a project and document before it can be rendered."
-msgstr "This stored figure needs a project and document before it can be rendered."
+#~ msgid "This stored figure needs a project and document before it can be rendered."
+#~ msgstr "This stored figure needs a project and document before it can be rendered."
+
+#: src/core/editor/asset-image-render-state.ts
+msgid "This stored figure needs a project before it can be rendered."
+msgstr "This stored figure needs a project before it can be rendered."
 
 #: src/lib/date-groups.ts
 msgid "This week"
@@ -1879,6 +2209,10 @@ msgstr "This week"
 #: src/features/chat/ComposerWriteModeControl.tsx
 msgid "This Work has {serverPendingCount, plural, one {# AI change} other {# AI changes}} in draft. Auto-apply stays off until every draft is applied or discarded."
 msgstr "This Work has {serverPendingCount, plural, one {# AI change} other {# AI changes}} in draft. Auto-apply stays off until every draft is applied or discarded."
+
+#: src/features/editor/EditorView.tsx
+msgid "title"
+msgstr "title"
 
 #: src/lib/date-groups.ts
 msgid "Today"
@@ -1901,9 +2235,17 @@ msgstr "Try again"
 msgid "Try again, or return to the live document."
 msgstr "Try again, or return to the live document."
 
+#: src/features/editor/EditorView.tsx
+msgid "Type / to insert…"
+msgstr "Type / to insert…"
+
 #: src/features/chat/TextBlock.tsx
 msgid "Type your answer…"
 msgstr "Type your answer…"
+
+#: src/core/editor/MermaidCodeBlock.tsx
+msgid "Unable to render diagram"
+msgstr "Unable to render diagram"
 
 #: src/features/chat/TurnEditsReceipt.tsx
 msgid "Undo"
@@ -1930,13 +2272,25 @@ msgstr "Untitled document"
 msgid "Untitled project"
 msgstr "Untitled project"
 
+#: src/features/editor/EditorImageBubble.tsx
+msgid "Update image"
+msgstr "Update image"
+
+#: src/features/editor/EditorLinkBubble.tsx
+msgid "Update link"
+msgstr "Update link"
+
 #: src/features/project/home/HomeScreen.tsx
 msgid "Updated"
 msgstr "Updated"
 
+#: src/features/editor/EditorView.tsx
+msgid "upload"
+msgstr "upload"
+
 #: src/features/editor/EditorToolbar.tsx
-msgid "Upload figure"
-msgstr "Upload figure"
+#~ msgid "Upload figure"
+#~ msgstr "Upload figure"
 
 #. placeholder {0}: state.filename
 #. placeholder {1}: state.percent
