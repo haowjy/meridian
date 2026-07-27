@@ -4,8 +4,9 @@
  * INVARIANT: record, not control panel — no draft affordance may be added here.
  * Review / Apply / Discard belong to the composer-attached DraftDock. Undo/Redo
  * is the only turn control. At rest, the receipt is one quiet borderless line.
- * The header names a single document when possible and carries durable word
- * deltas; expanding lists each document in the same bordered card.
+ * The header counts documents and carries durable word deltas — it never
+ * names one (names are doors, and chrome carries no doors); expanding lists
+ * each document as a navigable row in the same bordered card.
  *
  * Turn lineage owns Undo authority. Authorized trail detail owns durable row
  * evidence and navigation.
