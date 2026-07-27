@@ -29,7 +29,7 @@
   margin-top: 0.9em;
 }
 
-.meridian-editor .ProseMirror p.is-editor-empty:first-child::before {
+.meridian-editor .ProseMirror p.is-empty::before {
   float: left;
   height: 0;
   color: var(--color-muted-foreground);

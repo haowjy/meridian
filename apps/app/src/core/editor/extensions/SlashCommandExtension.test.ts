@@ -25,7 +25,7 @@ function createEditor(content: string) {
     element,
     content,
     extensions: createStandaloneEditorExtensions({
-      slashCommands: { items: ITEMS, menuLabel: "Insert block" },
+      slashCommands: { catalog: () => ({ items: ITEMS, menuLabel: "Insert block" }) },
     }),
   });
   editors.push(editor);

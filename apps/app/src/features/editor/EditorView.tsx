@@ -25,6 +25,7 @@ import {
   type UIEventHandler,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -35,6 +36,7 @@ import { uploadFigure } from "@/client/api/figures-api";
 import { useProjectContextTree } from "@/client/query/useProjectContextTree";
 import type { DocumentSession } from "@/core/editor/document-session";
 import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
+import type { SlashCommandItem } from "@/core/editor/extensions/SlashCommandExtension";
 import {
   createEditorAssetPathResolver,
   imageAltFromFilename,
@@ -54,7 +56,12 @@ import {
 import { usePrefetchTrailDetails } from "@/features/change-trail/trail-detail-query";
 import { useDraftReview } from "@/features/chat/DraftReviewProvider";
 import { cn } from "@/lib/utils";
+import { EditorBubbleHost, type EditorBubbleHostHandle } from "./EditorBubbleHost";
+import { codeBubbleContext } from "./EditorCodeBubble";
+import { createImageBubbleContext } from "./EditorImageBubble";
+import { linkBubbleContext } from "./EditorLinkBubble";
 import { EditorSurfaceFrame } from "./EditorSurfaceFrame";
+import { tableBubbleContext } from "./EditorTableBubble";
 import { EditorToolbar } from "./EditorToolbar";
 import { editorColumnCanvas, editorColumnFill, editorProseClass } from "./editor-column";
 import { PeerMarkPopover, type PeerMarkPopoverTarget } from "./PeerMarkPopover";
@@ -227,6 +234,9 @@ function SessionEditorView({
   // this project's asset namespace, and the clipboard translation must not see
   // another project's paths.
   const assetPathResolver = useMemo(() => createEditorAssetPathResolver(), []);
+  const bubbleHostRef = useRef<EditorBubbleHostHandle>(null);
+  const bubbleContentId = useId();
+  const [activeBubbleId, setActiveBubbleId] = useState<string | null>(null);
   const { tree: manuscriptTree } = useProjectContextTree(projectId ?? "", "manuscript", {
     enabled: Boolean(projectId),
   });
@@ -302,6 +312,32 @@ function SessionEditorView({
     remember(manuscriptTree);
   }, [assetPathResolver, manuscriptTree]);
 
+  // Read when the slash menu opens, so the `t` macros resolve against whatever
+  // locale is active then — a locale switch relabels the menu without touching
+  // the editor's lifetime.
+  const slashCommandCatalog = useCallback(() => {
+    if (identity.schemaType !== "document" || !editable) return null;
+    return {
+      menuLabel: t`Insert block`,
+      requestImageUpload: () => imageInputRef.current?.click(),
+      items: [
+        {
+          id: "scene-break",
+          label: t`Scene break`,
+          aliases: [t`divider`, t`hr`, t`rule`, t`break`],
+        },
+        { id: "heading", label: t`Heading`, aliases: [t`title`, t`h1`, t`h2`, t`section`] },
+        { id: "quote", label: t`Quote`, aliases: [t`blockquote`] },
+        { id: "bullet-list", label: t`Bullet list`, aliases: [t`list`] },
+        { id: "numbered-list", label: t`Numbered list`, aliases: [t`ordered`] },
+        { id: "table", label: t`Table`, aliases: [t`grid`, t`stat block`, t`status`, t`litrpg`] },
+        { id: "image", label: t`Image`, aliases: [t`picture`, t`photo`, t`upload`] },
+        { id: "code", label: t`Code`, aliases: [t`fence`, t`codeblock`] },
+        { id: "diagram", label: t`Diagram`, aliases: [t`mermaid`, t`flowchart`, t`chart`] },
+      ] satisfies SlashCommandItem[],
+    };
+  }, [editable, identity.schemaType]);
+
   const clearUploadLater = useCallback(() => {
     if (clearUploadTimerRef.current) clearTimeout(clearUploadTimerRef.current);
     clearUploadTimerRef.current = setTimeout(() => {
@@ -368,6 +404,24 @@ function SessionEditorView({
       }
     },
     [uploadImageFile],
+  );
+
+  // Registration order is arbitration precedence: link → code → image → table.
+  // Read-only surfaces get no mutating contexts at all.
+  const bubbleContexts = useMemo(
+    () =>
+      editable
+        ? [
+            linkBubbleContext,
+            codeBubbleContext,
+            createImageBubbleContext(async (file) => {
+              const attrs = await uploadImageFile(file);
+              return { src: attrs.src, alt: attrs.alt ?? "" };
+            }),
+            tableBubbleContext,
+          ]
+        : [],
+    [editable, uploadImageFile],
   );
 
   // Surface config: applied to the running editor, never a reason to rebuild it.
@@ -472,7 +526,8 @@ function SessionEditorView({
     identity,
     session,
     agentNames,
-    placeholder: t`Start writing…`,
+    placeholder: identity.schemaType === "document" ? t`Type / to insert…` : t`Start writing…`,
+    slashCommandCatalog,
     surface: { editable, editorProps },
   });
 
@@ -578,6 +633,11 @@ function SessionEditorView({
               onImageButtonClick={() => imageInputRef.current?.click()}
               imageUploadBusy={imageUploadState.kind === "uploading"}
               imageUploadDisabled={!projectId}
+              linkBubbleOpen={activeBubbleId === linkBubbleContext.id}
+              linkBubbleId={bubbleContentId}
+              onOpenLinkBubble={() =>
+                bubbleHostRef.current?.open(linkBubbleContext.id, { focus: true })
+              }
             />
           ) : undefined
         }
@@ -600,6 +660,13 @@ function SessionEditorView({
           ) : undefined
         }
         uploadStatus={<ImageUploadStatus state={imageUploadState} />}
+      />
+      <EditorBubbleHost
+        ref={bubbleHostRef}
+        editor={editor}
+        contexts={bubbleContexts}
+        contentId={bubbleContentId}
+        onActiveContextChange={setActiveBubbleId}
       />
       <PeerMarkPopover
         key={peerMarkTarget?.marker.changeId ?? "closed"}

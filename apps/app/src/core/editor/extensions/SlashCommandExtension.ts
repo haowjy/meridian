@@ -20,10 +20,20 @@ export type SlashCommandItem = {
   aliases: readonly string[];
 };
 
-export type SlashCommandExtensionOptions = {
+export type SlashCommandCatalog = {
   items: readonly SlashCommandItem[];
   menuLabel: string;
   requestImageUpload?: () => void;
+};
+
+export type SlashCommandExtensionOptions = {
+  /**
+   * Read when the menu opens, never at construction. The catalog carries
+   * localized labels and host callbacks that must stay live; making them
+   * construction facts would put a locale switch on the editor's remount path.
+   * Return null to leave the menu off for this surface.
+   */
+  catalog: () => SlashCommandCatalog | null;
 };
 
 export const slashCommandPluginKey = new PluginKey("slashCommand");
@@ -102,7 +112,7 @@ function runSlashCommand(
   }
 }
 
-function createMenuRenderer(menuLabel: string) {
+function createMenuRenderer(menuLabel: () => string) {
   let element: HTMLDivElement | null = null;
   let unmount: (() => void) | null = null;
   let props: SuggestionProps<SlashCommandItem, SlashCommandItem> | null = null;
@@ -136,7 +146,7 @@ function createMenuRenderer(menuLabel: string) {
       element = document.createElement("div");
       element.className = "meridian-slash-menu";
       element.role = "listbox";
-      element.ariaLabel = menuLabel;
+      element.ariaLabel = menuLabel();
       paint();
       unmount = nextProps.mount(element);
     },
@@ -187,7 +197,7 @@ export const SlashCommandExtension = Extension.create<SlashCommandExtensionOptio
   name: "slashCommand",
 
   addOptions() {
-    return { items: [], menuLabel: "", requestImageUpload: undefined };
+    return { catalog: () => null };
   },
 
   addProseMirrorPlugins() {
@@ -199,6 +209,7 @@ export const SlashCommandExtension = Extension.create<SlashCommandExtensionOptio
         startOfLine: true,
         allowedPrefixes: null,
         allow: ({ state, range }) => {
+          if (!this.options.catalog()) return false;
           const $from = state.doc.resolve(range.from);
           if (
             $from.parent.type.name !== "paragraph" ||
@@ -213,10 +224,10 @@ export const SlashCommandExtension = Extension.create<SlashCommandExtensionOptio
           }
           return true;
         },
-        items: ({ query }) => filterSlashCommandItems(this.options.items, query),
+        items: ({ query }) => filterSlashCommandItems(this.options.catalog()?.items ?? [], query),
         command: ({ editor, range, props }) =>
-          runSlashCommand(editor, range, props, this.options.requestImageUpload),
-        render: () => createMenuRenderer(this.options.menuLabel),
+          runSlashCommand(editor, range, props, this.options.catalog()?.requestImageUpload),
+        render: () => createMenuRenderer(() => this.options.catalog()?.menuLabel ?? ""),
       }),
     ];
   },
