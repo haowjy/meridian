@@ -12,6 +12,9 @@
   "Wrote").
 - `apps/app`: tool expands now state what they clipped ("4 of 7") instead of
   silently truncating, and closed rows no longer parse result payloads.
+- `apps/app`, `packages/agent-edit`: search excerpts no longer show internal
+  block hashes (`79b9|…`), and activity-row glyphs now center on their text
+  line.
 
 - `apps/server`: Anthropic-format cache usage now normalizes to inclusive input
   totals, so uncached prompt tokens are priced instead of silently clamped away;
