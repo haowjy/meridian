@@ -111,7 +111,13 @@ access uses `DocumentAccessPort.canAccessDocument()`.
 |---|---|
 | `ws-thread-handler.ts` | Thread-events WebSocket session: connected frame, subscribe/resume ownership checks, hub catchup/live events, unsubscribe/cleanup. |
 | `yjs-ws-handler.ts` | Hocuspocus bridge for live and Work-draft rooms. Per-connection schema admission runs before sync; typed refusals close the physical transport directly, then throw only to abort hook processing. |
-| `ws-safe-send.ts` | Defensive `peer.send` wrapper used for all server-initiated sends. |
+| `ws-safe-send.ts` | Defensive `peer.send` wrapper for callers that opt into close-on-send-failure behavior. |
+
+For typed Yjs admission refusals, `YjsConnectionContext.closeTransport` is the
+physical-close seam. `refuseConnection()` invokes it before throwing; the throw
+only aborts the active Hocuspocus hook and must not be treated as close
+delivery. Schema-head comparison semantics remain in the
+[collab domain](../../domains/collab/.context/document-authority-and-schema.md).
 
 ## Route helpers / services
 

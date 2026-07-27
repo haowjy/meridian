@@ -13,9 +13,9 @@ generation where needed.
 The review list therefore emits one active item per document and folds all
 contributing journal rows into that item. `lastActorTurnId` is representative
 metadata, not review identity. `draftId` is the only application and wire
-identity. `WorkDraftReviewService` resolves it to the physical Work branch and
-keeps that branch identity inside the domain; `reviewRoomName` remains an opaque
-transport address.
+identity. `createWorkDraftReviewService()` resolves it to the physical Work
+branch and keeps that branch identity inside the domain; `reviewRoomName`
+remains an opaque transport address.
 
 Propagation is sync-only. Cold attribution uses persisted branch journal rows
 and live journal metadata; memory-only runtime maps are never an attribution

@@ -11,3 +11,4 @@ and WebSocket callers.
 - [Reversal](reversal.md)
 - [Push settlement and change trail](settlement-and-trail.md)
 - [WebSocket concurrency boundary](websocket-concurrency.md)
+- [Draft/live visual model](draft-live-model.html)

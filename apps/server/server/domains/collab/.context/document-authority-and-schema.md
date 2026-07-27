@@ -52,11 +52,16 @@ is reconciled into an already-open live room before success returns, and a stale
 room checkpoint at the same journal cut cannot replace it. The context caller contract is documented in
 [the context domain](../../context/.context/CONTEXT.md).
 
+Writer admission rejects reserved client IDs and insertion or deletion in the
+reserved provenance namespace before durable append and Yjs apply. The
+reserved namespace is server-owned certification state, not a client write
+surface.
+
 WebSocket admission compares the bundle's declared schema version with the
 specific live or Work-draft branch head before sync. The check runs per
 connection because Hocuspocus deduplicates document loads. An unstamped live
 head passes; a strictly older client closes with `4406
 client-schema-superseded`. A stored head older than the running server closes
 with `4407 document-schema-stale`; load-time stale-schema errors retain that
-typed close as a race backstop. Typed refusals directly close the transport;
-the subsequent throw only aborts Hocuspocus hook processing.
+typed close as a race backstop. Physical close delivery and Hocuspocus hook
+termination belong to the [server transport boundary](../../../lib/.context/CONTEXT.md).
