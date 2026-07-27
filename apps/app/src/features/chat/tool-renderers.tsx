@@ -39,7 +39,12 @@ import {
   toolInputObject,
   type WriteMode,
 } from "./tool-command";
-import { normalizeToolResultRows, truncate } from "./tool-result-preview";
+import {
+  normalizeToolResultRows,
+  resultBoundLabel,
+  type ToolResultRows,
+  truncate,
+} from "./tool-result-preview";
 
 export type ToolRenderContext = {
   writeMode?: WriteMode;
@@ -110,25 +115,34 @@ function PhraseTitle({ phrase }: { phrase: ToolActivityPhrase }) {
 
 /* ── inline-expand renderers (curated, never JSON) ─────────────────────── */
 
-function ResultRows({ rows }: { rows: ReturnType<typeof normalizeToolResultRows> }) {
+function ResultRows({ results }: { results: ToolResultRows }) {
+  const bound = resultBoundLabel(results);
   return (
-    <ul className="space-y-2">
-      {rows.map((row) => (
-        <li key={`${row.title}|${row.subtitle ?? ""}|${row.snippet ?? ""}`} className="space-y-0.5">
-          {/* A match row is about a document, and the uniform rule covers it:
-              the same door, the same underline as a row title. */}
-          <div className="flex min-w-0 text-compact font-medium text-prose-foreground">
-            {isContextUri(row.title) ? <DocumentName path={row.title} /> : row.title}
-          </div>
-          {row.subtitle ? (
-            <div className="truncate font-mono text-meta text-muted-foreground">{row.subtitle}</div>
-          ) : null}
-          {row.snippet ? (
-            <div className="text-xs leading-relaxed text-ink-muted">{row.snippet}</div>
-          ) : null}
-        </li>
-      ))}
-    </ul>
+    <>
+      <ul className="space-y-2">
+        {results.rows.map((row) => (
+          <li
+            key={`${row.title}|${row.subtitle ?? ""}|${row.snippet ?? ""}`}
+            className="space-y-0.5"
+          >
+            {/* A match row is about a document, and the uniform rule covers it:
+                the same door, the same underline as a row title. */}
+            <div className="flex min-w-0 text-compact font-medium text-prose-foreground">
+              {isContextUri(row.title) ? <DocumentName path={row.title} /> : row.title}
+            </div>
+            {row.subtitle ? (
+              <div className="truncate font-mono text-meta text-muted-foreground">
+                {row.subtitle}
+              </div>
+            ) : null}
+            {row.snippet ? (
+              <div className="text-xs leading-relaxed text-ink-muted">{row.snippet}</div>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      {bound ? <p className="mt-1.5 text-meta text-ink-subtle">{bound}</p> : null}
+    </>
   );
 }
 
@@ -335,9 +349,9 @@ function streamOrOutput(tool: ToolView): ReactNode | null {
 }
 
 function resultRowsOrNothing(tool: ToolView): ReactNode | null {
-  const rows = normalizeToolResultRows(tool.output ?? undefined);
-  if (rows.length === 0) return null;
-  return <ResultRows rows={rows} />;
+  const results = normalizeToolResultRows(tool.output ?? undefined);
+  if (results.rows.length === 0) return null;
+  return <ResultRows results={results} />;
 }
 
 /* ── registry ──────────────────────────────────────────────────────────── */

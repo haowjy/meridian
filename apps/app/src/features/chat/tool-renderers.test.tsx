@@ -176,6 +176,33 @@ describe("runtime tool registry", () => {
     expect(html).not.toContain("0.91");
   });
 
+  it("states the bound when the expand clips a longer result list", () => {
+    const tool = writeToolView({
+      toolName: "grep",
+      output: Array.from({ length: 42 }, (_, index) => ({
+        uri: `manuscript://chapter-${index + 1}.md`,
+        excerpt: "The dragon stirred beneath the mountain.",
+      })),
+    });
+
+    const html = renderToStaticMarkup(rendererFor("grep").expand?.(tool));
+
+    // A fact about the payload, never an invitation ("Showing…" is systems voice).
+    expect(html).toContain("4 of 42");
+    expect(html).not.toContain("Showing");
+    expect(html).toContain("chapter-4");
+    expect(html).not.toContain("chapter-5");
+  });
+
+  it("states no bound when nothing was clipped", () => {
+    const tool = writeToolView({
+      toolName: "grep",
+      output: [{ uri: "manuscript://chapter-12.md", excerpt: "The dragon stirred." }],
+    });
+
+    expect(renderToStaticMarkup(rendererFor("grep").expand?.(tool))).not.toContain(" of ");
+  });
+
   it("does not expand an empty server grep result array", () => {
     const tool = writeToolView({ toolName: "grep", output: [] });
 

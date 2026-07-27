@@ -120,6 +120,10 @@ msgstr "{pendingChangeCount} changes waiting for review"
 msgid "{remainingPercent}% remaining"
 msgstr "{remainingPercent}% remaining"
 
+#: src/features/chat/tool-result-preview.ts
+msgid "{shown} of {total}"
+msgstr "{shown} of {total}"
+
 #. placeholder {0}: target.name
 #: src/features/project/context/ContextEntryActions.tsx
 msgid "<0>{0}</0> and all its contents will be permanently deleted."
