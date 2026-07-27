@@ -17,10 +17,7 @@ import {
 import type { AppServices } from "./app.js";
 import { resolveAppUserFromRequest } from "./auth-gate.js";
 
-export type WsDeferredClose = {
-  code: number;
-  reason: string;
-};
+export type WsDeferredClose = typeof WS_CLOSE.AUTH_FAILED | typeof WS_CLOSE.AUTH_ERROR;
 
 export type WsAuthenticatedUpgrade = {
   kind: "authenticated";
@@ -61,6 +58,6 @@ export async function resolveWsUpgradeAuth(
       name: "upgrade_auth.failed",
       payload: { logPrefix: options.logPrefix, ...unknownToEventPayload(error) },
     });
-    return deferWsClose({ code: 1011, reason: "auth_error" });
+    return deferWsClose(WS_CLOSE.AUTH_ERROR);
   }
 }

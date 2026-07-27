@@ -27,6 +27,7 @@
 import {
   type ChangeEventWsMessage,
   parseYjsRoomName,
+  WS_CLOSE,
   type YjsRoomName,
 } from "@meridian/contracts/protocol";
 import { COLLAB_SCHEMA_VERSION, createCollabYDoc } from "@meridian/prosemirror-schema";
@@ -94,10 +95,24 @@ export type DocumentSessionSnapshot = {
   roomKey: string;
   room: YjsRoomName;
   status: DocumentSessionStatus;
-  connectionState: ConnectionState | null;
+  connectionState: DocumentSessionConnectionState | null;
   localPersistenceSynced: boolean;
   schemaFence: SchemaFence | null;
 };
+
+export type DocumentSessionResetReason =
+  | typeof WS_CLOSE.BRANCH_STALE.reason
+  | typeof WS_CLOSE.CLIENT_SCHEMA_SUPERSEDED.reason
+  | typeof WS_CLOSE.DOCUMENT_SCHEMA_STALE.reason
+  | "branch-generation-stale";
+
+export type DocumentSessionConnectionState =
+  | Exclude<ConnectionState, { kind: "reset" }>
+  | {
+      kind: "reset";
+      reason: DocumentSessionResetReason;
+      code?: number;
+    };
 
 /**
  * Surface `DocumentSession` consumes from its transport.
@@ -126,7 +141,7 @@ export type DocumentSessionTransportProvider = {
    * Implementations MUST emit the current state synchronously on subscribe
    * and on every subsequent change. Returns an unsubscribe function.
    */
-  subscribeStatus?: (listener: (state: ConnectionState) => void) => () => void;
+  subscribeStatus?: (listener: (state: DocumentSessionConnectionState) => void) => () => void;
   subscribeChangeEvents?: (listener: (message: ChangeEventWsMessage) => void) => () => void;
   destroy: () => void | Promise<void>;
 };
@@ -183,7 +198,7 @@ export class DocumentSession {
    * pre-`whenSynced` we treat the session as syncing; this field lets us
    * distinguish "connected & synced" from "disconnected" after that.
    */
-  private transportState: ConnectionState | null = null;
+  private transportState: DocumentSessionConnectionState | null = null;
   private schemaFence: SchemaFence | null = null;
   private presenceSuspendDepth = 0;
   private suspendedLocalAwarenessState: Record<string, unknown> | null = null;
@@ -258,7 +273,7 @@ export class DocumentSession {
     this.unsubscribeTransportStatus =
       this.transportProvider.subscribeStatus?.((state) => {
         this.transportState = state;
-        if (state.kind === "reset" && state.reason === "client-schema-superseded") {
+        if (state.kind === "reset" && state.reason === WS_CLOSE.CLIENT_SCHEMA_SUPERSEDED.reason) {
           if (!attemptClientSchemaReload(this.roomKey)) {
             this.raiseSchemaFence({ reason: "client-superseded", detail: state.reason });
           }

@@ -27,14 +27,19 @@ import {
 import { COLLAB_SCHEMA_VERSION } from "@meridian/prosemirror-schema";
 import type { Awareness } from "y-protocols/awareness";
 import type * as Y from "yjs";
-import type { DocumentSessionTransportProvider } from "@/core/editor/document-session";
+import type {
+  DocumentSessionConnectionState,
+  DocumentSessionResetReason,
+  DocumentSessionTransportProvider,
+} from "@/core/editor/document-session";
 
 import { buildSameOriginWsUrl } from "./dev-transport";
-import type { ConnectionState } from "./ThreadTransport";
 import { notifyYjsRoomAttached, TappedWebSocket } from "./tapped-websocket";
 
-const TERMINAL_DENIAL_CODES = new Set([4401, 4403]);
-const HOCUSPOCUS_BRANCH_RESET_REASONS = new Set(["branch-generation-stale", "branch-stale-doc"]);
+const TERMINAL_DENIAL_CODES = new Set<number>([
+  WS_CLOSE.AUTH_FAILED.code,
+  WS_CLOSE.PERMISSION_DENIED.code,
+]);
 
 class RoomScopedHocuspocusWebsocket extends HocuspocusProviderWebsocket {
   private permanentlyDestroyed = false;
@@ -56,7 +61,7 @@ export function schemaVersionedYjsWsPath(): string {
   return `${yjsWsPath()}?schema=${COLLAB_SCHEMA_VERSION}`;
 }
 
-function mapStatus(status: WebSocketStatus): ConnectionState {
+function mapStatus(status: WebSocketStatus): DocumentSessionConnectionState {
   if (status === WebSocketStatus.Connected) return { kind: "connected" };
   if (status === WebSocketStatus.Connecting) return { kind: "connecting", attempt: 1 };
   return { kind: "disconnected" };
@@ -66,18 +71,27 @@ function isTerminalDenialClose(event: onCloseParameters["event"]): boolean {
   return TERMINAL_DENIAL_CODES.has(event.code);
 }
 
-function terminalState(reason: string, code?: number): ConnectionState {
+function terminalState(reason: string, code?: number): DocumentSessionConnectionState {
   return { kind: "unauthorized", reason, code };
 }
 
-function resetState(reason: string, code?: number): ConnectionState {
+function resetState(
+  reason: DocumentSessionResetReason,
+  code?: number,
+): DocumentSessionConnectionState {
   return { kind: "reset", reason, code };
+}
+
+function branchResetReason(reason: string): DocumentSessionResetReason | null {
+  if (reason === "branch-generation-stale") return "branch-generation-stale";
+  if (reason === WS_CLOSE.BRANCH_STALE.reason) return WS_CLOSE.BRANCH_STALE.reason;
+  return null;
 }
 
 export function classifyDocumentTransportClose(
   roomName: string,
   event: { code: number; reason: string },
-): ConnectionState | null {
+): DocumentSessionConnectionState | null {
   if (isTerminalDenialClose(event)) return terminalState(event.reason, event.code);
   if (event.code === WS_CLOSE.CLIENT_SCHEMA_SUPERSEDED.code) {
     return resetState(WS_CLOSE.CLIENT_SCHEMA_SUPERSEDED.reason, event.code);
@@ -85,8 +99,9 @@ export function classifyDocumentTransportClose(
   if (event.code === WS_CLOSE.DOCUMENT_SCHEMA_STALE.code) {
     return resetState(WS_CLOSE.DOCUMENT_SCHEMA_STALE.reason, event.code);
   }
-  if (roomName.startsWith("branch:") && HOCUSPOCUS_BRANCH_RESET_REASONS.has(event.reason)) {
-    return resetState(event.reason, event.code);
+  const branchReason = branchResetReason(event.reason);
+  if (roomName.startsWith("branch:") && branchReason) {
+    return resetState(branchReason, event.code);
   }
   return null;
 }
@@ -126,7 +141,7 @@ export function createHocuspocusDocumentTransport({
   document,
   awareness,
 }: HocuspocusDocumentTransportOptions): DocumentSessionTransportProvider {
-  const listeners = new Set<(state: ConnectionState) => void>();
+  const listeners = new Set<(state: DocumentSessionConnectionState) => void>();
   const changeEventListeners = new Set<(message: ChangeEventWsMessage) => void>();
   const websocket = new RoomScopedHocuspocusWebsocket({
     url: buildSameOriginWsUrl(schemaVersionedYjsWsPath()),
@@ -145,12 +160,12 @@ export function createHocuspocusDocumentTransport({
   });
   const durableSync = createDurableSyncBarrier();
 
-  function publish(state: ConnectionState): void {
+  function publish(state: DocumentSessionConnectionState): void {
     currentState = state;
     for (const listener of listeners) listener(state);
   }
 
-  function publishTerminal(state: ConnectionState): void {
+  function publishTerminal(state: DocumentSessionConnectionState): void {
     if (terminal) return;
     terminal = true;
     publish(state);

@@ -10,15 +10,14 @@
  * every connection-state change — never a frozen startup value.
  */
 
-import type { ChangeEventWsMessage } from "@meridian/contracts/protocol";
+import { type ChangeEventWsMessage, WS_CLOSE } from "@meridian/contracts/protocol";
 import { COLLAB_SCHEMA_VERSION } from "@meridian/prosemirror-schema";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Awareness } from "y-protocols/awareness";
 
-import type { ConnectionState } from "@/core/transport/ThreadTransport";
-
 import {
   DocumentSession,
+  type DocumentSessionConnectionState,
   type DocumentSessionSnapshot,
   type DocumentSessionTransportProvider,
   documentSessionPersistenceKey,
@@ -26,7 +25,7 @@ import {
 import { clientSchemaReloadGuardKey } from "./schema-fence";
 
 type FakeTransport = DocumentSessionTransportProvider & {
-  emit: (state: ConnectionState) => void;
+  emit: (state: DocumentSessionConnectionState) => void;
   resolveFirstSync: () => void;
   resolveDurableSync: () => void;
   setSynced: (synced: boolean) => void;
@@ -34,7 +33,9 @@ type FakeTransport = DocumentSessionTransportProvider & {
   destroyed: boolean;
 };
 
-function makeFakeTransport(initial: ConnectionState = { kind: "connecting", attempt: 1 }): {
+function makeFakeTransport(
+  initial: DocumentSessionConnectionState = { kind: "connecting", attempt: 1 },
+): {
   factory: (opts: { awareness: Awareness }) => FakeTransport;
   current: () => FakeTransport;
 } {
@@ -49,7 +50,7 @@ function makeFakeTransport(initial: ConnectionState = { kind: "connecting", atte
       const whenDurablySynced = new Promise<void>((resolve) => {
         resolveDurableSynced = resolve;
       });
-      const listeners = new Set<(state: ConnectionState) => void>();
+      const listeners = new Set<(state: DocumentSessionConnectionState) => void>();
       const changeListeners = new Set<(message: ChangeEventWsMessage) => void>();
       let latest = initial;
       let synced = false;
@@ -520,7 +521,11 @@ describe("DocumentSession status derivation", () => {
     });
     await flushMicrotasks();
 
-    current().emit({ kind: "reset", reason: "Reset Connection", code: 4205 });
+    current().emit({
+      kind: "reset",
+      reason: WS_CLOSE.BRANCH_STALE.reason,
+      code: WS_CLOSE.BRANCH_STALE.code,
+    });
 
     expect(session.getSnapshot()).toMatchObject({
       status: "access-lost",

@@ -17,11 +17,11 @@ import * as Y from "yjs";
 
 import type {
   DocumentSession,
+  DocumentSessionConnectionState,
   DocumentSessionSnapshot,
   SchemaFence,
 } from "@/core/editor/document-session";
 import { SessionMarkerStore } from "@/core/editor/session-marker-store";
-import type { ConnectionState } from "@/core/transport/ThreadTransport";
 import { withReactRoot } from "@/test-support/react-dom-harness";
 import type { EditorViewProps } from "./EditorView";
 
@@ -77,7 +77,10 @@ function raiseSchemaFence(roomKey: string, fence: SchemaFence): void {
   for (const listener of sessionListeners.get(roomKey) ?? []) listener(fenced);
 }
 
-function setConnectionState(roomKey: string, connectionState: ConnectionState): void {
+function setConnectionState(
+  roomKey: string,
+  connectionState: DocumentSessionConnectionState,
+): void {
   const snapshot = sessionSnapshots.get(roomKey);
   if (!snapshot) return;
   const next = { ...snapshot, connectionState };
