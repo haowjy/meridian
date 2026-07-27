@@ -77,6 +77,7 @@ transaction events to keep active-mark highlighting in sync.
 Props:
 
 - `editor: Editor | null` — the TipTap instance. `null` is valid (pre-mount shell).
+- `disabled` — blocks every mutating command while the host is read-only.
 - `figureUpload*` — delegates back to the host for the file-input flow.
 
 `EditorSurfaceFrame` accepts the optional `toolbar`, the host-specific

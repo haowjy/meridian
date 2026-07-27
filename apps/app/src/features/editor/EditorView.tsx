@@ -213,9 +213,11 @@ function SessionEditorView({
   const [dragActive, setDragActive] = useState(false);
   const [peerMarkTarget, setPeerMarkTarget] = useState<PeerMarkPopoverTarget | null>(null);
   const [snapshot, setSnapshot] = useState(() => session.getSnapshot());
+  const effectiveEditableRef = useRef(true);
   const pointerSelectionRef = useRef<{ from: number; to: number } | null>(null);
   const agentNames = useAgentNames(projectId, { enabled: !inReview });
   const effectiveEditable = editable && !snapshot.schemaFence;
+  effectiveEditableRef.current = effectiveEditable;
 
   useEffect(() => session.subscribe(setSnapshot), [session]);
   // Marks render before anyone clicks one. Warming their trail detail here is
@@ -309,11 +311,14 @@ function SessionEditorView({
             setFigureUploadState({ kind: "uploading", filename: file.name, percent });
           },
         });
-        const inserted = insertFigureNode(
-          editorRef.current,
-          uploadResponseToFigureNodeAttrs(reference),
-          insertPos,
-        );
+        const inserted =
+          effectiveEditableRef.current && !session.getSnapshot().schemaFence
+            ? insertFigureNode(
+                editorRef.current,
+                uploadResponseToFigureNodeAttrs(reference),
+                insertPos,
+              )
+            : false;
         setFigureUploadState(
           inserted
             ? { kind: "success", filename: file.name }
@@ -330,7 +335,7 @@ function SessionEditorView({
         });
       }
     },
-    [clearUploadLater, documentId, projectId],
+    [clearUploadLater, documentId, projectId, session],
   );
 
   // Surface config: applied to the running editor, never a reason to rebuild it.
@@ -526,6 +531,7 @@ function SessionEditorView({
           showToolbar ? (
             <EditorToolbar
               editor={editor}
+              disabled={!effectiveEditable}
               onFigureButtonClick={() => figureInputRef.current?.click()}
               figureUploadBusy={figureUploadState.kind === "uploading"}
               figureUploadDisabled={!projectId}

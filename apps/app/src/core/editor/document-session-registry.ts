@@ -213,7 +213,7 @@ export class DocumentSessionRegistry {
     const session = this.sessions.get(roomKey);
     if (!session) return false;
     const snapshot = session.getSnapshot();
-    if (snapshot.status === "detached") return false;
+    if (snapshot.schemaFence || snapshot.status === "detached") return false;
     if (
       snapshot.status !== "access-lost" &&
       snapshot.connectionState?.kind !== "unauthorized" &&

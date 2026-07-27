@@ -308,4 +308,25 @@ describe("DocumentSessionRegistry.restartUnavailableRoom", () => {
     expect(session.awareness.getLocalState()).toBeNull();
     registry.destroyAll();
   });
+
+  it("does not restart transport for a fenced terminal session", async () => {
+    providers.length = 0;
+    vi.stubGlobal("localStorage", memoryStorage());
+    const registry = new DocumentSessionRegistry();
+    const session = registry.get("document-fenced-terminal");
+    await session.waitForCurrentSync(100);
+    providers.at(-1)?.emit({ kind: "unauthorized", reason: "revoked", code: 4403 });
+    expect(registry.quarantineRoom("document-fenced-terminal", { reason: "invalid-content" })).toBe(
+      true,
+    );
+
+    await expect(registry.restartUnavailableRoom("document-fenced-terminal")).resolves.toBe(false);
+
+    expect(providers).toHaveLength(1);
+    expect(session.getSnapshot()).toMatchObject({
+      status: "access-lost",
+      schemaFence: { reason: "invalid-content" },
+    });
+    registry.destroyAll();
+  });
 });

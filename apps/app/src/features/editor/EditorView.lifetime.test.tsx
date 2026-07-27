@@ -110,7 +110,6 @@ vi.mock("@/core/editor/document-session-registry", () => ({
   getDocumentSessionRegistry: () => registry,
 }));
 vi.mock("./useInlineReviewSync", () => ({ useInlineReviewSync: () => {} }));
-vi.mock("./EditorToolbar", () => ({ EditorToolbar: () => null }));
 vi.mock("./SyncStatus", () => ({ SyncStatus: () => null }));
 vi.mock("./PeerMarkPopover", () => ({ PeerMarkPopover: () => null }));
 
@@ -210,6 +209,9 @@ describe("editor lifetime", () => {
     await withReactRoot(<Harness initial={initial} />, async () => {
       const original = tagOf(mountedEditor(), "editor");
       expect(mountedEditor().isEditable).toBe(true);
+      await act(async () => {
+        mountedEditor().commands.insertContent("Fenced words");
+      });
 
       await act(async () => {
         raiseSchemaFence("document-fenced", { reason: "repair-detected" });
@@ -218,6 +220,15 @@ describe("editor lifetime", () => {
       expect(tagOf(mountedEditor(), "editor")).toBe(original);
       expect(mountedEditor().isEditable).toBe(false);
       expect(mountedEditor().view.dom.getAttribute("contenteditable")).toBe("false");
+      const fencedHtml = mountedEditor().getHTML();
+      const toolbarButtons =
+        document.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button');
+      expect(toolbarButtons.length).toBeGreaterThan(0);
+      expect([...toolbarButtons].every((button) => button.disabled)).toBe(true);
+      await act(async () => {
+        document.querySelector<HTMLButtonElement>('button[aria-label="Bold"]')?.click();
+      });
+      expect(mountedEditor().getHTML()).toBe(fencedHtml);
       expect(document.querySelector("[data-schema-fence]")?.textContent).toBe(
         "Part of this chapter couldn't be kept in this version of Meridian. Editing is paused to protect your manuscript. Refresh to continue.",
       );
