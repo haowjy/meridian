@@ -56,8 +56,7 @@ pure-deletion locations for visible Changes-card navigation. Before/after
 content belongs in the dock's Changes cards. The review editor stays editable:
 the draft is a Yjs room and the writer is one more peer in it, so keystrokes in
 review land in the draft branch rather than live. The review header is the
-interim signal for which surface you are on; stronger visual draft scoping is
-owned by the writer-UX pass.
+visible signal that the draft surface is active.
 
 ### Rejected placements
 
@@ -101,17 +100,9 @@ editability as the caller's `editable` input AND the absence of
 `useMountedEditor()` surface-options seam, which calls `setEditable(false)`
 without rebuilding the editor or its UndoManager.
 
-`SchemaFenceNotice` is the intentionally unstyled writer-copy seam for S1. It
-accepts the non-null fence, renders one bare paragraph with `data-schema-fence`
-and `data-schema-fence-reason`, and mounts in `EditorView` beside the existing
-session-driven `SyncStatus`. Styled notice chrome and fenced manuscript preview
-belong to the later writer-surface lane, not this component.
-
-A `4407 document-schema-stale` reset is deliberately not a schema fence.
-`EditorView` retires the live editor and renders only the bare
-`data-document-schema-stale` paragraph, because reloading cannot advance the
-stored head. Styling that temporarily-unavailable state belongs to the later
-frontend lane.
+A fence disables the mounted editor and renders `SchemaFenceNotice`. A
+`document-schema-stale` reset unmounts the editor and renders the unavailable
+state.
 
 ## Peer mark popover
 
