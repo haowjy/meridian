@@ -92,6 +92,20 @@ makes remote collab cursors render as a phantom row between paragraphs.
 Presses on interactive or live-status children inside the scroller keep
 native behavior; both hosts opt in.
 
+## Schema fence
+
+`EditorView` subscribes to its `DocumentSessionSnapshot` and derives live
+editability as the caller's `editable` input AND the absence of
+`snapshot.schemaFence`. A fence raised after mount reaches the existing
+`useMountedEditor()` surface-options seam, which calls `setEditable(false)`
+without rebuilding the editor or its UndoManager.
+
+`SchemaFenceNotice` is the intentionally unstyled writer-copy seam for S1. It
+accepts the non-null fence, renders one bare paragraph with `data-schema-fence`
+and `data-schema-fence-reason`, and mounts in `EditorView` beside the existing
+session-driven `SyncStatus`. Styled notice chrome and fenced manuscript preview
+belong to the later writer-surface lane, not this component.
+
 ## Peer mark popover
 
 `PeerMarkPopover.tsx` is the anchored evidence surface for one live
