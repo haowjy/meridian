@@ -243,6 +243,44 @@ describe("runtime tool registry", () => {
     ).toBe(null);
   });
 
+  it("maps an ls listing to doors and inert folders", () => {
+    const tool = writeToolView({
+      toolName: "ls",
+      output: [
+        { uri: "manuscript://arc-one", kind: "directory" },
+        { uri: "manuscript://chapter-1.md", kind: "file", editable: true },
+      ],
+    });
+
+    const html = expandMarkup(rendererFor("ls").expand?.(tool));
+
+    expect(html).toContain("arc-one");
+    expect(html).toContain("chapter-1");
+    // Never the words "file" or "folder": the glyph carries that.
+    expect(html).not.toMatch(/>\s*(file|folder|directory)\s*</i);
+    expect(html).not.toContain("manuscript://");
+  });
+
+  it("states the bound when a listing is capped at eight", () => {
+    const tool = writeToolView({
+      toolName: "ls",
+      output: Array.from({ length: 23 }, (_, index) => ({
+        uri: `manuscript://chapter-${index + 1}.md`,
+        kind: "file",
+      })),
+    });
+
+    const html = expandMarkup(rendererFor("ls").expand?.(tool));
+
+    expect(html).toContain("8 of 23");
+    expect(html).toContain("chapter-8");
+    expect(html).not.toContain("chapter-9");
+  });
+
+  it("offers no ls expand for an empty folder", () => {
+    expect(rendererFor("ls").expand?.(writeToolView({ toolName: "ls", output: [] }))).toBe(null);
+  });
+
   it("does not expand an empty server grep result array", () => {
     const tool = writeToolView({ toolName: "grep", output: [] });
 

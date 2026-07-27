@@ -27,7 +27,9 @@ import {
   type JsonValue,
   meridianErrorFromStructuredToolOutput,
 } from "@meridian/contracts/protocol";
+import { FileText, Folder } from "lucide-react";
 import type { ReactNode } from "react";
+import { BoundLine } from "./ClippedExpand";
 import {
   descriptorFor,
   humanizeToolName,
@@ -35,12 +37,13 @@ import {
   toolActivityPhrase,
 } from "./command-descriptor";
 import { DocumentName } from "./DocumentName";
-import { documentDisplayName, isContextUri } from "./document-display-name";
+import { documentDisplayName, folderDisplayName } from "./document-display-name";
 import type { ToolView } from "./group-delivery-segments";
 import { humanizeSkillSlug, toolInputObject, type WriteMode } from "./tool-command";
 import {
   normalizeToolResultRows,
   resultBoundLabel,
+  type ToolResultRow,
   type ToolResultRows,
   truncate,
 } from "./tool-result-preview";
@@ -118,33 +121,79 @@ function PhraseTitle({ phrase }: { phrase: ToolActivityPhrase }) {
 
 /* ── inline-expand renderers (curated, never JSON) ─────────────────────── */
 
+function rowKey(row: ToolResultRow, index: number): string {
+  return row.kind === "plain" ? `${index}:${row.title}` : `${index}:${row.uri}`;
+}
+
+/** Search hits: the document, where it matched, and the passage. */
 function ResultRows({ results }: { results: ToolResultRows }) {
   const bound = resultBoundLabel(results);
   return (
     <>
       <ul className="space-y-2">
-        {results.rows.map((row) => (
-          <li
-            key={`${row.title}|${row.subtitle ?? ""}|${row.snippet ?? ""}`}
-            className="space-y-0.5"
-          >
+        {results.rows.map((row, index) => (
+          <li key={rowKey(row, index)} className="space-y-0.5">
             {/* A match row is about a document, and the uniform rule covers it:
                 the same door, the same underline as a row title. */}
             <div className="flex min-w-0 text-compact font-medium text-prose-foreground">
-              {isContextUri(row.title) ? <DocumentName path={row.title} /> : row.title}
+              {row.kind === "plain" ? row.title : <DocumentName path={row.uri} />}
             </div>
-            {row.subtitle ? (
+            {row.kind !== "folder" && row.subtitle ? (
               <div className="truncate font-mono text-meta text-muted-foreground">
                 {row.subtitle}
               </div>
             ) : null}
-            {row.snippet ? (
+            {row.kind !== "folder" && row.snippet ? (
               <div className="text-xs leading-relaxed text-ink-muted">{row.snippet}</div>
             ) : null}
           </li>
         ))}
       </ul>
-      {bound ? <p className="mt-1.5 text-meta text-ink-subtle">{bound}</p> : null}
+      {bound ? <BoundLine>{bound}</BoundLine> : null}
+    </>
+  );
+}
+
+/**
+ * One line per entry, the density every list-shaped expand shares. Exported as
+ * a constant rather than a component so the outline can wear the same rhythm
+ * while carrying different content.
+ */
+const LISTING_ROW = "flex min-w-0 items-baseline gap-[7px] py-0.5 text-compact";
+
+/**
+ * What the model received from `ls`. A record, not a file browser: the tree
+ * panel already browses, and nothing consumes a folder route, so folders are
+ * inert here and there is nothing else to click.
+ */
+function ListingRows({ results }: { results: ToolResultRows }) {
+  const bound = resultBoundLabel(results);
+  return (
+    <>
+      <ul>
+        {results.rows.map((row, index) => (
+          <li key={rowKey(row, index)} className={LISTING_ROW}>
+            {row.kind === "folder" ? (
+              <>
+                <Folder className="size-3 shrink-0 self-center text-ink-subtle" aria-hidden />
+                <span className="min-w-0 truncate text-prose-foreground">
+                  {folderDisplayName(row.uri)}
+                </span>
+              </>
+            ) : (
+              <>
+                <FileText className="size-3 shrink-0 self-center text-ink-subtle" aria-hidden />
+                {row.kind === "document" ? (
+                  <DocumentName path={row.uri} />
+                ) : (
+                  <span className="min-w-0 truncate text-prose-foreground">{row.title}</span>
+                )}
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+      {bound ? <BoundLine>{bound}</BoundLine> : null}
     </>
   );
 }
@@ -318,6 +367,12 @@ function streamOrOutput(tool: ToolView): ToolExpand | null {
   return null;
 }
 
+function listingOrNothing(tool: ToolView): ToolExpand | null {
+  const results = normalizeToolResultRows(tool.output ?? undefined);
+  if (results.rows.length === 0) return null;
+  return () => <ListingRows results={results} />;
+}
+
 function resultRowsOrNothing(tool: ToolView): ToolExpand | null {
   // A chevron is a promise, so the answer to "is there anything here?" comes
   // from the same parse that will fill the expand. The parse stops at the row
@@ -352,6 +407,7 @@ const RENDERERS: Record<string, ToolRenderer> = {
   },
   ls: {
     title: phraseTitle,
+    expand: listingOrNothing,
   },
   grep: {
     title: phraseTitle,
