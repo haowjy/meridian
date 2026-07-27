@@ -1,7 +1,7 @@
 /** Regression coverage for replacing pre-materialization authorization failures. */
 
 import type { AuthMeResponse, ChangeEventWsMessage } from "@meridian/contracts/protocol";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ConnectionState } from "@/core/transport/ThreadTransport";
 
 const providers: Array<{
@@ -32,6 +32,24 @@ vi.mock("@/core/transport/hocuspocus-document-transport", () => ({
 }));
 
 const { DocumentSessionRegistry } = await import("./document-session-registry");
+
+function memoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() {
+      return values.size;
+    },
+    clear: () => values.clear(),
+    getItem: (key) => values.get(key) ?? null,
+    key: (index) => [...values.keys()][index] ?? null,
+    removeItem: (key) => values.delete(key),
+    setItem: (key, value) => values.set(key, value),
+  };
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("DocumentSessionRegistry.restartUnavailableRoom", () => {
   it("uses the bootstrap's internal identity for self-suppression, never its external id", () => {
@@ -236,6 +254,58 @@ describe("DocumentSessionRegistry.restartUnavailableRoom", () => {
 
     expect(providers).toHaveLength(1);
     expect(registry.get("document-2")).toBe(session);
+    registry.destroyAll();
+  });
+
+  it("keeps quarantined rooms fenced without attaching transport across re-acquisition", async () => {
+    providers.length = 0;
+    vi.stubGlobal("localStorage", memoryStorage());
+    const registry = new DocumentSessionRegistry();
+    const fence = { reason: "repair-detected", detail: "poisoned local replay" } as const;
+
+    expect(registry.quarantineRoom("document-quarantined", fence)).toBe(true);
+    const quarantined = registry.get("document-quarantined");
+
+    expect(registry.readRoomQuarantine("document-quarantined")).toEqual(fence);
+    expect(quarantined.getSnapshot()).toMatchObject({
+      status: "detached",
+      schemaFence: fence,
+    });
+    expect(providers).toHaveLength(0);
+
+    await registry.destroyRoom("document-quarantined");
+    const reacquired = registry.get("document-quarantined");
+    expect(reacquired).not.toBe(quarantined);
+    expect(reacquired.getSnapshot()).toMatchObject({
+      status: "detached",
+      schemaFence: fence,
+    });
+    expect(providers).toHaveLength(0);
+
+    registry.clearRoomQuarantine("document-quarantined");
+    await registry.destroyRoom("document-quarantined");
+    expect(registry.get("document-quarantined").getSnapshot().schemaFence).toBeNull();
+    expect(providers).toHaveLength(1);
+    registry.destroyAll();
+  });
+
+  it("raises the in-memory fence when durable quarantine storage is blocked", () => {
+    providers.length = 0;
+    vi.stubGlobal("localStorage", {
+      ...memoryStorage(),
+      setItem: () => {
+        throw new DOMException("quota exceeded", "QuotaExceededError");
+      },
+    });
+    const registry = new DocumentSessionRegistry();
+    const session = registry.getDetached("document-storage-failure");
+    session.awareness.setLocalState({ user: { name: "Writer" } });
+
+    expect(registry.quarantineRoom("document-storage-failure", { reason: "repair-detected" })).toBe(
+      false,
+    );
+    expect(session.getSnapshot().schemaFence).toEqual({ reason: "repair-detected" });
+    expect(session.awareness.getLocalState()).toBeNull();
     registry.destroyAll();
   });
 });

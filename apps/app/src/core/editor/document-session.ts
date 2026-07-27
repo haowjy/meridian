@@ -37,6 +37,10 @@ import type * as Y from "yjs";
 import type { ConnectionState } from "@/core/transport/ThreadTransport";
 
 import { PROSEMIRROR_FRAGMENT_NAME } from "./schema";
+import type { SchemaFence } from "./schema-fence";
+
+export type { SchemaFence } from "./schema-fence";
+
 import { SessionMarkerStore } from "./session-marker-store";
 
 /** IndexedDB name for y-indexeddb; bumps with {@link COLLAB_SCHEMA_VERSION} invalidate stale caches. */
@@ -88,6 +92,7 @@ export type DocumentSessionSnapshot = {
   status: DocumentSessionStatus;
   connectionState: ConnectionState | null;
   localPersistenceSynced: boolean;
+  schemaFence: SchemaFence | null;
 };
 
 /**
@@ -175,6 +180,7 @@ export class DocumentSession {
    * distinguish "connected & synced" from "disconnected" after that.
    */
   private transportState: ConnectionState | null = null;
+  private schemaFence: SchemaFence | null = null;
   private presenceSuspendDepth = 0;
   private suspendedLocalAwarenessState: Record<string, unknown> | null = null;
   private readonly localPersistenceSyncedPromise: Promise<void>;
@@ -307,7 +313,16 @@ export class DocumentSession {
       status: this.status,
       connectionState: this.transportState,
       localPersistenceSynced: this.localPersistenceSynced,
+      schemaFence: this.schemaFence,
     };
+  }
+
+  /** Permanently stop editing for this session while preserving its connection status. */
+  raiseSchemaFence(fence: SchemaFence): void {
+    if (this.destroyed || this.schemaFence) return;
+    this.schemaFence = fence;
+    this.suspendPresence();
+    this.emit();
   }
 
   subscribe(listener: Listener): () => void {
