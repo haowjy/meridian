@@ -8,6 +8,14 @@ returns, then emits every later transition. `DocumentSession` relies on that
 initial callback to derive an honest first status; a deferred initial emission
 creates a timing-dependent gap between the transport and session snapshots.
 
+Document collaboration sockets are room-scoped rather than multiplexed. A
+typed schema refusal is a physical WebSocket close, so a shared socket would
+deliver one room's 4406/4407 to every attached provider and reset healthy
+rooms. The session registry remains the per-room deduplication owner; the cost
+is one physical socket per attached room under its 50-live-document soft cap.
+This follows the work-item ruling and probe evidence in
+`DIVERGENCE/s3-room-scoped-sockets.md`.
+
 ## Stateless document messages
 
 `HocuspocusDocumentTransport` parses the extensible stateless payload once with

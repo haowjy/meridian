@@ -6,6 +6,8 @@
   work items that disappear during discovery.
 - `apps/app`: schema-fenced chapters now remain quarantined and read-only, with
   an explicit manuscript-protection notice instead of reconnecting unsafely.
+- `apps/app`: collaboration sockets now declare the client schema and stay
+  room-scoped, so one chapter's terminal refusal cannot reset healthy chapters.
 - `apps/server`, `packages/contracts`: collaboration sockets now refuse clients
   older than a live or draft head with `4406`; stale stored heads close with
   `4407` instead of reconnecting indefinitely.
