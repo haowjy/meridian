@@ -12,9 +12,8 @@ Document collaboration sockets are room-scoped rather than multiplexed. A
 typed schema refusal is a physical WebSocket close, so a shared socket would
 deliver one room's 4406/4407 to every attached provider and reset healthy
 rooms. The session registry remains the per-room deduplication owner; the cost
-is one physical socket per attached room under its 50-live-document soft cap.
-This follows the work-item ruling and probe evidence in
-`DIVERGENCE/s3-room-scoped-sockets.md`.
+is one physical socket per attached room. Its 50-live-document soft cap only
+warns; it does not evict sessions or block attachments.
 
 ## Stateless document messages
 
@@ -25,8 +24,9 @@ per-message subscriptions. Live `DocumentSession`s subscribe to
 
 ## Dev-only wire observation
 
-The two client sockets use their canonical transport seams. `TappedWebSocket`
-observes the shared Hocuspocus socket's final binary frames.
+The two client socket types use their canonical transport seams.
+`TappedWebSocket` observes each room-scoped Hocuspocus socket's final binary
+frames.
 `SocketLifecycleController` observes the thread/agent socket's lifecycle and
 final string frames. Both are active only behind the build-time debug gate;
 default production builds retain native WebSockets without capture, while the
