@@ -14,7 +14,7 @@
  */
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
-import type { YjsTrackedSchemaType } from "@meridian/contracts/protocol";
+import { WS_CLOSE, type YjsTrackedSchemaType } from "@meridian/contracts/protocol";
 import type { Editor, EditorOptions, JSONContent } from "@tiptap/core";
 import { EditorContent } from "@tiptap/react";
 import { AlertCircle, CheckCircle2, Loader2, UploadCloud } from "lucide-react";
@@ -31,7 +31,7 @@ import {
 } from "react";
 
 import { uploadFigure } from "@/client/api/figures-api";
-import type { DocumentSession } from "@/core/editor/document-session";
+import type { DocumentSession, DocumentSessionSnapshot } from "@/core/editor/document-session";
 import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
 import {
   type FigureNodeAttrs,
@@ -189,7 +189,30 @@ type SessionEditorViewProps = EditorViewProps & {
   session: DocumentSession;
 };
 
-function SessionEditorView({
+function SessionEditorView(props: SessionEditorViewProps) {
+  const [snapshot, setSnapshot] = useState(() => props.session.getSnapshot());
+
+  useEffect(() => props.session.subscribe(setSnapshot), [props.session]);
+
+  if (
+    snapshot.connectionState?.kind === "reset" &&
+    snapshot.connectionState.reason === WS_CLOSE.DOCUMENT_SCHEMA_STALE.reason
+  ) {
+    return (
+      <p data-document-schema-stale>
+        <Trans>This chapter is temporarily unavailable</Trans>
+      </p>
+    );
+  }
+
+  return <ActiveSessionEditorView {...props} snapshot={snapshot} />;
+}
+
+type ActiveSessionEditorViewProps = SessionEditorViewProps & {
+  snapshot: DocumentSessionSnapshot;
+};
+
+function ActiveSessionEditorView({
   identity,
   className,
   editable = true,
@@ -198,7 +221,8 @@ function SessionEditorView({
   reviewWorkId = null,
   onReviewSessionUnavailable,
   session,
-}: SessionEditorViewProps) {
+  snapshot,
+}: ActiveSessionEditorViewProps) {
   const { documentId, projectId } = identity;
   const { controller } = useDraftReview();
   const inReview = identity.surface === "review";
@@ -212,14 +236,12 @@ function SessionEditorView({
   const [figureUploadState, setFigureUploadState] = useState<FigureUploadState>({ kind: "idle" });
   const [dragActive, setDragActive] = useState(false);
   const [peerMarkTarget, setPeerMarkTarget] = useState<PeerMarkPopoverTarget | null>(null);
-  const [snapshot, setSnapshot] = useState(() => session.getSnapshot());
   const effectiveEditableRef = useRef(true);
   const pointerSelectionRef = useRef<{ from: number; to: number } | null>(null);
   const agentNames = useAgentNames(projectId, { enabled: !inReview });
   const effectiveEditable = editable && !snapshot.schemaFence;
   effectiveEditableRef.current = effectiveEditable;
 
-  useEffect(() => session.subscribe(setSnapshot), [session]);
   // Marks render before anyone clicks one. Warming their trail detail here is
   // what lets the popover open with its Before/After disclosure already
   // available instead of filling it in after the first fetch lands.

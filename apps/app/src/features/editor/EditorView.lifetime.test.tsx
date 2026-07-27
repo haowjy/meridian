@@ -21,6 +21,7 @@ import type {
   SchemaFence,
 } from "@/core/editor/document-session";
 import { SessionMarkerStore } from "@/core/editor/session-marker-store";
+import type { ConnectionState } from "@/core/transport/ThreadTransport";
 import { withReactRoot } from "@/test-support/react-dom-harness";
 import type { EditorViewProps } from "./EditorView";
 
@@ -74,6 +75,14 @@ function raiseSchemaFence(roomKey: string, fence: SchemaFence): void {
   const fenced = { ...snapshot, schemaFence: fence };
   sessionSnapshots.set(roomKey, fenced);
   for (const listener of sessionListeners.get(roomKey) ?? []) listener(fenced);
+}
+
+function setConnectionState(roomKey: string, connectionState: ConnectionState): void {
+  const snapshot = sessionSnapshots.get(roomKey);
+  if (!snapshot) return;
+  const next = { ...snapshot, connectionState };
+  sessionSnapshots.set(roomKey, next);
+  for (const listener of sessionListeners.get(roomKey) ?? []) listener(next);
 }
 
 const registry = {
@@ -232,6 +241,27 @@ describe("editor lifetime", () => {
       expect(document.querySelector("[data-schema-fence]")?.textContent).toBe(
         "Part of this chapter couldn't be kept in this version of Meridian. Editing is paused to protect your manuscript. Refresh to continue.",
       );
+    });
+  });
+
+  it("replaces a stale-head editor with the unstyled unavailable state", async () => {
+    const initial = { documentId: "document-stale", projectId: "project-1" };
+    await withReactRoot(<Harness initial={initial} />, async () => {
+      expect(mountedEditor()).toBeDefined();
+
+      await act(async () => {
+        setConnectionState("document-stale", {
+          kind: "reset",
+          reason: "document-schema-stale",
+          code: 4407,
+        });
+      });
+
+      const unavailable = document.querySelector("[data-document-schema-stale]");
+      expect(unavailable?.textContent).toBe("This chapter is temporarily unavailable");
+      expect(unavailable?.hasAttribute("class")).toBe(false);
+      expect(document.querySelector(".ProseMirror")).toBeNull();
+      expect(sessionSnapshots.get("document-stale")?.schemaFence).toBeNull();
     });
   });
 });

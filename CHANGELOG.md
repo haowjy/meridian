@@ -10,6 +10,8 @@
   room-scoped, so one chapter's terminal refusal cannot reset healthy chapters.
 - `apps/app`: superseded clients now silently reload once before pausing on a
   schema fence, without risking a stale-bundle reload loop.
+- `apps/app`: chapters with stale stored schema heads now stop on a plain
+  temporarily-unavailable state instead of syncing forever.
 - `apps/server`, `packages/contracts`: collaboration sockets now refuse clients
   older than a live or draft head with `4406`; stale stored heads close with
   `4407` instead of reconnecting indefinitely.

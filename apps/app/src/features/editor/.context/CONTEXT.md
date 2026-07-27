@@ -107,6 +107,12 @@ and `data-schema-fence-reason`, and mounts in `EditorView` beside the existing
 session-driven `SyncStatus`. Styled notice chrome and fenced manuscript preview
 belong to the later writer-surface lane, not this component.
 
+A `4407 document-schema-stale` reset is deliberately not a schema fence.
+`EditorView` retires the live editor and renders only the bare
+`data-document-schema-stale` paragraph, because reloading cannot advance the
+stored head. Styling that temporarily-unavailable state belongs to the later
+frontend lane.
+
 ## Peer mark popover
 
 `PeerMarkPopover.tsx` is the anchored evidence surface for one live
