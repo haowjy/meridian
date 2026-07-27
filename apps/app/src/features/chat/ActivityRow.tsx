@@ -71,8 +71,15 @@ export type ActivityRowProps = {
   title?: ReactNode;
   /** Status indicator. Hidden when the row is `done` and not interactive. */
   status?: ActivityRowStatus;
-  /** Inline expandable content (curated — no raw JSON). Click toggles fold. */
-  expand?: ReactNode;
+  /**
+   * Inline expandable content (curated — no raw JSON). Click toggles fold.
+   *
+   * A thunk, not a node: a settled turn can hold a dozen closed rows, and none
+   * of them should build a payload nobody has asked to see. Passing the thunk
+   * at all is the row's promise that there *is* something behind it — an
+   * expand affordance with nothing behind it is worse than none.
+   */
+  expand?: () => ReactNode;
   /**
    * Multiline prose body (reasoning paragraphs, text fallbacks). When `title`
    * is omitted, this lays out side-by-side with the icon. When `title` is
@@ -248,7 +255,8 @@ export function ActivityRow({
             )}
           >
             <div className="min-w-0 overflow-hidden">
-              <div className="mt-1.5">{expand}</div>
+              {/* Evaluated on open, not on render. */}
+              <div className="mt-1.5">{open ? expand() : null}</div>
             </div>
           </div>
         ) : null}

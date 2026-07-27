@@ -68,7 +68,7 @@ function ToolRowComponent({ tool, writeMode = "direct" }: ToolRowProps) {
   const presentation = useMemo(
     () => ({
       title: renderer.title(tool, { writeMode }),
-      expand: renderer.expand ? (renderer.expand(tool) ?? undefined) : undefined,
+      expand: renderer.expand?.(tool) ?? undefined,
     }),
     [renderer, tool, writeMode],
   );

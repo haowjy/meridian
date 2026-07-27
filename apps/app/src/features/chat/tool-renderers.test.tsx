@@ -6,6 +6,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { ToolView } from "./group-delivery-segments";
 import { rendererFor } from "./tool-renderers";
 
+/** Expands are deferred; a test opens one the way the reader does. */
+function expandMarkup(build: (() => ReactNode) | null | undefined): string {
+  if (!build) throw new Error("row offered no expand");
+  return renderToStaticMarkup(build());
+}
+
 /**
  * Row titles are composed of styled spans separated by flex gaps; assertions
  * read them the way a writer does, with element boundaries as word breaks.
@@ -68,7 +74,7 @@ describe("write tool renderer", () => {
     expect(html).toContain("Couldn&#x27;t draft");
     expect(html).toContain("chapter-1");
     expect(html).not.toContain("Drafted");
-    const expand = renderToStaticMarkup(renderer.expand?.(tool));
+    const expand = expandMarkup(renderer.expand?.(tool));
     expect(expand).toContain("That change couldn&#x27;t be made in chapter-1.");
     expect(expand).not.toMatch(/:\/\/|\.md|command=|overwrite=true/);
   });
@@ -79,7 +85,7 @@ describe("write tool renderer", () => {
       output:
         "status: invalid_write\nFile already exists: manuscript://chapter-1.md. Use overwrite=true to overwrite.",
     });
-    const expand = renderToStaticMarkup(renderer.expand?.(tool));
+    const expand = expandMarkup(renderer.expand?.(tool));
     expect(expand).toContain("That change couldn&#x27;t be made in chapter-1.");
     expect(expand).not.toMatch(/:\/\/|\.md|command=|overwrite=true/);
   });
@@ -90,7 +96,7 @@ describe("write tool renderer", () => {
       output: 'Run write(command="read", file="manuscript://chapters/Chapter 1.md") to re-sync.',
     });
 
-    const expand = renderToStaticMarkup(renderer.expand?.(tool));
+    const expand = expandMarkup(renderer.expand?.(tool));
 
     expect(expand).toContain("Something went wrong while changing chapter-1.");
     expect(expand).not.toMatch(/:\/\/|\.md|command=|file=/);
@@ -166,7 +172,7 @@ describe("runtime tool registry", () => {
       ],
     });
 
-    const html = renderToStaticMarkup(rendererFor("grep").expand?.(tool));
+    const html = expandMarkup(rendererFor("grep").expand?.(tool));
 
     expect(html).toContain("chapter-12");
     expect(html).not.toContain("manuscript://");
@@ -185,7 +191,7 @@ describe("runtime tool registry", () => {
       })),
     });
 
-    const html = renderToStaticMarkup(rendererFor("grep").expand?.(tool));
+    const html = expandMarkup(rendererFor("grep").expand?.(tool));
 
     // A fact about the payload, never an invitation ("Showing…" is systems voice).
     expect(html).toContain("4 of 42");
@@ -200,7 +206,7 @@ describe("runtime tool registry", () => {
       output: [{ uri: "manuscript://chapter-12.md", excerpt: "The dragon stirred." }],
     });
 
-    expect(renderToStaticMarkup(rendererFor("grep").expand?.(tool))).not.toContain(" of ");
+    expect(expandMarkup(rendererFor("grep").expand?.(tool))).not.toContain(" of ");
   });
 
   it("does not expand an empty server grep result array", () => {

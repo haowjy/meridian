@@ -39,7 +39,7 @@ async function withRow(run: (root: HTMLElement) => Promise<void> | void) {
     <ActivityRow
       Icon={FilePlus2}
       title={<DocumentName path="manuscript://chapter-3.md" />}
-      expand={<p>preview</p>}
+      expand={() => <p>preview</p>}
     />,
     async () => {
       const root = document.getElementById("root");
@@ -48,6 +48,28 @@ async function withRow(run: (root: HTMLElement) => Promise<void> | void) {
     },
   );
 }
+
+describe("a closed row does no work", () => {
+  it("builds its expand only once the writer opens it", async () => {
+    const build = vi.fn(() => <p>preview</p>);
+
+    await withReactRoot(
+      <ActivityRow Icon={FilePlus2} title="Read chapter-3" expand={build} />,
+      async () => {
+        const root = document.getElementById("root");
+        if (!root) throw new Error("missing root");
+        // A settled turn with twelve reads must not parse twelve payloads to
+        // render twelve closed rows.
+        expect(build).not.toHaveBeenCalled();
+
+        await act(async () => {
+          row(root).toggle?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+        });
+        expect(build).toHaveBeenCalled();
+      },
+    );
+  });
+});
 
 describe("two actions, one row", () => {
   it("keeps the door a sibling of the row toggle, never a child", async () => {

@@ -50,11 +50,22 @@ export type ToolRenderContext = {
   writeMode?: WriteMode;
 };
 
+/**
+ * Builds an expand's contents on demand. Returning one is a promise that there
+ * is something behind the chevron; returning `null` from `expand` means the
+ * row shows no chevron at all, because an affordance that opens onto nothing
+ * is worse than one that was never offered.
+ *
+ * The split matters as expands grow: deciding *whether* there is content is
+ * cheap, rendering it is not, and a settled turn holds a dozen closed rows.
+ */
+export type ToolExpand = () => ReactNode;
+
 export type ToolRenderer = {
   /** Single-line summary of the tool action. Already i18n'd. */
   title: (tool: ToolView, context?: ToolRenderContext) => ReactNode;
-  /** Inline expansion content. `null` = no expand affordance on this row. */
-  expand?: (tool: ToolView) => ReactNode | null;
+  /** Deferred inline expansion. `null` = no expand affordance on this row. */
+  expand?: (tool: ToolView) => ToolExpand | null;
 };
 
 /* ── input helpers ─────────────────────────────────────────────────────── */
@@ -318,40 +329,55 @@ function WriteToolTitle({ tool, context }: { tool: ToolView; context?: ToolRende
   return <CommandTitle verb={phrase.verb} parameter={<DocumentName path={path} />} />;
 }
 
-function writeExpand(tool: ToolView): ReactNode | null {
+function writeExpand(tool: ToolView): ToolExpand | null {
   if (!tool.isError) return null;
-  return <div className="text-compact text-destructive">{writeToolFailureCopy(tool)}</div>;
+  return () => <div className="text-compact text-destructive">{writeToolFailureCopy(tool)}</div>;
 }
 
-function invokeExpand(tool: ToolView): ReactNode | null {
+function invokeExpand(tool: ToolView): ToolExpand | null {
   if (tool.isError) {
     const copy = invokeSkillFailureCopy(tool.output, invokeSkillSlug(tool));
     if (!copy) return null;
-    return <div className="text-compact text-destructive">{copy}</div>;
+    return () => <div className="text-compact text-destructive">{copy}</div>;
   }
   return streamOrOutput(tool);
 }
 
-function streamOrOutput(tool: ToolView): ReactNode | null {
+function streamOrOutput(tool: ToolView): ToolExpand | null {
   // While running: live tail keeps the freshest output visible. Once complete,
   // prefer the curated final `output` field (e.g. "exit 0", a summary line) —
   // the raw stream transcript is noise next to a tight terminal summary.
   if (tool.status === "complete" && typeof tool.output === "string" && tool.output.length > 0) {
-    return <PlainOutput value={tool.output} />;
+    const value = tool.output;
+    return () => <PlainOutput value={value} />;
   }
   if (tool.streamedOutput && tool.streamedOutput.length > 0) {
-    return <StreamTail stream={tool.streamedOutput} />;
+    const stream = tool.streamedOutput;
+    return () => <StreamTail stream={stream} />;
   }
   if (typeof tool.output === "string" && tool.output.length > 0) {
-    return <StreamTail stream={tool.output} />;
+    const stream = tool.output;
+    return () => <StreamTail stream={stream} />;
   }
   return null;
 }
 
-function resultRowsOrNothing(tool: ToolView): ReactNode | null {
-  const results = normalizeToolResultRows(tool.output ?? undefined);
-  if (results.rows.length === 0) return null;
-  return <ResultRows results={results} />;
+function resultRowsOrNothing(tool: ToolView): ToolExpand | null {
+  // Cheap enough to ask up front whether there is anything to show; the rows
+  // themselves are built only when the writer opens the fold.
+  if (!hasResults(tool.output)) return null;
+  return () => {
+    const results = normalizeToolResultRows(tool.output ?? undefined);
+    return results.rows.length > 0 ? <ResultRows results={results} /> : null;
+  };
+}
+
+function hasResults(output: JsonValue | null): boolean {
+  if (Array.isArray(output)) return output.length > 0;
+  if (!output || typeof output !== "object") return false;
+  const obj = output as Record<string, JsonValue>;
+  if (Array.isArray(obj.results)) return obj.results.length > 0;
+  return typeof obj.url === "string" || typeof obj.summary === "string";
 }
 
 /* ── registry ──────────────────────────────────────────────────────────── */
