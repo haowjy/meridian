@@ -9,10 +9,17 @@ import { escapeProseForMdxIngress } from "../escape.js";
 import { demoteAutolinks } from "../helpers.js";
 import { markdownBlockCodecs, markdownMarkCodecs } from "../markdown/index.js";
 import type { BlockCodec, MarkupPlugin } from "../types.js";
-import { createFigureCodec, createJsxContainerCodec, createJsxLeafCodec } from "./blocks/index.js";
+import {
+  createFigureCodec,
+  createJsxContainerCodec,
+  createJsxLeafCodec,
+  createLayoutCodec,
+  serializeLayoutBlock,
+} from "./blocks/index.js";
 
 export function mdxBlockCodecs(components?: ComponentRegistry): readonly BlockCodec[] {
   return [
+    createLayoutCodec(),
     createFigureCodec(),
     createJsxContainerCodec(components),
     createJsxLeafCodec(components),
@@ -27,6 +34,7 @@ export function mdx(options?: { components?: ComponentRegistry }): MarkupPlugin 
     remarkPlugins: [remarkMdx],
     preprocess: escapeProseForMdxIngress,
     postParse: demoteAutolinks,
+    postSerializeBlock: serializeLayoutBlock,
   };
 }
 
