@@ -35,6 +35,28 @@ function gatewayServices() {
 }
 
 describe("Yjs branch handshake route guard", () => {
+  it("derives the client schema version from the request at the gateway boundary", () => {
+    const gateway = createYjsGateway(gatewayServices());
+    const handleConnection = vi
+      .spyOn(gateway.hocuspocus, "handleConnection")
+      .mockReturnValue({} as never);
+
+    gateway.connect({
+      request: new Request(`https://server.localhost/ws/yjs?schema=${COLLAB_SCHEMA_VERSION}`),
+      userId: "user-1" as never,
+      close: vi.fn(),
+      socket: {
+        send: vi.fn(),
+        close: vi.fn(),
+        readyState: 1,
+      },
+    });
+
+    expect(handleConnection.mock.calls[0]?.[2]).toMatchObject({
+      clientSchemaVersion: COLLAB_SCHEMA_VERSION,
+    });
+  });
+
   it("pulls live changes into a Work draft without blocking branch-room connection", async () => {
     const live = new Y.Doc({ gc: false });
     live.getText("content").insert(0, "live advanced");
@@ -272,7 +294,6 @@ describe("Yjs branch handshake route guard", () => {
       hocuspocus: { handleClose },
       branchSyncState: state,
       offlineSyncUpdates: new Set<string>(),
-      liveGenerations: new Map<string, bigint>(),
     };
 
     gateway.close(connection as never, { code: 1000, reason: "test" });
@@ -289,7 +310,6 @@ describe("Yjs branch handshake route guard", () => {
       hocuspocus: { handleClose },
       branchSyncState: state,
       offlineSyncUpdates: new Set<string>(),
-      liveGenerations: new Map<string, bigint>(),
     };
 
     gateway.error(connection as never);
@@ -316,9 +336,8 @@ describe("Yjs branch handshake route guard", () => {
     const close = vi.fn();
 
     const connection = gateway.connect({
-      request: new Request("https://server.localhost/ws/yjs"),
+      request: new Request(`https://server.localhost/ws/yjs?schema=${COLLAB_SCHEMA_VERSION}`),
       userId: "user-1" as never,
-      clientSchemaVersion: COLLAB_SCHEMA_VERSION,
       close,
       socket: {
         send: vi.fn(),
@@ -362,6 +381,7 @@ describe("Yjs live writer admission", () => {
       syncType: messageYjsUpdate,
       payload,
       userId: "user-1" as never,
+      expectedGeneration: 1n,
     });
 
     await Promise.resolve();
@@ -425,6 +445,7 @@ describe("Yjs live writer admission", () => {
         payload,
         userId: "user-1" as never,
         closeTransport,
+        expectedGeneration: 1n,
       }),
     ).resolves.toEqual({ admitted: false, joinedSettlement: false });
     expect(closeTransport).not.toHaveBeenCalled();
@@ -448,6 +469,7 @@ describe("Yjs live writer admission", () => {
       payload,
       userId: "user-1" as never,
       closeTransport,
+      expectedGeneration: 1n,
     };
 
     await expect(admitWriterSync(input)).rejects.toMatchObject({

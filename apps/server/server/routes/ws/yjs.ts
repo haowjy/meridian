@@ -8,7 +8,6 @@ import {
   type WsDeferredClose,
 } from "../../lib/ws-upgrade-auth.js";
 import {
-  clientSchemaVersionFromRequest,
   createYjsGateway,
   selectYjsGatewayServices,
   type YjsGateway,
@@ -20,7 +19,6 @@ type YjsRouteContext =
       kind: "authenticated";
       app: AppServices;
       userId: UserId;
-      clientSchemaVersion: number;
       gateway: YjsGateway;
     }
   | { kind: "deferred-close"; close: WsDeferredClose };
@@ -51,7 +49,6 @@ export const yjsWebSocketHandler = defineWebSocketHandler({
             kind: "authenticated",
             app: auth.app,
             userId: auth.userId,
-            clientSchemaVersion: clientSchemaVersionFromRequest(request),
             gateway: getYjsGateway(auth.app),
           } satisfies YjsRouteContext,
         };
@@ -66,7 +63,6 @@ export const yjsWebSocketHandler = defineWebSocketHandler({
     wsPeer._yjs = wsPeer.context.gateway.connect({
       request: wsPeer.request,
       userId: wsPeer.context.userId,
-      clientSchemaVersion: wsPeer.context.clientSchemaVersion,
       close: (code, reason) => wsPeer.close(code, reason),
       socket: {
         send: (data) =>

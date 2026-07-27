@@ -1,6 +1,7 @@
 /** Connect-time schema compatibility behavior for live and Work-draft Yjs rooms. */
 import { COLLAB_SCHEMA_VERSION } from "@meridian/prosemirror-schema";
 import { describe, expect, it, vi } from "vitest";
+import { messageYjsUpdate } from "y-protocols/sync";
 import * as Y from "yjs";
 import { StaleDocumentSchemaError } from "../../domains/collab/index.js";
 import { clientSchemaVersionFromRequest, createHocuspocus } from "../yjs-ws-handler.js";
@@ -9,7 +10,9 @@ const branchRoomName = "branch:branch_1:gen:3";
 const liveDocumentName = "00000000-0000-4000-8000-000000000101";
 const userId = "00000000-0000-4000-8000-000000000102";
 
-function versionGateServices(input: { liveHead?: number | null; branchHead?: number } = {}) {
+function versionGateServices(
+  input: { liveHead?: number | null; branchHead?: number; liveGeneration?: bigint } = {},
+) {
   const documentSync = {
     bindHocuspocus: vi.fn(),
     headSchemaVersion: vi.fn(async () => (input.liveHead === undefined ? null : input.liveHead)),
@@ -25,7 +28,11 @@ function versionGateServices(input: { liveHead?: number | null; branchHead?: num
       members: [liveDocumentName],
     })),
     reconcileProjectManifest: vi.fn(async () => undefined),
-    currentLiveGeneration: vi.fn(async () => 1n),
+    currentLiveGeneration: vi.fn(async () => input.liveGeneration ?? 1n),
+    admitLiveWriterUpdate: vi.fn(async () => ({
+      admitted: true as const,
+      joinedSettlement: false,
+    })),
     flushBranchLivePull: vi.fn(async () => undefined),
   };
   return {
@@ -42,7 +49,6 @@ function connectContext(clientSchemaVersion: number) {
   return {
     userId,
     clientSchemaVersion,
-    liveGenerations: new Map<string, bigint>(),
     closeTransport: vi.fn(),
   };
 }
@@ -108,6 +114,57 @@ describe("Yjs connect-time schema version gate", () => {
         context: connectContext(0),
       } as never),
     ).resolves.toBeUndefined();
+  });
+
+  it("carries the admitted live generation through the sync hook", async () => {
+    const services = versionGateServices({
+      liveHead: COLLAB_SCHEMA_VERSION,
+      liveGeneration: 9n,
+    });
+    const hocuspocus = createHocuspocus(services as never);
+    const context = connectContext(COLLAB_SCHEMA_VERSION);
+    const document = new Y.Doc({ gc: false });
+    const payload = new Uint8Array([1, 2, 3]);
+
+    await hocuspocus.configuration.onConnect?.({
+      documentName: liveDocumentName,
+      context,
+    } as never);
+    await hocuspocus.configuration.beforeSync?.({
+      documentName: liveDocumentName,
+      document,
+      type: messageYjsUpdate,
+      payload,
+      context,
+    } as never);
+
+    expect(services.documentSync.admitLiveWriterUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: liveDocumentName,
+        expectedGeneration: 9n,
+      }),
+    );
+  });
+
+  it("rejects sync when the admitted target does not match the message room", async () => {
+    const services = versionGateServices({ liveHead: COLLAB_SCHEMA_VERSION });
+    const hocuspocus = createHocuspocus(services as never);
+    const context = connectContext(COLLAB_SCHEMA_VERSION);
+
+    await hocuspocus.configuration.onConnect?.({
+      documentName: liveDocumentName,
+      context,
+    } as never);
+    await expect(
+      hocuspocus.configuration.beforeSync?.({
+        documentName: "00000000-0000-4000-8000-000000000999",
+        document: new Y.Doc({ gc: false }),
+        type: messageYjsUpdate,
+        payload: new Uint8Array([1, 2, 3]),
+        context,
+      } as never),
+    ).rejects.toMatchObject({ reason: "permission-denied" });
+    expect(services.documentSync.admitLiveWriterUpdate).not.toHaveBeenCalled();
   });
 
   it("gates branch rooms at the same strict monotonic edge", async () => {
