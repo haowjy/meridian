@@ -69,10 +69,17 @@ distinction, and doors add weight to the parameter. Three layers answer it, in
 order of strength:
 
 1. **One glyph per command, not per tool.** The icon column is already an
-   aligned channel; bound to the command it becomes scannable.
-2. **Chip tone.** `primary` means *your document changed*. Drafts stay neutral
-   (a proposal has not mutated anything) and so do failed writes.
+   aligned channel; bound to the command it becomes scannable. The glyph
+   carries **shape only**: every command's icon renders at the same neutral
+   tone, so the column reads as one channel instead of a second colour
+   language arguing with the chip.
+2. **Chip tone.** The chip's ground is where mutation shows: `primary` means
+   *your document changed*. Drafts stay neutral (a proposal has not mutated
+   anything) and so do failed writes.
 3. **Type.** Command at `--ink`/500, parameter at `--muted`/400.
+
+Layer 1 says *what* the command was; layers 2 and 3 say whether it touched the
+book. Do not put mutation back into the glyph.
 
 A fixed-width command column is the escalation if type is not enough. It is
 deferred, not rejected: 64px is 21% of a 360px docked chat.

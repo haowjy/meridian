@@ -163,10 +163,11 @@ export function ActivityRow({
         <span className={cn("flex items-center", COMPACT_LINE_BOX, firstLinePad)}>
           <span
             className={cn(
-              "grid size-[19px] shrink-0 place-items-center rounded-md",
-              chipTone === "primary"
-                ? "bg-chip-primary-bg text-jade-text"
-                : "bg-chip-muted-bg text-ink-subtle",
+              // The glyph is shape, never signal: every command's icon reads at
+              // the same tone, so the column stays a scannable channel rather
+              // than a second colour language competing with the chip.
+              "grid size-[19px] shrink-0 place-items-center rounded-md text-ink-subtle",
+              chipTone === "primary" ? "bg-chip-primary-bg" : "bg-chip-muted-bg",
             )}
             data-chip-tone={chipTone}
           >
