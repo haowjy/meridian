@@ -1,7 +1,7 @@
 /**
  * SchemaFenceNotice — minimal writer copy for a fenced editor session.
  *
- * Deliberately unstyled until the writer-visible fence surface lands.
+ * Deliberately unstyled.
  */
 import { Trans } from "@lingui/react/macro";
 

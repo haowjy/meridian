@@ -21,7 +21,7 @@ import { createHocuspocusDocumentTransport } from "@/core/transport/hocuspocus-d
 import { DocumentSession, type DocumentSessionSnapshot } from "./document-session";
 import { readSchemaFenceQuarantine, writeSchemaFenceQuarantine } from "./schema-fence";
 
-/** Soft cap — log once when exceeded; no hard eviction (R14). */
+/** Warn once above the soft cap; never evict a writer's open session. */
 const LIVE_DOC_SOFT_CAP = 50;
 
 /**
@@ -31,9 +31,6 @@ const LIVE_DOC_SOFT_CAP = 50;
  * CloseMessage racing a new SyncStep1.
  */
 const SESSION_TEARDOWN_GRACE_MS = 3_000;
-
-// R14: hard max-live-docs eviction + reconnect load-concurrency cap deferred
-// (before-prod); watch server liveDocumentCount metric
 
 export class DocumentSessionRegistry {
   private ownUserId: UserId | null = null;
