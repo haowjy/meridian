@@ -53,6 +53,7 @@ import { EditorSurfaceFrame } from "./EditorSurfaceFrame";
 import { EditorToolbar } from "./EditorToolbar";
 import { editorColumnCanvas, editorColumnFill, editorProseClass } from "./editor-column";
 import { PeerMarkPopover, type PeerMarkPopoverTarget } from "./PeerMarkPopover";
+import { SchemaFenceNotice } from "./SchemaFenceNotice";
 import { SyncStatus } from "./SyncStatus";
 import { useAgentNames } from "./useAgentNames";
 import { useInlineReviewSync } from "./useInlineReviewSync";
@@ -211,8 +212,12 @@ function SessionEditorView({
   const [figureUploadState, setFigureUploadState] = useState<FigureUploadState>({ kind: "idle" });
   const [dragActive, setDragActive] = useState(false);
   const [peerMarkTarget, setPeerMarkTarget] = useState<PeerMarkPopoverTarget | null>(null);
+  const [snapshot, setSnapshot] = useState(() => session.getSnapshot());
   const pointerSelectionRef = useRef<{ from: number; to: number } | null>(null);
   const agentNames = useAgentNames(projectId, { enabled: !inReview });
+  const effectiveEditable = editable && !snapshot.schemaFence;
+
+  useEffect(() => session.subscribe(setSnapshot), [session]);
   // Marks render before anyone clicks one. Warming their trail detail here is
   // what lets the popover open with its Before/After disclosure already
   // available instead of filling it in after the first fetch lands.
@@ -418,7 +423,7 @@ function SessionEditorView({
     session,
     agentNames,
     placeholder: t`Start writing…`,
-    surface: { editable, editorProps },
+    surface: { editable: effectiveEditable, editorProps },
   });
 
   // Claim the shared review-runtime slot ONLY while this editor is the one in
@@ -501,6 +506,7 @@ function SessionEditorView({
           <SyncStatus session={session} />
         </div>
       ) : null}
+      {snapshot.schemaFence ? <SchemaFenceNotice fence={snapshot.schemaFence} /> : null}
       <input
         ref={figureInputRef}
         type="file"
@@ -535,7 +541,7 @@ function SessionEditorView({
           );
         }}
         dropOverlay={
-          editable && dragActive ? (
+          effectiveEditable && dragActive ? (
             <div className="meridian-editor-drop-overlay" aria-hidden>
               <UploadCloud className="size-8" />
               <span>

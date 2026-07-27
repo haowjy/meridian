@@ -15,7 +15,11 @@ import { describe, expect, it, vi } from "vitest";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
-import type { DocumentSession } from "@/core/editor/document-session";
+import type {
+  DocumentSession,
+  DocumentSessionSnapshot,
+  SchemaFence,
+} from "@/core/editor/document-session";
 import { SessionMarkerStore } from "@/core/editor/session-marker-store";
 import { withReactRoot } from "@/test-support/react-dom-harness";
 import type { EditorViewProps } from "./EditorView";
@@ -27,22 +31,49 @@ const threadList: { current: ThreadListItem[] } = {
 };
 
 const sessions = new Map<string, DocumentSession>();
+const sessionSnapshots = new Map<string, DocumentSessionSnapshot>();
+const sessionListeners = new Map<string, Set<(snapshot: DocumentSessionSnapshot) => void>>();
 
 function sessionFor(roomKey: string): DocumentSession {
   const existing = sessions.get(roomKey);
   if (existing) return existing;
   const doc = new Y.Doc({ gc: false });
   const awareness = new Awareness(doc);
+  const snapshot: DocumentSessionSnapshot = {
+    documentId: roomKey,
+    roomKey,
+    room: { kind: "live", documentId: roomKey },
+    status: "detached",
+    connectionState: null,
+    localPersistenceSynced: true,
+    schemaFence: null,
+  };
+  const listeners = new Set<(next: DocumentSessionSnapshot) => void>();
+  sessionSnapshots.set(roomKey, snapshot);
+  sessionListeners.set(roomKey, listeners);
   const session = {
     roomKey,
     document: doc,
     awareness,
     cursorProvider: { awareness },
     markerStore: new SessionMarkerStore("writer"),
-    subscribe: () => () => {},
+    getSnapshot: () => sessionSnapshots.get(roomKey) ?? snapshot,
+    subscribe: (listener: (next: DocumentSessionSnapshot) => void) => {
+      listeners.add(listener);
+      listener(sessionSnapshots.get(roomKey) ?? snapshot);
+      return () => listeners.delete(listener);
+    },
   } as unknown as DocumentSession;
   sessions.set(roomKey, session);
   return session;
+}
+
+function raiseSchemaFence(roomKey: string, fence: SchemaFence): void {
+  const snapshot = sessionSnapshots.get(roomKey);
+  if (!snapshot || snapshot.schemaFence) return;
+  const fenced = { ...snapshot, schemaFence: fence };
+  sessionSnapshots.set(roomKey, fenced);
+  for (const listener of sessionListeners.get(roomKey) ?? []) listener(fenced);
 }
 
 const registry = {
@@ -171,6 +202,25 @@ describe("editor lifetime", () => {
     await withReactRoot(<Harness initial={initial} />, async () => {
       expect(mountedEditor().isEditable).toBe(false);
       expect(mountedEditor().view.dom.getAttribute("contenteditable")).toBe("false");
+    });
+  });
+
+  it("keeps the editor instance and turns it read-only when its session is fenced", async () => {
+    const initial = { documentId: "document-fenced", projectId: "project-1" };
+    await withReactRoot(<Harness initial={initial} />, async () => {
+      const original = tagOf(mountedEditor(), "editor");
+      expect(mountedEditor().isEditable).toBe(true);
+
+      await act(async () => {
+        raiseSchemaFence("document-fenced", { reason: "repair-detected" });
+      });
+
+      expect(tagOf(mountedEditor(), "editor")).toBe(original);
+      expect(mountedEditor().isEditable).toBe(false);
+      expect(mountedEditor().view.dom.getAttribute("contenteditable")).toBe("false");
+      expect(document.querySelector("[data-schema-fence]")?.textContent).toBe(
+        "Part of this chapter couldn't be kept in this version of Meridian. Editing is paused to protect your manuscript. Refresh to continue.",
+      );
     });
   });
 });
