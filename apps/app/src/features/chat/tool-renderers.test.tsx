@@ -229,6 +229,20 @@ describe("runtime tool registry", () => {
     expect(expandMarkup(rendererFor("grep").expand?.(tool))).not.toContain(" of ");
   });
 
+  it("offers no chevron when every result is malformed", () => {
+    // A chevron is a promise. The cheap existence check and the parser used to
+    // be separate code paths, so `[null]` earned a chevron that opened onto
+    // nothing.
+    expect(rendererFor("grep").expand?.(writeToolView({ toolName: "grep", output: [null] }))).toBe(
+      null,
+    );
+    expect(
+      rendererFor("grep").expand?.(
+        writeToolView({ toolName: "grep", output: [{ uri: "manuscript://a.md" }] }),
+      ),
+    ).toBe(null);
+  });
+
   it("does not expand an empty server grep result array", () => {
     const tool = writeToolView({ toolName: "grep", output: [] });
 

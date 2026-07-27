@@ -8,6 +8,11 @@
  * kind of truncation the writer can't detect, which makes it the one that has
  * to be stated.
  *
+ * The parse stops at the cap, which is what lets a closed row ask "is there
+ * anything behind this chevron?" without paying for the whole payload. One
+ * parser answers that question and fills the expand, so the two can't disagree
+ * about whether a row has contents.
+ *
  * Snippets arrive as the model saw them, which for manuscript documents means
  * a leading block hash. Hashes are how the model addresses a block; they are
  * not words, and the writer never sees one. This is the seam where a search
@@ -34,50 +39,11 @@ export type ToolResultRows = {
 };
 
 export function normalizeToolResultRows(output: JsonValue | undefined): ToolResultRows {
-  if (Array.isArray(output)) {
-    return capped(
-      output.flatMap((entry): ToolResultRow[] => {
-        if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
-        const row = entry as Record<string, JsonValue>;
-        if (typeof row.uri !== "string" || typeof row.excerpt !== "string") return [];
-        return [
-          {
-            title: row.uri,
-            subtitle: typeof row.line === "number" ? t`Line ${row.line}` : undefined,
-            snippet: stripBlockHash(row.excerpt),
-          },
-        ];
-      }),
-      output.length,
-    );
-  }
-
+  if (Array.isArray(output)) return capped(output, searchHit);
   if (!output || typeof output !== "object") return { rows: [], total: 0 };
   const obj = output as Record<string, JsonValue>;
 
-  if (Array.isArray(obj.results)) {
-    return capped(
-      obj.results.flatMap((entry): ToolResultRow[] => {
-        if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
-        const row = entry as Record<string, JsonValue>;
-        const title = typeof row.title === "string" ? row.title : t`(untitled)`;
-        const subtitle =
-          typeof row.url === "string"
-            ? row.url
-            : typeof row.source === "string"
-              ? row.source
-              : undefined;
-        const snippet =
-          typeof row.snippet === "string"
-            ? row.snippet
-            : typeof row.note === "string"
-              ? row.note
-              : undefined;
-        return [{ title, subtitle, snippet }];
-      }),
-      obj.results.length,
-    );
-  }
+  if (Array.isArray(obj.results)) return capped(obj.results, webResult);
 
   if (typeof obj.url === "string" || typeof obj.summary === "string") {
     return {
@@ -97,8 +63,46 @@ export function normalizeToolResultRows(output: JsonValue | undefined): ToolResu
   return { rows: [], total: 0 };
 }
 
-function capped(rows: ToolResultRow[], total: number): ToolResultRows {
-  return { rows: rows.slice(0, RESULT_ROW_CAP), total };
+/** Takes rows until the cap is full, so a long payload is never fully walked. */
+function capped(
+  entries: readonly JsonValue[],
+  toRow: (entry: Record<string, JsonValue>) => ToolResultRow | null,
+): ToolResultRows {
+  const rows: ToolResultRow[] = [];
+  for (const entry of entries) {
+    if (rows.length === RESULT_ROW_CAP) break;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const row = toRow(entry as Record<string, JsonValue>);
+    if (row) rows.push(row);
+  }
+  return { rows, total: entries.length };
+}
+
+function searchHit(row: Record<string, JsonValue>): ToolResultRow | null {
+  if (typeof row.uri !== "string" || typeof row.excerpt !== "string") return null;
+  return {
+    title: row.uri,
+    subtitle: typeof row.line === "number" ? t`Line ${row.line}` : undefined,
+    snippet: stripBlockHash(row.excerpt),
+  };
+}
+
+function webResult(row: Record<string, JsonValue>): ToolResultRow {
+  return {
+    title: typeof row.title === "string" ? row.title : t`(untitled)`,
+    subtitle:
+      typeof row.url === "string"
+        ? row.url
+        : typeof row.source === "string"
+          ? row.source
+          : undefined,
+    snippet:
+      typeof row.snippet === "string"
+        ? row.snippet
+        : typeof row.note === "string"
+          ? row.note
+          : undefined,
+  };
 }
 
 /** `5 of 42` — a fact about the payload, never an invitation to see more. */

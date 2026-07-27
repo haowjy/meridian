@@ -319,21 +319,12 @@ function streamOrOutput(tool: ToolView): ToolExpand | null {
 }
 
 function resultRowsOrNothing(tool: ToolView): ToolExpand | null {
-  // Cheap enough to ask up front whether there is anything to show; the rows
-  // themselves are built only when the writer opens the fold.
-  if (!hasResults(tool.output)) return null;
-  return () => {
-    const results = normalizeToolResultRows(tool.output ?? undefined);
-    return results.rows.length > 0 ? <ResultRows results={results} /> : null;
-  };
-}
-
-function hasResults(output: JsonValue | null): boolean {
-  if (Array.isArray(output)) return output.length > 0;
-  if (!output || typeof output !== "object") return false;
-  const obj = output as Record<string, JsonValue>;
-  if (Array.isArray(obj.results)) return obj.results.length > 0;
-  return typeof obj.url === "string" || typeof obj.summary === "string";
+  // A chevron is a promise, so the answer to "is there anything here?" comes
+  // from the same parse that will fill the expand. The parse stops at the row
+  // cap; only the React tree waits for the writer to open the row.
+  const results = normalizeToolResultRows(tool.output ?? undefined);
+  if (results.rows.length === 0) return null;
+  return () => <ResultRows results={results} />;
 }
 
 /* ── registry ──────────────────────────────────────────────────────────── */
