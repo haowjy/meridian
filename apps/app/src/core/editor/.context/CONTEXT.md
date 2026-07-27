@@ -7,8 +7,9 @@ Yjs document session. It must stay structurally aligned with
 ## Contracts
 
 - `createEditorExtensions()` is the only app-side extension assembly point for
-  collaborative documents. `schema-parity.test.ts` compares its TipTap schema
-  against `buildDocumentSchema()`.
+  collaborative documents, and its TipTap schema must stay structurally equal to
+  `buildDocumentSchema()`. No test compares them; a node or attr added on either
+  side is a two-file change.
 - Collaboration uses the shared `PROSEMIRROR_FRAGMENT_NAME` Y.XmlFragment. Do
   not create a second fragment name or a second editor sync path.
 - `DocumentSessionRegistry` is keyed by the Yjs room key, not by editor surface:

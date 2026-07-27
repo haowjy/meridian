@@ -11,7 +11,7 @@ documents from the same node/mark specs.
   flags, mark exclusions, and similar schema rules. They deliberately strip
   `parseDOM` and `toDOM`; DOM behavior is owned by the editor layer.
 - **One runtime builder.** `buildDocumentSchema()` constructs the schema used by
-  server collab code and app parity tests.
+  server collab code and the app editor.
 - **One Yjs fragment name.** `PROSEMIRROR_FRAGMENT_NAME` is the shared
   `Y.XmlFragment` name (`"prosemirror"`). Server mirror code imports it from
   this package; app code must stay aligned when it re-exports or displays the
@@ -21,10 +21,9 @@ documents from the same node/mark specs.
   `AGENT_EDIT_UNDO_CLIENT_ID` occupying slot `999`. Random-authoring docs that
   may persist or sync use `createCollabYDoc()` so they re-roll out of the
   reserved band before writing.
-- **TipTap parity is load-bearing.** The app test
-  `apps/app/src/core/editor/schema-parity.test.ts` compares the TipTap schema
-  from `createEditorExtensions()` against this package by node/mark names and
-  structural shape.
+- **TipTap parity is load-bearing and unenforced.** `createEditorExtensions()`
+  must build a schema structurally equal to this package's, and no test compares
+  them any more. Treat every change here as a two-file change.
 
 ## Current document surface
 
@@ -32,13 +31,21 @@ Nodes:
 
 | Node | Notes |
 |---|---|
-| `doc`, `paragraph`, `blockquote`, `heading`, `text`, `hard_break` | Basic ProseMirror nodes, structural fields only. |
+| `doc`, `blockquote`, `text`, `hard_break` | Basic ProseMirror nodes, structural fields only. |
+| `paragraph`, `heading` | Basic nodes plus the `align` attr. |
+| `table`, `table_row`, `table_header`, `table_cell` | GFM table structure. `table` carries `align`; cells carry `alignment`, `colspan`, `rowspan`, and `colwidth` for prosemirror-tables editing. |
 | `code_block` | Adds nullable `language` attr so fenced code survives markdown projection. |
 | `image` | Inline image with `src`, `alt`, and `title` attrs. `src` defaults to an empty string. |
 | `bullet_list`, `ordered_list`, `list_item` | List structure with `tight`/`order` attrs for markdown round-tripping. |
 | `horizontal_rule` | Scene break / thematic break node for markdown `---` round-tripping. |
 | `jsx_leaf`, `jsx_container` | MDX component blocks with `name` and `props` attrs; leaf components contain `text*`, containers contain `block+`. |
 | `figure` | Atomic block with `src`, `alt`, `label`, and `caption` attrs for figure workflows. |
+
+`align` is `null`, `"center"`, or `"right"` and validates on the way in. There
+is no `"left"`: unaligned is the default, and a second spelling for it would be
+a ghost state the markup codec has to reject. `@meridian/markup` carries these
+attrs over the wire as a `Layout` wrapper, so an alignable node gains no markup
+until a writer aligns it.
 
 Marks:
 
@@ -61,7 +68,7 @@ markdown scene breaks, while leaving product UX and DOM rendering out of scope.
 
 - Add a node/mark here only when the app TipTap schema and server collab logic
   both need to accept that structure.
-- Update the app editor extensions and `schema-parity.test.ts` with any schema
-  shape change.
+- Update the app editor extensions in the same change as any schema shape
+  change; nothing else will catch the drift.
 - Keep provider/product behavior out of this package. Figure uploads, signed
   URLs, MDX component rendering, and rich editing UI belong in app/editor or server domains.

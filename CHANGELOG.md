@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+- `apps/app`, `packages/markup`, `packages/prosemirror-schema`: writers can build
+  tables (insert, move rows and columns, align a whole column, resize, reset
+  layout), preview Mermaid diagrams inline, insert blocks from a `/` menu, and
+  center or right-align a paragraph, heading, or table. Alignment and column
+  widths travel as a `Layout` wrapper in MDX, so a document nobody has aligned
+  still serializes as byte-identical plain markdown.
+- `apps/app`: contextual bubbles for links, code blocks, images, and tables
+  share one positioning and focus host; the toolbar's link button opens the same
+  bubble instead of setting a placeholder address. Editable link clicks place a
+  cursor rather than navigating away, and pasted HTML is rebuilt through an
+  element and attribute allowlist.
+- `apps/app`, `apps/server`, `packages/contracts`, `packages/markup`: uploaded
+  images become their own documents under `manuscript://assets/`. Prose holds a
+  stable `asset:<documentId>` reference instead of an expiring storage URL, so an
+  image survives a rename and renders through a signed URL fetched at display
+  time. `FigureAssetReference` now carries `assetDocumentId` and a
+  project-relative `assetPath`; figure upload no longer attaches file metadata to
+  the host document.
+- `packages/prosemirror-schema`: TipTap/server schema parity has no automated
+  guard (the test was removed pre-launch); the colocated docs no longer claim one.
 - `apps/server`: Anthropic-format cache usage now normalizes to inclusive input
   totals, so uncached prompt tokens are priced instead of silently clamped away;
   OpenAI-compatible trailing usage-only chunks are also retained.

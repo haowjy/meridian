@@ -41,5 +41,5 @@ We removed `draggable: true` from `figure` (here and in
   here"), and no other block's hash changes.
 - Add a test asserting a figure move leaves every *other* block's hash unchanged and
   gives the moved figure a new id.
-- Keep parity: any schema-spec change stays mirrored between
-  `apps/app/src/core/editor` and `packages/prosemirror-schema` (`schema-parity.test.ts`).
+- Keep parity: any schema-spec change stays mirrored by hand between
+  `apps/app/src/core/editor` and `packages/prosemirror-schema`.

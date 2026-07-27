@@ -112,6 +112,10 @@ propagation between them.
   and apply in the same synchronous block. Response phase C and branch push
   enforce this; reversal `executePrepared` uses the same final synchronous
   recheck-and-apply seam, inline or after transaction commit.
+- **The markup codec is constructed once**, in `domain/agent-edit-runtime.ts`,
+  where the composition root injects the project asset resolver. A second
+  `mdxCodec(...)` elsewhere in this domain silently loses that index and throws
+  on the first document holding an `asset:` image.
 - All seed and text-write callers use `domain/markdown-document.ts`; it resolves
   filetype and constructs content for the document's actual schema. The
   markdown-only seeding that caused #196 is historical, not the current engine.
