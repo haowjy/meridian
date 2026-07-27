@@ -735,16 +735,24 @@ msgid "edited {0}"
 msgstr "edited {0}"
 
 #: src/features/chat/TurnEditsReceipt.tsx
-msgid "Edited {count} chapters"
-msgstr "Edited {count} chapters"
+#~ msgid "Edited {count} chapters"
+#~ msgstr "Edited {count} chapters"
 
 #: src/features/chat/TurnEditsReceipt.tsx
-msgid "Edited {title}"
-msgstr "Edited {title}"
+msgid "Edited {count} documents"
+msgstr "Edited {count} documents"
 
 #: src/features/chat/TurnEditsReceipt.tsx
-msgid "Edited 1 chapter"
-msgstr "Edited 1 chapter"
+#~ msgid "Edited {title}"
+#~ msgstr "Edited {title}"
+
+#: src/features/chat/TurnEditsReceipt.tsx
+#~ msgid "Edited 1 chapter"
+#~ msgstr "Edited 1 chapter"
+
+#: src/features/chat/TurnEditsReceipt.tsx
+msgid "Edited 1 document"
+msgstr "Edited 1 document"
 
 #: src/features/chat/command-descriptor.ts
 msgid "Edited file"

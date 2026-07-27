@@ -15,6 +15,9 @@
 - `apps/app`, `packages/agent-edit`: search excerpts no longer show internal
   block hashes (`79b9|…`), and activity-row glyphs now center on their text
   line.
+- `apps/app`: the turn edits card header now counts documents ("Edited 1
+  document") instead of naming one. Names live in the card's rows, where they
+  open the document.
 
 - `apps/server`: Anthropic-format cache usage now normalizes to inclusive input
   totals, so uncached prompt tokens are priced instead of silently clamped away;
