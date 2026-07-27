@@ -95,6 +95,28 @@ Yjs document session. It must stay structurally aligned with
 - TipTap extensions may provide editing behavior, but they must not add node or
   mark types outside the shared schema unless the schema package and server
   markdown adapter are updated in the same change.
+- Block alignment lives as an `align` attr on `paragraph`, `heading`, and
+  `table`, mirroring `@meridian/markup`'s reserved `Layout` wire wrapper. Only
+  `null`, `"center"`, and `"right"` exist; there is no `"left"` ghost state
+  because unaligned is the default. Table alignment renders twice — through the
+  node's `renderHTML` and through `MeridianTableView`, because the resize plugin
+  takes over table DOM once `resizable` is on.
+- `table-operations.ts` owns the table transforms prosemirror-tables omits (row
+  and column moves, whole-column alignment, layout reset). All of them refuse a
+  table containing spans, because GFM cannot represent one and the codec throws
+  on serialization. Row zero is the structural GFM header and never moves.
+- Slash commands use TipTap Suggestion and activate only when `/` starts an
+  otherwise-empty paragraph outside table cells. The catalog and its localized
+  labels come from the mounting surface, never from the extension.
+- Clipboard HTML is rebuilt, not scrubbed: `sanitize-paste.ts` copies allowed
+  elements into a fresh document with an attribute allowlist, so a
+  newly-supported browser attribute is unsafe by default. `createEditorConfig`
+  composes it *after* any caller `transformPastedHTML` so a caller can never
+  reintroduce markup the schema would accept.
+- Editable link clicks place a cursor instead of navigating: `openOnClick` is
+  off and a plugin calls `preventDefault()` while still letting ProseMirror
+  resolve the selection. `link-url.ts` is the single normalizer for
+  writer-entered targets (http/https/mailto only).
 
 ## TipTap v3 defaults we intentionally disable
 

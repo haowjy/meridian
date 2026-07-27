@@ -12,20 +12,25 @@ import BulletList from "@tiptap/extension-bullet-list";
 import Code from "@tiptap/extension-code";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import HardBreak from "@tiptap/extension-hard-break";
+import Heading from "@tiptap/extension-heading";
 import HorizontalRule from "@tiptap/extension-horizontal-rule";
 import Image from "@tiptap/extension-image";
 import Italic from "@tiptap/extension-italic";
 import Link from "@tiptap/extension-link";
 import ListItem from "@tiptap/extension-list-item";
 import OrderedList from "@tiptap/extension-ordered-list";
-import { Table } from "@tiptap/extension-table";
+import Paragraph from "@tiptap/extension-paragraph";
+import { Table, TableView } from "@tiptap/extension-table";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import TableRow from "@tiptap/extension-table-row";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Plugin } from "@tiptap/pm/state";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 
 import { FigureNodeView } from "../FigureNodeView";
 import { JsxContainerNodeView, JsxLeafNodeView } from "../JsxNodeViews";
+import { createMermaidPreviewPlugin, MermaidCodeBlockNodeView } from "../MermaidCodeBlock";
 
 type RenderAttrs = Record<string, unknown>;
 type JsonRecord = Record<string, unknown>;
@@ -54,8 +59,35 @@ function tableCellAttributes(parentAttrs: (() => Record<string, unknown>) | unde
   delete attrs.align;
 
   return {
-    alignment: { default: null },
+    alignment: {
+      default: null,
+      parseHTML: (element: HTMLElement) => {
+        const value = element.style.textAlign;
+        return value === "left" || value === "center" || value === "right" ? value : null;
+      },
+      renderHTML: (attrs: RenderAttrs) =>
+        attrs.alignment === "left" || attrs.alignment === "center" || attrs.alignment === "right"
+          ? { style: `text-align: ${attrs.alignment}` }
+          : {},
+    },
     ...attrs,
+  };
+}
+
+/** Block alignment attrs mirroring the shared schema's `Layout` wire wrapper. */
+function textLayoutAttributes() {
+  return {
+    align: {
+      default: null,
+      parseHTML: (element: HTMLElement) => {
+        const value = element.style.textAlign;
+        return value === "center" || value === "right" ? value : null;
+      },
+      renderHTML: (attrs: RenderAttrs) =>
+        attrs.align === "center" || attrs.align === "right"
+          ? { style: `text-align: ${attrs.align}` }
+          : {},
+    },
   };
 }
 
@@ -84,6 +116,16 @@ export const MeridianHorizontalRule = HorizontalRule.extend({
   name: "horizontal_rule",
 });
 
+export const MeridianParagraph = Paragraph.extend({
+  addAttributes: textLayoutAttributes,
+});
+
+export const MeridianHeading = Heading.extend({
+  addAttributes() {
+    return { ...this.parent?.(), ...textLayoutAttributes() };
+  },
+});
+
 export const MeridianListItem = ListItem.extend({
   name: "list_item",
 
@@ -104,12 +146,85 @@ export const MeridianListItem = ListItem.extend({
 
 export const MeridianCodeBlockLowlight = CodeBlockLowlight.extend({
   name: "code_block",
+
+  addProseMirrorPlugins() {
+    return [...(this.parent?.() ?? []), createMermaidPreviewPlugin()];
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(MermaidCodeBlockNodeView);
+  },
 });
+
+/** Keeps block alignment live when the resize plugin takes over table rendering. */
+export class MeridianTableView extends TableView {
+  constructor(...args: ConstructorParameters<typeof TableView>) {
+    super(...args);
+    this.applyAlignment(args[0]);
+  }
+
+  override update(node: ProseMirrorNode): boolean {
+    if (!super.update(node)) return false;
+    if (!this.hasColumnWidths(node)) {
+      for (const column of this.colgroup.children) {
+        (column as HTMLElement).style.removeProperty("width");
+      }
+    }
+    this.applyAlignment(node);
+    return true;
+  }
+
+  private hasColumnWidths(node: ProseMirrorNode): boolean {
+    let hasWidth = false;
+    node.descendants((child) => {
+      if (Array.isArray(child.attrs.colwidth) && child.attrs.colwidth.some(Boolean)) {
+        hasWidth = true;
+        return false;
+      }
+      return !hasWidth;
+    });
+    return hasWidth;
+  }
+
+  private applyAlignment(node: ProseMirrorNode) {
+    const alignment = node.attrs.align;
+    if (alignment === "center" || alignment === "right") {
+      this.table.dataset.align = alignment;
+      this.table.style.marginLeft = "auto";
+      this.table.style.marginRight = alignment === "center" ? "auto" : "0px";
+      return;
+    }
+    delete this.table.dataset.align;
+    this.table.style.marginLeft = "";
+    this.table.style.marginRight = "";
+  }
+}
 
 export const MeridianTable = Table.extend({
   name: "table",
   content: "table_row+",
-});
+
+  addAttributes() {
+    return {
+      align: {
+        default: null,
+        parseHTML: (element) => {
+          const value = element.dataset.align;
+          return value === "center" || value === "right" ? value : null;
+        },
+        renderHTML: (attrs) => {
+          if (attrs.align === "center") {
+            return { "data-align": "center", style: "margin-left: auto; margin-right: auto" };
+          }
+          if (attrs.align === "right") {
+            return { "data-align": "right", style: "margin-left: auto; margin-right: 0" };
+          }
+          return {};
+        },
+      },
+    };
+  },
+}).configure({ resizable: true, View: MeridianTableView });
 
 export const MeridianTableRow = TableRow.extend({
   name: "table_row",
@@ -140,13 +255,37 @@ export const MeridianTableCell = TableCell.extend({
 export const MeridianLink = Link.extend({
   inclusive: false,
 
+  addProseMirrorPlugins() {
+    return [
+      ...(this.parent?.() ?? []),
+      new Plugin({
+        props: {
+          handleDOMEvents: {
+            // An editable link click must place a cursor, not navigate away
+            // from the manuscript. Returning false still lets ProseMirror
+            // handle the selection.
+            click: (view, event) => {
+              if (!view.editable) return false;
+              const target = event.target;
+              if (!(target instanceof Element)) return false;
+              const link = target.closest("a");
+              if (!link || !view.dom.contains(link)) return false;
+              event.preventDefault();
+              return false;
+            },
+          },
+        },
+      }),
+    ];
+  },
+
   addAttributes() {
     return {
       href: { default: "" },
       title: { default: null },
     };
   },
-});
+}).configure({ openOnClick: false });
 
 // We renamed list_item from TipTap's default `listItem`, so the list commands
 // (toggleBulletList / toggleOrderedList) must be pointed at the renamed item type
