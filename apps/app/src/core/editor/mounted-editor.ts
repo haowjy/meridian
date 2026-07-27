@@ -23,7 +23,7 @@ import type { DocumentSession } from "./document-session";
 
 type EditorMountBase = {
   documentId: string;
-  /** Figure rendering resolves references against the owning project. */
+  /** Asset image rendering resolves `asset:` refs against the owning project. */
   projectId?: string;
   schemaType: YjsTrackedSchemaType;
   /** CollaborationCaret is an extension, so toggling peers needs a new editor. */
@@ -100,7 +100,7 @@ export function useMountedEditor({
       awareness: session.awareness,
       cursorProvider: session.cursorProvider,
       schemaType: identity.schemaType,
-      figureRenderContext: { projectId: identity.projectId, documentId: identity.documentId },
+      assetRenderContext: { projectId: identity.projectId },
       showCollaborationDecorations: identity.collaborationDecorations,
       enableDraftInlineReview: identity.surface === "review",
       markerStore: identity.surface === "review" ? undefined : session.markerStore,

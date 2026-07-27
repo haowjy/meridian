@@ -41,6 +41,11 @@ with a single unified `ContextPort` that resolves durable project schemes
   Successful moves return the domain-committed destination path. The project
   context HTTP surface exposes cross-folder and cross-scheme moves, including
   explicit Work authorities on either side when a scheme is Work-scoped.
+- **Asset-path resolver adapter** (`adapters/asset-path-resolver.ts`) — preloads
+  persisted `manuscript://assets/` identities for codec composition and is
+  updated immediately when figure upload creates a binary asset. A path shared
+  by more than one asset resolves to nothing: the id direction is unique, the
+  path direction is not.
 - **Corpus import** — folded into `kb://imports/…` ingest (ceremony deleted;
   `corpus-import-service.ts` keeps slugging/dedupe/normalization helpers).
 - **Browse layer scheme** (`browse-layer-scheme.ts`) — HTTP browse scheme

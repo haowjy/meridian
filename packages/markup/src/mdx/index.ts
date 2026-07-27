@@ -8,7 +8,7 @@ import type { ComponentRegistry } from "../components.js";
 import { escapeProseForMdxIngress } from "../escape.js";
 import { demoteAutolinks } from "../helpers.js";
 import { markdownBlockCodecs, markdownMarkCodecs } from "../markdown/index.js";
-import type { BlockCodec, MarkupPlugin } from "../types.js";
+import type { AssetPathResolver, BlockCodec, MarkupPlugin } from "../types.js";
 import {
   createFigureCodec,
   createJsxContainerCodec,
@@ -38,8 +38,12 @@ export function mdx(options?: { components?: ComponentRegistry }): MarkupPlugin 
   };
 }
 
-export function mdxCodec(options: { schema: Schema; components?: ComponentRegistry }) {
-  return createMarkupCodec({ schema: options.schema })
+export function mdxCodec(options: {
+  schema: Schema;
+  assetPathResolver: AssetPathResolver;
+  components?: ComponentRegistry;
+}) {
+  return createMarkupCodec({ schema: options.schema, assetPathResolver: options.assetPathResolver })
     .use(mdx({ components: options.components }))
     .build({ requireSchemaBlockCoverage: true });
 }

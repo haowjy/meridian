@@ -4,9 +4,11 @@
 
 `@meridian/markup` exports:
 
-- `createMarkupCodec({ schema })` builder.
-- Preset wrappers: `markdownCodec({ schema })` and
-  `mdxCodec({ schema, components })`.
+- `createMarkupCodec({ schema, assetPathResolver })` builder.
+- Preset wrappers: `markdownCodec({ schema, assetPathResolver })` and
+  `mdxCodec({ schema, components, assetPathResolver })`.
+- `AssetPathResolver` adapters: `unresolvedAssetPathResolver` (refuses to
+  serialize an asset ref) and `createAssetPathResolver(entries)`.
 - Plugin factories: `markdown()` and `mdx({ components })`.
 - Codec author helpers for converting between ProseMirror nodes and mdast/MDX
   AST nodes.
@@ -47,11 +49,21 @@ missing schema mark codecs. Required block validation is opt-in through
 
 ## MDX components
 
-`ParseContext` and `SerializeContext` contain only `schema`. The MDX plugin
+`ParseContext` and `SerializeContext` carry the schema and the asset-path
+resolver. The MDX plugin
 creates fresh `createJsxLeafCodec(components)` and
 `createJsxContainerCodec(components)` instances so component lookup is captured
 in closures. `registeredComponent(components, name)` remains a helper with an
 explicit registry parameter.
+
+## Asset paths
+
+Images hold a stable `asset:<documentId>` src inside ProseMirror; markdown holds
+a project-relative path. `AssetPathResolver` is the only translation seam, and
+it is required — a consumer with no project asset namespace passes
+`unresolvedAssetPathResolver` and gets a throw rather than a silently wrong URL.
+`assetForPath` returns null for anything the project does not know, so external
+and unknown paths stay literal.
 
 ## Reserved wire components
 

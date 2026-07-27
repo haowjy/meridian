@@ -69,6 +69,14 @@ vi.mock("@lingui/react/macro", () => ({
 vi.mock("@/client/query/useProjectThreads", () => ({
   useProjectThreads: () => ({ threads: threadList.current, isError: false, isFetching: false }),
 }));
+vi.mock("@/client/query/useProjectContextTree", () => ({
+  useProjectContextTree: () => ({
+    tree: null,
+    isError: false,
+    isFetching: false,
+    refetch: () => {},
+  }),
+}));
 vi.mock("@/features/change-trail/trail-detail-query", () => ({
   usePrefetchTrailDetails: () => {},
 }));

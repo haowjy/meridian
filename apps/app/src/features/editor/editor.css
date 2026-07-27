@@ -218,6 +218,26 @@
   border-radius: var(--radius-md);
 }
 
+.meridian-editor .ProseMirror .meridian-image-node {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: bottom;
+}
+
+.meridian-image-node__placeholder {
+  display: inline-flex;
+  min-width: 8rem;
+  min-height: 6rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px dashed var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-muted);
+  padding: 0.75rem;
+  color: var(--color-muted-foreground);
+}
+
 .meridian-editor .ProseMirror figure {
   display: grid;
   gap: 0.5rem;
@@ -490,7 +510,7 @@
   pointer-events: none;
 }
 
-.meridian-figure-upload-status {
+.meridian-image-upload-status {
   position: absolute;
   right: 1rem;
   bottom: 1rem;
@@ -508,12 +528,12 @@
   padding: 0.625rem 0.75rem;
 }
 
-.meridian-figure-upload-status--error {
+.meridian-image-upload-status--error {
   border-color: var(--color-destructive);
   color: var(--color-destructive);
 }
 
-.meridian-figure-upload-status--success {
+.meridian-image-upload-status--success {
   border-color: var(--color-border-focus);
   color: var(--color-primary);
 }

@@ -95,6 +95,15 @@ Yjs document session. It must stay structurally aligned with
 - TipTap extensions may provide editing behavior, but they must not add node or
   mark types outside the shared schema unless the schema package and server
   markdown adapter are updated in the same change.
+- Inserted images are inline `image` nodes wrapped in their own paragraph. Their
+  `src` is a stable `asset:<documentId>`; `ImageNodeView` resolves a signed read
+  URL through `asset-image-render-state.ts`, while the markup codec materializes
+  project-relative paths. One failed media load may refresh the signed URL
+  automatically; the next one surfaces an error instead of looping.
+- Assets cross the clipboard as project-relative paths and live inside the
+  editor as stable refs. `image-workflow.ts` owns both directions, and the
+  resolver behind them is per-editor because a path only means something inside
+  one project's asset namespace.
 - Block alignment lives as an `align` attr on `paragraph`, `heading`, and
   `table`, mirroring `@meridian/markup`'s reserved `Layout` wire wrapper. Only
   `null`, `"center"`, and `"right"` exist; there is no `"left"` ghost state

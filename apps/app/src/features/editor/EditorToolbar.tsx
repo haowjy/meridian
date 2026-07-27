@@ -5,8 +5,8 @@
  * cluster — no card chrome; `EditorSurfaceFrame` docks it in a prose-aligned
  * row above the scroll area. Subscribes to the editor's selection/transaction
  * events to keep active-mark highlighting in sync. Owns only command dispatch;
- * the figure-upload button delegates back to `EditorView` via
- * `onFigureButtonClick`.
+ * the image-upload button delegates back to `EditorView` via
+ * `onImageButtonClick`.
  */
 import { t } from "@lingui/core/macro";
 import type { Editor } from "@tiptap/core";
@@ -19,16 +19,16 @@ import { cn } from "@/lib/utils";
 
 export type EditorToolbarProps = {
   editor: Editor | null;
-  onFigureButtonClick?: () => void;
-  figureUploadBusy?: boolean;
-  figureUploadDisabled?: boolean;
+  onImageButtonClick?: () => void;
+  imageUploadBusy?: boolean;
+  imageUploadDisabled?: boolean;
 };
 
 export function EditorToolbar({
   editor,
-  onFigureButtonClick,
-  figureUploadBusy = false,
-  figureUploadDisabled = false,
+  onImageButtonClick,
+  imageUploadBusy = false,
+  imageUploadDisabled = false,
 }: EditorToolbarProps) {
   const [, setVersion] = useState(0);
 
@@ -104,9 +104,9 @@ export function EditorToolbar({
           <Link className="size-3.5" aria-hidden />
         </ToolbarButton>
         <ToolbarButton
-          label={t`Upload figure`}
-          disabled={!editor || figureUploadBusy || figureUploadDisabled}
-          onClick={() => onFigureButtonClick?.()}
+          label={t`Insert image`}
+          disabled={!editor || imageUploadBusy || imageUploadDisabled}
+          onClick={() => onImageButtonClick?.()}
         >
           <ImageUp className="size-3.5" aria-hidden />
         </ToolbarButton>

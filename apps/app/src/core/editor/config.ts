@@ -62,9 +62,9 @@ export type AwarenessProvider = {
   awareness: Awareness;
 };
 
-export type FigureRenderContext = {
+/** Project whose asset namespace resolves `asset:<documentId>` image sources. */
+export type AssetRenderContext = {
   projectId?: string;
-  documentId?: string;
 };
 
 export type CreateEditorExtensionsOptions = {
@@ -73,7 +73,7 @@ export type CreateEditorExtensionsOptions = {
   schemaType?: YjsTrackedSchemaType;
   cursorProvider?: AwarenessProvider;
   user?: EditorUser;
-  figureRenderContext?: FigureRenderContext;
+  assetRenderContext?: AssetRenderContext;
   /** Render remote cursor/selection decorations from awareness. */
   showCollaborationDecorations?: boolean;
   /**
@@ -218,7 +218,7 @@ export function createEditorExtensions({
   schemaType = "document",
   cursorProvider,
   user = DEFAULT_USER,
-  figureRenderContext,
+  assetRenderContext,
   showCollaborationDecorations,
   enableDraftInlineReview = false,
   markerStore,
@@ -234,7 +234,7 @@ export function createEditorExtensions({
   });
 
   return [
-    ...createStandaloneEditorExtensions({ schemaType, figureRenderContext, slashCommands }),
+    ...createStandaloneEditorExtensions({ schemaType, assetRenderContext, slashCommands }),
     ...collaboration,
     ...(markerStore ? [PeerMarkerExtension.configure({ markerStore, agentNames })] : []),
     ...(enableDraftInlineReview ? [DraftInlineReviewExtension] : []),
@@ -244,11 +244,11 @@ export function createEditorExtensions({
 /** Meridian's canonical editor schema without transport or shared state. */
 export function createStandaloneEditorExtensions({
   schemaType = "document",
-  figureRenderContext,
+  assetRenderContext,
   slashCommands,
 }: Pick<
   CreateEditorExtensionsOptions,
-  "schemaType" | "figureRenderContext" | "slashCommands"
+  "schemaType" | "assetRenderContext" | "slashCommands"
 > = {}): Extensions {
   if (schemaType === "code") {
     return [
@@ -275,12 +275,11 @@ export function createStandaloneEditorExtensions({
     MeridianTableHeader,
     MeridianTableCell,
     MeridianCodeBlockLowlight.configure({ lowlight }),
-    MeridianImage,
+    MeridianImage.configure({ projectId: assetRenderContext?.projectId }),
     MeridianJsxLeaf,
     MeridianJsxContainer,
     MeridianFigure.configure({
-      projectId: figureRenderContext?.projectId,
-      documentId: figureRenderContext?.documentId,
+      projectId: assetRenderContext?.projectId,
     }),
     ...(slashCommands ? [SlashCommandExtension.configure(slashCommands)] : []),
     LiveRangeNavigationExtension,
@@ -293,7 +292,7 @@ export function createEditorConfig({
   schemaType,
   cursorProvider,
   user,
-  figureRenderContext,
+  assetRenderContext,
   showCollaborationDecorations,
   enableDraftInlineReview,
   markerStore,
@@ -326,7 +325,7 @@ export function createEditorConfig({
         schemaType: resolvedSchemaType,
         cursorProvider,
         user,
-        figureRenderContext,
+        assetRenderContext,
         showCollaborationDecorations,
         enableDraftInlineReview,
         markerStore,
