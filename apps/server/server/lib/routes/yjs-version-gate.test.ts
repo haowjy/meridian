@@ -153,6 +153,24 @@ describe("Yjs connect-time schema version gate", () => {
     }
   });
 
+  it("prioritizes a server-stale head over an even older client", async () => {
+    const hocuspocus = createHocuspocus(
+      versionGateServices({ liveHead: COLLAB_SCHEMA_VERSION - 1 }) as never,
+    );
+    const context = connectContext(COLLAB_SCHEMA_VERSION - 2);
+
+    await expect(
+      hocuspocus.configuration.onConnect?.({
+        documentName: liveDocumentName,
+        context,
+      } as never),
+    ).rejects.toMatchObject({ code: 4407, reason: "document-schema-stale" });
+    expect(context.closeTransport).toHaveBeenCalledWith({
+      code: 4407,
+      reason: "document-schema-stale",
+    });
+  });
+
   it("maps a stale manifest dependency to the same typed close", async () => {
     const services = versionGateServices({ liveHead: COLLAB_SCHEMA_VERSION });
     services.documentSync.resolveManifestMembership.mockRejectedValue(staleSchemaError());
