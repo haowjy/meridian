@@ -110,6 +110,7 @@ access uses `DocumentAccessPort.canAccessDocument()`.
 | File | Role |
 |---|---|
 | `ws-thread-handler.ts` | Thread-events WebSocket session: connected frame, subscribe/resume ownership checks, hub catchup/live events, unsubscribe/cleanup. |
+| `yjs-ws-handler.ts` | Hocuspocus bridge for live and Work-draft rooms. Per-connection schema admission runs before sync; typed refusals close the physical transport directly, then throw only to abort hook processing. |
 | `ws-safe-send.ts` | Defensive `peer.send` wrapper used for all server-initiated sends. |
 
 ## Route helpers / services

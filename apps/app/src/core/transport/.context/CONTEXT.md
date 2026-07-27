@@ -14,9 +14,6 @@ deliver one room's 4406/4407 to every attached provider and reset healthy
 rooms. The session registry remains the per-room deduplication owner; the cost
 is one physical socket per attached room. Its 50-live-document soft cap only
 warns; it does not evict sessions or block attachments.
-The binding decision and reviewer-probe evidence are recorded in the work
-item's `DIVERGENCE/s3-room-scoped-sockets.md`.
-
 ## Stateless document messages
 
 `HocuspocusDocumentTransport` parses the extensible stateless payload once with
