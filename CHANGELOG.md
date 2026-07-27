@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+- `apps/app`: document names in the activity timeline are now doors — clicking
+  a name opens that document in the context pane; clicking the rest of the row
+  still toggles its detail. Names stay plain text where navigation can't work
+  (standalone chat).
+- `apps/app`: activity rows now lead with the command — one glyph per command,
+  mutation chips only for real mutations, and completed rows say what happened
+  in past tense (a failed read no longer claims "Read"; `diff` no longer claims
+  "Wrote").
+- `apps/app`: tool expands now state what they clipped ("4 of 7") instead of
+  silently truncating, and closed rows no longer parse result payloads.
+
 - `apps/server`: Anthropic-format cache usage now normalizes to inclusive input
   totals, so uncached prompt tokens are priced instead of silently clamped away;
   OpenAI-compatible trailing usage-only chunks are also retained.

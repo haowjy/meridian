@@ -1,5 +1,12 @@
 # Chat TODO
 
+## Grep excerpts leak block hashes
+
+Grep match snippets in tool expands render the raw `hash|text` prefix from
+the read pipeline (e.g. `79b9|The hollow gate stood…`). Writer-visible
+today. Fix belongs to the excerpt-rendering slices (5/6) of the activity
+timeline design package — strip the hash before display.
+
 ## Composer-backed ask_user interrupts
 
 `ask_user` interrupts currently render as inline component cards through
