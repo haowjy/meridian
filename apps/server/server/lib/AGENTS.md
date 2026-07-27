@@ -15,8 +15,9 @@ peers to domain-owned collaboration and thread services.
 
 - Keep adapter choice and provider configuration at this composition boundary.
 - Keep route files thin; place reusable route logic in testable `lib/` helpers.
-- Accept rejected WebSocket upgrades, then close with the typed frame/code: Nitro
-  development infrastructure cannot safely return non-101 upgrade responses.
+- Accept rejected WebSocket upgrades, then close with a registered code/reason:
+  Nitro development infrastructure cannot safely return non-101 responses.
+  Emit an error frame first only when that WebSocket protocol defines one.
 - Preserve the dependency direction `lib/ → domains/`; domain code must not
   reach back into this directory.
 
