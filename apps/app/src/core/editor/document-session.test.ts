@@ -207,7 +207,6 @@ describe("DocumentSession status derivation", () => {
     expect(reload).toHaveBeenCalledOnce();
     expect(secondSession.getSnapshot().schemaFence).toEqual({
       reason: "client-superseded",
-      detail: "client-schema-superseded",
     });
     void firstSession.destroy();
     void secondSession.destroy();
@@ -235,7 +234,6 @@ describe("DocumentSession status derivation", () => {
     expect(reload).not.toHaveBeenCalled();
     expect(session.getSnapshot().schemaFence).toEqual({
       reason: "client-superseded",
-      detail: "client-schema-superseded",
     });
     void session.destroy();
   });
@@ -585,23 +583,28 @@ describe("DocumentSession status derivation", () => {
   });
 
   it("raises one orthogonal schema fence and suspends presence", () => {
-    const session = new DocumentSession({ roomKey: "doc-fenced", enableIndexedDb: false });
+    const persistSchemaFence = vi.fn();
+    const session = new DocumentSession({
+      roomKey: "doc-fenced",
+      enableIndexedDb: false,
+      persistSchemaFence,
+    });
     session.awareness.setLocalState({ user: { name: "Writer" } });
     const { snapshots } = track(session);
 
-    session.raiseSchemaFence({ reason: "invalid-content", detail: "unsupported node" });
-    session.raiseSchemaFence({ reason: "repair-detected", detail: "later verdict" });
+    session.raiseSchemaFence({ reason: "client-superseded" });
+    session.raiseSchemaFence({ reason: "client-superseded" });
 
     expect(session.getSnapshot()).toMatchObject({
       status: "detached",
-      schemaFence: { reason: "invalid-content", detail: "unsupported node" },
+      schemaFence: { reason: "client-superseded" },
     });
     expect(session.awareness.getLocalState()).toBeNull();
     expect(snapshots.at(-1)?.schemaFence).toEqual({
-      reason: "invalid-content",
-      detail: "unsupported node",
+      reason: "client-superseded",
     });
     expect(snapshots.filter((snapshot) => snapshot.schemaFence)).toHaveLength(1);
+    expect(persistSchemaFence).toHaveBeenCalledOnce();
     void session.destroy();
   });
 

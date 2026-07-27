@@ -7,16 +7,8 @@
 import { COLLAB_SCHEMA_VERSION } from "@meridian/prosemirror-schema";
 
 export type SchemaFence = {
-  reason: "client-superseded" | "invalid-content" | "repair-detected";
-  /** Machine detail for observability: close reason, failing node name, etc. */
-  detail?: string;
+  reason: "client-superseded";
 };
-
-const SCHEMA_FENCE_REASONS = new Set<SchemaFence["reason"]>([
-  "client-superseded",
-  "invalid-content",
-  "repair-detected",
-]);
 
 function browserStorage(): Storage | null {
   try {
@@ -63,7 +55,7 @@ export function clearClientSchemaReloadGuard(roomKey: string): void {
   }
 }
 
-export function schemaFenceQuarantineKey(roomKey: string): string {
+function schemaFenceQuarantineKey(roomKey: string): string {
   return `meridian:schema-fence:v${COLLAB_SCHEMA_VERSION}:${roomKey}`;
 }
 
@@ -74,13 +66,9 @@ export function readSchemaFenceQuarantine(roomKey: string): SchemaFence | null {
   try {
     const value = storage.getItem(schemaFenceQuarantineKey(roomKey));
     if (!value) return null;
-    const fence = JSON.parse(value) as Partial<SchemaFence>;
-    if (!SCHEMA_FENCE_REASONS.has(fence.reason as SchemaFence["reason"])) return null;
-    if (fence.detail !== undefined && typeof fence.detail !== "string") return null;
-    return {
-      reason: fence.reason as SchemaFence["reason"],
-      ...(fence.detail !== undefined ? { detail: fence.detail } : {}),
-    };
+    const fence = JSON.parse(value) as { reason?: unknown } | null;
+    if (fence?.reason !== "client-superseded") return null;
+    return { reason: "client-superseded" };
   } catch {
     return null;
   }
@@ -95,15 +83,5 @@ export function writeSchemaFenceQuarantine(roomKey: string, fence: SchemaFence):
     return true;
   } catch {
     return false;
-  }
-}
-
-export function clearSchemaFenceQuarantine(roomKey: string): void {
-  const storage = browserStorage();
-  if (!storage) return;
-  try {
-    storage.removeItem(schemaFenceQuarantineKey(roomKey));
-  } catch {
-    // A blocked storage backend has nothing this session can clear.
   }
 }

@@ -1,19 +1,24 @@
 /** Regression coverage for replacing pre-materialization authorization failures. */
 
-import type { AuthMeResponse, ChangeEventWsMessage } from "@meridian/contracts/protocol";
+import {
+  type AuthMeResponse,
+  type ChangeEventWsMessage,
+  WS_CLOSE,
+} from "@meridian/contracts/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ConnectionState } from "@/core/transport/ThreadTransport";
+import type { DocumentSessionConnectionState } from "./document-session";
+import { clientSchemaReloadGuardKey } from "./schema-fence";
 
 const providers: Array<{
-  emit: (state: ConnectionState) => void;
+  emit: (state: DocumentSessionConnectionState) => void;
   destroy: ReturnType<typeof vi.fn>;
 }> = [];
 
 vi.mock("@/core/transport/hocuspocus-document-transport", () => ({
   createHocuspocusDocumentTransport: () => {
-    const listeners = new Set<(state: ConnectionState) => void>();
+    const listeners = new Set<(state: DocumentSessionConnectionState) => void>();
     const provider = {
-      emit: (state: ConnectionState) => {
+      emit: (state: DocumentSessionConnectionState) => {
         for (const listener of listeners) listener(state);
       },
       destroy: vi.fn(),
@@ -21,7 +26,7 @@ vi.mock("@/core/transport/hocuspocus-document-transport", () => ({
     providers.push(provider);
     return {
       synced: false,
-      subscribeStatus: (listener: (state: ConnectionState) => void) => {
+      subscribeStatus: (listener: (state: DocumentSessionConnectionState) => void) => {
         listeners.add(listener);
         listener({ kind: "connecting", attempt: 1 });
         return () => listeners.delete(listener);
@@ -257,76 +262,36 @@ describe("DocumentSessionRegistry.restartUnavailableRoom", () => {
     registry.destroyAll();
   });
 
-  it("keeps quarantined rooms fenced without attaching transport across re-acquisition", async () => {
+  it("persists the repeated-4406 fence so a fresh registry starts detached", () => {
     providers.length = 0;
-    vi.stubGlobal("localStorage", memoryStorage());
-    const registry = new DocumentSessionRegistry();
-    const fence = { reason: "repair-detected", detail: "poisoned local replay" } as const;
+    const localStorage = memoryStorage();
+    const sessionStorage = memoryStorage();
+    vi.stubGlobal("localStorage", localStorage);
+    vi.stubGlobal("sessionStorage", sessionStorage);
+    sessionStorage.setItem(clientSchemaReloadGuardKey("document-quarantined"), "1");
+    const firstRegistry = new DocumentSessionRegistry();
+    const firstSession = firstRegistry.get("document-quarantined");
 
-    expect(registry.quarantineRoom("document-quarantined", fence)).toBe(true);
-    const quarantined = registry.get("document-quarantined");
-
-    expect(registry.readRoomQuarantine("document-quarantined")).toEqual(fence);
-    expect(quarantined.getSnapshot()).toMatchObject({
-      status: "detached",
-      schemaFence: fence,
+    providers.at(-1)?.emit({
+      kind: "reset",
+      reason: WS_CLOSE.CLIENT_SCHEMA_SUPERSEDED.reason,
+      code: WS_CLOSE.CLIENT_SCHEMA_SUPERSEDED.code,
     });
-    expect(providers).toHaveLength(0);
-
-    await registry.destroyRoom("document-quarantined");
-    const reacquired = registry.get("document-quarantined");
-    expect(reacquired).not.toBe(quarantined);
-    expect(reacquired.getSnapshot()).toMatchObject({
-      status: "detached",
-      schemaFence: fence,
+    expect(firstSession.getSnapshot().schemaFence).toEqual({
+      reason: "client-superseded",
     });
-    expect(providers).toHaveLength(0);
-
-    registry.clearRoomQuarantine("document-quarantined");
-    await registry.destroyRoom("document-quarantined");
-    expect(registry.get("document-quarantined").getSnapshot().schemaFence).toBeNull();
     expect(providers).toHaveLength(1);
-    registry.destroyAll();
-  });
+    firstRegistry.destroyAll();
 
-  it("raises the in-memory fence when durable quarantine storage is blocked", () => {
-    providers.length = 0;
-    vi.stubGlobal("localStorage", {
-      ...memoryStorage(),
-      setItem: () => {
-        throw new DOMException("quota exceeded", "QuotaExceededError");
-      },
-    });
-    const registry = new DocumentSessionRegistry();
-    const session = registry.getDetached("document-storage-failure");
-    session.awareness.setLocalState({ user: { name: "Writer" } });
-
-    expect(registry.quarantineRoom("document-storage-failure", { reason: "repair-detected" })).toBe(
-      false,
+    const secondRegistry = new DocumentSessionRegistry();
+    const reacquired = secondRegistry.get("document-quarantined");
+    expect(reacquired.getSnapshot()).toEqual(
+      expect.objectContaining({
+        status: "detached",
+        schemaFence: { reason: "client-superseded" },
+      }),
     );
-    expect(session.getSnapshot().schemaFence).toEqual({ reason: "repair-detected" });
-    expect(session.awareness.getLocalState()).toBeNull();
-    registry.destroyAll();
-  });
-
-  it("does not restart transport for a fenced terminal session", async () => {
-    providers.length = 0;
-    vi.stubGlobal("localStorage", memoryStorage());
-    const registry = new DocumentSessionRegistry();
-    const session = registry.get("document-fenced-terminal");
-    await session.waitForCurrentSync(100);
-    providers.at(-1)?.emit({ kind: "unauthorized", reason: "revoked", code: 4403 });
-    expect(registry.quarantineRoom("document-fenced-terminal", { reason: "invalid-content" })).toBe(
-      true,
-    );
-
-    await expect(registry.restartUnavailableRoom("document-fenced-terminal")).resolves.toBe(false);
-
     expect(providers).toHaveLength(1);
-    expect(session.getSnapshot()).toMatchObject({
-      status: "access-lost",
-      schemaFence: { reason: "invalid-content" },
-    });
-    registry.destroyAll();
+    secondRegistry.destroyAll();
   });
 });

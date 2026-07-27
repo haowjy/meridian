@@ -226,7 +226,7 @@ describe("editor lifetime", () => {
       });
 
       await act(async () => {
-        raiseSchemaFence("document-fenced", { reason: "repair-detected" });
+        raiseSchemaFence("document-fenced", { reason: "client-superseded" });
       });
 
       expect(tagOf(mountedEditor(), "editor")).toBe(original);
@@ -242,7 +242,7 @@ describe("editor lifetime", () => {
       });
       expect(mountedEditor().getHTML()).toBe(fencedHtml);
       expect(document.querySelector("[data-schema-fence]")?.textContent).toBe(
-        "Part of this chapter couldn't be kept in this version of Meridian. Editing is paused to protect your manuscript. Refresh to continue.",
+        "This chapter was opened in a newer version of Meridian. Refresh to keep writing.",
       );
     });
   });

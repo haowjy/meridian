@@ -14,23 +14,9 @@ export type SchemaFenceNoticeProps = {
 export function SchemaFenceNotice({ fence }: SchemaFenceNoticeProps) {
   return (
     <p data-schema-fence data-schema-fence-reason={fence.reason}>
-      {fence.reason === "client-superseded" ? (
-        <Trans>
-          This chapter was opened in a newer version of Meridian. Refresh to keep writing.
-        </Trans>
-      ) : null}
-      {fence.reason === "invalid-content" ? (
-        <Trans>
-          Part of this chapter can't be opened safely in this version of Meridian. Editing is paused
-          to protect your manuscript. Refresh to try again.
-        </Trans>
-      ) : null}
-      {fence.reason === "repair-detected" ? (
-        <Trans>
-          Part of this chapter couldn't be kept in this version of Meridian. Editing is paused to
-          protect your manuscript. Refresh to continue.
-        </Trans>
-      ) : null}
+      <Trans>
+        This chapter was opened in a newer version of Meridian. Refresh to keep writing.
+      </Trans>
     </p>
   );
 }

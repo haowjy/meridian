@@ -1,13 +1,9 @@
 /** Schema-fence quarantine validation and blocked-storage tolerance. */
 
+import { COLLAB_SCHEMA_VERSION } from "@meridian/prosemirror-schema";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  clearSchemaFenceQuarantine,
-  readSchemaFenceQuarantine,
-  schemaFenceQuarantineKey,
-  writeSchemaFenceQuarantine,
-} from "./schema-fence";
+import { readSchemaFenceQuarantine, writeSchemaFenceQuarantine } from "./schema-fence";
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
@@ -28,29 +24,24 @@ afterEach(() => {
 });
 
 describe("schema-fence quarantine", () => {
-  it("round-trips valid fences and clears them", () => {
+  it("round-trips the reachable fence", () => {
     vi.stubGlobal("localStorage", memoryStorage());
-    const fence = { reason: "invalid-content", detail: "unsupported node" } as const;
+    const fence = { reason: "client-superseded" } as const;
 
     expect(writeSchemaFenceQuarantine("document-1", fence)).toBe(true);
     expect(readSchemaFenceQuarantine("document-1")).toEqual(fence);
-
-    clearSchemaFenceQuarantine("document-1");
-    expect(readSchemaFenceQuarantine("document-1")).toBeNull();
   });
 
-  it("rejects unknown reasons and malformed detail", () => {
+  it("rejects unknown reasons", () => {
     const storage = memoryStorage();
     vi.stubGlobal("localStorage", storage);
 
-    storage.setItem(schemaFenceQuarantineKey("unknown"), JSON.stringify({ reason: "stale-head" }));
     storage.setItem(
-      schemaFenceQuarantineKey("bad-detail"),
-      JSON.stringify({ reason: "repair-detected", detail: 42 }),
+      `meridian:schema-fence:v${COLLAB_SCHEMA_VERSION}:unknown`,
+      JSON.stringify({ reason: "repair-detected" }),
     );
 
     expect(readSchemaFenceQuarantine("unknown")).toBeNull();
-    expect(readSchemaFenceQuarantine("bad-detail")).toBeNull();
   });
 
   it("never throws when storage access is blocked", () => {
@@ -61,13 +52,9 @@ describe("schema-fence quarantine", () => {
       setItem: () => {
         throw new DOMException("blocked", "SecurityError");
       },
-      removeItem: () => {
-        throw new DOMException("blocked", "SecurityError");
-      },
     });
 
     expect(readSchemaFenceQuarantine("document-1")).toBeNull();
-    expect(writeSchemaFenceQuarantine("document-1", { reason: "repair-detected" })).toBe(false);
-    expect(() => clearSchemaFenceQuarantine("document-1")).not.toThrow();
+    expect(writeSchemaFenceQuarantine("document-1", { reason: "client-superseded" })).toBe(false);
   });
 });

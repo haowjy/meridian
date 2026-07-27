@@ -163,6 +163,8 @@ export type DocumentSessionOptions = {
   enableIndexedDb?: boolean;
   /** Plugs the server document-sync provider into the session-owned Y.Doc. */
   transportFactory?: DocumentSessionTransportFactory;
+  /** Registry-owned persistence hook for the first fence transition. */
+  persistSchemaFence?: (fence: SchemaFence) => void;
   ownUserId?: string | null;
 };
 
@@ -200,6 +202,7 @@ export class DocumentSession {
    */
   private transportState: DocumentSessionConnectionState | null = null;
   private schemaFence: SchemaFence | null = null;
+  private readonly persistSchemaFence: ((fence: SchemaFence) => void) | undefined;
   private presenceSuspendDepth = 0;
   private suspendedLocalAwarenessState: Record<string, unknown> | null = null;
   private readonly localPersistenceSyncedPromise: Promise<void>;
@@ -213,6 +216,7 @@ export class DocumentSession {
     persistenceKey = documentSessionPersistenceKey(roomKey),
     enableIndexedDb = canUseIndexedDb(),
     transportFactory,
+    persistSchemaFence,
     ownUserId = null,
   }: DocumentSessionOptions) {
     const room = parseYjsRoomName(roomKey);
@@ -221,6 +225,7 @@ export class DocumentSession {
     this.room = room;
     this.documentId = room.kind === "live" ? room.documentId : room.branchId;
     this.document = createCollabYDoc();
+    this.persistSchemaFence = persistSchemaFence;
     this.markerStore = new SessionMarkerStore(ownUserId);
     this.awareness = new Awareness(this.document);
     if (enableIndexedDb) {
@@ -275,7 +280,7 @@ export class DocumentSession {
         this.transportState = state;
         if (state.kind === "reset" && state.reason === WS_CLOSE.CLIENT_SCHEMA_SUPERSEDED.reason) {
           if (!attemptClientSchemaReload(this.roomKey)) {
-            this.raiseSchemaFence({ reason: "client-superseded", detail: state.reason });
+            this.raiseSchemaFence({ reason: "client-superseded" });
           }
         }
         this.recomputeStatus();
@@ -345,6 +350,7 @@ export class DocumentSession {
   raiseSchemaFence(fence: SchemaFence): void {
     if (this.destroyed || this.schemaFence) return;
     this.schemaFence = fence;
+    this.persistSchemaFence?.(fence);
     this.suspendPresence();
     this.emit();
   }

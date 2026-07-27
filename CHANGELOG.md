@@ -6,6 +6,8 @@
   work items that disappear during discovery.
 - `apps/app`: schema-fenced chapters now remain quarantined and read-only, with
   an explicit manuscript-protection notice instead of reconnecting unsafely.
+- `apps/app`: repeated superseded-client refusals now persist a version-scoped
+  quarantine, so reacquired chapters stay read-only without opening transport.
 - `apps/app`: collaboration sockets now declare the client schema and stay
   room-scoped, so one chapter's terminal refusal cannot reset healthy chapters.
 - `apps/app`: superseded clients now silently reload once before pausing on a

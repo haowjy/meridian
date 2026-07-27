@@ -19,12 +19,7 @@ import type { UserId } from "@meridian/contracts/runtime";
 import { createHocuspocusDocumentTransport } from "@/core/transport/hocuspocus-document-transport";
 
 import { DocumentSession, type DocumentSessionSnapshot } from "./document-session";
-import type { SchemaFence } from "./schema-fence";
-import {
-  clearSchemaFenceQuarantine,
-  readSchemaFenceQuarantine,
-  writeSchemaFenceQuarantine,
-} from "./schema-fence";
+import { readSchemaFenceQuarantine, writeSchemaFenceQuarantine } from "./schema-fence";
 
 /** Soft cap — log once when exceeded; no hard eviction (R14). */
 const LIVE_DOC_SOFT_CAP = 50;
@@ -121,20 +116,6 @@ export class DocumentSessionRegistry {
     );
   }
 
-  /** Apply a fence immediately, then report whether it was made durable. */
-  quarantineRoom(roomKey: string, fence: SchemaFence): boolean {
-    this.sessions.get(roomKey)?.raiseSchemaFence(fence);
-    return writeSchemaFenceQuarantine(roomKey, fence);
-  }
-
-  readRoomQuarantine(roomKey: string): SchemaFence | null {
-    return readSchemaFenceQuarantine(roomKey);
-  }
-
-  clearRoomQuarantine(roomKey: string): void {
-    clearSchemaFenceQuarantine(roomKey);
-  }
-
   private getOrCreateRoom(roomKey: string): DocumentSession {
     const room = parseYjsRoomName(roomKey);
     if (!room) throw new Error(`Invalid Yjs room key: ${roomKey}`);
@@ -146,6 +127,9 @@ export class DocumentSessionRegistry {
       roomKey,
       enableIndexedDb: room.kind === "live" ? undefined : false,
       ownUserId: this.ownUserId,
+      persistSchemaFence: (fence) => {
+        writeSchemaFenceQuarantine(roomKey, fence);
+      },
     });
     const quarantine = readSchemaFenceQuarantine(roomKey);
     if (quarantine) session.raiseSchemaFence(quarantine);
