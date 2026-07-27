@@ -8,6 +8,8 @@
   an explicit manuscript-protection notice instead of reconnecting unsafely.
 - `apps/app`: collaboration sockets now declare the client schema and stay
   room-scoped, so one chapter's terminal refusal cannot reset healthy chapters.
+- `apps/app`: superseded clients now silently reload once before pausing on a
+  schema fence, without risking a stale-bundle reload loop.
 - `apps/server`, `packages/contracts`: collaboration sockets now refuse clients
   older than a live or draft head with `4406`; stale stored heads close with
   `4407` instead of reconnecting indefinitely.

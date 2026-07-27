@@ -101,6 +101,12 @@ Yjs document session. It must stay structurally aligned with
   cannot reconnect. Storage failure leaves the in-memory fence effective and is
   reported by `quarantineRoom()` as non-durable. Clearing quarantine is explicit;
   no acquisition path revalidates or clears it.
+- A `4406 client-schema-superseded` reset gets one silent reload before the
+  session raises `client-superseded`. The sessionStorage guard is keyed by room
+  and `COLLAB_SCHEMA_VERSION`, is written before `location.reload()`, and clears
+  only after first transport sync. A blocked guard or repeated refusal raises
+  the fence without another reload. `4407 document-schema-stale` never reloads
+  or raises a fence because a new bundle cannot repair an older stored head.
 - TipTap extensions may provide editing behavior, but they must not add node or
   mark types outside the shared schema unless the schema package and server
   markdown adapter are updated in the same change.
