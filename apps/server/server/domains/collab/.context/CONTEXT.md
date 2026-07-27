@@ -57,11 +57,13 @@ room checkpoint at the same journal cut cannot replace it. The context caller co
 [the context domain](../../context/.context/CONTEXT.md).
 
 WebSocket admission compares the bundle's declared schema version with the
-specific live or Work-draft branch head before sync. An unstamped live head
-passes; a strictly older client closes with `4406 client-schema-superseded`.
-A stored head older than the running server closes per connection with
-`4407 document-schema-stale`; the document-load guard retains the same typed
-close for load races.
+specific live or Work-draft branch head before sync. The check runs per
+connection because Hocuspocus deduplicates document loads. An unstamped live
+head passes; a strictly older client closes with `4406
+client-schema-superseded`. A stored head older than the running server closes
+with `4407 document-schema-stale`; load-time stale-schema errors retain that
+typed close as a race backstop. Typed refusals directly close the transport;
+the subsequent throw only aborts Hocuspocus hook processing.
 
 ## Branch model
 

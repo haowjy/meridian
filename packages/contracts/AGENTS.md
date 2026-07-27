@@ -9,6 +9,9 @@ runtime shapes, and observability records.
   `branch_write_journal`), not legacy draft tables.
 - Yjs protocol contracts expose only live rooms and generation-fenced branch
   rooms.
+- Application-defined WebSocket closes share the `WS_CLOSE` registry. Add or
+  reuse a code/reason pair there instead of inlining codes or creating a
+  transport-specific registry.
 - Durable trail contracts remain lifecycle-neutral. Receiving-writer attention
   is computed per connection as `ChangeEventProjection.swept`, a best-effort
   live-session hint that never enters `TrailChangeV1` or persisted projections.
