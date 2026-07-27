@@ -45,7 +45,9 @@ export type YjsGatewayServices = {
 };
 
 export function clientSchemaVersionFromRequest(request: Request): number {
-  const value = Number(new URL(request.url).searchParams.get("schema"));
+  const raw = new URL(request.url).searchParams.get("schema");
+  if (!raw || !/^[0-9]+$/.test(raw)) return 0;
+  const value = Number(raw);
   return Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
 
@@ -263,7 +265,18 @@ export function createHocuspocus(services: YjsGatewayServices): Hocuspocus {
       if (room.kind === "live") {
         const projectId = await services.documentAccess.projectIdForDocument(documentId);
         if (!projectId) throw permissionDenied("permission-denied");
-        if (!(await hasLiveManifestMembership(services.documentSync, projectId, documentId))) {
+        let hasManifestMembership: boolean;
+        try {
+          hasManifestMembership = await hasLiveManifestMembership(
+            services.documentSync,
+            projectId,
+            documentId,
+          );
+        } catch (cause) {
+          if (!isStaleDocumentSchemaError(cause)) throw cause;
+          refuseConnection(context, WS_CLOSE.DOCUMENT_SCHEMA_STALE);
+        }
+        if (!hasManifestMembership) {
           throw permissionDenied("permission-denied");
         }
       }
