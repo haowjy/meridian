@@ -7,8 +7,14 @@
  * the client always knows both numbers. A silently clipped list is the one
  * kind of truncation the writer can't detect, which makes it the one that has
  * to be stated.
+ *
+ * Snippets arrive as the model saw them, which for manuscript documents means
+ * a leading block hash. Hashes are how the model addresses a block; they are
+ * not words, and the writer never sees one. This is the seam where a search
+ * result stops being a tool payload and becomes a line of the writer's book.
  */
 import { t } from "@lingui/core/macro";
+import { stripBlockHash } from "@meridian/agent-edit";
 
 import type { JsonValue } from "@meridian/contracts/protocol";
 
@@ -38,7 +44,7 @@ export function normalizeToolResultRows(output: JsonValue | undefined): ToolResu
           {
             title: row.uri,
             subtitle: typeof row.line === "number" ? t`Line ${row.line}` : undefined,
-            snippet: row.excerpt,
+            snippet: stripBlockHash(row.excerpt),
           },
         ];
       }),

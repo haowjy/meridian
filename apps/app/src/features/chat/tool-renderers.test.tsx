@@ -182,6 +182,26 @@ describe("runtime tool registry", () => {
     expect(html).not.toContain("0.91");
   });
 
+  it("never shows the writer a block hash", () => {
+    const tool = writeToolView({
+      toolName: "grep",
+      output: [
+        {
+          uri: "manuscript://chapter-2.md",
+          excerpt: "79b9|The hollow gate stood at the edge of the forest.",
+          line: 1,
+        },
+      ],
+    });
+
+    const html = expandMarkup(rendererFor("grep").expand?.(tool));
+
+    // A hash is how the model addresses a block. It is not a word.
+    expect(html).not.toContain("79b9");
+    expect(html).not.toContain("|");
+    expect(html).toContain("The hollow gate stood at the edge of the forest.");
+  });
+
   it("states the bound when the expand clips a longer result list", () => {
     const tool = writeToolView({
       toolName: "grep",

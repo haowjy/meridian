@@ -38,6 +38,7 @@ export function createAgentEditCore(options: AgentEditCoreOptions): AgentEditCor
 
 export type { BlockItemId } from "./model/block-hash.js";
 export { getBlockItemId } from "./model/block-hash.js";
+export { stripBlockHash, toHashline } from "./model/hashline.js";
 export type { LiveBlockRangeTarget } from "./model/navigation-target.js";
 export {
   decodeNavigationPosition,
