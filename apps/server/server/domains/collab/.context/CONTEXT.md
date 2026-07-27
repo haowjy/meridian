@@ -56,6 +56,13 @@ is reconciled into an already-open live room before success returns, and a stale
 room checkpoint at the same journal cut cannot replace it. The context caller contract is documented in
 [the context domain](../../context/.context/CONTEXT.md).
 
+WebSocket admission compares the bundle's declared schema version with the
+specific live or Work-draft branch head before sync. An unstamped live head
+passes; a strictly older client closes with `4406 client-schema-superseded`.
+A stored head older than the running server closes per connection with
+`4407 document-schema-stale`; the document-load guard retains the same typed
+close for load races.
+
 ## Branch model
 
 Branches are real Y.Docs. A thread peer starts from the Work draft, receives live

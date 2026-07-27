@@ -5,11 +5,18 @@ import {
   type TransactionOrigin,
   type WebSocketLike,
 } from "@hocuspocus/server";
-import { parseYjsRoomName } from "@meridian/contracts/protocol";
-import type { UserId } from "@meridian/contracts/runtime";
+import { parseYjsRoomName, WS_CLOSE } from "@meridian/contracts/protocol";
+import type { DocumentId, UserId } from "@meridian/contracts/runtime";
+import { COLLAB_SCHEMA_VERSION } from "@meridian/prosemirror-schema";
 import { messageYjsSyncStep1, messageYjsSyncStep2, messageYjsUpdate } from "y-protocols/sync";
 import * as Y from "yjs";
-import type { AdmitLiveWriterUpdateResult, UpdateOrigin } from "../domains/collab/index.js";
+import {
+  type AdmitLiveWriterUpdateResult,
+  isClientSchemaSuperseded,
+  isStaleDocumentSchemaError,
+  isStaleSchema,
+  type UpdateOrigin,
+} from "../domains/collab/index.js";
 import { emitEvent, unknownToEventPayload } from "../domains/observability/index.js";
 import type { AppServices } from "./app.js";
 export type BranchHandshakeState = "pending" | "passed" | "rejected";
@@ -19,6 +26,7 @@ type HocuspocusConnection = ReturnType<Hocuspocus["handleConnection"]>;
 export type YjsGatewayPeer = {
   request: Request;
   userId: UserId;
+  clientSchemaVersion: number;
   socket: WebSocketLike;
   close(code?: number, reason?: string): void;
 };
@@ -35,6 +43,11 @@ export type YjsGatewayServices = {
   documentSync: AppServices["documentSync"];
   eventSink: AppServices["eventSink"];
 };
+
+export function clientSchemaVersionFromRequest(request: Request): number {
+  const value = Number(new URL(request.url).searchParams.get("schema"));
+  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
 
 export async function hasLiveManifestMembership(
   documentSync: Pick<
@@ -59,6 +72,16 @@ function permissionDenied(
   error.reason = reason;
   if (code !== undefined) error.code = code;
   return error;
+}
+
+function refuseConnection(
+  context: Record<string, unknown>,
+  close: { code: number; reason: string },
+): never {
+  (context.closeTransport as ((input: { code: number; reason: string }) => void) | undefined)?.(
+    close,
+  );
+  throw permissionDenied(close.reason, close.code);
 }
 
 function deriveOrigin(
@@ -91,17 +114,19 @@ function parseRoomOrDeny(documentName: string) {
   return room;
 }
 
-async function resolveRoomDocumentId(
+async function resolveRoomTarget(
   services: YjsGatewayServices,
   room: ReturnType<typeof parseRoomOrDeny>,
-) {
-  if (room.kind === "live") return room.documentId;
+): Promise<{ documentId: DocumentId; schemaVersion: number | null }> {
+  if (room.kind === "live") {
+    return { documentId: room.documentId, schemaVersion: null };
+  }
   const branch = await services.documentSync.resolveBranchHocuspocusRoom(
     room.branchId,
     room.generation,
   );
   if (!branch) throw permissionDenied("branch-generation-stale");
-  return branch.documentId;
+  return { documentId: branch.documentId, schemaVersion: branch.schemaVersion };
 }
 
 async function enforceBranchHandshake(input: {
@@ -119,11 +144,11 @@ async function enforceBranchHandshake(input: {
       clientStateVector: input.payload,
     });
     if (input.context?.branchSyncState?.get(key) === "rejected") {
-      throw permissionDenied("branch-stale-doc", 4205);
+      throw permissionDenied(WS_CLOSE.BRANCH_STALE.reason, WS_CLOSE.BRANCH_STALE.code);
     }
     if (stale) {
       input.context?.branchSyncState?.set(key, "rejected");
-      throw permissionDenied("branch-stale-doc", 4205);
+      throw permissionDenied(WS_CLOSE.BRANCH_STALE.reason, WS_CLOSE.BRANCH_STALE.code);
     }
     input.context?.branchSyncState?.set(key, "passed");
     return;
@@ -132,7 +157,7 @@ async function enforceBranchHandshake(input: {
   const state = input.context?.branchSyncState?.get(key) ?? "pending";
   if (state === "passed") return;
   input.context?.branchSyncState?.set(key, "rejected");
-  throw permissionDenied("branch-stale-doc", 4205);
+  throw permissionDenied(WS_CLOSE.BRANCH_STALE.reason, WS_CLOSE.BRANCH_STALE.code);
 }
 
 export async function admitWriterSync(input: {
@@ -230,7 +255,8 @@ export function createHocuspocus(services: YjsGatewayServices): Hocuspocus {
       if (!userId) throw permissionDenied("permission-denied");
 
       const room = parseRoomOrDeny(documentName);
-      const documentId = await resolveRoomDocumentId(services, room);
+      const target = await resolveRoomTarget(services, room);
+      const documentId = target.documentId;
       if (!documentId || !(await services.documentAccess.canAccessDocument(userId, documentId))) {
         throw permissionDenied("permission-denied");
       }
@@ -240,6 +266,25 @@ export function createHocuspocus(services: YjsGatewayServices): Hocuspocus {
         if (!(await hasLiveManifestMembership(services.documentSync, projectId, documentId))) {
           throw permissionDenied("permission-denied");
         }
+      }
+
+      const headSchemaVersion =
+        room.kind === "live"
+          ? await services.documentSync.headSchemaVersion(documentId)
+          : target.schemaVersion;
+      if (isStaleSchema(headSchemaVersion, COLLAB_SCHEMA_VERSION)) {
+        refuseConnection(context, WS_CLOSE.DOCUMENT_SCHEMA_STALE);
+      }
+      if (
+        isClientSchemaSuperseded(
+          (context.clientSchemaVersion as number | undefined) ?? 0,
+          headSchemaVersion,
+        )
+      ) {
+        refuseConnection(context, WS_CLOSE.CLIENT_SCHEMA_SUPERSEDED);
+      }
+
+      if (room.kind === "live") {
         context.liveGenerations?.set(
           documentId,
           await services.documentSync.currentLiveGeneration(documentId),
@@ -271,20 +316,30 @@ export function createHocuspocus(services: YjsGatewayServices): Hocuspocus {
         syncType: type,
         payload,
         userId,
-        closeTransport: context.closeWriterTransport as
+        closeTransport: context.closeTransport as
           | ((input: { code: number; reason: string }) => void)
           | undefined,
         expectedGeneration: context.liveGenerations?.get(documentName),
         context,
       });
     },
-    async onLoadDocument({ documentName, document }) {
+    async onLoadDocument({ documentName, document, context }) {
       const room = parseRoomOrDeny(documentName);
-      const state =
-        room.kind === "live"
-          ? await services.documentSync.loadHocuspocusDocument(room.documentId)
-          : (await services.documentSync.loadHocuspocusBranchState(room.branchId, room.generation))
-              ?.state;
+      let state: Uint8Array | undefined;
+      try {
+        state =
+          room.kind === "live"
+            ? await services.documentSync.loadHocuspocusDocument(room.documentId)
+            : (
+                await services.documentSync.loadHocuspocusBranchState(
+                  room.branchId,
+                  room.generation,
+                )
+              )?.state;
+      } catch (cause) {
+        if (!isStaleDocumentSchemaError(cause)) throw cause;
+        refuseConnection(context, WS_CLOSE.DOCUMENT_SCHEMA_STALE);
+      }
       if (!state && room.kind === "branch") throw permissionDenied("branch-generation-stale");
       if (state) Y.applyUpdate(document, state);
       if (room.kind === "live") services.documentSync.primeReservedNamespaceIndex(document);
@@ -338,10 +393,11 @@ export function createYjsGateway(services: YjsGatewayServices) {
       };
       const hocuspocusConnection = hocuspocus.handleConnection(peer.socket, peer.request, {
         userId: peer.userId,
+        clientSchemaVersion: peer.clientSchemaVersion,
         branchSyncState: connection.branchSyncState,
         offlineSyncUpdates: connection.offlineSyncUpdates,
         liveGenerations: connection.liveGenerations,
-        closeWriterTransport: ({ code, reason }: { code: number; reason: string }) =>
+        closeTransport: ({ code, reason }: { code: number; reason: string }) =>
           peer.close(code, reason),
       });
       return { ...connection, hocuspocus: hocuspocusConnection };

@@ -4,6 +4,7 @@ export { createInMemoryCollabDomain } from "./adapters/in-memory/composition.js"
 export { createCollabDomain } from "./composition.js";
 export * from "./contracts.js";
 export { createDocumentCreationAggregate } from "./domain/document-creation.js";
+export { isClientSchemaSuperseded } from "./domain/schema-version-gate.js";
 export {
   isStaleDocumentSchemaError,
   isStaleSchema,

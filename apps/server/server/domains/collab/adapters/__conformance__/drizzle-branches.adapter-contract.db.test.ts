@@ -247,10 +247,12 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
 
     it("stamps branch rows from the live head and checks the row schema on resolve", async () => {
       const staleVersion = COLLAB_SCHEMA_VERSION - 1;
+      expect(await livePersistence.journal.headSchemaVersion(DOC_ID)).toBeNull();
       await db.insert(documentYjsHeads).values({
         documentId: DOC_ID as never,
         schemaVersion: staleVersion,
       });
+      expect(await livePersistence.journal.headSchemaVersion(DOC_ID)).toBe(staleVersion);
       const work = await store.ensureWorkDraftBranch({
         documentId: DOC_ID as never,
         workId: WORK_ID as never,
@@ -262,6 +264,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         .update(documentYjsHeads)
         .set({ schemaVersion: COLLAB_SCHEMA_VERSION })
         .where(eq(documentYjsHeads.documentId, DOC_ID as never));
+      expect(await livePersistence.journal.headSchemaVersion(DOC_ID)).toBe(COLLAB_SCHEMA_VERSION);
       const peerDoc = docWithText("stale peer snapshot");
       await db.insert(documentBranches).values({
         id: "branch_stale_peer",
@@ -1079,7 +1082,11 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       expect(branchRoomName(branch.branchId, branch.generation)).toBe(
         `branch:${branch.branchId}:gen:${branch.generation}`,
       );
-      expect(room).toMatchObject({ branchId: branch.branchId, documentId: DOC_ID });
+      expect(room).toMatchObject({
+        branchId: branch.branchId,
+        documentId: DOC_ID,
+        schemaVersion: COLLAB_SCHEMA_VERSION,
+      });
       expect(loadedDoc.getText("content").toString()).toBe("live review seed");
     });
 

@@ -4,6 +4,9 @@
 
 - `tools/dev`: worktree pruning now ignores Meridian diagnostics and skips
   work items that disappear during discovery.
+- `apps/server`, `packages/contracts`: collaboration sockets now refuse clients
+  older than a live or draft head with `4406`; stale stored heads close with
+  `4407` instead of reconnecting indefinitely.
 - `apps/server`: Anthropic-format cache usage now normalizes to inclusive input
   totals, so uncached prompt tokens are priced instead of silently clamped away;
   OpenAI-compatible trailing usage-only chunks are also retained.

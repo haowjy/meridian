@@ -6,6 +6,7 @@
  * first, then close it from open() with the deferred-close context.
  */
 
+import { WS_CLOSE } from "@meridian/contracts/protocol";
 import type { UserId } from "@meridian/contracts/runtime";
 import {
   createNoopEventSink,
@@ -50,7 +51,7 @@ export async function resolveWsUpgradeAuth(
   try {
     const auth = await resolveAppUserFromRequest(request);
     if (!auth) {
-      return deferWsClose({ code: 4401, reason: "auth_failed" });
+      return deferWsClose(WS_CLOSE.AUTH_FAILED);
     }
     return { kind: "authenticated", app: auth.app, userId: auth.user.userId };
   } catch (error) {
