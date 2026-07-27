@@ -15,3 +15,16 @@ instead of `Record<string, unknown>` casts.
 
 **Affected paths:** `yjs-ws-handler.ts` (primary), `routes/ws/yjs.ts`
 (context construction).
+
+## Structured events for schema admission refusals
+
+Typed admission refusals (4406/4407) currently appear only as unstructured
+`[onConnect]` stdout — no `EventSink` record exists, so refusal volume and
+correlation are invisible to dev diagnostics queries. Flagged by the Gate-1
+runtime probe (spawn p4854).
+
+**Proposed direction:** emit one structured, correlated event from
+`refuseConnection` (`yjs-ws-handler.ts`) through the existing
+`emitEvent`/observability seam.
+
+**Affected paths:** `yjs-ws-handler.ts`.
