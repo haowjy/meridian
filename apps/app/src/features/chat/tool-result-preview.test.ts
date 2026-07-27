@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { normalizeListing, normalizeSearchHits, resultBoundLabel } from "./tool-result-preview";
+import { boundLabel, normalizeListing, normalizeSearchHits } from "./tool-result-preview";
 
 vi.mock("@lingui/core/macro", () => ({
   t: (strings: TemplateStringsArray, ...values: unknown[]) =>
@@ -74,7 +74,7 @@ describe("caps and bounds", () => {
     const rows = normalizeListing(listing(23));
 
     expect(rows.rows).toHaveLength(8);
-    expect(resultBoundLabel(rows)).toBe("8 of 23");
+    expect(boundLabel(rows)).toBe("8 of 23");
   });
 
   it("stops search hits at four, because each one is three lines", () => {
@@ -84,10 +84,10 @@ describe("caps and bounds", () => {
     }));
 
     expect(normalizeSearchHits(hits).rows).toHaveLength(4);
-    expect(resultBoundLabel(normalizeSearchHits(hits))).toBe("4 of 42");
+    expect(boundLabel(normalizeSearchHits(hits))).toBe("4 of 42");
   });
 
   it("states no bound when nothing was cut", () => {
-    expect(resultBoundLabel(normalizeListing(listing(3)))).toBeNull();
+    expect(boundLabel(normalizeListing(listing(3)))).toBeNull();
   });
 });

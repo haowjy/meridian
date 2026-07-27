@@ -46,9 +46,12 @@ import type { ToolView } from "./group-delivery-segments";
 import { type OutlineHeading, readPayloadMarkup, readPayloadOutline } from "./read-payload";
 import { humanizeSkillSlug, toolInputObject, type WriteMode } from "./tool-command";
 import {
+  boundLabel,
+  type CappedList,
+  capList,
+  LISTING_CAP,
   normalizeListing,
   normalizeSearchHits,
-  resultBoundLabel,
   type ToolResultRow,
   type ToolResultRows,
   truncate,
@@ -133,7 +136,7 @@ function rowKey(row: ToolResultRow, index: number): string {
 
 /** Search hits: the document, where it matched, and the passage. */
 function ResultRows({ results }: { results: ToolResultRows }) {
-  const bound = resultBoundLabel(results);
+  const bound = boundLabel(results);
   return (
     <>
       <ul className="space-y-2">
@@ -173,7 +176,7 @@ const LISTING_ROW = "flex min-w-0 items-baseline gap-[7px] py-0.5 text-compact";
  * inert here and there is nothing else to click.
  */
 function ListingRows({ results }: { results: ToolResultRows }) {
-  const bound = resultBoundLabel(results);
+  const bound = boundLabel(results);
   return (
     <>
       <ul>
@@ -373,7 +376,8 @@ function outputOutline(tool: ToolView): ToolExpand | null {
   // A document with no headings falls back to whole blocks server-side, so the
   // payload really is prose and the row should show it as prose.
   if (!headings) return outputPreview(tool);
-  return () => <OutlineRows headings={headings} />;
+  const outline = capList(headings, LISTING_CAP);
+  return () => <OutlineRows outline={outline} />;
 }
 
 /**
@@ -467,23 +471,32 @@ function OpenDocumentDoor({ path }: { path: string }) {
 }
 
 /**
- * What a skim saw. A list, not prose, so it wears the listing rhythm rather
- * than the preview's: an outline read returned structure, and rendering it as
- * paragraphs would claim the model read the words under them.
+ * What a skim saw. A list, not prose, so it takes the discrete-list treatment
+ * whole: the listing rhythm, the listing cap, and a count when it is cut. An
+ * outline read returned structure, and rendering it as paragraphs would claim
+ * the model read the words under those headings.
+ *
+ * No fade and no door at the bottom. Those belong to continuous prose, where
+ * the need to see the rest arrives only after reading; a clipped outline is
+ * already answered by the row title's own door.
  */
-function OutlineRows({ headings }: { headings: OutlineHeading[] }) {
+function OutlineRows({ outline }: { outline: CappedList<OutlineHeading> }) {
+  const bound = boundLabel(outline);
   return (
-    <ul>
-      {headings.map((heading, index) => (
-        <li
-          key={`${index}:${heading.text}`}
-          className={cn(LISTING_ROW, "text-prose-foreground")}
-          style={{ paddingLeft: `${heading.level * 16}px` }}
-        >
-          <span className="min-w-0 truncate">{heading.text}</span>
-        </li>
-      ))}
-    </ul>
+    <>
+      <ul>
+        {outline.rows.map((heading, index) => (
+          <li
+            key={`${index}:${heading.text}`}
+            className={cn(LISTING_ROW, "text-prose-foreground")}
+            style={{ paddingLeft: `${heading.level * 16}px` }}
+          >
+            <span className="min-w-0 truncate">{heading.text}</span>
+          </li>
+        ))}
+      </ul>
+      {bound ? <BoundLine>{bound}</BoundLine> : null}
+    </>
   );
 }
 

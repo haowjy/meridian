@@ -34,14 +34,29 @@ export type ToolResultRow =
   | { kind: "folder"; uri: string };
 
 /**
- * Capped rows plus what they were cut from. `total` counts every entry the
- * tool returned, including ones too malformed to render: the writer is being
- * told the size of the payload, not the size of what we could parse.
+ * A discrete list, cut to what fits, plus what it was cut from. `total` counts
+ * every entry the tool returned, including ones too malformed to render: the
+ * writer is being told the size of the payload, not the size of what we could
+ * parse.
  */
-export type ToolResultRows = {
-  rows: ToolResultRow[];
+export type CappedList<T> = {
+  rows: T[];
   total: number;
 };
+
+export type ToolResultRows = CappedList<ToolResultRow>;
+
+/**
+ * One line per entry, so this is what fits before a list starts crowding the
+ * transcript. Shared by `ls` listings and skim outlines, which are the same
+ * shape of thing.
+ */
+export const LISTING_CAP = 8;
+
+/** Cut a discrete list to its cap, keeping the size it was cut from. */
+export function capList<T>(items: readonly T[], cap: number): CappedList<T> {
+  return { rows: items.slice(0, cap), total: items.length };
+}
 
 type RowSpec = {
   /** How many rows fit before the list has to report the rest as a count. */
@@ -51,8 +66,7 @@ type RowSpec = {
 
 /** Three lines each (name, location, passage), so fewer of them fit. */
 const SEARCH_HITS: RowSpec = { cap: 4, toRow: searchHit };
-/** One line each. */
-const LISTING: RowSpec = { cap: 8, toRow: listingEntry };
+const LISTING: RowSpec = { cap: LISTING_CAP, toRow: listingEntry };
 
 /** What `grep` returned: one document per hit, with the passage it matched. */
 export function normalizeSearchHits(output: JsonValue | undefined): ToolResultRows {
@@ -106,7 +120,7 @@ function listingEntry(row: Record<string, JsonValue>): ToolResultRow | null {
 }
 
 /** `4 of 42` — a fact about the payload, never an invitation to see more. */
-export function resultBoundLabel({ rows, total }: ToolResultRows): string | null {
+export function boundLabel<T>({ rows, total }: CappedList<T>): string | null {
   if (total <= rows.length) return null;
   const shown = rows.length;
   return t`${shown} of ${total}`;

@@ -277,6 +277,27 @@ describe("runtime tool registry", () => {
     expect(html).not.toContain("#");
   });
 
+  it("caps a long outline and states what it left out", () => {
+    const output = Array.from({ length: 23 }, (_, index) =>
+      [`h${index}|## Section ${index + 1}`, `write(command="read", file="x.md#h${index}")`].join(
+        "\n",
+      ),
+    ).join("\n");
+    const tool = writeToolView({
+      input: { path: "manuscript://long.md", command: "read", format: "outline" },
+      output,
+    });
+
+    const html = expandMarkup(rendererFor("write").expand?.(tool));
+
+    expect(html).toContain("Section 8");
+    expect(html).not.toContain("Section 9");
+    expect(html).toContain("8 of 23");
+    // A clipped outline is a discrete list: it states a count, and its door is
+    // the row title's, not a second one at a fade.
+    expect(html).not.toContain("Open long");
+  });
+
   it("falls back to prose when an outline read found no headings", () => {
     // renderOutline returns whole blocks for a document with no headings, so
     // the payload really is prose.

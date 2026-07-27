@@ -23,6 +23,12 @@ comes from `tool-command.ts`, and what to do about it comes from
 `command-descriptor.ts`, including the expand's shape. A renderer never
 switches on a command itself.
 
+**The tool picks the parser.** A search hit and a listing entry are both
+`{uri, …}`, so a payload cannot be asked what it is: guessing from the first
+recognizable entry discards every later row that disagrees. The caller knows
+the tool, so it calls that tool's normalizer; the parsed row's own discriminant
+then decides how it renders.
+
 ## The three channels
 
 The timeline separates what the agent *did*, what it *meant*, and what
@@ -47,21 +53,35 @@ the UI says neither "intent" nor "outcome".
 
 ## What each expand shows
 
-| Command | Expand | Doors inside |
-|---|---|---|
-| `read` | The passage that came back, as quoted prose | The document, at the fade |
-| `read format:outline` | The headings it saw, indented by depth | The document, at the fade |
-| `create` / `insert` / `replace` | The submitted content, on the recessed surface | The document, at the fade |
-| `undo` / `redo` / `diff` | Nothing | — |
-| `grep` | Match rows: document, location, passage | Each document |
-| `ls` | Listing rows: name plus glyph | Each document; folders are inert |
-| `invoke` | Output tail | — |
-| unknown | Nothing | — |
-| any, failed | The failure copy | — |
+| Command | Expand | Cut by | Doors inside |
+|---|---|---|---|
+| `read` | The passage that came back, as quoted prose | Height, with a fade | The document, at the fade |
+| `read format:outline` | The headings it saw, indented by depth | The listing cap, with a count | None; the row title's door serves |
+| `create` / `insert` / `replace` | The submitted content, on the recessed surface | Height, with a fade | The document, at the fade |
+| `undo` / `redo` / `diff` | Nothing | — | — |
+| `grep` | Match rows: document, location, passage | The search cap, with a count | Each document |
+| `ls` | Listing rows: name plus glyph | The listing cap, with a count | Each document; folders are inert |
+| `invoke` | Output tail, or one of two availability failures | The tail's own bound | — |
+| unknown | Nothing | — | — |
+
+A **failed `write`** always shows why it failed, in place of whatever the
+command would otherwise have opened onto. No other tool has a general failure
+expand: `invoke` recognises two availability failures and shows nothing for the
+rest, and a failed `grep` or `ls` opens onto nothing at all. Whether every
+failure deserves an expand is an open design question; do not invent an answer
+in a renderer.
+
+An outline is a **discrete list, not prose**: it takes the listing cap and
+states a count when cut. It gets no fade and no second door, because those
+belong to continuous prose, where the need to see the rest arrives only after
+reading. A clipped outline is already answered by the door in the row title.
 
 Read payloads arrive as hashlines, and outline reads interleave locator lines
 the model uses to read further. Both are addressing machinery and are stripped
-in `read-payload.ts` before any renderer sees them. Targeting is resolved
+in `read-payload.ts` before any renderer sees them. That module reads through
+`splitHashline`, not the anchored stripper: this payload was serialized by this
+system, so the reader that inverts the writer is the correct one, and an empty
+hash would otherwise leak its separator into the writer's prose. Targeting is resolved
 server-side, so a scoped read's payload already *is* the region asked for: the
 preview rule is "show the top of what came back" for every read.
 
@@ -77,18 +97,20 @@ carry no affordance.
   a clipped passage never looks complete, and "first 240 words" is not a unit
   writers think in.
 - **Discrete lists** cap by item count and state the rest as a fact — `4 of 42`,
-  never "Showing…", which is systems voice. `ls` caps at 8, search at 4.
+  never "Showing…", which is systems voice. Listings and outlines cap at 8, one
+  line each; search hits cap at 4, because each is three lines.
 
 **The anchor is the trap.** `StreamTail` is bottom-pinned with a *top* fade,
 because for a running command the newest output wins. A preview is the
 opposite: **top-anchored with a bottom fade**, because the opening of the
 passage wins. Reusing `StreamTail` here shows the end of the chapter.
 
-**A second door sits at the fade**, labelled `Open ‹Document›`. The row title
-carries the first door, at the top; this one sits where the writer has read to
-the bound. Never "Show more": more promises more of a payload that is finite,
-and the document is a larger and different thing. Content that fits gets
-neither fade nor door.
+**A second door sits at the fade** of clipped *prose*, labelled `Open
+‹Document›`. The row title carries the first door, at the top; this one sits
+where the writer has read to the bound. Never "Show more": more promises more
+of a payload that is finite, and the document is a larger and different thing.
+Prose that fits gets neither fade nor door, and a discrete list never gets
+either: its count already says what was left out.
 
 **No nested scrollports.** The transcript is the single scroll owner, so every
 clamp is `overflow: hidden`. What a writer cannot see in an expand they reach
