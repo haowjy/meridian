@@ -68,9 +68,8 @@ Did the agent *look at* my book or *change* it is the timeline's most important
 distinction, and doors add weight to the parameter. Three layers answer it, in
 order of strength:
 
-1. **One glyph per command, not per tool** (`COMMAND_GLYPH` in `ToolRow`). The
-   icon column is already an aligned channel; bound to the command it becomes
-   scannable.
+1. **One glyph per command, not per tool.** The icon column is already an
+   aligned channel; bound to the command it becomes scannable.
 2. **Chip tone.** `primary` means *your document changed*. Drafts stay neutral
    (a proposal has not mutated anything) and so do failed writes.
 3. **Type.** Command at `--ink`/500, parameter at `--muted`/400.
@@ -80,10 +79,13 @@ deferred, not rejected: 64px is 21% of a 360px docked chat.
 
 ## Verbs live in one place
 
-`tool-command.ts` classifies the writer-facing command and names it in both
-tenses. Renderers consume both; nothing derives past tense inline. The same
-vocabulary feeds `useLiveTurnAnnouncements`, so the visible row and the
-announced string cannot drift — they had, for `ls`.
+`tool-command.ts` classifies the writer-facing command; `command-descriptor.ts`
+holds one exhaustive table of what the timeline does with it, including both
+tenses, the glyph, the chip's mutation policy, the failure verb, and the expand
+shape. Renderers consume the table; nothing derives past tense inline, and
+adding a command is one entry. The same vocabulary feeds
+`useLiveTurnAnnouncements`, so the visible row and the announced string cannot
+drift — they had, for `ls`.
 
 Tense is a pure function of protocol state (`status === "complete"`), never of
 timing. A partial write names no document: its path has not settled, so the row
@@ -91,12 +93,12 @@ offers no door onto one.
 
 ## Expands
 
+The row owns whether there is an expand and when it is built. What goes inside
+one lives in [tool-expands.md](tool-expands.md).
+
 - **No chevron unless there is something behind it.** An expand affordance is a
-  promise.
+  promise, so the same parse that fills the expand answers whether to offer it.
 - **Built on open, not on render.** `ToolRenderer.expand` returns a builder;
   deciding *whether* there is content is cheap, rendering it is not.
 - **Open state is local to the row.** It resets when frontier rows fold at
   settle. That is correct — the fold reopens calm — so do not hoist it.
-- **Discrete lists state their bound.** A clipped list prints `4 of 42`, a fact
-  and never "Showing…". Continuous prose gets a fade instead: a clipped passage
-  never looks complete, so a count would add clutter without adding honesty.

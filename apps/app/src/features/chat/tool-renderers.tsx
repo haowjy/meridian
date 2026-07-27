@@ -8,7 +8,7 @@
  * stream tail, or skill output). Glyphs are not here: they belong to the
  * command, which `ToolRow` resolves.
  *
- * Three-tier contract documented in `.context/CONTEXT.md`:
+ * Three-tier contract documented in `.context/tool-expands.md`:
  *   - **Tier 1 (default fallback)** — unknown tool. Static one-line row
  *     showing the humanized tool name only. No expand or interaction.
  *   - **Tier 2 (registered)** — the entries in this file. Per-tool one-liner
