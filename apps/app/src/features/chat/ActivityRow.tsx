@@ -18,6 +18,17 @@
  *     bug in v1: rendering `<icon-only-row>` then `<prose-block>` with a left
  *     pad below the icon left a gap between the icon and the first line.
  *
+ * **Two actions, one row (the stretched-button pattern).** A row both expands
+ * and, where its title names a document, navigates. The large forgiving target
+ * carries the safe reversible action (expand); the small precise target
+ * carries the consequential one (leaving the transcript). So the toggle is an
+ * empty absolutely-positioned button rendered *after* the title content, and
+ * any door inside the title sits above it. They are DOM siblings, never
+ * nested: a `<button>` authored inside a `<button>` in JSX is not rescued the
+ * way the HTML parser rescues static markup, and it breaks screen readers.
+ * The stretched area covers the title row only, so clicking inside an open
+ * expand never collapses it.
+ *
  * **Timeline rail (self-contained).** Each row paints its own piece of the
  * Claude-style process timeline inside the icon column: the chip sits at the
  * top and a 1px `flex-1` span fills the remaining vertical space down to the
@@ -44,10 +55,18 @@ import { cn } from "@/lib/utils";
 
 export type ActivityRowStatus = "running" | "done" | "error";
 
+/**
+ * Answers "did anything change?" before a word is read. `primary` is reserved
+ * for commands that mutated the writer's document; everything the agent merely
+ * looked at stays neutral.
+ */
+export type ActivityRowChipTone = "neutral" | "primary";
+
 export type ActivityRowProps = {
   Icon: LucideIcon;
   /** Preserve the rail gutter while omitting a redundant per-row icon chip. */
   quietIcon?: boolean;
+  chipTone?: ActivityRowChipTone;
   /** Single-line action title (e.g. `Read foo.md`). Omit when using `children`. */
   title?: ReactNode;
   /** Status indicator. Hidden when the row is `done` and not interactive. */
@@ -88,6 +107,7 @@ export const ACTIVITY_ROW_TEXT_INSET = "pl-[29px]";
 export function ActivityRow({
   Icon,
   quietIcon = false,
+  chipTone = "neutral",
   title,
   status,
   expand,
@@ -96,6 +116,7 @@ export function ActivityRow({
 }: ActivityRowProps) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
+  const titleId = `${panelId}-title`;
 
   const hasInlineFold = !!expand;
 
@@ -111,7 +132,15 @@ export function ActivityRow({
     </div>
   ) : (
     <div className={cn("flex w-[19px] shrink-0 flex-col items-center", ICON_TOP_PAD)}>
-      <span className="grid size-[19px] shrink-0 place-items-center rounded-md bg-chip-muted-bg text-ink-subtle">
+      <span
+        className={cn(
+          "grid size-[19px] shrink-0 place-items-center rounded-md",
+          chipTone === "primary"
+            ? "bg-chip-primary-bg text-jade-text"
+            : "bg-chip-muted-bg text-ink-subtle",
+        )}
+        data-chip-tone={chipTone}
+      >
         <Icon className="size-3" aria-hidden />
       </span>
       <span className="mt-1 w-px flex-1 bg-border" data-activity-rail aria-hidden />
@@ -152,10 +181,23 @@ export function ActivityRow({
       />
     ) : null;
 
-  const titleRowContent = (
-    <div className="flex w-full items-start gap-2.5">
+  // The title row is the stretched area's positioning context. The toggle is
+  // painted over the title content (later positioned sibling), and a door
+  // inside the title lifts back above it with its own `z-10`.
+  const titleRow = (
+    <div
+      className={cn(
+        "relative -mx-1 flex items-start gap-2.5 rounded-md px-1 py-0.5",
+        hasInlineFold && "transition-colors hover:bg-muted",
+      )}
+    >
       {title ? (
-        <span className="text-prose-foreground min-w-0 flex-1 truncate text-compact">{title}</span>
+        // No `overflow-hidden` here: a door inside grows past the line box to
+        // reach a touch target, and clipping it would shrink that back down.
+        // Each title renderer truncates its own content.
+        <span id={titleId} className="min-w-0 flex-1 text-compact font-medium text-foreground">
+          {title}
+        </span>
       ) : null}
       {dot}
       {hasInlineFold ? (
@@ -167,30 +209,29 @@ export function ActivityRow({
           aria-hidden
         />
       ) : null}
+      {hasInlineFold ? (
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          aria-controls={panelId}
+          // The toggle has no text of its own; the row's title names it.
+          aria-labelledby={titleId}
+          className="focus-ring absolute inset-0 cursor-pointer rounded-md"
+        />
+      ) : null}
     </div>
   );
 
   // Outer container is the flex row (icon column + content column). The
-  // interactive button — if any — wraps only the title content, not the icon
-  // column, because the icon column owns the rail and the rail must extend
-  // through the row's full height including any inline-fold body.
+  // interactive area covers only the title row, not the icon column, because
+  // the icon column owns the rail and the rail must extend through the row's
+  // full height including any inline-fold body.
   return (
     <div className="flex items-stretch gap-2.5" data-activity-row>
       {iconColumn}
       <div className={cn("min-w-0 flex-1 pb-2", ICON_TOP_PAD)}>
-        {hasInlineFold ? (
-          <button
-            type="button"
-            onClick={() => setOpen((value) => !value)}
-            aria-expanded={open}
-            aria-controls={panelId}
-            className="focus-ring -mx-1 flex w-[calc(100%+0.5rem)] cursor-pointer items-start rounded-md px-1 py-0.5 text-left transition-colors hover:bg-muted"
-          >
-            {titleRowContent}
-          </button>
-        ) : (
-          titleRowContent
-        )}
+        {titleRow}
 
         {title && children ? (
           <div className={cn("mt-1 text-compact text-muted-foreground", proseClassName)}>

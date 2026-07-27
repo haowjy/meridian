@@ -23,9 +23,9 @@ import { cn } from "@/lib/utils";
 import { ChangeViewRows } from "./ChangeViewRows";
 import { useChatContextNavigation, useChatContextRoutability } from "./ChatContextNavigation";
 import { type ChangeRevealRequest, useChangeReveal } from "./conversation-reveal";
+import { DocumentName } from "./DocumentName";
 import { documentDisplayName } from "./document-display-name";
 import { DraftStatsLabel } from "./draft-stats";
-import { DocumentName } from "./tool-renderers";
 import { useAuthorizedChangeTrailDetail } from "./useAuthorizedChangeTrailDetail";
 import type { NavigateToTrailChange } from "./useChangeTrailNavigation";
 
@@ -441,7 +441,7 @@ function DocumentRow({
   if (!onOpenContextUri || !canOpenContextUri?.(document.uri)) {
     return (
       <span className="flex min-h-6 items-center truncate px-3 pl-9 text-prose-foreground">
-        <DocumentName path={document.uri} />
+        <DocumentName path={document.uri} insideDoor />
       </span>
     );
   }
@@ -451,7 +451,8 @@ function DocumentRow({
       onClick={() => onOpenContextUri(document.uri)}
       className="focus-ring flex min-h-6 w-full items-center px-3 pl-9 text-left transition-colors hover:bg-muted"
     >
-      <DocumentName path={document.uri} />
+      {/* The whole row is the door here, so the name inside it stays inert. */}
+      <DocumentName path={document.uri} insideDoor />
     </button>
   );
 }

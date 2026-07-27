@@ -2,10 +2,11 @@
  * tool-renderers — the per-tool presentation registry that drives the activity
  * timeline's tier-2 rows.
  *
- * Each registered tool contributes: an icon, a single-line title that reads
- * the tool's input (e.g. `Read Chapter 1`, `Searched "dragon"`, `Invoked the Outline skill`),
- * an optional inline expansion (curated — search result rows, stream tail, or
- * skill output).
+ * Each registered tool contributes a single-line title that reads the tool's
+ * input (e.g. `Read Chapter 1`, `Searched "dragon"`, `Invoked the Outline
+ * skill`) and an optional inline expansion (curated — search result rows,
+ * stream tail, or skill output). Glyphs are not here: they belong to the
+ * command, which `ToolRow` resolves.
  *
  * Three-tier contract documented in `.context/CONTEXT.md`:
  *   - **Tier 1 (default fallback)** — unknown tool. Static one-line row
@@ -26,8 +27,8 @@ import {
   type JsonValue,
   meridianErrorFromStructuredToolOutput,
 } from "@meridian/contracts/protocol";
-import { FilePen, FolderTree, type LucideIcon, Search, Sparkles, Wrench } from "lucide-react";
 import type { ReactNode } from "react";
+import { DocumentName } from "./DocumentName";
 import { documentDisplayName, isContextUri } from "./document-display-name";
 import type { ToolView } from "./group-delivery-segments";
 import {
@@ -45,7 +46,6 @@ export type ToolRenderContext = {
 };
 
 export type ToolRenderer = {
-  Icon: LucideIcon;
   /** Single-line summary of the tool action. Already i18n'd. */
   title: (tool: ToolView, context?: ToolRenderContext) => ReactNode;
   /** Inline expansion content. `null` = no expand affordance on this row. */
@@ -69,24 +69,27 @@ function activityPhrase(tool: ToolView, writeMode?: WriteMode): ToolActivityPhra
   return tool.status === "complete" ? vocabulary.complete : vocabulary.active;
 }
 
-export function DocumentName({ path }: { path: string }) {
-  const displayName = documentDisplayName(path);
-  return (
-    <span className="flex min-w-0 items-baseline gap-1.5">
-      <span className="min-w-0 truncate">{displayName.title}</span>
-      {displayName.qualifier ? (
-        <span className="shrink-0 text-ink-subtle">({displayName.qualifier})</span>
-      ) : null}
-    </span>
-  );
-}
-
-/** A command and what it acted on, laid out as one line. */
+/**
+ * A command and what it acted on, laid out as one line.
+ *
+ * The command must outrank the parameter: making document names into doors
+ * adds weight to the parameter, and without this the most important
+ * distinction in the timeline — did the agent *look at* my book or *change*
+ * it — is carried by the least emphasised word. The verb inherits the row's
+ * ink/medium voice; the parameter steps back a shade and a weight.
+ *
+ * `DocumentName` sets its own tone, because for a document name tone and
+ * linkability are coupled.
+ */
 function CommandTitle({ verb, parameter }: { verb: ReactNode; parameter?: ReactNode }) {
   return (
     <span className="flex w-full min-w-0 items-baseline gap-1.5">
       <span className="shrink-0">{verb}</span>
-      {parameter ? <span className="flex min-w-0 items-baseline">{parameter}</span> : null}
+      {parameter ? (
+        <span className="flex min-w-0 items-baseline font-normal text-muted-foreground">
+          {parameter}
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -112,7 +115,9 @@ function ResultRows({ rows }: { rows: ReturnType<typeof normalizeToolResultRows>
     <ul className="space-y-2">
       {rows.map((row) => (
         <li key={`${row.title}|${row.subtitle ?? ""}|${row.snippet ?? ""}`} className="space-y-0.5">
-          <div className="text-compact font-medium text-prose-foreground">
+          {/* A match row is about a document, and the uniform rule covers it:
+              the same door, the same underline as a row title. */}
+          <div className="flex min-w-0 text-compact font-medium text-prose-foreground">
             {isContextUri(row.title) ? <DocumentName path={row.title} /> : row.title}
           </div>
           {row.subtitle ? (
@@ -353,27 +358,22 @@ function phraseTitle(tool: ToolView): ReactNode {
  * no destination. Arguments are developer detail and never enter the title.
  */
 const DEFAULT_RENDERER: ToolRenderer = {
-  Icon: Wrench,
   title: (tool) => humanizeToolName(tool.toolName),
 };
 
 const RENDERERS: Record<string, ToolRenderer> = {
   write: {
-    Icon: FilePen,
     title: (tool, context) => <WriteToolTitle tool={tool} context={context} />,
     expand: writeExpand,
   },
   ls: {
-    Icon: FolderTree,
     title: phraseTitle,
   },
   grep: {
-    Icon: Search,
     title: phraseTitle,
     expand: resultRowsOrNothing,
   },
   invoke: {
-    Icon: Sparkles,
     title: phraseTitle,
     expand: invokeExpand,
   },
