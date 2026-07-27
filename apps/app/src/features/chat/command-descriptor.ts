@@ -1,0 +1,242 @@
+/**
+ * command-descriptor — everything the timeline says and shows about one
+ * command, in one exhaustive table.
+ *
+ * `tool-command.ts` answers *which command is this*. This module answers *what
+ * do we do with it*: the glyph, whether it changed the document, both tenses of
+ * its verb, what a failure is called, and what the row says when the command
+ * named no document. Those five used to be five switches in three files, so
+ * adding a command meant finding all of them and a wrong failure verb was
+ * invisible. One entry per command now, and `Record<ToolCommand, ...>` makes a
+ * missing entry a type error.
+ *
+ * Every copy field is a function because Lingui's `t` resolves against the
+ * active locale when it runs. A table of top-level strings would freeze the
+ * catalog at module load.
+ */
+import { t } from "@lingui/core/macro";
+import {
+  BookOpen,
+  FilePlus2,
+  FolderTree,
+  History,
+  List,
+  type LucideIcon,
+  PenLine,
+  Redo2,
+  Search,
+  Sparkles,
+  Undo2,
+  Wrench,
+} from "lucide-react";
+
+import { folderDisplayName } from "./document-display-name";
+import type { ToolView } from "./group-delivery-segments";
+import {
+  humanizeSkillSlug,
+  stringInput,
+  type ToolCommand,
+  toolCommand,
+  toolInputObject,
+  type WriteMode,
+} from "./tool-command";
+
+/**
+ * A row title split the way the timeline renders it: the command leads at full
+ * ink, and what it acted on follows, quieter. `parameter` is absent when the
+ * phrase names nothing the writer would read as a separate thing.
+ */
+export type ToolActivityPhrase = {
+  verb: string;
+  /**
+   * Carries its own trailing ellipsis while in flight, because the ellipsis
+   * belongs at the end of the whole phrase rather than after the verb.
+   */
+  parameter?: string;
+};
+
+/** Both tenses of one row's phrase. Tense is protocol state, never timing. */
+export type ToolActivityVocabulary = {
+  /** Awaiting `tool_response`. */
+  active: ToolActivityPhrase;
+  /** Result in hand. */
+  complete: ToolActivityPhrase;
+};
+
+export type CommandDescriptor = {
+  /** One glyph per command. Read down the icon column and the turn has a shape. */
+  Icon: LucideIcon;
+  /**
+   * Whether the command changes the writer's document at all. The chip's
+   * draft and failure rules are general and live in {@link commandChipTone}.
+   */
+  mutates: boolean;
+  phrases: (tool: ToolView, writeMode: WriteMode) => ToolActivityVocabulary;
+  /** A failure is its own claim, so it never reuses the success verb. */
+  failureVerb: (writeMode: WriteMode) => string;
+  /**
+   * The complete-tense title when the command named no document. `null` for
+   * commands that never name one, whose phrase already reads as a whole
+   * sentence.
+   */
+  pathlessTitle: ((writeMode: WriteMode) => string) | null;
+};
+
+/** A phrase pair with no parameter of its own. */
+function tenses(active: string, complete: string): ToolActivityVocabulary {
+  return { active: { verb: active }, complete: { verb: complete } };
+}
+
+/** Search patterns are the model's words; a long one must not run the row. */
+function truncatePattern(pattern: string): string {
+  return pattern.length <= 60 ? pattern : `${pattern.slice(0, 59).trimEnd()}…`;
+}
+
+const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
+  read: {
+    Icon: BookOpen,
+    mutates: false,
+    phrases: () => tenses(t`Reading…`, t`Read`),
+    failureVerb: () => t`Couldn't read`,
+    pathlessTitle: () => t`Read file`,
+  },
+  // An outline read returns heading structure, not prose. A row saying "Read"
+  // over that payload claims the model saw the words.
+  skim: {
+    Icon: List,
+    mutates: false,
+    phrases: () => tenses(t`Skimming…`, t`Skimmed`),
+    failureVerb: () => t`Couldn't read`,
+    pathlessTitle: () => t`Read file`,
+  },
+  create: {
+    Icon: FilePlus2,
+    mutates: true,
+    phrases: (_tool, writeMode) =>
+      writeMode === "draft" ? tenses(t`Drafting…`, t`Drafted`) : tenses(t`Writing…`, t`Wrote`),
+    failureVerb: (writeMode) => (writeMode === "draft" ? t`Couldn't draft` : t`Couldn't write`),
+    pathlessTitle: (writeMode) => (writeMode === "draft" ? t`Drafted file` : t`Wrote file`),
+  },
+  edit: {
+    Icon: PenLine,
+    mutates: true,
+    phrases: (_tool, writeMode) =>
+      writeMode === "draft" ? tenses(t`Drafting…`, t`Drafted`) : tenses(t`Editing…`, t`Edited`),
+    failureVerb: (writeMode) => (writeMode === "draft" ? t`Couldn't draft` : t`Couldn't edit`),
+    pathlessTitle: (writeMode) => (writeMode === "draft" ? t`Drafted file` : t`Edited file`),
+  },
+  // Reverting a change is not editing. Telling a writer their chapter was
+  // edited when it was put back is the same over-claim as calling a skim a
+  // read, and it holds in draft mode too.
+  undo: {
+    Icon: Undo2,
+    mutates: true,
+    phrases: () => tenses(t`Undoing…`, t`Undid`),
+    failureVerb: () => t`Couldn't undo`,
+    pathlessTitle: null,
+  },
+  redo: {
+    Icon: Redo2,
+    mutates: true,
+    phrases: () => tenses(t`Redoing…`, t`Redid`),
+    failureVerb: () => t`Couldn't redo`,
+    pathlessTitle: null,
+  },
+  review: {
+    Icon: History,
+    mutates: false,
+    phrases: () => tenses(t`Checking recent changes…`, t`Checked recent changes`),
+    failureVerb: () => t`Couldn't check recent changes`,
+    pathlessTitle: null,
+  },
+  search: {
+    Icon: Search,
+    mutates: false,
+    phrases: (tool) => {
+      const pattern = stringInput(toolInputObject(tool), "pattern");
+      if (!pattern) return tenses(t`Searching…`, t`Searched context`);
+      const quoted = `“${truncatePattern(pattern)}”`;
+      return {
+        active: { verb: t`Searching`, parameter: `${quoted}…` },
+        complete: { verb: t`Searched`, parameter: quoted },
+      };
+    },
+    failureVerb: () => t`Couldn't search`,
+    pathlessTitle: null,
+  },
+  list: {
+    Icon: FolderTree,
+    mutates: false,
+    phrases: (tool) => {
+      const path = stringInput(toolInputObject(tool), "path");
+      if (!path) return tenses(t`Exploring folders…`, t`Explored folders`);
+      const folder = folderDisplayName(path);
+      return {
+        active: { verb: t`Exploring`, parameter: `${folder}…` },
+        complete: { verb: t`Explored`, parameter: folder },
+      };
+    },
+    failureVerb: () => t`Couldn't explore`,
+    pathlessTitle: null,
+  },
+  invoke: {
+    Icon: Sparkles,
+    mutates: false,
+    phrases: (tool) => {
+      const slug = stringInput(toolInputObject(tool), "skillname");
+      if (!slug) return tenses(t`Invoking a skill…`, t`Invoked a skill`);
+      const skill = humanizeSkillSlug(slug);
+      return tenses(t`Invoking the ${skill} skill…`, t`Invoked the ${skill} skill`);
+    },
+    failureVerb: () => t`Couldn't run that skill`,
+    pathlessTitle: null,
+  },
+  unknown: {
+    Icon: Wrench,
+    mutates: false,
+    phrases: (tool) => {
+      const name = humanizeToolName(tool.toolName);
+      return tenses(name, name);
+    },
+    failureVerb: () => t`Couldn't finish that step`,
+    pathlessTitle: null,
+  },
+};
+
+export function descriptorFor(tool: ToolView): CommandDescriptor {
+  return COMMAND_DESCRIPTORS[toolCommand(tool)];
+}
+
+/** Arguments are developer detail and never enter a title. */
+export function humanizeToolName(toolName: string): string {
+  const words = toolName.replaceAll("_", " ");
+  return words.length > 0 ? words[0].toUpperCase() + words.slice(1) : words;
+}
+
+/** The phrase for the tool's current protocol state, never guessed from timing. */
+export function toolActivityPhrase(
+  tool: ToolView,
+  writeMode: WriteMode = "direct",
+): ToolActivityPhrase {
+  const vocabulary = descriptorFor(tool).phrases(tool, writeMode);
+  return tool.status === "complete" ? vocabulary.complete : vocabulary.active;
+}
+
+/** Flattens a phrase for the screen reader, which hears no typography. */
+export function toolActivityAnnouncement(phrase: ToolActivityPhrase): string {
+  return phrase.parameter ? `${phrase.verb} ${phrase.parameter}` : phrase.verb;
+}
+
+/**
+ * The primary chip means *your document changed*. A draft is a proposal
+ * awaiting review, so it has mutated nothing — the draft dock carries that
+ * signal instead. A failed command changed nothing either, whatever it
+ * intended.
+ */
+export function commandChipTone(
+  tool: ToolView,
+  { writeMode = "direct", failed = false }: { writeMode?: WriteMode; failed?: boolean } = {},
+): "primary" | "neutral" {
+  if (failed || writeMode === "draft") return "neutral";
+  return descriptorFor(tool).mutates ? "primary" : "neutral";
+}

@@ -19,41 +19,13 @@
  * predicate keeps the rendered rows and process digest in agreement.
  */
 
-import {
-  BookOpen,
-  FilePlus2,
-  FolderTree,
-  History,
-  List,
-  type LucideIcon,
-  PenLine,
-  Redo2,
-  Search,
-  Sparkles,
-  Undo2,
-  Wrench,
-} from "lucide-react";
 import { memo, useMemo } from "react";
 import { ActivityRow, type ActivityRowStatus } from "./ActivityRow";
+import { commandChipTone, descriptorFor } from "./command-descriptor";
 import type { ToolView } from "./group-delivery-segments";
-import { isMutatingCommand, type ToolCommand, toolCommand, type WriteMode } from "./tool-command";
+import type { WriteMode } from "./tool-command";
 import { rendererFor } from "./tool-renderers";
 import { isToolViewVisible } from "./tool-view-visibility";
-
-/** One glyph per command. Read down the column and the turn's shape is visible. */
-const COMMAND_GLYPH: Record<ToolCommand, LucideIcon> = {
-  read: BookOpen,
-  skim: List,
-  create: FilePlus2,
-  edit: PenLine,
-  undo: Undo2,
-  redo: Redo2,
-  review: History,
-  search: Search,
-  list: FolderTree,
-  invoke: Sparkles,
-  unknown: Wrench,
-};
 
 export type ToolRowProps = {
   tool: ToolView;
@@ -64,7 +36,6 @@ function ToolRowComponent({ tool, writeMode = "direct" }: ToolRowProps) {
   const renderer = rendererFor(tool.toolName);
   const status: ActivityRowStatus =
     tool.status === "partial" ? "running" : tool.isError ? "error" : "done";
-  const command = toolCommand(tool);
   const presentation = useMemo(
     () => ({
       title: renderer.title(tool, { writeMode }),
@@ -76,10 +47,8 @@ function ToolRowComponent({ tool, writeMode = "direct" }: ToolRowProps) {
 
   return (
     <ActivityRow
-      Icon={COMMAND_GLYPH[command]}
-      chipTone={
-        isMutatingCommand(command, { writeMode, failed: tool.isError }) ? "primary" : "neutral"
-      }
+      Icon={descriptorFor(tool).Icon}
+      chipTone={commandChipTone(tool, { writeMode, failed: tool.isError })}
       title={presentation.title}
       status={status}
       expand={presentation.expand}

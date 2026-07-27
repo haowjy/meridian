@@ -28,17 +28,16 @@ import {
   meridianErrorFromStructuredToolOutput,
 } from "@meridian/contracts/protocol";
 import type { ReactNode } from "react";
+import {
+  descriptorFor,
+  humanizeToolName,
+  type ToolActivityPhrase,
+  toolActivityPhrase,
+} from "./command-descriptor";
 import { DocumentName } from "./DocumentName";
 import { documentDisplayName, isContextUri } from "./document-display-name";
 import type { ToolView } from "./group-delivery-segments";
-import {
-  humanizeSkillSlug,
-  type ToolActivityPhrase,
-  toolActivityVocabulary,
-  toolCommand,
-  toolInputObject,
-  type WriteMode,
-} from "./tool-command";
+import { humanizeSkillSlug, toolInputObject, type WriteMode } from "./tool-command";
 import {
   normalizeToolResultRows,
   resultBoundLabel,
@@ -76,13 +75,6 @@ function inputObject(tool: ToolView): Record<string, JsonValue> {
 
 function asString(value: JsonValue | undefined): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-/** The phrase for the tool's current protocol state — never guessed from timing. */
-function activityPhrase(tool: ToolView, writeMode?: WriteMode): ToolActivityPhrase | null {
-  const vocabulary = toolActivityVocabulary(tool, writeMode);
-  if (!vocabulary) return null;
-  return tool.status === "complete" ? vocabulary.complete : vocabulary.active;
 }
 
 /**
@@ -275,57 +267,21 @@ export function writeToolFailureCopy(tool: ToolView): string {
   }
 }
 
-/**
- * What a failed command is called. A failure is its own claim — "Read
- * chapter-3" over an error is as wrong as any other over-claim — so it never
- * reuses the success verb.
- */
-function writeFailureVerb(tool: ToolView, writeMode: WriteMode | undefined): string {
-  switch (toolCommand(tool)) {
-    case "read":
-    case "skim":
-      return t`Couldn't read`;
-    case "undo":
-      return t`Couldn't undo`;
-    case "redo":
-      return t`Couldn't redo`;
-    case "review":
-      return t`Couldn't check recent changes`;
-    case "edit":
-      return writeMode === "draft" ? t`Couldn't draft` : t`Couldn't edit`;
-    default:
-      return writeMode === "draft" ? t`Couldn't draft` : t`Couldn't write`;
-  }
-}
-
-/** The verb with no document to attach it to — `Wrote` alone reads as a fragment. */
-function pathlessWriteTitle(phrase: ToolActivityPhrase, tool: ToolView): ReactNode {
-  switch (toolCommand(tool)) {
-    case "read":
-    case "skim":
-      return t`Read file`;
-    case "create":
-      return t`Wrote file`;
-    case "edit":
-      return t`Edited file`;
-    default:
-      return <PhraseTitle phrase={phrase} />;
-  }
-}
-
 function WriteToolTitle({ tool, context }: { tool: ToolView; context?: ToolRenderContext }) {
+  const writeMode = context?.writeMode ?? "direct";
   const path = asString(inputObject(tool).path);
+  const descriptor = descriptorFor(tool);
+
   if (tool.isError) {
-    const verb = writeFailureVerb(tool, context?.writeMode);
+    const verb = descriptor.failureVerb(writeMode);
     return path ? <CommandTitle verb={verb} parameter={<DocumentName path={path} />} /> : verb;
   }
 
-  const phrase = activityPhrase(tool, context?.writeMode);
-  if (!phrase) return path ? <DocumentName path={path} /> : humanizeToolName(tool.toolName);
+  const phrase = toolActivityPhrase(tool, writeMode);
   // A partial call has no settled path yet, so the row names no document —
   // and therefore offers no door onto one.
   if (tool.status !== "complete") return <PhraseTitle phrase={phrase} />;
-  if (!path) return pathlessWriteTitle(phrase, tool);
+  if (!path) return descriptor.pathlessTitle?.(writeMode) ?? <PhraseTitle phrase={phrase} />;
   return <CommandTitle verb={phrase.verb} parameter={<DocumentName path={path} />} />;
 }
 
@@ -382,15 +338,12 @@ function hasResults(output: JsonValue | null): boolean {
 
 /* ── registry ──────────────────────────────────────────────────────────── */
 
-function humanizeToolName(toolName: string): string {
-  const words = toolName.replaceAll("_", " ");
-  return words.length > 0 ? words[0].toUpperCase() + words.slice(1) : words;
-}
-
 /** A registered tool whose whole title is its phrase, with no document to name. */
 function phraseTitle(tool: ToolView): ReactNode {
-  const phrase = activityPhrase(tool);
-  return phrase ? <PhraseTitle phrase={phrase} /> : humanizeToolName(tool.toolName);
+  // A failure is its own claim: `Searched "Elara"` over an error row says the
+  // search happened.
+  if (tool.isError) return descriptorFor(tool).failureVerb("direct");
+  return <PhraseTitle phrase={toolActivityPhrase(tool)} />;
 }
 
 /**
