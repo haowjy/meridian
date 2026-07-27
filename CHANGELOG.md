@@ -26,6 +26,9 @@
 - `apps/app`: Read rows now open onto the passage the assistant read, as quoted
   material. A clipped passage fades at its bound and offers to open the whole
   document. Skimmed rows show the headings the assistant saw.
+- `apps/app`: rows for writes and edits now open onto the content the assistant
+  submitted, as quoted material on a recessed surface. A failed write still
+  shows why it failed.
 
 - `apps/server`: Anthropic-format cache usage now normalizes to inclusive input
   totals, so uncached prompt tokens are priced instead of silently clamped away;

@@ -348,6 +348,7 @@ const COMMAND_EXPANDS: Record<CommandExpand, (tool: ToolView) => ToolExpand | nu
   renderer: () => null,
   "output-preview": outputPreview,
   "output-outline": outputOutline,
+  "submitted-content": submittedContent,
 };
 
 function writeExpand(tool: ToolView): ToolExpand | null {
@@ -376,6 +377,23 @@ function outputOutline(tool: ToolView): ToolExpand | null {
   // payload really is prose and the row should show it as prose.
   if (!headings) return outputPreview(tool);
   return () => <OutlineRows headings={headings} />;
+}
+
+/**
+ * What the model submitted, read from the tool *input*: the output carries
+ * formatted status and diagnostics, and only the input holds the exact content.
+ * Never diff-coloured. Those tokens mean a real, persisted change, and this is
+ * what was sent, which is a different claim; the receipt card owns the other.
+ */
+function submittedContent(tool: ToolView): ToolExpand | null {
+  const content = asString(inputObject(tool).content);
+  if (!content) return null;
+  const path = readPath(tool);
+  return () => (
+    <div className="rounded-md border border-border-subtle bg-muted px-3 py-2">
+      <QuotedPreview markup={content} path={path} />
+    </div>
+  );
 }
 
 function invokeExpand(tool: ToolView): ToolExpand | null {

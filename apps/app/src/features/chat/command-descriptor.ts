@@ -77,6 +77,8 @@ export type CommandExpand =
   | "output-preview"
   /** The headings a skim saw, as a list. */
   | "output-outline"
+  /** What the model submitted, read from the tool input. */
+  | "submitted-content"
   /** Curated per-tool content the registry builds itself. */
   | "renderer";
 
@@ -136,7 +138,7 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
       writeMode === "draft" ? tenses(t`Drafting…`, t`Drafted`) : tenses(t`Writing…`, t`Wrote`),
     failureVerb: (writeMode) => (writeMode === "draft" ? t`Couldn't draft` : t`Couldn't write`),
     pathlessTitle: (writeMode) => (writeMode === "draft" ? t`Drafted file` : t`Wrote file`),
-    expand: "none",
+    expand: "submitted-content",
   },
   edit: {
     Icon: PenLine,
@@ -145,7 +147,7 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
       writeMode === "draft" ? tenses(t`Drafting…`, t`Drafted`) : tenses(t`Editing…`, t`Edited`),
     failureVerb: (writeMode) => (writeMode === "draft" ? t`Couldn't draft` : t`Couldn't edit`),
     pathlessTitle: (writeMode) => (writeMode === "draft" ? t`Drafted file` : t`Edited file`),
-    expand: "none",
+    expand: "submitted-content",
   },
   // Reverting a change is not editing. Telling a writer their chapter was
   // edited when it was put back is the same over-claim as calling a skim a

@@ -299,6 +299,46 @@ describe("runtime tool registry", () => {
     expect(rendererFor("write").expand?.(tool)).toBe(null);
   });
 
+  it("shows what a write submitted, from the input rather than the output", () => {
+    const tool = writeToolView({
+      input: {
+        path: "manuscript://chapter-3.md",
+        command: "insert",
+        content: "# The Long Descent\n\nThe stair spiralled downward.",
+      },
+      output: "status: ok\n\napplied 1 change",
+    });
+
+    const html = expandMarkup(rendererFor("write").expand?.(tool));
+
+    // Only the input holds the exact content; the output is formatted status.
+    expect(html).toContain("The stair spiralled downward.");
+    expect(html).not.toContain("applied 1 change");
+    // Recessed quoted surface, never the diff palette: those tokens mean a
+    // real, persisted change, which is the receipt card's claim, not this one.
+    expect(html).toContain("bg-muted");
+    expect(html).not.toMatch(/diff-added|diff-removed|review-added|review-removed/);
+  });
+
+  it("offers no write expand when nothing was submitted", () => {
+    const tool = writeToolView({ input: { path: "manuscript://a.md", command: "undo" } });
+
+    expect(rendererFor("write").expand?.(tool)).toBe(null);
+  });
+
+  it("keeps the failure text when a write failed", () => {
+    const tool = writeToolView({
+      input: { path: "manuscript://chapter-3.md", command: "insert", content: "Some prose." },
+      isError: true,
+      output: { status: "not_found", message: "" } as never,
+    });
+
+    const html = expandMarkup(rendererFor("write").expand?.(tool));
+
+    expect(html).toContain("Couldn&#x27;t find chapter-3.");
+    expect(html).not.toContain("Some prose.");
+  });
+
   it("maps an ls listing to doors and inert folders", () => {
     const tool = writeToolView({
       toolName: "ls",
