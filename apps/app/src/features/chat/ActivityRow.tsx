@@ -93,11 +93,28 @@ export type ActivityRowProps = {
 /**
  * Per-row vertical rhythm. Lives on the icon column AND content column so the
  * line's start (below the chip) and the prose's first baseline both pick up
- * the same top inset. Adjacent rows therefore share `ICON_TOP_PAD + chip + 1
- * mt-1` of breathing room between icons — enough to feel separated, small
- * enough to read as a single continuous rail.
+ * the same top inset.
  */
 const ICON_TOP_PAD = "pt-[3px]";
+
+/**
+ * The title row's own vertical padding. Shared with the icon column, which
+ * wears it too so the chip's box and the title's box start and end together.
+ */
+const TITLE_ROW_PAD = "py-0.5";
+
+/**
+ * One line of compact text, derived from the same two tokens the title and the
+ * prose body set. The chip centres inside this rather than sitting at the top
+ * of the column: a 19px chip against a 20.8px line box is not centred by
+ * matching their tops, and every future type or padding change would need the
+ * offset re-tuned. Centring on the line box holds by construction.
+ */
+const COMPACT_LINE_BOX =
+  // `box-content` so the min-height describes the line box itself, leaving the
+  // content column's padding to be added on top of it exactly as the title row
+  // adds it.
+  "box-content min-h-[calc(var(--text-compact)*var(--text-compact--line-height))]";
 
 /**
  * Left inset that puts non-row content on the same text edge as a row's
@@ -133,26 +150,32 @@ export function ActivityRow({
   // `flex-col` is load-bearing, not stylistic: `flex-1` grows along the main
   // axis, so in a row-direction parent it overrides `w-px` and paints the rail
   // as a 19px-wide filled block instead of a hairline.
-  const iconColumn = quietIcon ? (
-    <div className="flex w-[19px] shrink-0 flex-col items-center" aria-hidden>
-      <span className="w-px flex-1 bg-border" data-activity-rail />
-    </div>
-  ) : (
-    <div className={cn("flex w-[19px] shrink-0 flex-col items-center", ICON_TOP_PAD)}>
-      <span
-        className={cn(
-          "grid size-[19px] shrink-0 place-items-center rounded-md",
-          chipTone === "primary"
-            ? "bg-chip-primary-bg text-jade-text"
-            : "bg-chip-muted-bg text-ink-subtle",
-        )}
-        data-chip-tone={chipTone}
-      >
-        <Icon className="size-3" aria-hidden />
-      </span>
-      <span className="mt-1 w-px flex-1 bg-border" data-activity-rail aria-hidden />
-    </div>
-  );
+  // `firstLinePad` is whatever padding the content column puts above its first
+  // line: the title row has some, a prose body has none. The chip mirrors it so
+  // both columns describe the same first line.
+  const iconColumn = (firstLinePad: string) =>
+    quietIcon ? (
+      <div className="flex w-[19px] shrink-0 flex-col items-center" aria-hidden>
+        <span className="w-px flex-1 bg-border" data-activity-rail />
+      </div>
+    ) : (
+      <div className={cn("flex w-[19px] shrink-0 flex-col items-center", ICON_TOP_PAD)}>
+        <span className={cn("flex items-center", COMPACT_LINE_BOX, firstLinePad)}>
+          <span
+            className={cn(
+              "grid size-[19px] shrink-0 place-items-center rounded-md",
+              chipTone === "primary"
+                ? "bg-chip-primary-bg text-jade-text"
+                : "bg-chip-muted-bg text-ink-subtle",
+            )}
+            data-chip-tone={chipTone}
+          >
+            <Icon className="size-3" aria-hidden />
+          </span>
+        </span>
+        <span className="mt-0.5 w-px flex-1 bg-border" data-activity-rail aria-hidden />
+      </div>
+    );
 
   // Prose layout: no title, just children. Side-by-side with the icon so a
   // multiline paragraph's first line aligns to the chip and subsequent lines
@@ -160,7 +183,7 @@ export function ActivityRow({
   if (!title && children) {
     return (
       <div className="flex items-stretch gap-2.5" data-activity-row>
-        {iconColumn}
+        {iconColumn("")}
         <div
           className={cn(
             "min-w-0 flex-1 pb-2 text-compact text-muted-foreground",
@@ -194,7 +217,8 @@ export function ActivityRow({
   const titleRow = (
     <div
       className={cn(
-        "relative -mx-1 flex items-start gap-2.5 rounded-md px-1 py-0.5",
+        "relative -mx-1 flex items-start gap-2.5 rounded-md px-1",
+        TITLE_ROW_PAD,
         hasInlineFold && "transition-colors hover:bg-muted",
       )}
     >
@@ -236,7 +260,7 @@ export function ActivityRow({
   // full height including any inline-fold body.
   return (
     <div className="flex items-stretch gap-2.5" data-activity-row>
-      {iconColumn}
+      {iconColumn(TITLE_ROW_PAD)}
       <div className={cn("min-w-0 flex-1 pb-2", ICON_TOP_PAD)}>
         {titleRow}
 
