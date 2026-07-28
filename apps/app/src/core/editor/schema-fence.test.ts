@@ -1,16 +1,30 @@
 /** Schema-fence quarantine validation and blocked-storage tolerance. */
 
-import { COLLAB_SCHEMA_VERSION } from "@meridian/prosemirror-schema";
+import { collabSchemaKeyTag } from "@meridian/prosemirror-schema";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { memoryStorage } from "@/test-support/memory-storage";
-import { readSchemaFenceQuarantine, writeSchemaFenceQuarantine } from "./schema-fence";
+import {
+  clientSchemaReloadGuardKey,
+  readSchemaFenceQuarantine,
+  schemaFenceQuarantineKey,
+  writeSchemaFenceQuarantine,
+} from "./schema-fence";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe("schema-fence quarantine", () => {
+  it("derives reload and quarantine keys from the shared major.minor tag", () => {
+    expect(clientSchemaReloadGuardKey("document-1")).toBe(
+      `meridian:schema-reload:${collabSchemaKeyTag()}:document-1`,
+    );
+    expect(schemaFenceQuarantineKey("document-1")).toBe(
+      `meridian:schema-fence:${collabSchemaKeyTag()}:document-1`,
+    );
+  });
+
   it("round-trips the reachable fence", () => {
     vi.stubGlobal("localStorage", memoryStorage());
     const fence = { reason: "client-superseded" } as const;
@@ -24,7 +38,7 @@ describe("schema-fence quarantine", () => {
     vi.stubGlobal("localStorage", storage);
 
     storage.setItem(
-      `meridian:schema-fence:v${COLLAB_SCHEMA_VERSION}:unknown`,
+      `meridian:schema-fence:${collabSchemaKeyTag()}:unknown`,
       JSON.stringify({ reason: "repair-detected" }),
     );
 

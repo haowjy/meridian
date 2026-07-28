@@ -1,6 +1,6 @@
 /** Production-adapter contract coverage for document transport status subscription. */
 
-import { COLLAB_SCHEMA_VERSION } from "@meridian/prosemirror-schema";
+import { COLLAB_SCHEMA_VERSION, formatCollabSchemaVersion } from "@meridian/prosemirror-schema";
 import { describe, expect, it, vi } from "vitest";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
@@ -79,7 +79,9 @@ describe("Hocuspocus document transport adapter", () => {
   });
 
   it("declares the bundle schema version on each document socket URL", () => {
-    expect(schemaVersionedYjsWsPath()).toBe(`/ws/yjs?schema=${COLLAB_SCHEMA_VERSION}`);
+    expect(schemaVersionedYjsWsPath()).toBe(
+      `/ws/yjs?schema=${formatCollabSchemaVersion(COLLAB_SCHEMA_VERSION)}`,
+    );
   });
 
   it("emits its initial status before subscribeStatus returns", () => {

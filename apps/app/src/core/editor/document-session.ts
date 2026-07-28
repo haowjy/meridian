@@ -30,7 +30,14 @@ import {
   WS_CLOSE,
   type YjsRoomName,
 } from "@meridian/contracts/protocol";
-import { COLLAB_SCHEMA_VERSION, createCollabYDoc } from "@meridian/prosemirror-schema";
+import {
+  COLLAB_SCHEMA_VERSION,
+  type CollabSchemaVersion,
+  cmpMajorMinor,
+  collabSchemaKeyTag,
+  createCollabYDoc,
+  parseCollabSchemaVersion,
+} from "@meridian/prosemirror-schema";
 import { IndexeddbPersistence } from "y-indexeddb";
 import { Awareness, removeAwarenessStates } from "y-protocols/awareness";
 import type * as Y from "yjs";
@@ -48,17 +55,19 @@ export type { SchemaFence } from "./schema-fence";
 
 import { SessionMarkerStore } from "./session-marker-store";
 
-/** IndexedDB name for y-indexeddb; bumps with {@link COLLAB_SCHEMA_VERSION} invalidate stale caches. */
 export function documentSessionPersistenceKey(roomKey: string): string {
-  return `meridian:document:v${COLLAB_SCHEMA_VERSION}:${roomKey}`;
+  return `meridian:document:${collabSchemaKeyTag()}:${roomKey}`;
 }
 
 const PERSISTENCE_KEY_PREFIX = "meridian:document:v";
 /** Give normal IndexedDB replay priority without letting blocked storage hold collaboration offline. */
 const LOCAL_PERSISTENCE_TRANSPORT_TIMEOUT_MS = 1_000;
 
-/** Best-effort delete of pre-version-bump IndexedDB entries for one document. */
-function deleteStaleVersionedIndexedDb(roomKey: string): void {
+/** Best-effort delete of obsolete schema-partitioned IndexedDB entries for one document. */
+export function deleteStaleVersionedIndexedDb(
+  roomKey: string,
+  currentVersion: CollabSchemaVersion = COLLAB_SCHEMA_VERSION,
+): void {
   if (typeof indexedDB === "undefined" || typeof indexedDB.databases !== "function") return;
 
   const suffix = `:${roomKey}`;
@@ -69,8 +78,8 @@ function deleteStaleVersionedIndexedDb(roomKey: string): void {
         const name = db.name;
         if (!name?.startsWith(PERSISTENCE_KEY_PREFIX) || !name.endsWith(suffix)) continue;
         const versionPart = name.slice(PERSISTENCE_KEY_PREFIX.length, name.length - suffix.length);
-        const version = Number.parseInt(versionPart, 10);
-        if (Number.isFinite(version) && version < COLLAB_SCHEMA_VERSION) {
+        const version = parseCollabSchemaVersion(`${versionPart}.0`);
+        if (!version || cmpMajorMinor(version, currentVersion) < 0) {
           indexedDB.deleteDatabase(name);
         }
       }

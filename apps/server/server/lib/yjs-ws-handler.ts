@@ -7,12 +7,18 @@ import {
 } from "@hocuspocus/server";
 import { parseYjsRoomName, WS_CLOSE } from "@meridian/contracts/protocol";
 import type { DocumentId, UserId } from "@meridian/contracts/runtime";
-import { COLLAB_SCHEMA_VERSION } from "@meridian/prosemirror-schema";
+import {
+  COLLAB_SCHEMA_VERSION,
+  type CollabSchemaVersion,
+  headAdmitsClient,
+  parseCollabSchemaVersion,
+  serverServesHead,
+} from "@meridian/prosemirror-schema";
 import { messageYjsSyncStep1, messageYjsSyncStep2, messageYjsUpdate } from "y-protocols/sync";
 import * as Y from "yjs";
 import {
   type AdmitLiveWriterUpdateResult,
-  isStaleDocumentSchemaError,
+  isDocumentSchemaMajorMismatchError,
   type UpdateOrigin,
 } from "../domains/collab/index.js";
 import { emitEvent, unknownToEventPayload } from "../domains/observability/index.js";
@@ -64,18 +70,20 @@ type YjsConnectionAdmission =
 
 type YjsConnectionContext = {
   userId: UserId;
-  clientSchemaVersion: number;
+  clientSchemaVersion: CollabSchemaVersion;
   branchSyncState: Map<string, BranchHandshakeState>;
   offlineSyncUpdates: Set<string>;
   admissionTarget?: YjsAdmissionTarget;
   closeTransport(input: { code: number; reason: string }): void;
 };
 
-export function clientSchemaVersionFromRequest(request: Request): number {
+const UNKNOWN_COLLAB_SCHEMA_VERSION: CollabSchemaVersion = { major: 0, minor: 0, patch: 0 };
+
+export function clientSchemaVersionFromRequest(request: Request): CollabSchemaVersion {
   const raw = new URL(request.url).searchParams.get("schema");
-  if (!raw || !/^[0-9]+$/.test(raw)) return 0;
-  const value = Number(raw);
-  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+  return raw
+    ? (parseCollabSchemaVersion(raw) ?? UNKNOWN_COLLAB_SCHEMA_VERSION)
+    : UNKNOWN_COLLAB_SCHEMA_VERSION;
 }
 
 export async function hasLiveManifestMembership(
@@ -142,11 +150,11 @@ async function classifyYjsConnectionAdmission(input: {
   services: YjsGatewayServices;
   room: ParsedYjsRoom;
   userId: UserId;
-  clientSchemaVersion: number;
+  clientSchemaVersion: CollabSchemaVersion;
 }): Promise<YjsConnectionAdmission> {
   const { services, room, userId, clientSchemaVersion } = input;
   let documentId: DocumentId;
-  let headSchemaVersion: number | null;
+  let headSchemaVersion: CollabSchemaVersion | null;
 
   if (room.kind === "live") {
     documentId = room.documentId;
@@ -160,7 +168,7 @@ async function classifyYjsConnectionAdmission(input: {
         throw permissionDenied("permission-denied");
       }
     } catch (cause) {
-      if (!isStaleDocumentSchemaError(cause)) throw cause;
+      if (!isDocumentSchemaMajorMismatchError(cause)) throw cause;
       return { kind: "refused", close: WS_CLOSE.DOCUMENT_SCHEMA_STALE };
     }
     headSchemaVersion = await services.documentSync.headSchemaVersion(documentId);
@@ -176,10 +184,10 @@ async function classifyYjsConnectionAdmission(input: {
       throw permissionDenied("permission-denied");
     }
   }
-  if (headSchemaVersion !== null && headSchemaVersion < COLLAB_SCHEMA_VERSION) {
+  if (headSchemaVersion !== null && !serverServesHead(headSchemaVersion, COLLAB_SCHEMA_VERSION)) {
     return { kind: "refused", close: WS_CLOSE.DOCUMENT_SCHEMA_STALE };
   }
-  if (headSchemaVersion !== null && clientSchemaVersion < headSchemaVersion) {
+  if (headSchemaVersion !== null && !headAdmitsClient(clientSchemaVersion, headSchemaVersion)) {
     return { kind: "refused", close: WS_CLOSE.CLIENT_SCHEMA_SUPERSEDED };
   }
 
@@ -417,7 +425,7 @@ export function createHocuspocus(services: YjsGatewayServices): Hocuspocus<YjsCo
                 )
               )?.state;
       } catch (cause) {
-        if (!isStaleDocumentSchemaError(cause)) throw cause;
+        if (!isDocumentSchemaMajorMismatchError(cause)) throw cause;
         refuseConnection(context, WS_CLOSE.DOCUMENT_SCHEMA_STALE);
       }
       if (!state && room.kind === "branch") throw permissionDenied("branch-generation-stale");

@@ -6,6 +6,10 @@
   work items that disappear during discovery.
 - `apps/app`: schema-fenced chapters now remain quarantined and read-only, with
   an explicit manuscript-protection notice instead of reconnecting unsafely.
+- `apps/app`, `apps/server`, `packages/database`, `packages/prosemirror-schema`:
+  collaboration schema compatibility now uses `major.minor.patch`; same-major
+  heads remain writable, older clients stay fenced, and patch releases preserve
+  schema-keyed browser state.
 - `apps/app`: repeated superseded-client refusals now persist a version-scoped
   quarantine, so reacquired chapters stay read-only without opening transport.
 - `apps/app`: collaboration sockets now declare the client schema and stay

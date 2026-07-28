@@ -1,4 +1,4 @@
-import { COLLAB_SCHEMA_VERSION } from "@meridian/prosemirror-schema";
+import { COLLAB_SCHEMA_VERSION, formatCollabSchemaVersion } from "@meridian/prosemirror-schema";
 import { describe, expect, it, vi } from "vitest";
 import { messageYjsSyncStep1, messageYjsUpdate } from "y-protocols/sync";
 import * as Y from "yjs";
@@ -42,7 +42,9 @@ describe("Yjs branch handshake route guard", () => {
       .mockReturnValue({} as never);
 
     gateway.connect({
-      request: new Request(`https://server.localhost/ws/yjs?schema=${COLLAB_SCHEMA_VERSION}`),
+      request: new Request(
+        `https://server.localhost/ws/yjs?schema=${formatCollabSchemaVersion(COLLAB_SCHEMA_VERSION)}`,
+      ),
       userId: "user-1" as never,
       close: vi.fn(),
       socket: {
@@ -336,7 +338,9 @@ describe("Yjs branch handshake route guard", () => {
     const close = vi.fn();
 
     const connection = gateway.connect({
-      request: new Request(`https://server.localhost/ws/yjs?schema=${COLLAB_SCHEMA_VERSION}`),
+      request: new Request(
+        `https://server.localhost/ws/yjs?schema=${formatCollabSchemaVersion(COLLAB_SCHEMA_VERSION)}`,
+      ),
       userId: "user-1" as never,
       close,
       socket: {

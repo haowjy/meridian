@@ -1,17 +1,27 @@
 /** Connect-time schema compatibility behavior for live and Work-draft Yjs rooms. */
-import { COLLAB_SCHEMA_VERSION } from "@meridian/prosemirror-schema";
+import { COLLAB_SCHEMA_VERSION, type CollabSchemaVersion } from "@meridian/prosemirror-schema";
 import { describe, expect, it, vi } from "vitest";
 import { messageYjsUpdate } from "y-protocols/sync";
 import * as Y from "yjs";
-import { StaleDocumentSchemaError } from "../../domains/collab/index.js";
+import { DocumentSchemaMajorMismatchError } from "../../domains/collab/index.js";
 import { clientSchemaVersionFromRequest, createHocuspocus } from "../yjs-ws-handler.js";
 
 const branchRoomName = "branch:branch_1:gen:3";
 const liveDocumentName = "00000000-0000-4000-8000-000000000101";
 const userId = "00000000-0000-4000-8000-000000000102";
+const version = (major: number, minor: number, patch = 0): CollabSchemaVersion => ({
+  major,
+  minor,
+  patch,
+});
+const SENTINEL_SCHEMA_VERSION = version(0, 0, 0);
 
 function versionGateServices(
-  input: { liveHead?: number | null; branchHead?: number; liveGeneration?: bigint } = {},
+  input: {
+    liveHead?: CollabSchemaVersion | null;
+    branchHead?: CollabSchemaVersion;
+    liveGeneration?: bigint;
+  } = {},
 ) {
   const documentSync = {
     bindHocuspocus: vi.fn(),
@@ -45,7 +55,7 @@ function versionGateServices(
   };
 }
 
-function connectContext(clientSchemaVersion: number) {
+function connectContext(clientSchemaVersion: CollabSchemaVersion) {
   return {
     userId,
     clientSchemaVersion,
@@ -54,36 +64,36 @@ function connectContext(clientSchemaVersion: number) {
 }
 
 function staleSchemaError() {
-  return new StaleDocumentSchemaError(
+  return new DocumentSchemaMajorMismatchError(
     liveDocumentName,
-    COLLAB_SCHEMA_VERSION - 1,
+    version(1, 0),
     COLLAB_SCHEMA_VERSION,
   );
 }
 
 describe("Yjs connect-time schema version gate", () => {
-  it("parses decimal schema versions and treats absent or malformed values as zero", () => {
+  it("parses exact version triples and maps absent or malformed values to the sentinel", () => {
     expect(
-      clientSchemaVersionFromRequest(new Request("https://meridian.local/ws/yjs?schema=4")),
-    ).toBe(4);
+      clientSchemaVersionFromRequest(new Request("https://meridian.local/ws/yjs?schema=0.1.0")),
+    ).toEqual(COLLAB_SCHEMA_VERSION);
     for (const url of [
       "https://meridian.local/ws/yjs",
       "https://meridian.local/ws/yjs?schema=",
-      "https://meridian.local/ws/yjs?schema=-1",
-      "https://meridian.local/ws/yjs?schema=1.5",
-      "https://meridian.local/ws/yjs?schema=1e3",
-      "https://meridian.local/ws/yjs?schema=0x10",
-      "https://meridian.local/ws/yjs?schema=%2B4",
-      "https://meridian.local/ws/yjs?schema=9007199254740992",
+      "https://meridian.local/ws/yjs?schema=4",
+      "https://meridian.local/ws/yjs?schema=0.1",
+      "https://meridian.local/ws/yjs?schema=01.1.0",
+      "https://meridian.local/ws/yjs?schema=-1.0.0",
+      "https://meridian.local/ws/yjs?schema=0.1.0-beta",
+      "https://meridian.local/ws/yjs?schema=meridian.collab.0.1.0",
     ]) {
-      expect(clientSchemaVersionFromRequest(new Request(url))).toBe(0);
+      expect(clientSchemaVersionFromRequest(new Request(url))).toEqual(SENTINEL_SCHEMA_VERSION);
     }
   });
 
   it("refuses only live-room clients strictly older than a stored head", async () => {
     const services = versionGateServices({ liveHead: COLLAB_SCHEMA_VERSION });
     const hocuspocus = createHocuspocus(services as never);
-    const staleClientContext = connectContext(COLLAB_SCHEMA_VERSION - 1);
+    const staleClientContext = connectContext(SENTINEL_SCHEMA_VERSION);
 
     await expect(
       hocuspocus.configuration.onConnect?.({
@@ -111,7 +121,7 @@ describe("Yjs connect-time schema version gate", () => {
     await expect(
       hocuspocus.configuration.onConnect?.({
         documentName: liveDocumentName,
-        context: connectContext(0),
+        context: connectContext(SENTINEL_SCHEMA_VERSION),
       } as never),
     ).resolves.toBeUndefined();
   });
@@ -171,7 +181,7 @@ describe("Yjs connect-time schema version gate", () => {
     const hocuspocus = createHocuspocus(
       versionGateServices({ branchHead: COLLAB_SCHEMA_VERSION }) as never,
     );
-    const staleClientContext = connectContext(COLLAB_SCHEMA_VERSION - 1);
+    const staleClientContext = connectContext(SENTINEL_SCHEMA_VERSION);
 
     await expect(
       hocuspocus.configuration.onConnect?.({
@@ -191,10 +201,31 @@ describe("Yjs connect-time schema version gate", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("refuses stale live and branch heads per connection with a typed close", async () => {
+  it("admits minor-stale live and branch heads", async () => {
+    const minorStaleHead = version(0, 0, 999);
     const services = versionGateServices({
-      liveHead: COLLAB_SCHEMA_VERSION - 1,
-      branchHead: COLLAB_SCHEMA_VERSION - 1,
+      liveHead: minorStaleHead,
+      branchHead: minorStaleHead,
+    });
+    const hocuspocus = createHocuspocus(services as never);
+
+    for (const room of [liveDocumentName, branchRoomName]) {
+      await expect(
+        hocuspocus.configuration.onConnect?.({
+          documentName: room,
+          context: connectContext(COLLAB_SCHEMA_VERSION),
+        } as never),
+      ).resolves.toBeUndefined();
+    }
+  });
+
+  it.each([
+    version(1, 0),
+    version(2, 3),
+  ])("refuses major-mismatched live and branch heads per connection", async (majorMismatchHead) => {
+    const services = versionGateServices({
+      liveHead: majorMismatchHead,
+      branchHead: majorMismatchHead,
     });
     const hocuspocus = createHocuspocus(services as never);
 
@@ -211,10 +242,8 @@ describe("Yjs connect-time schema version gate", () => {
   });
 
   it("prioritizes a server-stale head over an even older client", async () => {
-    const hocuspocus = createHocuspocus(
-      versionGateServices({ liveHead: COLLAB_SCHEMA_VERSION - 1 }) as never,
-    );
-    const context = connectContext(COLLAB_SCHEMA_VERSION - 2);
+    const hocuspocus = createHocuspocus(versionGateServices({ liveHead: version(1, 0) }) as never);
+    const context = connectContext(SENTINEL_SCHEMA_VERSION);
 
     await expect(
       hocuspocus.configuration.onConnect?.({

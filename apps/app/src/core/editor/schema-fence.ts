@@ -4,7 +4,7 @@
  * A fence is orthogonal to connection status: it records why this client must
  * not bind an editable schema to a room whose content it cannot preserve.
  */
-import { COLLAB_SCHEMA_VERSION } from "@meridian/prosemirror-schema";
+import { collabSchemaKeyTag } from "@meridian/prosemirror-schema";
 
 export type SchemaFence = {
   reason: "client-superseded";
@@ -27,7 +27,7 @@ function browserSessionStorage(): Storage | null {
 }
 
 export function clientSchemaReloadGuardKey(roomKey: string): string {
-  return `meridian:schema-reload:v${COLLAB_SCHEMA_VERSION}:${roomKey}`;
+  return `meridian:schema-reload:${collabSchemaKeyTag()}:${roomKey}`;
 }
 
 /** Reload only after durably recording the attempt, so a stale bundle cannot loop. */
@@ -55,8 +55,8 @@ export function clearClientSchemaReloadGuard(roomKey: string): void {
   }
 }
 
-function schemaFenceQuarantineKey(roomKey: string): string {
-  return `meridian:schema-fence:v${COLLAB_SCHEMA_VERSION}:${roomKey}`;
+export function schemaFenceQuarantineKey(roomKey: string): string {
+  return `meridian:schema-fence:${collabSchemaKeyTag()}:${roomKey}`;
 }
 
 export function readSchemaFenceQuarantine(roomKey: string): SchemaFence | null {

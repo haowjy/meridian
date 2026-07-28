@@ -24,7 +24,7 @@ import {
   WS_CLOSE,
   yjsWsPath,
 } from "@meridian/contracts/protocol";
-import { COLLAB_SCHEMA_VERSION } from "@meridian/prosemirror-schema";
+import { COLLAB_SCHEMA_VERSION, formatCollabSchemaVersion } from "@meridian/prosemirror-schema";
 import type { Awareness } from "y-protocols/awareness";
 import type * as Y from "yjs";
 import type {
@@ -58,7 +58,7 @@ class RoomScopedHocuspocusWebsocket extends HocuspocusProviderWebsocket {
 }
 
 export function schemaVersionedYjsWsPath(): string {
-  return `${yjsWsPath()}?schema=${COLLAB_SCHEMA_VERSION}`;
+  return `${yjsWsPath()}?schema=${formatCollabSchemaVersion(COLLAB_SCHEMA_VERSION)}`;
 }
 
 function mapStatus(status: WebSocketStatus): DocumentSessionConnectionState {

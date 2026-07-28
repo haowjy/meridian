@@ -13,6 +13,7 @@ import type {
   UserId,
   WorkId,
 } from "@meridian/contracts/runtime";
+import type { CollabSchemaVersion } from "@meridian/prosemirror-schema";
 import type * as Y from "yjs";
 import type { Result } from "../../shared/result.js";
 import type { ThreadPeerAgentEditCore } from "./domain/agent-edit-cores.js";
@@ -92,7 +93,7 @@ export type AdmitLiveWriterUpdateResult =
 export type CollabTransport = {
   bindHocuspocus(instance: Hocuspocus): void;
   primeReservedNamespaceIndex(document: Y.Doc): void;
-  headSchemaVersion(documentId: DocumentId): Promise<number | null>;
+  headSchemaVersion(documentId: DocumentId): Promise<CollabSchemaVersion | null>;
   resolveBranchHocuspocusRoom(
     branchId: string,
     generation: number,
@@ -100,7 +101,7 @@ export type CollabTransport = {
     branchId: string;
     documentId: DocumentId;
     generation: number;
-    schemaVersion: number;
+    schemaVersion: CollabSchemaVersion;
     status: "active";
   } | null>;
   loadHocuspocusDocument(documentId: DocumentId): Promise<Uint8Array | undefined>;

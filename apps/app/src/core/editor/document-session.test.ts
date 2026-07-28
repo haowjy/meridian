@@ -11,7 +11,7 @@
  */
 
 import { type ChangeEventWsMessage, WS_CLOSE } from "@meridian/contracts/protocol";
-import { COLLAB_SCHEMA_VERSION } from "@meridian/prosemirror-schema";
+import { collabSchemaKeyTag } from "@meridian/prosemirror-schema";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Awareness } from "y-protocols/awareness";
 import { memoryStorage } from "@/test-support/memory-storage";
@@ -20,6 +20,7 @@ import {
   type DocumentSessionConnectionState,
   type DocumentSessionSnapshot,
   type DocumentSessionTransportProvider,
+  deleteStaleVersionedIndexedDb,
   documentSessionPersistenceKey,
 } from "./document-session";
 import { clientSchemaReloadGuardKey } from "./schema-fence";
@@ -373,13 +374,37 @@ describe("DocumentSession status derivation", () => {
     await session.destroy();
   });
 
-  it("builds a versioned IndexedDB persistence key from COLLAB_SCHEMA_VERSION", () => {
+  it("builds a major.minor-versioned IndexedDB persistence key", () => {
     expect(documentSessionPersistenceKey("doc-abc")).toBe(
-      `meridian:document:v${COLLAB_SCHEMA_VERSION}:doc-abc`,
+      `meridian:document:${collabSchemaKeyTag()}:doc-abc`,
     );
     expect(documentSessionPersistenceKey("branch:branch-abc:gen:1")).toBe(
-      `meridian:document:v${COLLAB_SCHEMA_VERSION}:branch:branch-abc:gen:1`,
+      `meridian:document:${collabSchemaKeyTag()}:branch:branch-abc:gen:1`,
     );
+  });
+
+  it("deletes lower and legacy IndexedDB versions while preserving the patch-stable tag", async () => {
+    const deleteDatabase = vi.fn();
+    vi.stubGlobal("indexedDB", {
+      databases: vi.fn(async () => [
+        { name: "meridian:document:v0.0:doc-abc" },
+        { name: "meridian:document:v0.1:doc-abc" },
+        { name: "meridian:document:v0.2:doc-abc" },
+        { name: "meridian:document:v4:doc-abc" },
+        { name: "meridian:document:v0.1.0:doc-abc" },
+        { name: "meridian:document:v0.0:other-document" },
+      ]),
+      deleteDatabase,
+    });
+
+    deleteStaleVersionedIndexedDb("doc-abc", { major: 0, minor: 1, patch: 9 });
+    await flushMicrotasks();
+
+    expect(deleteDatabase.mock.calls.map(([name]) => name)).toEqual([
+      "meridian:document:v0.0:doc-abc",
+      "meridian:document:v4:doc-abc",
+      "meridian:document:v0.1.0:doc-abc",
+    ]);
   });
 
   it("carries parsed room identity for live and branch rooms", () => {

@@ -20,7 +20,13 @@ import {
   threadWorks,
   works,
 } from "@meridian/database/schema";
-import { COLLAB_SCHEMA_VERSION, createCollabYDoc } from "@meridian/prosemirror-schema";
+import {
+  COLLAB_SCHEMA_VERSION,
+  type CollabSchemaVersion,
+  createCollabYDoc,
+  packCollabSchemaVersion,
+  unpackCollabSchemaVersion,
+} from "@meridian/prosemirror-schema";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import * as Y from "yjs";
 import type { DrizzleDb } from "../../../shared/drizzle-transaction.js";
@@ -121,9 +127,14 @@ export function createDrizzleBranchStore(
   }
 
   async function insertBranch(
-    values: typeof documentBranches.$inferInsert,
+    values: Omit<typeof documentBranches.$inferInsert, "schemaVersion"> & {
+      schemaVersion: CollabSchemaVersion;
+    },
   ): Promise<BranchSnapshot> {
-    const [row] = await currentDrizzleDb(db).insert(documentBranches).values(values).returning();
+    const [row] = await currentDrizzleDb(db)
+      .insert(documentBranches)
+      .values({ ...values, schemaVersion: packCollabSchemaVersion(values.schemaVersion) })
+      .returning();
     if (!row) throw new Error("Failed to create document branch");
     return mapBranch({
       branchId: row.id,
@@ -173,13 +184,13 @@ export function createDrizzleBranchStore(
     }
   }
 
-  async function liveSchemaVersion(documentId: DocumentId): Promise<number> {
+  async function liveSchemaVersion(documentId: DocumentId): Promise<CollabSchemaVersion> {
     const [row] = await currentDrizzleDb(db)
       .select({ schemaVersion: documentYjsHeads.schemaVersion })
       .from(documentYjsHeads)
       .where(eq(documentYjsHeads.documentId, documentId))
       .limit(1);
-    return row?.schemaVersion ?? COLLAB_SCHEMA_VERSION;
+    return row ? unpackCollabSchemaVersion(row.schemaVersion) : COLLAB_SCHEMA_VERSION;
   }
 
   async function persistLiveManifestUpdate(
@@ -857,7 +868,7 @@ export function createDrizzleBranchStore(
             state: Buffer.from(input.state),
             stateVector: Buffer.from(input.stateVector),
             discardedStateVector: Buffer.from(input.discardedStateVector),
-            schemaVersion: input.schemaVersion,
+            schemaVersion: packCollabSchemaVersion(input.schemaVersion),
             updatedAt: new Date(),
           })
           .where(
@@ -1044,7 +1055,7 @@ function mapBranch(row: BranchSelectRow): BranchSnapshot {
     state: row.state,
     stateVector: row.stateVector,
     discardedStateVector: row.discardedStateVector,
-    schemaVersion: row.schemaVersion,
+    schemaVersion: unpackCollabSchemaVersion(row.schemaVersion),
   };
 }
 
