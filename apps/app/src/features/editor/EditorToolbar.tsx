@@ -41,6 +41,8 @@ import { LinkToolbarButton } from "./EditorLinkBubble";
 
 export type EditorToolbarProps = {
   editor: Editor | null;
+  /** Fenced documents disable every command; the surface is read-only behind them. */
+  disabled?: boolean;
   onImageButtonClick?: () => void;
   imageUploadBusy?: boolean;
   imageUploadDisabled?: boolean;
@@ -51,6 +53,7 @@ export type EditorToolbarProps = {
 
 export function EditorToolbar({
   editor,
+  disabled = false,
   onImageButtonClick,
   imageUploadBusy = false,
   imageUploadDisabled = false,
@@ -81,7 +84,7 @@ export function EditorToolbar({
         <ToolbarButton
           label={t`Heading`}
           active={editor?.isActive("heading", { level: 1 }) ?? false}
-          disabled={!editor}
+          disabled={!editor || disabled}
           onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
         >
           <Heading1 className="size-3.5" aria-hidden />
@@ -89,7 +92,7 @@ export function EditorToolbar({
         <ToolbarButton
           label={t`Bold`}
           active={editor?.isActive("strong") ?? false}
-          disabled={!editor}
+          disabled={!editor || disabled}
           onClick={() => editor?.chain().focus().toggleBold().run()}
         >
           <Bold className="size-3.5" aria-hidden />
@@ -97,7 +100,7 @@ export function EditorToolbar({
         <ToolbarButton
           label={t`Italic`}
           active={editor?.isActive("em") ?? false}
-          disabled={!editor}
+          disabled={!editor || disabled}
           onClick={() => editor?.chain().focus().toggleItalic().run()}
         >
           <Italic className="size-3.5" aria-hidden />
@@ -105,7 +108,7 @@ export function EditorToolbar({
         <ToolbarButton
           label={t`Code`}
           active={editor?.isActive("code") ?? false}
-          disabled={!editor}
+          disabled={!editor || disabled}
           onClick={() => editor?.chain().focus().toggleCode().run()}
         >
           <Code className="size-3.5" aria-hidden />
@@ -113,21 +116,24 @@ export function EditorToolbar({
         <ToolbarButton
           label={t`Bullet list`}
           active={editor?.isActive("bullet_list") ?? false}
-          disabled={!editor}
+          disabled={!editor || disabled}
           onClick={() => editor?.chain().focus().toggleBulletList().run()}
         >
           <List className="size-3.5" aria-hidden />
         </ToolbarButton>
+        {/* `LinkToolbarButton` derives its own enablement from the editor it is
+            given, so a fenced toolbar hands it none rather than growing a
+            second disabled path. */}
         <LinkToolbarButton
-          editor={editor}
+          editor={disabled ? null : editor}
           bubbleOpen={linkBubbleOpen}
           bubbleId={linkBubbleId}
           onOpen={() => onOpenLinkBubble?.()}
         />
-        <AlignmentControl editor={editor} />
+        <AlignmentControl editor={editor} disabled={disabled} />
         <ToolbarButton
           label={t`Insert image`}
-          disabled={!editor || imageUploadBusy || imageUploadDisabled}
+          disabled={!editor || disabled || imageUploadBusy || imageUploadDisabled}
           onClick={() => onImageButtonClick?.()}
         >
           <ImageUp className="size-3.5" aria-hidden />
@@ -139,7 +145,7 @@ export function EditorToolbar({
 
 type AlignmentControlValue = "default" | Exclude<BlockAlignment, null>;
 
-function AlignmentControl({ editor }: { editor: Editor | null }) {
+function AlignmentControl({ editor, disabled }: { editor: Editor | null; disabled: boolean }) {
   const block = editor ? currentAlignableBlock(editor.state) : null;
   const value: AlignmentControlValue =
     block?.node.attrs.align === "center" || block?.node.attrs.align === "right"
@@ -163,7 +169,7 @@ function AlignmentControl({ editor }: { editor: Editor | null }) {
           variant="ghost"
           size="icon-xs"
           aria-label={t`Block alignment`}
-          disabled={!block}
+          disabled={!block || disabled}
           className={cn(value !== "default" && "bg-primary/10 text-primary hover:text-primary")}
         >
           <Icon className="size-3.5" aria-hidden />

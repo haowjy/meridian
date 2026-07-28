@@ -43,6 +43,7 @@ import {
   MeridianTableHeader,
   MeridianTableRow,
 } from "./extensions/meridian-extensions";
+import { PassageHighlightExtension } from "./extensions/PassageHighlightExtension";
 import { PeerMarkerExtension } from "./extensions/PeerMarkerExtension";
 import {
   SlashCommandExtension,
@@ -283,6 +284,7 @@ export function createStandaloneEditorExtensions({
     }),
     ...(slashCommands ? [SlashCommandExtension.configure(slashCommands)] : []),
     LiveRangeNavigationExtension,
+    PassageHighlightExtension,
   ];
 }
 

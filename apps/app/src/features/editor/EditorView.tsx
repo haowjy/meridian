@@ -14,7 +14,11 @@
  */
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
-import type { ProjectContextTreeNode, YjsTrackedSchemaType } from "@meridian/contracts/protocol";
+import {
+  type ProjectContextTreeNode,
+  WS_CLOSE,
+  type YjsTrackedSchemaType,
+} from "@meridian/contracts/protocol";
 import type { Editor, EditorOptions, JSONContent } from "@tiptap/core";
 import type { Mapping } from "@tiptap/pm/transform";
 import { EditorContent } from "@tiptap/react";
@@ -34,7 +38,7 @@ import {
 
 import { uploadFigure } from "@/client/api/figures-api";
 import { useProjectContextTree } from "@/client/query/useProjectContextTree";
-import type { DocumentSession } from "@/core/editor/document-session";
+import type { DocumentSession, DocumentSessionSnapshot } from "@/core/editor/document-session";
 import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
 import type { SlashCommandItem } from "@/core/editor/extensions/SlashCommandExtension";
 import {
@@ -65,6 +69,7 @@ import { tableBubbleContext } from "./EditorTableBubble";
 import { EditorToolbar } from "./EditorToolbar";
 import { editorColumnCanvas, editorColumnFill, editorProseClass } from "./editor-column";
 import { PeerMarkPopover, type PeerMarkPopoverTarget } from "./PeerMarkPopover";
+import { SchemaFenceNotice } from "./SchemaFenceNotice";
 import { SyncStatus } from "./SyncStatus";
 import { useAgentNames } from "./useAgentNames";
 import { useInlineReviewSync } from "./useInlineReviewSync";
@@ -209,7 +214,30 @@ type SessionEditorViewProps = EditorViewProps & {
   session: DocumentSession;
 };
 
-function SessionEditorView({
+function SessionEditorView(props: SessionEditorViewProps) {
+  const [snapshot, setSnapshot] = useState(() => props.session.getSnapshot());
+
+  useEffect(() => props.session.subscribe(setSnapshot), [props.session]);
+
+  if (
+    snapshot.connectionState?.kind === "reset" &&
+    snapshot.connectionState.reason === WS_CLOSE.DOCUMENT_SCHEMA_STALE.reason
+  ) {
+    return (
+      <p data-document-schema-stale>
+        <Trans>This chapter is temporarily unavailable</Trans>
+      </p>
+    );
+  }
+
+  return <ActiveSessionEditorView {...props} snapshot={snapshot} />;
+}
+
+type ActiveSessionEditorViewProps = SessionEditorViewProps & {
+  snapshot: DocumentSessionSnapshot;
+};
+
+function ActiveSessionEditorView({
   identity,
   className,
   editable = true,
@@ -218,7 +246,8 @@ function SessionEditorView({
   reviewWorkId = null,
   onReviewSessionUnavailable,
   session,
-}: SessionEditorViewProps) {
+  snapshot,
+}: ActiveSessionEditorViewProps) {
   const { documentId, projectId } = identity;
   const { controller } = useDraftReview();
   const inReview = identity.surface === "review";
@@ -242,8 +271,12 @@ function SessionEditorView({
   });
   const [dragActive, setDragActive] = useState(false);
   const [peerMarkTarget, setPeerMarkTarget] = useState<PeerMarkPopoverTarget | null>(null);
+  const effectiveEditableRef = useRef(true);
   const pointerSelectionRef = useRef<{ from: number; to: number } | null>(null);
   const agentNames = useAgentNames(projectId, { enabled: !inReview });
+  const effectiveEditable = editable && !snapshot.schemaFence;
+  effectiveEditableRef.current = effectiveEditable;
+
   // Marks render before anyone clicks one. Warming their trail detail here is
   // what lets the popover open with its Before/After disclosure already
   // available instead of filling it in after the first fetch lands.
@@ -315,8 +348,12 @@ function SessionEditorView({
   // Read when the slash menu opens, so the `t` macros resolve against whatever
   // locale is active then — a locale switch relabels the menu without touching
   // the editor's lifetime.
+  //
+  // A fence has to withdraw the catalog, not just the surface's editability:
+  // slash commands dispatch through TipTap chains, which run on a non-editable
+  // editor, so a menu already open when the fence lands would still insert.
   const slashCommandCatalog = useCallback(() => {
-    if (identity.schemaType !== "document" || !editable) return null;
+    if (identity.schemaType !== "document" || !effectiveEditable) return null;
     return {
       menuLabel: t`Insert block`,
       requestImageUpload: () => imageInputRef.current?.click(),
@@ -336,7 +373,7 @@ function SessionEditorView({
         { id: "diagram", label: t`Diagram`, aliases: [t`mermaid`, t`flowchart`, t`chart`] },
       ] satisfies SlashCommandItem[],
     };
-  }, [editable, identity.schemaType]);
+  }, [effectiveEditable, identity.schemaType]);
 
   const clearUploadLater = useCallback(() => {
     if (clearUploadTimerRef.current) clearTimeout(clearUploadTimerRef.current);
@@ -390,7 +427,12 @@ function SessionEditorView({
       try {
         const attrs = await uploadImageFile(file);
         if (targetEditor && mappedPos !== undefined) targetEditor.off("transaction", mapPosition);
-        const inserted = insertImageNode(targetEditor, attrs, mappedPos);
+        // The upload outlives the connection that started it: re-read the fence
+        // at insert time so a document fenced mid-upload takes no write.
+        const inserted =
+          effectiveEditableRef.current && !session.getSnapshot().schemaFence
+            ? insertImageNode(targetEditor, attrs, mappedPos)
+            : false;
         setImageUploadState(
           inserted
             ? { kind: "success", filename: file.name }
@@ -403,14 +445,14 @@ function SessionEditorView({
         if (targetEditor && mappedPos !== undefined) targetEditor.off("transaction", mapPosition);
       }
     },
-    [uploadImageFile],
+    [session, uploadImageFile],
   );
 
   // Registration order is arbitration precedence: link → code → image → table.
-  // Read-only surfaces get no mutating contexts at all.
+  // Read-only and fenced surfaces get no mutating contexts at all.
   const bubbleContexts = useMemo(
     () =>
-      editable
+      effectiveEditable
         ? [
             linkBubbleContext,
             codeBubbleContext,
@@ -421,7 +463,7 @@ function SessionEditorView({
             tableBubbleContext,
           ]
         : [],
-    [editable, uploadImageFile],
+    [effectiveEditable, uploadImageFile],
   );
 
   // Surface config: applied to the running editor, never a reason to rebuild it.
@@ -528,7 +570,7 @@ function SessionEditorView({
     agentNames,
     placeholder: identity.schemaType === "document" ? t`Type / to insert…` : t`Start writing…`,
     slashCommandCatalog,
-    surface: { editable, editorProps },
+    surface: { editable: effectiveEditable, editorProps },
   });
 
   // Claim the shared review-runtime slot ONLY while this editor is the one in
@@ -611,6 +653,7 @@ function SessionEditorView({
           <SyncStatus session={session} />
         </div>
       ) : null}
+      {snapshot.schemaFence ? <SchemaFenceNotice fence={snapshot.schemaFence} /> : null}
       <input
         ref={imageInputRef}
         type="file"
@@ -630,6 +673,7 @@ function SessionEditorView({
           showToolbar ? (
             <EditorToolbar
               editor={editor}
+              disabled={!effectiveEditable}
               onImageButtonClick={() => imageInputRef.current?.click()}
               imageUploadBusy={imageUploadState.kind === "uploading"}
               imageUploadDisabled={!projectId}
@@ -650,7 +694,7 @@ function SessionEditorView({
           );
         }}
         dropOverlay={
-          editable && dragActive ? (
+          effectiveEditable && dragActive ? (
             <div className="meridian-editor-drop-overlay" aria-hidden>
               <UploadCloud className="size-8" />
               <span>

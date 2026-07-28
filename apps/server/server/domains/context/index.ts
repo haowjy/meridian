@@ -8,7 +8,6 @@ export {
   updateDocumentProjectionById,
 } from "./adapters/context-fs/drizzle-store.js";
 export { InMemoryContextDocumentStore } from "./adapters/context-fs/in-memory-store.js";
-export { firstLineMatch } from "./adapters/context-fs/match.js";
 export { joinPath, parseFilename, renderFilename, splitPath } from "./context/paths.js";
 export { createContextPortRouter } from "./context/router.js";
 export {

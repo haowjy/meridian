@@ -100,10 +100,6 @@ import {
   createInMemoryModelRequestDebugStore,
   createModelRequestDebugStoreFromEnv,
 } from "../domains/runtime/model-request-debug/index.js";
-import {
-  createRuntimeToolRegistry,
-  type RuntimeToolRegistry,
-} from "../domains/runtime/tool-registry.js";
 import type { LocalObjectStoreAdapter, ObjectStorePort } from "../domains/storage/index.js";
 import { createDrizzleEventJournalReader } from "../domains/threads/adapters/drizzle/event-reader.js";
 import { createDrizzleEventJournalWriter } from "../domains/threads/adapters/drizzle/event-writer.js";
@@ -201,7 +197,6 @@ export type ProductionAppPorts = {
   eventQuery?: EventQuery;
   documentSync: CollabDomain;
   contextPorts: UnifiedContextPortFactory;
-  runtimeTools: RuntimeToolRegistry;
   projects: ProjectBootstrapRepository;
   works: ProjectWorkRepository;
   projectRepo: ProjectRepository;
@@ -354,12 +349,6 @@ export async function createProductionAppPorts(input: {
     eventSink,
     assetPaths: assetPathResolver,
   });
-  const runtimeTools = createRuntimeToolRegistry({
-    db,
-    contextPorts,
-    threads: threadRepos.threads,
-    threadWorks: threadRepos.threadWorks,
-  });
   const packageRepository = createDrizzlePackageStore({ db });
   const marsPackageFetcher = createGitHubMarsPackageFetcher({
     githubToken: environment.GITHUB_TOKEN,
@@ -397,7 +386,6 @@ export async function createProductionAppPorts(input: {
     eventQuery: input.eventQuery,
     documentSync,
     contextPorts,
-    runtimeTools,
     projects,
     works: workRepo,
     projectRepo,

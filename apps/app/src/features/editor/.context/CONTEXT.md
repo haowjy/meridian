@@ -56,8 +56,7 @@ pure-deletion locations for visible Changes-card navigation. Before/after
 content belongs in the dock's Changes cards. The review editor stays editable:
 the draft is a Yjs room and the writer is one more peer in it, so keystrokes in
 review land in the draft branch rather than live. The review header is the
-interim signal for which surface you are on; stronger visual draft scoping is
-owned by the writer-UX pass.
+visible signal that the draft surface is active.
 
 ### Rejected placements
 
@@ -77,6 +76,9 @@ selection and transaction events to keep active-mark highlighting in sync.
 Props:
 
 - `editor: Editor | null` — the TipTap instance. `null` is valid (pre-mount shell).
+- `disabled` — blocks every mutating command while the host is read-only or the
+  document is schema-fenced. Every control the toolbar grows must AND it in; a
+  fenced document raises no mutating affordance.
 - `imageUpload*` — delegates back to the host for the file-input flow.
 - `linkBubble*` / `onOpenLinkBubble` — the docked link button is an explicit
   entry into the bubble host, not a second link editor.
@@ -126,6 +128,18 @@ which can be a block boundary that parks the selection at doc level and
 makes remote collab cursors render as a phantom row between paragraphs.
 Presses on interactive or live-status children inside the scroller keep
 native behavior; both hosts opt in.
+
+## Schema fence
+
+`EditorView` subscribes to its `DocumentSessionSnapshot` and derives live
+editability as the caller's `editable` input AND the absence of
+`snapshot.schemaFence`. A fence raised after mount reaches the existing
+`useMountedEditor()` surface-options seam, which calls `setEditable(false)`
+without rebuilding the editor or its UndoManager.
+
+A fence disables the mounted editor and renders `SchemaFenceNotice`. A
+`document-schema-stale` reset unmounts the editor and renders the unavailable
+state.
 
 ## Peer mark popover
 

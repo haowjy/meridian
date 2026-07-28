@@ -392,6 +392,7 @@ export function createCollabDomain(deps: CollabDomainDeps): CollabDomain {
     transport: {
       bindHocuspocus: hocuspocusBinding.bind,
       primeReservedNamespaceIndex,
+      headSchemaVersion: persistence.journal.headSchemaVersion,
       resolveBranchHocuspocusRoom: hocuspocusPersistence.resolveBranchHocuspocusRoom,
       loadHocuspocusDocument: hocuspocusPersistence.loadHocuspocusDocument,
       loadHocuspocusBranchState: hocuspocusPersistence.loadHocuspocusBranchState,

@@ -11,7 +11,8 @@ documents from the same node/mark specs.
   flags, mark exclusions, and similar schema rules. They deliberately strip
   `parseDOM` and `toDOM`; DOM behavior is owned by the editor layer.
 - **One runtime builder.** `buildDocumentSchema()` constructs the schema used by
-  server collab code and the app editor.
+  server collab code. The app constructs its TipTap schema separately; parity is
+  currently unenforced.
 - **One Yjs fragment name.** `PROSEMIRROR_FRAGMENT_NAME` is the shared
   `Y.XmlFragment` name (`"prosemirror"`). Server mirror code imports it from
   this package; app code must stay aligned when it re-exports or displays the
@@ -21,9 +22,25 @@ documents from the same node/mark specs.
   `AGENT_EDIT_UNDO_CLIENT_ID` occupying slot `999`. Random-authoring docs that
   may persist or sync use `createCollabYDoc()` so they re-roll out of the
   reserved band before writing.
-- **TipTap parity is load-bearing and unenforced.** `createEditorExtensions()`
+- **One schema-version algebra.** `CollabSchemaVersion` triples are the only
+  representation that crosses package, port, or domain seams. Strict
+  `major.minor.patch` strings are boundary serialization; packed integers
+  (`major * 1_000_000 + minor * 1_000 + patch`) are SQL-only and must be
+  packed/unpacked inside Drizzle adapters. A server serves any head with the
+  same major. A client may bind only when its `(major, minor)` is at least the
+  head's; patch never gates. Minor is additive even in `0.x`.
+- **One client-state partition tag.** `collabSchemaKeyTag()` returns
+  `v{major}.{minor}`. IndexedDB persistence, reload guards, and fence quarantine
+  reuse state across patch releases but not across schema-surface changes.
+- **One WebSocket carrier grammar.** The client offers
+  `meridian.collab.{major}.{minor}.{patch}` as its sole Yjs subprotocol.
+  Header resolution accepts exactly one matching offered token; absent, zero,
+  or multiple matches resolve to the `0.0.0` sentinel. Echo selection returns
+  that sole match, otherwise the first offered token, or nothing when no token
+  was offered.
+- **TipTap parity is load-bearing but unenforced.** `createEditorExtensions()`
   must build a schema structurally equal to this package's, and no test compares
-  them any more. Treat every change here as a two-file change.
+  them. Treat every change here as a two-file change.
 
 ## Current document surface
 
@@ -54,6 +71,7 @@ Marks:
 | `strong`, `em` | Basic ProseMirror marks, structural fields only. |
 | `code` | Excludes all other marks to match TipTap's code mark behavior. |
 | `link` | `href` defaults to an empty string; `title` defaults to `null`; non-inclusive. |
+| `strike` | Structural strikethrough mark. |
 
 ## Rationale
 
@@ -68,7 +86,8 @@ markdown scene breaks, while leaving product UX and DOM rendering out of scope.
 
 - Add a node/mark here only when the app TipTap schema and server collab logic
   both need to accept that structure.
-- Update the app editor extensions in the same change as any schema shape
-  change; nothing else will catch the drift.
+- Update the app editor extensions and this package together for any schema
+  shape change; the separately built schemas have no parity guard, so nothing
+  else will catch the drift.
 - Keep provider/product behavior out of this package. Figure uploads, signed
   URLs, MDX component rendering, and rich editing UI belong in app/editor or server domains.

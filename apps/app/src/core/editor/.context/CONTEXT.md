@@ -8,8 +8,8 @@ Yjs document session. It must stay structurally aligned with
 
 - `createEditorExtensions()` is the only app-side extension assembly point for
   collaborative documents, and its TipTap schema must stay structurally equal to
-  `buildDocumentSchema()`. No test compares them; a node or attr added on either
-  side is a two-file change.
+  `buildDocumentSchema()`. The two are built separately and parity is not
+  enforced, so a node or attr added on either side is a two-file change.
 - Collaboration uses the shared `PROSEMIRROR_FRAGMENT_NAME` Y.XmlFragment. Do
   not create a second fragment name or a second editor sync path.
 - `DocumentSessionRegistry` is keyed by the Yjs room key, not by editor surface:
@@ -93,6 +93,22 @@ Yjs document session. It must stay structurally aligned with
   default because it may contain the only copy of unsynced words; only confirmed
   cleanup paths may request persistence deletion. Retention and unavailable-room
   recovery must not materialize or replace a detached session implicitly.
+- A schema fence is orthogonal session state, not a connection status:
+  `DocumentSessionSnapshot.schemaFence` composes with detached, synced, offline,
+  and access-lost states. The first fence wins, is persisted through the
+  version-keyed localStorage quarantine producer, and remains observable for the
+  session lifetime; it never changes `deriveStatus()`. A quarantine loaded
+  before attachment keeps the room detached. Raising a fence on an attached
+  session pauses editing and presence but does not itself detach transport.
+  Storage failure leaves the in-memory fence effective but not durable.
+- A `4406 client-schema-superseded` reset gets one silent reload before the
+  session raises `client-superseded`. The sessionStorage guard is keyed by room
+  and the schema `major.minor` tag, is written before `location.reload()`, and
+  clears only after first transport sync. IndexedDB persistence and localStorage
+  quarantine use the same tag: patch releases reuse them, while a minor or major
+  change partitions them. A blocked guard or repeated refusal raises the fence
+  without another reload. `4407 document-schema-stale` never reloads or raises
+  a fence because a new bundle cannot repair a server/head major mismatch.
 - TipTap extensions may provide editing behavior, but they must not add node or
   mark types outside the shared schema unless the schema package and server
   markdown adapter are updated in the same change.
@@ -188,6 +204,51 @@ validation and the mounted live editor accepts the range. The always-installed
 zero-width deletion anchors render a caret-like boundary rather than inventing
 a replacement range. Chat supplies route resolution, but must not decode,
 validate, or map anchors itself.
+
+## Search-passage navigation
+
+`passage-navigation.ts` is the retain/sync/resolve boundary for search-match
+doors. Its anchor is a block hash plus the term that matched, not an encoded
+position: the hash derives from the block's immutable Yjs item id, so it
+survives every edit inside the block and dangles only when the block goes.
+
+Opening is **not** part of it. A search row is a document door first; the route
+change happens either way, and this only decides where inside the document to
+land. Ownership of that decision advances at the project route's door boundary
+(`features/project/chat/usePassageDoors.ts`), which every door reports to,
+passage or not — a resolution the writer has clicked past must not arrive
+behind them. Three outcomes, produced by `passage-resolution.ts` against live
+ProseMirror text:
+
+1. the hash names a live block and the term is still in it — mark its
+   occurrences there;
+2. the block is gone, or no longer holds the term, and the term occurs exactly
+   once in the document — mark that;
+3. otherwise `stale`, which surfaces as a notice
+   (`passage-notice-store.ts`). Never a landing chosen among duplicates: taking
+   a novelist to a nearby-but-wrong paragraph is worse than saying nothing was
+   found.
+
+The notice's lifetime is store-owned and token-scoped, never the rendering
+component's. A notice is about a navigation, and navigations continue while its
+document is off screen; leaving expiry to the component stranded it, so
+returning to that document later replayed a forgotten complaint.
+
+The searchable projection is where honesty is won or lost. Text runs break at
+every non-text inline leaf, so `gate` and `keeper` either side of a hard break
+can never read as the unique `gatekeeper` step 2 is allowed to jump to. Each
+run then folds as one string, the way the server folds: case is contextual, and
+`"ΟΣ"` lowercases to `"ος"` whole but `"οσ"` letter by letter, which both misses
+the searched word and matches a different one. Every folded unit still carries
+the source range behind it, because `"İ".toLowerCase()` is longer than its
+source.
+
+`PassageHighlightExtension` owns the mark and the reveal. It is **never a
+selection** — the writer's cursor may be elsewhere mid-sentence — it scrolls
+center-biased only when the passage is not already on screen, and it clears on
+the writer's next edit or caret move. Remote Yjs transactions (`ySyncPluginKey`
+meta) do not clear it: they arrive constantly and would wipe the mark before it
+was read.
 
 ## Selective Discard (dock Changes cards)
 
