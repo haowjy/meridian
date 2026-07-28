@@ -201,6 +201,33 @@ describe("Yjs connect-time schema version gate", () => {
     ).resolves.toBeUndefined();
   });
 
+  it.each([
+    ["patch-ahead head", version(0, 1, 1), version(0, 1, 0)],
+    ["patch-stale head", version(0, 1, 0), version(0, 1, 1)],
+  ] as const)("admits a %s because patch never gates", async (_label, head, client) => {
+    const hocuspocus = createHocuspocus(
+      versionGateServices({ liveHead: head, branchHead: head }) as never,
+    );
+    for (const room of [liveDocumentName, branchRoomName]) {
+      await expect(
+        hocuspocus.configuration.onConnect?.({
+          documentName: room,
+          context: connectContext(client),
+        } as never),
+      ).resolves.toBeUndefined();
+    }
+  });
+
+  it("refuses a client below a same-major head minor", async () => {
+    const head = version(0, 2);
+    const context = connectContext(COLLAB_SCHEMA_VERSION);
+    const hocuspocus = createHocuspocus(versionGateServices({ liveHead: head }) as never);
+
+    await expect(
+      hocuspocus.configuration.onConnect?.({ documentName: liveDocumentName, context } as never),
+    ).rejects.toMatchObject({ code: 4406, reason: "client-schema-superseded" });
+  });
+
   it("admits minor-stale live and branch heads", async () => {
     const minorStaleHead = version(0, 0, 999);
     const services = versionGateServices({
