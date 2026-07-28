@@ -191,4 +191,24 @@ describe("schema-aware serialization purity", () => {
     expect(subject.eventSink.events).toEqual([]);
     input.destroy();
   });
+
+  it("preserves source client identity for identity-sensitive projection repairs", async () => {
+    const subject = setup("md");
+    const input = createCollabYDoc({ gc: false });
+    const paragraph = new Y.XmlElement("paragraph");
+    paragraph.insert(0, [new Y.XmlText("a"), new Y.XmlText("b")]);
+    fragmentOf(input).insert(0, [paragraph]);
+    const beforeState = Y.encodeStateAsUpdate(input);
+
+    await expect(subject.engine.serializeDocument(DOCUMENT_ID, input)).resolves.toBe("ab\n");
+
+    expect(Y.encodeStateAsUpdate(input)).toEqual(beforeState);
+    expect(subject.eventSink.events).toHaveLength(1);
+    expect(subject.eventSink.events[0]?.payload).toEqual({
+      schemaVersion: COLLAB_SCHEMA_VERSION,
+      deletedNodeTypes: [],
+      deletedClockCount: 2,
+    });
+    input.destroy();
+  });
 });
