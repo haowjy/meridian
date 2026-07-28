@@ -1,0 +1,94 @@
+/** The resolution ladder: what a search-match door does when the passage moved. */
+import { buildDocumentSchema } from "@meridian/prosemirror-schema";
+import type { Node as PMNode } from "@tiptap/pm/model";
+import { describe, expect, it } from "vitest";
+import { resolvePassage } from "./passage-resolution";
+
+const schema = buildDocumentSchema();
+
+function docOf(...paragraphs: string[]): PMNode {
+  return schema.node(
+    "doc",
+    null,
+    paragraphs.map((text) =>
+      schema.node("paragraph", null, text.length > 0 ? [schema.text(text)] : []),
+    ),
+  );
+}
+
+/** Outer span of the nth top-level block, the way a block hash resolves to one. */
+function blockSpan(doc: PMNode, index: number): { from: number; to: number } {
+  let from = 0;
+  for (let i = 0; i < index; i += 1) from += doc.child(i).nodeSize;
+  return { from, to: from + doc.child(index).nodeSize };
+}
+
+describe("resolvePassage", () => {
+  it("lands in the block when the term is still there, whatever its casing", () => {
+    const doc = docOf("Cold iron.", "Elara waited by the gate.");
+
+    expect(resolvePassage(doc, blockSpan(doc, 1), "elara")).toEqual({
+      kind: "block",
+      ranges: [{ from: 13, to: 18 }],
+    });
+  });
+
+  it("marks every occurrence inside the block, and nothing outside it", () => {
+    const doc = docOf("Elara left.", "Elara stayed, and Elara waited.");
+    const resolved = resolvePassage(doc, blockSpan(doc, 1), "elara");
+
+    expect(resolved.kind).toBe("block");
+    expect(resolved.kind === "block" && resolved.ranges).toHaveLength(2);
+    expect(resolved.kind === "block" && resolved.ranges[0].from).toBeGreaterThan(13);
+  });
+
+  it("survives an edit inside the block, because the block still holds the term", () => {
+    const doc = docOf("Cold iron.", "Elara waited a long while by the gate.");
+
+    expect(resolvePassage(doc, blockSpan(doc, 1), "elara").kind).toBe("block");
+  });
+
+  it("re-finds the term when its block is gone and the document holds it once", () => {
+    const doc = docOf("Cold iron.", "Elara waited by the gate.");
+
+    expect(resolvePassage(doc, null, "elara")).toEqual({
+      kind: "refound",
+      ranges: [{ from: 13, to: 18 }],
+    });
+  });
+
+  it("re-finds the term when the block survived but no longer contains it", () => {
+    const doc = docOf("She waited by the gate.", "Elara went north.");
+
+    expect(resolvePassage(doc, blockSpan(doc, 0), "elara").kind).toBe("refound");
+  });
+
+  it("refuses to choose between duplicates", () => {
+    const doc = docOf("Elara went north.", "Elara went south.");
+
+    expect(resolvePassage(doc, null, "elara")).toEqual({ kind: "stale" });
+  });
+
+  it("says stale rather than landing anywhere when the term is gone", () => {
+    const doc = docOf("She went north.");
+
+    expect(resolvePassage(doc, blockSpan(doc, 0), "elara")).toEqual({ kind: "stale" });
+    expect(resolvePassage(doc, null, "")).toEqual({ kind: "stale" });
+  });
+
+  it("keeps positions honest across mark boundaries", () => {
+    // Marks split one sentence into several text nodes; reading textContent
+    // would still line up, but reading it per node would not.
+    const doc = schema.node("doc", null, [
+      schema.node("paragraph", null, [
+        schema.text("The "),
+        schema.text("gate", [schema.marks.em.create()]),
+        schema.text(" stood open."),
+      ]),
+    ]);
+    const resolved = resolvePassage(doc, blockSpan(doc, 0), "gate stood");
+
+    expect(resolved.kind).toBe("block");
+    expect(resolved.kind === "block" && resolved.ranges).toEqual([{ from: 5, to: 15 }]);
+  });
+});

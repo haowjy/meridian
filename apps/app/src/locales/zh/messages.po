@@ -1856,6 +1856,10 @@ msgstr ""
 msgid "That part of the chapter is no longer available."
 msgstr ""
 
+#: src/features/editor/PassageNotice.tsx
+msgid "That passage changed after this search."
+msgstr ""
+
 #: src/features/chat/tool-renderers.tsx
 msgid "That skill isn't available in this chat."
 msgstr ""

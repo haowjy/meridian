@@ -64,6 +64,10 @@
 - `apps/app`: search results now say how many times the pattern occurs in each
   document, and the expand states totals ("12 results in 3 documents") once a
   document holds more than one match.
+- `apps/app`: clicking a search result now opens the document at the passage
+  that matched, with a brief mark on the words themselves and no cursor
+  movement. If the passage changed since the search, the document still opens
+  and says so rather than landing somewhere that looks right.
 
 - `apps/server`: Anthropic-format cache usage now normalizes to inclusive input
   totals, so uncached prompt tokens are priced instead of silently clamped away;

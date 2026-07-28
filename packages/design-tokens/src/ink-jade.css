@@ -235,6 +235,14 @@
   --color-review-added-emphasis: color-mix(in oklab, var(--color-primary) 22%, transparent);
   --color-review-added-ring: color-mix(in oklab, var(--color-primary) 45%, transparent);
 
+  /* Search landing — the flash on the passage a search result promised. Jade,
+     because a search row's door is jade and this is where that door led; it
+     borrows the review family's anatomy without borrowing its meaning, since
+     nothing here changed. Transient by contract: it fades, and the writer's
+     next keystroke or caret move clears it. */
+  --color-passage-mark: color-mix(in oklab, var(--color-primary) 20%, transparent);
+  --color-passage-mark-ring: color-mix(in oklab, var(--color-primary) 40%, transparent);
+
   --color-review-removed-tint: color-mix(in oklab, var(--color-destructive) 8%, transparent);
   --color-review-removed-border: color-mix(in oklab, var(--color-destructive) 34%, transparent);
   --color-review-removed-ring: color-mix(in oklab, var(--color-destructive) 42%, transparent);

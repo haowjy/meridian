@@ -174,6 +174,34 @@ zero-width deletion anchors render a caret-like boundary rather than inventing
 a replacement range. Chat supplies route resolution, but must not decode,
 validate, or map anchors itself.
 
+## Search-passage navigation
+
+`passage-navigation.ts` is the retain/sync/resolve boundary for search-match
+doors. Its anchor is a block hash plus the term that matched, not an encoded
+position: the hash derives from the block's immutable Yjs item id, so it
+survives every edit inside the block and dangles only when the block goes.
+
+Opening is **not** part of it. A search row is a document door first; the route
+change happens either way, and this only decides where inside the document to
+land. Three outcomes, produced by `passage-resolution.ts` against live
+ProseMirror text:
+
+1. the hash names a live block and the term is still in it — mark its
+   occurrences there;
+2. the block is gone, or no longer holds the term, and the term occurs exactly
+   once in the document — mark that;
+3. otherwise `stale`, which surfaces as a notice
+   (`passage-notice-store.ts`). Never a landing chosen among duplicates: taking
+   a novelist to a nearby-but-wrong paragraph is worse than saying nothing was
+   found.
+
+`PassageHighlightExtension` owns the mark and the reveal. It is **never a
+selection** — the writer's cursor may be elsewhere mid-sentence — it scrolls
+center-biased only when the passage is not already on screen, and it clears on
+the writer's next edit or caret move. Remote Yjs transactions (`ySyncPluginKey`
+meta) do not clear it: they arrive constantly and would wipe the mark before it
+was read.
+
 ## Selective Discard (dock Changes cards)
 
 Each card's **Discard** is a server disposition command for its authoritative
