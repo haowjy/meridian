@@ -7,9 +7,7 @@ const databaseUrl = process.env.DATABASE_URL;
 const enabled = process.env.RUN_DB_TESTS === "1" || process.env.RUN_DB_TESTS === "true";
 
 if (!enabled || !databaseUrl) {
-  describe.skip("fresh database migrations (postgres)", () => {
-    it("requires RUN_DB_TESTS and DATABASE_URL", () => {});
-  });
+  describe.skip("fresh database migrations (postgres)", () => {});
 } else {
   describe("fresh database migrations (postgres)", () => {
     it("keeps the renumbered migration tail eligible for incremental upgrades", async () => {
