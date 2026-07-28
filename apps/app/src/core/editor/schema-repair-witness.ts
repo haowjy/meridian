@@ -31,11 +31,7 @@ type ItemLike = {
   id: { client: number; clock: number };
   length: number;
   right: ItemLike | null;
-  content?: {
-    constructor?: { name?: string };
-    str?: string;
-    type?: YTypeLike;
-  };
+  content?: unknown;
 };
 type YTypeLike = { _start: ItemLike | null; nodeName?: string };
 
@@ -51,17 +47,23 @@ function deletedClockCount(deleteSet: DeleteSet): number {
   return total;
 }
 
-function deletedSlice(item: ItemLike, deleteSet: DeleteSet): { from: number; to: number } | null {
+function deletedSlices(item: ItemLike, deleteSet: DeleteSet): Array<{ from: number; to: number }> {
   const ranges = deleteSet.clients.get(item.id.client);
-  if (!ranges) return null;
+  if (!ranges) return [];
   const itemStart = item.id.clock;
   const itemEnd = itemStart + item.length;
+  const slices: Array<{ from: number; to: number }> = [];
   for (const range of ranges) {
     const from = Math.max(itemStart, range.clock);
     const to = Math.min(itemEnd, range.clock + range.len);
-    if (from < to) return { from: from - itemStart, to: to - itemStart };
+    if (from < to) slices.push({ from: from - itemStart, to: to - itemStart });
   }
-  return null;
+  return slices;
+}
+
+function contentType(content: unknown): YTypeLike | null {
+  if (!content || typeof content !== "object" || !("type" in content)) return null;
+  return (content as { type: YTypeLike }).type;
 }
 
 /**
@@ -80,27 +82,33 @@ export function extractSchemaRepairEvidence(
   Y.applyUpdate(snapshot, preRepairSnapshot);
 
   const deletedNodeTypes: string[] = [];
-  const removedText: string[] = [];
-  const walk = (type: YTypeLike): void => {
+  const walk = (type: YTypeLike): string => {
+    const pieces: Array<{ text: string; structural: boolean }> = [];
     for (let item = type._start; item; item = item.right) {
-      const slice = deletedSlice(item, deleteSet);
+      const slices = deletedSlices(item, deleteSet);
       const content = item.content;
-      if (slice && content?.constructor?.name === "ContentString" && content.str) {
-        removedText.push(content.str.slice(slice.from, slice.to));
+      if (content instanceof Y.ContentString) {
+        const text = slices.map((slice) => content.str.slice(slice.from, slice.to)).join("");
+        if (text) pieces.push({ text, structural: false });
       }
-      const child = content?.type;
+      const child = contentType(content);
       if (!child) continue;
-      if (slice && child.nodeName && !deletedNodeTypes.includes(child.nodeName)) {
+      if (slices.length > 0 && child.nodeName && !deletedNodeTypes.includes(child.nodeName)) {
         deletedNodeTypes.push(child.nodeName);
       }
-      walk(child);
+      const text = walk(child);
+      if (text) pieces.push({ text, structural: Boolean(child.nodeName) });
     }
+    return pieces.reduce(
+      (text, piece, index) =>
+        `${text}${index > 0 && (pieces[index - 1]?.structural || piece.structural) ? "\n" : ""}${piece.text}`,
+      "",
+    );
   };
 
-  walk(snapshot.getXmlFragment(PROSEMIRROR_FRAGMENT_NAME) as unknown as YTypeLike);
+  const text = walk(snapshot.getXmlFragment(PROSEMIRROR_FRAGMENT_NAME) as unknown as YTypeLike);
   snapshot.destroy();
 
-  const text = removedText.join("");
   return {
     deletedNodeTypes,
     deletedClockCount: deletedClockCount(deleteSet),
@@ -145,6 +153,9 @@ export function createSchemaRepairWitness({
     const decoded = Y.decodeUpdate(update);
     const count = deletedClockCount(decoded.ds as DeleteSet);
     const deleteOnly = decoded.structs.length === 0 && count > 0;
+    // W1 intentionally does not import the fork's ySyncPluginKey. During this
+    // synchronous bracket the shipped extension assembly has no other
+    // init-time local deleter; clean-open coverage pins that soundness bound.
     if (phase !== "open" || !transaction.local || !deleteOnly) return;
 
     // The update callback runs before control returns from construction, while

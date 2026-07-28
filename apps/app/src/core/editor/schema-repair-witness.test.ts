@@ -113,6 +113,49 @@ describe("schema repair witness", () => {
     });
   });
 
+  it("captures every disjoint clock range deleted from one text item", () => {
+    const doc = new Y.Doc({ gc: false });
+    const paragraph = appendElement(doc, "paragraph", "abcdef");
+    const yText = paragraph.get(0) as Y.XmlText;
+    const before = Y.encodeStateAsUpdate(doc);
+    let deletion: Uint8Array | null = null;
+    doc.on("update", (update, origin) => {
+      if (origin === "delete-disjoint") deletion = update;
+    });
+
+    doc.transact(() => {
+      yText.delete(1, 1);
+      yText.delete(2, 1);
+    }, "delete-disjoint");
+
+    expect(extractSchemaRepairEvidence(before, deletion as unknown as Uint8Array)).toEqual({
+      deletedNodeTypes: [],
+      deletedClockCount: 2,
+      removedText: "bd",
+    });
+  });
+
+  it("preserves prose boundaries between deleted block siblings", () => {
+    const doc = new Y.Doc({ gc: false });
+    appendElement(doc, "paragraph", "first passage");
+    appendElement(doc, "paragraph", "second passage");
+    const before = Y.encodeStateAsUpdate(doc);
+    let deletion: Uint8Array | null = null;
+    doc.on("update", (update, origin) => {
+      if (origin === "delete-blocks") deletion = update;
+    });
+
+    doc.transact(() => {
+      doc.getXmlFragment(PROSEMIRROR_FRAGMENT_NAME).delete(0, 2);
+    }, "delete-blocks");
+
+    expect(extractSchemaRepairEvidence(before, deletion as unknown as Uint8Array)).toEqual({
+      deletedNodeTypes: ["paragraph"],
+      deletedClockCount: "first passage".length + "second passage".length + 4,
+      removedText: "first passage\nsecond passage",
+    });
+  });
+
   it("marks a verdict when the bind horizon evidence was degraded", () => {
     const doc = new Y.Doc({ gc: false });
     appendElement(doc, "sidebar", "late evidence");

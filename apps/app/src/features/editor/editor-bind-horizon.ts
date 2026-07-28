@@ -31,9 +31,13 @@ export function waitForEditorBindHorizon({
     const sources = firstServerSync
       ? [Promise.resolve(localPersistence), Promise.resolve(firstServerSync)]
       : [Promise.resolve(localPersistence)];
-    void Promise.all(sources).then(
-      () => finish(false),
-      () => finish(true),
-    );
+    void Promise.all(
+      sources.map((source) =>
+        source.then(
+          () => false,
+          () => true,
+        ),
+      ),
+    ).then((failed) => finish(failed.some(Boolean)));
   });
 }

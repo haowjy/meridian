@@ -56,4 +56,28 @@ describe("waitForEditorBindHorizon", () => {
     await vi.advanceTimersByTimeAsync(1);
     await expect(horizon).resolves.toEqual({ evidenceDegraded: true });
   });
+
+  it("waits for the remaining evidence source after another source rejects", async () => {
+    vi.useFakeTimers();
+    let resolvePersistence!: () => void;
+    const persistence = new Promise<void>((resolve) => {
+      resolvePersistence = resolve;
+    });
+    let result: { evidenceDegraded: boolean } | undefined;
+    const horizon = waitForEditorBindHorizon({
+      localPersistence: persistence,
+      firstServerSync: Promise.reject(new Error("transport failed")),
+      timeoutMs: 5_000,
+    }).then((next) => {
+      result = next;
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(result).toBeUndefined();
+
+    resolvePersistence();
+    await horizon;
+    expect(result).toEqual({ evidenceDegraded: true });
+  });
 });
