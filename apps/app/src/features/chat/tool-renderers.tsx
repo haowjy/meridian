@@ -291,8 +291,7 @@ function writeFailureStatus(output: JsonValue | null): string | null {
 function writeFailureDocumentName(tool: ToolView): string | null {
   const path = asString(inputObject(tool).path);
   if (!path) return null;
-  const { title, qualifier } = documentDisplayName(path);
-  return qualifier ? `${title} (${qualifier})` : title;
+  return documentDisplayName(path);
 }
 
 /** Writer copy is derived from failure shape; machine messages remain diagnostics only. */

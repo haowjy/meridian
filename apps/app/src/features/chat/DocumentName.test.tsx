@@ -58,13 +58,16 @@ describe("document names are doors", () => {
     expect(asked).toEqual(["manuscript://chapter-2.md"]);
   });
 
-  it("names the qualifier inside the same door", () => {
+  it("names the document and nothing else, wherever it lives", () => {
     inProjectShell();
 
     const html = render("kb://elara.md");
 
-    expect(html).toContain("(Knowledge Base)");
-    expect(html).toContain('aria-label="Open elara (Knowledge Base)"');
+    // Where a document sits is not part of what a row claims; the door already
+    // goes there.
+    expect(html).toContain("elara");
+    expect(html).not.toContain("Knowledge Base");
+    expect(html).toContain('aria-label="Open elara"');
     expect(html.match(/<button/g)).toHaveLength(1);
   });
 });

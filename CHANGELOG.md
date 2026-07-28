@@ -5,7 +5,8 @@
 - `apps/app`: document names in the activity timeline are now doors — clicking
   a name opens that document in the context pane; clicking the rest of the row
   still toggles its detail. Names stay plain text where navigation can't work
-  (standalone chat).
+  (standalone chat), and they name the document only: no "(Knowledge Base)"
+  location tag, since the door already goes there.
 - `apps/app`: activity rows now lead with the command — one glyph per command,
   mutation chips only for real mutations, and completed rows say what happened
   in past tense (a failed read no longer claims "Read"; `diff` no longer claims

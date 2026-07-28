@@ -53,25 +53,17 @@ export type DocumentNameProps = {
 export function DocumentName({ path, insideDoor = false, label = "name" }: DocumentNameProps) {
   const openContextUri = useChatContextNavigation();
   const canOpenContextUri = useChatContextRoutability();
-  const { title, qualifier } = documentDisplayName(path);
+  const title = documentDisplayName(path);
 
   // Bare paths (`chapter.md`) are what `write` input carries most of the time;
   // the route predicate requires a scheme, so normalize before asking.
   const uri = contextUriFromWritePath(path);
   const isDoor = !insideDoor && openContextUri !== null && canOpenContextUri?.(uri) === true;
 
-  const fullName = qualifier ? `${title} (${qualifier})` : title;
-  const openLabel = t`Open ${fullName}`;
-
-  const name = (
-    <>
-      <span className="min-w-0 truncate">{label === "open" ? openLabel : title}</span>
-      {/* The separating space lives inside the qualifier rather than in a flex
-          gap, so the door's underline runs unbroken under the whole name while
-          the qualifier still refuses to truncate. */}
-      {qualifier ? <span className="shrink-0 text-ink-subtle">&nbsp;({qualifier})</span> : null}
-    </>
-  );
+  const openLabel = t`Open ${title}`;
+  // The inner span carries the truncation so the door's padding, which grows
+  // its touch target past the line box, is never clipped by an ancestor.
+  const name = <span className="min-w-0 truncate">{label === "open" ? openLabel : title}</span>;
 
   if (!isDoor) {
     return <span className="flex min-w-0 items-baseline text-prose-foreground">{name}</span>;

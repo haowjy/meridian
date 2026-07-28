@@ -24,6 +24,11 @@ navigation policy per renderer to remember or uphold.
 - **Normalize before asking.** `write` input commonly carries a bare path
   (`chapter.md`); `contextUriFromWritePath` runs before the predicate. Without
   it most write rows silently stop linking.
+- **The name is the whole claim.** A row renders the document's name and no
+  location tag: the door already goes wherever the document lives, so
+  `Wrote elara` rather than `Wrote elara (Knowledge Base)`. Location earns its
+  keep in exactly one place, the dead-route pane, whose entire job is to say
+  which section a missing document is missing from.
 - **Tone and decoration move together.** A door is `--muted` with a persistent
   1px underline at the border token, 3px offset, jade on hover and focus. A
   plain name is `--prose` with no decoration. Never muted and undecorated: that
