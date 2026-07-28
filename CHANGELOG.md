@@ -12,9 +12,9 @@
 - `apps/app`: collaboration sockets now offer the bundle schema as their sole
   WebSocket subprotocol instead of appending a version query parameter.
 - `apps/app`, `apps/server`, `packages/database`, `packages/prosemirror-schema`:
-  collaboration schema compatibility now uses `major.minor.patch`; same-major
-  heads remain writable, older clients stay fenced, and patch releases preserve
-  schema-keyed browser state.
+  collaboration schema compatibility now uses `major.minor.patch`; servers load
+  same-major heads, clients below the head's `major.minor` stay fenced, and
+  patch differences never gate.
 - `apps/app`: repeated superseded-client refusals now persist a version-scoped
   quarantine, so reacquired chapters stay read-only without opening transport.
 - `apps/app`: collaboration sockets now declare the client schema and stay
