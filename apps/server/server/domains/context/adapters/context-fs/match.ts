@@ -1,5 +1,5 @@
 /**
- * Per-document grep matching: which passage a query first hit, how to navigate
+ * Per-document search matching: which passage a query first hit, how to navigate
  * back to it, and how often the document holds it. Shared by the in-memory and
  * drizzle context stores so both report search hits identically.
  *

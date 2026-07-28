@@ -59,7 +59,7 @@ the UI says neither "intent" nor "outcome".
 | `read format:outline` | The headings it saw, indented by depth | The listing cap, with a count | None; the row title's door serves |
 | `create` / `insert` / `replace` | The submitted content, on the recessed surface | Height, with a fade | The document, at the fade |
 | `undo` / `redo` / `diff` | Nothing | — | — |
-| `grep` | Match rows: document, its match count, and the passage that matched | The search cap, with a count | Each matched passage |
+| `search` | Match rows: document, its match count, and the passage that matched | The search cap, with a count | Each matched passage |
 | `ls` | Listing rows: name plus glyph | The listing cap, with a count | Each document; folders are inert |
 | `invoke` | Output tail, or one of two availability failures | The tail's own bound | — |
 | unknown | Nothing | — | — |
@@ -67,7 +67,7 @@ the UI says neither "intent" nor "outcome".
 A **failed `write`** always shows why it failed, in place of whatever the
 command would otherwise have opened onto. No other tool has a general failure
 expand: `invoke` recognises two availability failures and shows nothing for the
-rest, and a failed `grep` or `ls` opens onto nothing at all. Whether every
+rest, and a failed `search` or `ls` opens onto nothing at all. Whether every
 failure deserves an expand is an open design question; do not invent an answer
 in a renderer.
 

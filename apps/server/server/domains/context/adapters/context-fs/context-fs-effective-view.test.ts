@@ -1,4 +1,4 @@
-/** ContextFS agent effective-view contracts for manuscript membership and grep/read bytes. */
+/** ContextFS agent effective-view contracts for manuscript membership and search/read bytes. */
 import { describe, expect, it } from "vitest";
 import type { Result } from "../../../../shared/result.js";
 import { Ok } from "../../../../shared/result.js";
@@ -23,7 +23,7 @@ function okMarkdown(value: string): Result<string, SyncError> {
 }
 
 describe("ContextFS manuscript effective view", () => {
-  it("lists and greps the resolved manifest branch, not the SQL document set", async () => {
+  it("lists and searches the resolved manifest branch, not the SQL document set", async () => {
     const backing = createInMemoryContextDocumentStoreBacking();
     const store = new InMemoryContextDocumentStore({ sourceId: SOURCE_ID, backing });
     await store.upsertDocument({
@@ -85,7 +85,7 @@ describe("ContextFS manuscript effective view", () => {
     ]);
   });
 
-  it("keeps grep excerpts byte-equal to readEffectiveMarkdown for branch-touched and draft-created docs", async () => {
+  it("keeps search excerpts byte-equal to readEffectiveMarkdown for branch-touched and draft-created docs", async () => {
     const backing = createInMemoryContextDocumentStoreBacking();
     const store = new InMemoryContextDocumentStore({ sourceId: SOURCE_ID, backing });
     await store.upsertDocument({

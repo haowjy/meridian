@@ -170,7 +170,7 @@ export function createRuntimeToolRegistry(deps: {
       return { result: { entries: listed.value } };
     },
 
-    async grep(ctx: ToolContext, pattern: string, scope?: string) {
+    async search(ctx: ToolContext, pattern: string, scope?: string) {
       const port = await resolvePort(ctx);
       const hits = await port.search(pattern, scope);
       if (!hits.ok) {

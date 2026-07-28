@@ -11,7 +11,7 @@ lives in [turn-composition.md](turn-composition.md).
 > render as inert text.
 
 `DocumentName.tsx` is the whole rule. It renders every document name — row
-titles via `tool-renderers`, `grep` match rows via `ResultRows`, receipt rows
+titles via `tool-renderers`, `search` match rows via `ResultRows`, receipt rows
 via `TurnEditsReceipt` — and it alone decides linkability. There is no
 navigation policy per renderer to remember or uphold.
 
@@ -44,7 +44,7 @@ navigation policy per renderer to remember or uphold.
   explanatory pane is the other half of this decision: without it, not
   pre-checking would be the wrong call.
 - **One door, two precisions.** A name standing for a whole document opens the
-  document; a name standing for a matched passage (`grep` match rows) carries
+  document; a name standing for a matched passage (`search` match rows) carries
   that passage in the same call and opens there. Same affordance, same
   underline, same predicate — only the destination is finer. A passage anchor
   is a block hash plus the term that matched, and a row without a hash is

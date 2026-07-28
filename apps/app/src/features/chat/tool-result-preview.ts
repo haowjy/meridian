@@ -102,7 +102,7 @@ const SEARCH_CAP = 4;
 const LISTING: RowSpec = { cap: LISTING_CAP, toRow: listingEntry };
 
 /**
- * What `grep` returned: one document per hit, with the passage it matched. The
+ * What `search` returned: one document per hit, with the passage it matched. The
  * pattern comes from the tool input so the row can find the match inside the
  * line and weight it.
  */

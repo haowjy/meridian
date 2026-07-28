@@ -558,7 +558,7 @@ const RENDERERS: Record<string, ToolRenderer> = {
     title: phraseTitle,
     expand: listingOrNothing,
   },
-  grep: {
+  search: {
     title: phraseTitle,
     expand: resultRowsOrNothing,
   },

@@ -68,6 +68,11 @@
   that matched, with a brief mark on the words themselves and no cursor
   movement. If the passage changed since the search, the document still opens
   and says so rather than landing somewhere that looks right.
+- `apps/server`, `apps/app`: the tool that searches your project is now called
+  `search` rather than `grep`, so the assistant's own narration says "search"
+  instead of naming a command-line program. Rows already read "Searched" and
+  are unchanged. Tool calls recorded under the old name show as a plain
+  one-line row with no expand.
 
 - `apps/server`: Anthropic-format cache usage now normalizes to inclusive input
   totals, so uncached prompt tokens are priced instead of silently clamped away;
