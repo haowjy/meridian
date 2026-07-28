@@ -138,21 +138,24 @@ function refuseSchemaAdmission(input: {
     headSchemaVersion,
     serverSchemaVersion,
   } = input;
-  emitEvent(services.eventSink, {
-    level: close.code === WS_CLOSE.CLIENT_SCHEMA_SUPERSEDED.code ? "info" : "error",
-    source: "collab.schema",
-    name: "admission.refused",
-    correlation: { documentId },
-    payload: {
-      code: close.code,
-      reason: close.reason,
-      roomKey,
-      clientSchemaVersion,
-      headSchemaVersion,
-      serverSchemaVersion,
-    },
-  });
-  return refuseConnection(context, close);
+  try {
+    emitEvent(services.eventSink, {
+      level: close.code === WS_CLOSE.CLIENT_SCHEMA_SUPERSEDED.code ? "info" : "error",
+      source: "collab.schema",
+      name: "admission.refused",
+      correlation: { documentId },
+      payload: {
+        code: close.code,
+        reason: close.reason,
+        roomKey,
+        clientSchemaVersion,
+        headSchemaVersion,
+        serverSchemaVersion,
+      },
+    });
+  } finally {
+    refuseConnection(context, close);
+  }
 }
 
 function deriveOrigin(

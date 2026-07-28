@@ -152,6 +152,28 @@ describe("Yjs connect-time schema version gate", () => {
     });
   });
 
+  it("preserves the typed refusal when event delivery fails", async () => {
+    const services = versionGateServices({ liveHead: COLLAB_SCHEMA_VERSION });
+    vi.spyOn(services.eventSink, "emit").mockImplementation(() => {
+      throw new Error("sink-failed");
+    });
+    const hocuspocus = createHocuspocus(services as never);
+    const context = connectContext(SENTINEL_SCHEMA_VERSION);
+
+    await expect(
+      hocuspocus.configuration.onConnect?.({
+        documentName: liveDocumentName,
+        context,
+      } as never),
+    ).rejects.toMatchObject({ code: 4406, reason: "client-schema-superseded" });
+    expect(context.closeTransport).toHaveBeenCalledOnce();
+    expect(context.closeTransport).toHaveBeenCalledWith({
+      code: 4406,
+      reason: "client-schema-superseded",
+    });
+    expect(services.eventSink.emit).toHaveBeenCalledOnce();
+  });
+
   it("passes a live room with no stamped head, including an absent-version client", async () => {
     const services = versionGateServices({ liveHead: null });
     const hocuspocus = createHocuspocus(services as never);
