@@ -11,6 +11,7 @@ import { Doc } from "yjs";
 export type { CollabSchemaVersion } from "./collab-schema-version.js";
 export {
   COLLAB_SCHEMA_VERSION,
+  clientSchemaVersionFromSubprotocolHeader,
   cmpMajorMinor,
   collabSchemaKeyTag,
   formatCollabSchemaSubprotocol,
@@ -19,6 +20,7 @@ export {
   packCollabSchemaVersion,
   parseCollabSchemaSubprotocol,
   parseCollabSchemaVersion,
+  selectCollabSchemaSubprotocol,
   serverServesHead,
   unpackCollabSchemaVersion,
 } from "./collab-schema-version.js";

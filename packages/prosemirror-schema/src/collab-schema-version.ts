@@ -18,6 +18,7 @@ const MAX_COMPONENT = 999;
 const MINOR_MULTIPLIER = 1_000;
 const MAJOR_MULTIPLIER = 1_000_000;
 const MAX_PACKED_VERSION = 999_999_999;
+const UNKNOWN_VERSION: CollabSchemaVersion = { major: 0, minor: 0, patch: 0 };
 
 function assertComponent(component: number, name: keyof CollabSchemaVersion): void {
   if (!Number.isInteger(component) || component < 0 || component > MAX_COMPONENT) {
@@ -74,6 +75,37 @@ export function formatCollabSchemaSubprotocol(version: CollabSchemaVersion): str
 export function parseCollabSchemaSubprotocol(token: string): CollabSchemaVersion | null {
   const match = token.match(WIRE);
   return match ? versionFromMatch(match) : null;
+}
+
+function offeredSubprotocols(header: string | null): string[] {
+  if (header === null) return [];
+  return header
+    .split(",")
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function matchingSubprotocols(
+  offered: string[],
+): Array<{ token: string; version: CollabSchemaVersion }> {
+  return offered.flatMap((token) => {
+    const version = parseCollabSchemaSubprotocol(token);
+    return version ? [{ token, version }] : [];
+  });
+}
+
+export function clientSchemaVersionFromSubprotocolHeader(
+  header: string | null,
+): CollabSchemaVersion {
+  const matches = matchingSubprotocols(offeredSubprotocols(header));
+  return matches.length === 1 ? matches[0].version : UNKNOWN_VERSION;
+}
+
+export function selectCollabSchemaSubprotocol(header: string | null): string | undefined {
+  const offered = offeredSubprotocols(header);
+  if (offered.length === 0) return undefined;
+  const matches = matchingSubprotocols(offered);
+  return matches.length === 1 ? matches[0].token : offered[0];
 }
 
 export function cmpMajorMinor(a: CollabSchemaVersion, b: CollabSchemaVersion): number {

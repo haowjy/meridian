@@ -10,8 +10,8 @@ import type { DocumentId, UserId } from "@meridian/contracts/runtime";
 import {
   COLLAB_SCHEMA_VERSION,
   type CollabSchemaVersion,
+  clientSchemaVersionFromSubprotocolHeader,
   headAdmitsClient,
-  parseCollabSchemaVersion,
   serverServesHead,
 } from "@meridian/prosemirror-schema";
 import { messageYjsSyncStep1, messageYjsSyncStep2, messageYjsUpdate } from "y-protocols/sync";
@@ -77,13 +77,8 @@ type YjsConnectionContext = {
   closeTransport(input: { code: number; reason: string }): void;
 };
 
-const UNKNOWN_COLLAB_SCHEMA_VERSION: CollabSchemaVersion = { major: 0, minor: 0, patch: 0 };
-
 export function clientSchemaVersionFromRequest(request: Request): CollabSchemaVersion {
-  const raw = new URL(request.url).searchParams.get("schema");
-  return raw
-    ? (parseCollabSchemaVersion(raw) ?? UNKNOWN_COLLAB_SCHEMA_VERSION)
-    : UNKNOWN_COLLAB_SCHEMA_VERSION;
+  return clientSchemaVersionFromSubprotocolHeader(request.headers.get("sec-websocket-protocol"));
 }
 
 export async function hasLiveManifestMembership(

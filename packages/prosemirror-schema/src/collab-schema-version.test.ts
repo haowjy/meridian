@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   COLLAB_SCHEMA_VERSION,
   type CollabSchemaVersion,
+  clientSchemaVersionFromSubprotocolHeader,
   cmpMajorMinor,
   collabSchemaKeyTag,
   formatCollabSchemaSubprotocol,
@@ -11,6 +12,7 @@ import {
   packCollabSchemaVersion,
   parseCollabSchemaSubprotocol,
   parseCollabSchemaVersion,
+  selectCollabSchemaSubprotocol,
   serverServesHead,
   unpackCollabSchemaVersion,
 } from "./index.js";
@@ -90,6 +92,53 @@ describe("collab schema subprotocol grammar", () => {
     "meridian.collab.0.1.0 ",
   ])("rejects N6/malformed token %j", (token) => {
     expect(parseCollabSchemaSubprotocol(token)).toBeNull();
+  });
+});
+
+describe("collab schema subprotocol offers", () => {
+  const sentinel = v(0, 0, 0);
+
+  it("resolves exactly one matching token from an ordered offer list", () => {
+    expect(
+      clientSchemaVersionFromSubprotocolHeader("unrelated.v1, meridian.collab.12.34.56, another"),
+    ).toEqual(v(12, 34, 56));
+  });
+
+  it.each([
+    [null, "absent"],
+    ["", "empty"],
+    ["unrelated.v1, another", "zero matches"],
+    ["meridian.collab.0.1.0, meridian.collab.0.2.0", "multiple matches"],
+  ])("maps an %s header (%s) to the sentinel", (header, _case) => {
+    expect(clientSchemaVersionFromSubprotocolHeader(header)).toEqual(sentinel);
+  });
+
+  it.each([
+    "meridian.collab.4",
+    "meridian.collab.0.1",
+    "meridian.collab.01.2.3",
+    "0.1.0",
+    "meridian.collab.0.1.0-beta",
+    "meridian.collab.1000.1.0",
+  ])("maps malformed N6-family offer %j to the sentinel", (token) => {
+    expect(clientSchemaVersionFromSubprotocolHeader(`unrelated, ${token}`)).toEqual(sentinel);
+  });
+
+  it("echoes the sole matching token even when it is not first", () => {
+    expect(selectCollabSchemaSubprotocol("unrelated.v1, meridian.collab.0.1.0, another")).toBe(
+      "meridian.collab.0.1.0",
+    );
+  });
+
+  it.each([
+    ["unrelated.v1, another", "zero matches"],
+    ["unrelated.v1, meridian.collab.0.1.0, meridian.collab.0.2.0", "multiple matches"],
+  ])("echoes the first offered token for %s (%s)", (header, _case) => {
+    expect(selectCollabSchemaSubprotocol(header)).toBe("unrelated.v1");
+  });
+
+  it.each([null, "", "   "])("echoes nothing when no token is offered in %j", (header) => {
+    expect(selectCollabSchemaSubprotocol(header)).toBeUndefined();
   });
 });
 

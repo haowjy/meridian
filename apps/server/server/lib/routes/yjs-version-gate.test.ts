@@ -1,5 +1,9 @@
 /** Connect-time schema compatibility behavior for live and Work-draft Yjs rooms. */
-import { COLLAB_SCHEMA_VERSION, type CollabSchemaVersion } from "@meridian/prosemirror-schema";
+import {
+  COLLAB_SCHEMA_VERSION,
+  type CollabSchemaVersion,
+  formatCollabSchemaSubprotocol,
+} from "@meridian/prosemirror-schema";
 import { describe, expect, it, vi } from "vitest";
 import { messageYjsUpdate } from "y-protocols/sync";
 import * as Y from "yjs";
@@ -72,22 +76,35 @@ function staleSchemaError() {
 }
 
 describe("Yjs connect-time schema version gate", () => {
-  it("parses exact version triples and maps absent or malformed values to the sentinel", () => {
+  it("resolves one matching subprotocol and maps absent or ambiguous offers to the sentinel", () => {
     expect(
-      clientSchemaVersionFromRequest(new Request("https://meridian.local/ws/yjs?schema=0.1.0")),
+      clientSchemaVersionFromRequest(
+        new Request("https://meridian.local/ws/yjs", {
+          headers: {
+            "sec-websocket-protocol": `unrelated, ${formatCollabSchemaSubprotocol(COLLAB_SCHEMA_VERSION)}`,
+          },
+        }),
+      ),
     ).toEqual(COLLAB_SCHEMA_VERSION);
-    for (const url of [
-      "https://meridian.local/ws/yjs",
-      "https://meridian.local/ws/yjs?schema=",
-      "https://meridian.local/ws/yjs?schema=4",
-      "https://meridian.local/ws/yjs?schema=0.1",
-      "https://meridian.local/ws/yjs?schema=01.1.0",
-      "https://meridian.local/ws/yjs?schema=-1.0.0",
-      "https://meridian.local/ws/yjs?schema=0.1.0-beta",
-      "https://meridian.local/ws/yjs?schema=meridian.collab.0.1.0",
-    ]) {
-      expect(clientSchemaVersionFromRequest(new Request(url))).toEqual(SENTINEL_SCHEMA_VERSION);
+    for (const header of [null, "unrelated", "meridian.collab.0.1.0, meridian.collab.0.2.0"]) {
+      expect(
+        clientSchemaVersionFromRequest(
+          new Request("https://meridian.local/ws/yjs", {
+            ...(header ? { headers: { "sec-websocket-protocol": header } } : {}),
+          }),
+        ),
+      ).toEqual(SENTINEL_SCHEMA_VERSION);
     }
+  });
+
+  it("ignores a residual schema query parameter instead of using it as a fallback", () => {
+    expect(
+      clientSchemaVersionFromRequest(
+        new Request(
+          `https://meridian.local/ws/yjs?schema=${COLLAB_SCHEMA_VERSION.major}.${COLLAB_SCHEMA_VERSION.minor}.${COLLAB_SCHEMA_VERSION.patch}`,
+        ),
+      ),
+    ).toEqual(SENTINEL_SCHEMA_VERSION);
   });
 
   it("refuses only live-room clients strictly older than a stored head", async () => {
