@@ -53,12 +53,14 @@ Yjs document session. It must stay structurally aligned with
 - Before binding, `EditorView` waits for local persistence and, for attached
   rooms, first server sync under one five-second overall timeout. Detached live
   rooms wait only for local persistence. Expiry always permits binding and
-  marks witness evidence degraded; the horizon buys better evidence and is
-  never an admission gate.
+  passes degraded evidence through the mount into each resulting verdict; the
+  horizon buys better evidence and is never an admission gate.
 - `schema-repair-witness.ts` owns one Y.Doc update listener across open and live
   phases. Open-phase local delete-only normalization is classified
   synchronously during construction and resolved against the pre-bind snapshot
-  by Y item identity. Verdicts append to
+  by Y item identity; structural boundary tokens keep separate removed passages
+  from being concatenated. In W1 the live phase is armed but content-inert; W2
+  adds ProseMirror/Yjs correlation without adding a second listener. Verdicts append to
   `DocumentSessionSnapshot.schemaRepairs`; they do not raise a schema fence,
   write quarantine, change connection status, or pause editing.
 - Live peer marks are the session projection of durable trail changes. Their
