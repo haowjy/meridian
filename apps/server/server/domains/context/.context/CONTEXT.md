@@ -71,13 +71,15 @@ with a single unified `ContextPort` that resolves durable project schemes
   `context_unavailable`, and `io_error` stay generic context/backing-store
   faults.
 - Unscoped `search(query)` fans out across searchable adapters best-effort.
-- A `SearchResult` reports one hit per file plus `matchCount`, the occurrences
-  of the query in that whole file. `blockHash` names the block the excerpt came
-  from so a caller can navigate to the passage; it is present only where
-  documents serialize as hashlines (manuscript effective views), and its
-  absence elsewhere is the contract. Both are parsed server-side by
-  `adapters/context-fs/match.ts`, which scans one entry per block and matches
-  against the hashline body, never the hash.
+- A `SearchResult` reports the first matching passages of a file (capped by the
+  adapter) plus `matchCount`, the occurrences of the query in that whole file,
+  including any past the cap. Each passage carries the block's prose as
+  `excerpt` and, where documents serialize as hashlines (manuscript effective
+  views), the `blockHash` a caller navigates by; that absence elsewhere is the
+  contract. Hashline parsing lives once, in `adapters/context-fs/match.ts`,
+  which scans one entry per block, matches against the body rather than the
+  hash, and sends addressing and prose as separate values so nothing
+  downstream has to know the format.
 
 ## ContextFS invariants
 

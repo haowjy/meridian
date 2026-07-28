@@ -250,25 +250,6 @@ describe("runtime tool registry", () => {
     expect(expandMarkup(rendererFor("search").expand?.(tool))).toContain("The hollow gate stood.");
   });
 
-  it("never shows the writer a block hash", () => {
-    const tool = writeToolView({
-      toolName: "search",
-      output: [
-        {
-          uri: "manuscript://chapter-2.md",
-          matches: [{ excerpt: "79b9|The hollow gate stood at the edge of the forest." }],
-        },
-      ],
-    });
-
-    const html = expandMarkup(rendererFor("search").expand?.(tool));
-
-    // A hash is how the model addresses a block. It is not a word.
-    expect(html).not.toContain("79b9");
-    expect(html).not.toContain("|");
-    expect(html).toContain("The hollow gate stood at the edge of the forest.");
-  });
-
   it("states the bound when the expand clips a longer result list", () => {
     const tool = writeToolView({
       toolName: "search",

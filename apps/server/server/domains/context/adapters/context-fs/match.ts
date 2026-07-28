@@ -16,6 +16,11 @@
  * lets a hit carry the block hash the writer's editor navigates to, and it
  * keeps the query away from the hash itself — a hash is hex, and hex spells
  * words often enough to over-report a count.
+ *
+ * **The hash leaves through its own field, never inside the excerpt.** A
+ * passage carries the block's body; addressing and prose are separate values,
+ * so nothing downstream has to know the hashline format to show a sentence to
+ * a writer. Plain schemes are unaffected: their body is the whole entry.
  */
 import { splitHashline } from "@meridian/agent-edit";
 
@@ -24,7 +29,7 @@ export const PASSAGE_CAP = 3;
 
 /** One matched passage, as the model and the writer see it. */
 export interface MatchedPassage {
-  /** The exact serialized text of the matching entry. */
+  /** The matching block's text, with no addressing prefix on it. */
   excerpt: string;
   /**
    * Hash of the block this passage came from. Absent for schemes whose
@@ -66,7 +71,7 @@ export function matchDocument(
     // Counting continues past the cap: the number is about the document, the
     // list is about what there is room to show.
     if (matches.length < PASSAGE_CAP) {
-      matches.push({ excerpt: entry, ...(parsed?.hash ? { blockHash: parsed.hash } : {}) });
+      matches.push({ excerpt: body, ...(parsed?.hash ? { blockHash: parsed.hash } : {}) });
     }
   }
   return matches.length > 0 ? { matches, matchCount } : null;

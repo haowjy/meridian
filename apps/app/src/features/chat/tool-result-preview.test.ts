@@ -39,7 +39,7 @@ describe("the caller picks the parser", () => {
         { uri: "manuscript://arc-one", kind: "directory" },
         {
           uri: "manuscript://chapter-2.md",
-          matches: [{ excerpt: "79b9|The hollow gate stood." }],
+          matches: [{ excerpt: "The hollow gate stood." }],
           matchCount: 1,
         },
       ],
@@ -118,7 +118,7 @@ describe("what a search says it found", () => {
   const hit = (index: number, matchCount: number, passages = 1) => ({
     uri: `manuscript://chapter-${index}.md`,
     matches: Array.from({ length: passages }, (_, at) => ({
-      excerpt: `79b${at}|Elara waited ${at}.`,
+      excerpt: `Elara waited ${at}.`,
       blockHash: `79b${at}`,
     })),
     matchCount,
@@ -141,13 +141,6 @@ describe("what a search says it found", () => {
         },
       ],
     });
-  });
-
-  it("never shows the hash it carries", () => {
-    const rows = normalizeSearchHits([hit(1, 1)], "elara");
-    const { lead, match, trail } = rows.rows[0].passages[0].excerpt;
-
-    expect(`${lead}${match}${trail}`).not.toContain("79b");
   });
 
   it("leaves a passage with no hash unable to promise a destination", () => {

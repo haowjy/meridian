@@ -77,13 +77,13 @@ describe("ContextFS manuscript effective view", () => {
     expect(hits.ok ? hits.value : []).toEqual([
       {
         path: "draft-created.md",
-        matches: [{ excerpt: "createdhash|new branch bytes", blockHash: "createdhash" }],
+        matches: [{ excerpt: "new branch bytes", blockHash: "createdhash" }],
         matchCount: 1,
       },
     ]);
   });
 
-  it("keeps search excerpts byte-equal to readEffectiveMarkdown for branch-touched and draft-created docs", async () => {
+  it("searches the effective branch bytes for branch-touched and draft-created docs", async () => {
     const backing = createInMemoryContextDocumentStoreBacking();
     const store = new InMemoryContextDocumentStore({ sourceId: SOURCE_ID, backing });
     await store.upsertDocument({
@@ -137,12 +137,12 @@ describe("ContextFS manuscript effective view", () => {
       expect.arrayContaining([
         expect.objectContaining({
           path: "branch-touched.md",
-          matches: [{ excerpt: effective.get(BRANCH_DOC_ID), blockHash: "branchhash" }],
+          matches: [{ excerpt: "branch touched needle bytes", blockHash: "branchhash" }],
           matchCount: 1,
         }),
         expect.objectContaining({
           path: "draft-created.md",
-          matches: [{ excerpt: effective.get(CREATED_DOC_ID), blockHash: "createdhash" }],
+          matches: [{ excerpt: "draft created needle bytes", blockHash: "createdhash" }],
           matchCount: 1,
         }),
       ]),

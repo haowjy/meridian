@@ -140,7 +140,10 @@ rule, never by spacing alone.
   (`features/project/chat/usePassageDoors.ts`), not per passage row.
 
 Passages come from the payload's `matches` array, capped server-side; the
-client never invents one and never shows the block hash it carries.
+client never invents one. The hash travels in its own field and the excerpt
+arrives as prose, so no renderer parses the hashline format to show a sentence
+to a writer — that parsing lives once, on the server, where the format is
+already known.
 
 An `ls` expand is **a record of what the model received, not a file browser.**
 The tree panel already browses, and nothing consumes a folder route, so folders

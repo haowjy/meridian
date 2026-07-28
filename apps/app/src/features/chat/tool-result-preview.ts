@@ -17,13 +17,13 @@
  * sniff: a document's name is a door, a folder's name is not, and only the
  * parser knows which it just read.
  *
- * Snippets arrive as the model saw them, which for manuscript documents means
- * a leading block hash. Hashes are how the model addresses a block; they are
- * not words, and the writer never sees one. This is the seam where a tool
- * payload becomes a line of the writer's book.
+ * Snippets arrive as prose. A block hash is how the model addresses a block, it
+ * is not a word, and it travels in its own field rather than glued to the text
+ * a writer reads, so nothing here has to know the hashline format to render a
+ * sentence. This is the seam where a tool payload becomes a line of the
+ * writer's book.
  */
 import { plural, t } from "@lingui/core/macro";
-import { stripBlockHash } from "@meridian/agent-edit";
 
 import type { JsonValue } from "@meridian/contracts/protocol";
 import type { ContextPassageAnchor } from "./ChatContextNavigation";
@@ -175,11 +175,10 @@ function isRecord(value: JsonValue): value is Record<string, JsonValue> {
 /**
  * One document's section of the result card.
  *
- * The hash is never shown and always carried. It comes from the payload's own
- * field, never from the excerpt — display text has already been stripped for
- * the writer and is not a source of truth. A passage without one (every scheme
- * but manuscript) still reads; it just cannot promise a destination, and the
- * document's own name remains the door.
+ * The hash is never shown and always carried. It arrives in its own field and
+ * the excerpt arrives as prose, so neither has to be parsed out of the other.
+ * A passage without a hash (every scheme but manuscript) still reads; it just
+ * cannot promise a destination, and the document's own name remains the door.
  */
 function searchHit(row: Record<string, JsonValue>, pattern?: string): SearchHitRow | null {
   if (typeof row.uri !== "string" || !Array.isArray(row.matches)) return null;
@@ -187,7 +186,7 @@ function searchHit(row: Record<string, JsonValue>, pattern?: string): SearchHitR
   for (const match of row.matches) {
     if (!isRecord(match) || typeof match.excerpt !== "string") continue;
     passages.push({
-      excerpt: excerptAround(stripBlockHash(match.excerpt), pattern),
+      excerpt: excerptAround(match.excerpt, pattern),
       ...(typeof match.blockHash === "string" && match.blockHash && pattern
         ? { passage: { blockHash: match.blockHash, term: pattern } }
         : {}),
