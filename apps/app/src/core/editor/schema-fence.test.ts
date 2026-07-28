@@ -17,6 +17,9 @@ afterEach(() => {
 
 describe("schema-fence quarantine", () => {
   it("derives reload and quarantine keys from the shared major.minor tag", () => {
+    expect(collabSchemaKeyTag({ major: 0, minor: 1, patch: 999 })).toBe(
+      collabSchemaKeyTag({ major: 0, minor: 1, patch: 0 }),
+    );
     expect(clientSchemaReloadGuardKey("document-1")).toBe(
       `meridian:schema-reload:${collabSchemaKeyTag()}:document-1`,
     );
