@@ -72,8 +72,8 @@ msgstr "'.' and '..' cannot be used as names"
 
 #. placeholder {0}: results.total
 #: src/features/chat/tool-result-preview.ts
-msgid "{0, plural, one {# document} other {# documents}}"
-msgstr "{0, plural, one {# document} other {# documents}}"
+#~ msgid "{0, plural, one {# document} other {# documents}}"
+#~ msgstr "{0, plural, one {# document} other {# documents}}"
 
 #. placeholder {0}: serverPendingCount ?? 0
 #: src/features/chat/ComposerWriteModeControl.tsx
@@ -114,17 +114,29 @@ msgstr "{0} isn't in {section}."
 msgid "{count, plural, one {# match} other {# matches}}"
 msgstr "{count, plural, one {# match} other {# matches}}"
 
+#: src/features/chat/tool-result-preview.ts
+msgid "{count, plural, one {# more} other {# more}}"
+msgstr "{count, plural, one {# more} other {# more}}"
+
 #: src/lib/date-groups.ts
 msgid "{days}d"
 msgstr "{days}d"
+
+#: src/features/chat/tool-result-preview.ts
+msgid "{documents, plural, one {# document} other {# documents}}"
+msgstr "{documents, plural, one {# document} other {# documents}}"
 
 #: src/lib/date-groups.ts
 msgid "{hours}h"
 msgstr "{hours}h"
 
 #: src/features/chat/tool-result-preview.ts
-msgid "{matches} results in {documents}"
-msgstr "{matches} results in {documents}"
+#~ msgid "{matches} results in {documents}"
+#~ msgstr "{matches} results in {documents}"
+
+#: src/features/chat/tool-result-preview.ts
+msgid "{matches} results in {inDocuments}"
+msgstr "{matches} results in {inDocuments}"
 
 #: src/lib/date-groups.ts
 msgid "{minutes}m"
@@ -1323,6 +1335,12 @@ msgstr "Only on this device"
 #: src/features/chat/TurnEditsReceipt.tsx
 msgid "Only part of this change could be reversed."
 msgstr "Only part of this change could be reversed."
+
+#. placeholder {0}: documentDisplayName(path)
+#. placeholder {1}: excerptText(excerpt)
+#: src/features/chat/PassageDoor.tsx
+msgid "Open {0} at this passage. {1}"
+msgstr "Open {0} at this passage. {1}"
 
 #: src/features/chat/DocumentName.tsx
 #~ msgid "Open {fullName}"

@@ -1,7 +1,13 @@
 /**
- * Per-document search matching: which passage a query first hit, how to navigate
- * back to it, and how often the document holds it. Shared by the in-memory and
+ * Per-document search matching: the passages a query hit, how to navigate back
+ * to them, and how often the document holds it. Shared by the in-memory and
  * drizzle context stores so both report search hits identically.
+ *
+ * **A document reports several passages, not one.** One hit per document
+ * under-reports what the model received and leaves the writer's expand showing
+ * a single sentence for a chapter that mentions the name five times. The list
+ * is capped because a search result is a way in, not the document itself; the
+ * count beside it stays honest about everything the cap left out.
  *
  * The unit of the scan is a **block**, not a text line. Manuscript documents
  * arrive as hashlines (`hash|body`), where one entry is one block and a
@@ -13,24 +19,33 @@
  */
 import { splitHashline } from "@meridian/agent-edit";
 
-/** What one document contributed to a search. */
-export interface DocumentMatch {
-  /** The exact serialized text of the first matching entry. */
+/** How many passages one document contributes before the count speaks for the rest. */
+export const PASSAGE_CAP = 3;
+
+/** One matched passage, as the model and the writer see it. */
+export interface MatchedPassage {
+  /** The exact serialized text of the matching entry. */
   excerpt: string;
-  /** 1-based line number where that entry starts. */
-  line: number;
   /**
-   * Hash of the matched block. Absent for schemes whose documents carry no
-   * hashlines — that absence is the contract, not a failure to parse.
+   * Hash of the block this passage came from. Absent for schemes whose
+   * documents carry no hashlines — that absence is the contract, not a
+   * failure to parse.
    */
   blockHash?: string;
+}
+
+/** What one document contributed to a search. */
+export interface DocumentMatch {
+  /** Matching passages in document order, at most {@link PASSAGE_CAP}. */
+  matches: MatchedPassage[];
   /** Occurrences of the query across the whole document. At least 1. */
   matchCount: number;
 }
 
 /**
- * Find the first entry of `entries` containing `query` (case-insensitive) and
- * count every occurrence in the document. Returns null when nothing matches.
+ * Collect the first passages of `entries` containing `query`
+ * (case-insensitive) and count every occurrence in the document. Returns null
+ * when nothing matches.
  */
 export function matchDocument(
   entries: readonly string[],
@@ -40,20 +55,21 @@ export function matchDocument(
   const needle = query.toLowerCase();
   if (needle.length === 0) return null;
 
-  let first: Omit<DocumentMatch, "matchCount"> | null = null;
+  const matches: MatchedPassage[] = [];
   let matchCount = 0;
-  let line = 1;
   for (const entry of entries) {
     const parsed = options.hashlines ? splitHashline(entry) : null;
     const body = parsed?.body ?? entry;
     const occurrences = countOccurrences(body, needle);
-    if (occurrences > 0 && !first) {
-      first = { excerpt: entry, line, ...(parsed?.hash ? { blockHash: parsed.hash } : {}) };
-    }
+    if (occurrences === 0) continue;
     matchCount += occurrences;
-    line += entry.split("\n").length;
+    // Counting continues past the cap: the number is about the document, the
+    // list is about what there is room to show.
+    if (matches.length < PASSAGE_CAP) {
+      matches.push({ excerpt: entry, ...(parsed?.hash ? { blockHash: parsed.hash } : {}) });
+    }
   }
-  return first ? { ...first, matchCount } : null;
+  return matches.length > 0 ? { matches, matchCount } : null;
 }
 
 /** Non-overlapping occurrences of an already-lowercased needle. */

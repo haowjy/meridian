@@ -43,21 +43,32 @@ export type ExcerptSpan = {
 };
 
 export type ToolResultRow =
-  /**
-   * A document the tool found or listed. Its name opens it — at the matched
-   * passage when the hit carried one, otherwise at the document itself.
-   */
-  | {
-      kind: "document";
-      uri: string;
-      excerpt?: ExcerptSpan;
-      /** Present only when the hit can promise a passage: hash plus what matched. */
-      passage?: ContextPassageAnchor;
-      /** Occurrences in this document, when the payload says. */
-      matchCount?: number;
-    }
+  /** A document the tool listed. Its name opens it. */
+  | { kind: "document"; uri: string }
   /** A folder in a listing. Never a door: folders are not documents. */
   | { kind: "folder"; uri: string };
+
+/**
+ * One passage a search matched. The anchor is present only when the passage
+ * can actually be navigated to — a hash to find the block, and the term that
+ * verifies it is still the passage that matched. Without both, the excerpt is
+ * quoted prose and the document's own name is the only door.
+ */
+export type SearchPassage = {
+  excerpt: ExcerptSpan;
+  passage?: ContextPassageAnchor;
+};
+
+/**
+ * One document a search matched. `matchCount` counts the whole document, while
+ * `passages` holds only what the server sent — the count is what stays honest
+ * about the difference.
+ */
+export type SearchHitRow = {
+  uri: string;
+  passages: SearchPassage[];
+  matchCount?: number;
+};
 
 /**
  * A discrete list, cut to what fits, plus what it was cut from. `total` counts
@@ -74,10 +85,10 @@ export type ToolResultRows = CappedList<ToolResultRow>;
 
 /**
  * A capped list of documents plus what the search found across all of them.
- * `matches` is 0 when any hit failed to say, which is what keeps the bound
- * line from claiming a total it cannot stand behind.
+ * `matches` is 0 when any hit failed to say, which is what keeps the card's
+ * header from claiming a total it cannot stand behind.
  */
-export type SearchResultRows = ToolResultRows & { matches: number };
+export type SearchResultRows = CappedList<SearchHitRow> & { matches: number };
 
 /**
  * One line per entry, so this is what fits before a list starts crowding the
@@ -91,15 +102,15 @@ export function capList<T>(items: readonly T[], cap: number): CappedList<T> {
   return { rows: items.slice(0, cap), total: items.length };
 }
 
-type RowSpec = {
+type RowSpec<T> = {
   /** How many rows fit before the list has to report the rest as a count. */
   cap: number;
-  toRow: (entry: Record<string, JsonValue>) => ToolResultRow | null;
+  toRow: (entry: Record<string, JsonValue>) => T | null;
 };
 
-/** Two lines each (name, passage), so fewer of them fit than a bare listing. */
+/** A section each (name, count, a passage or three), so fewer fit than a bare listing. */
 const SEARCH_CAP = 4;
-const LISTING: RowSpec = { cap: LISTING_CAP, toRow: listingEntry };
+const LISTING: RowSpec<ToolResultRow> = { cap: LISTING_CAP, toRow: listingEntry };
 
 /**
  * What `search` returned: one document per hit, with the passage it matched. The
@@ -141,13 +152,13 @@ export function normalizeListing(output: JsonValue | undefined): ToolResultRows 
   return normalizeEntries(output, LISTING);
 }
 
-function normalizeEntries(output: JsonValue | undefined, spec: RowSpec): ToolResultRows {
+function normalizeEntries<T>(output: JsonValue | undefined, spec: RowSpec<T>): CappedList<T> {
   return Array.isArray(output) ? capped(output, spec) : { rows: [], total: 0 };
 }
 
 /** Takes rows until the cap is full, so a long payload is never fully walked. */
-function capped(entries: readonly JsonValue[], spec: RowSpec): ToolResultRows {
-  const rows: ToolResultRow[] = [];
+function capped<T>(entries: readonly JsonValue[], spec: RowSpec<T>): CappedList<T> {
+  const rows: T[] = [];
   for (const entry of entries) {
     if (rows.length === spec.cap) break;
     if (!isRecord(entry)) continue;
@@ -161,23 +172,31 @@ function isRecord(value: JsonValue): value is Record<string, JsonValue> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function searchHit(row: Record<string, JsonValue>, pattern?: string): ToolResultRow | null {
-  if (typeof row.uri !== "string" || typeof row.excerpt !== "string") return null;
-  // `row.line` is deliberately dropped. Chapters are not line-addressed, and a
-  // line number is developer vocabulary in a novelist's transcript.
-  //
-  // The hash is the opposite case: never shown, always carried. It comes from
-  // the payload's own field, never from the excerpt — display text has already
-  // been stripped for the writer and is not a source of truth. A hit without
-  // one (every scheme but manuscript) is still a document door; it just cannot
-  // promise a passage.
+/**
+ * One document's section of the result card.
+ *
+ * The hash is never shown and always carried. It comes from the payload's own
+ * field, never from the excerpt — display text has already been stripped for
+ * the writer and is not a source of truth. A passage without one (every scheme
+ * but manuscript) still reads; it just cannot promise a destination, and the
+ * document's own name remains the door.
+ */
+function searchHit(row: Record<string, JsonValue>, pattern?: string): SearchHitRow | null {
+  if (typeof row.uri !== "string" || !Array.isArray(row.matches)) return null;
+  const passages: SearchPassage[] = [];
+  for (const match of row.matches) {
+    if (!isRecord(match) || typeof match.excerpt !== "string") continue;
+    passages.push({
+      excerpt: excerptAround(stripBlockHash(match.excerpt), pattern),
+      ...(typeof match.blockHash === "string" && match.blockHash && pattern
+        ? { passage: { blockHash: match.blockHash, term: pattern } }
+        : {}),
+    });
+  }
+  if (passages.length === 0) return null;
   return {
-    kind: "document",
     uri: row.uri,
-    excerpt: excerptAround(stripBlockHash(row.excerpt), pattern),
-    ...(typeof row.blockHash === "string" && row.blockHash && pattern
-      ? { passage: { blockHash: row.blockHash, term: pattern } }
-      : {}),
+    passages,
     ...(typeof row.matchCount === "number" ? { matchCount: row.matchCount } : {}),
   };
 }
@@ -223,27 +242,36 @@ export function boundLabel<T>({ rows, total }: CappedList<T>): string | null {
 }
 
 /**
- * What a search found, in the shape that carries information. One hit is
- * reported per document, so while results and documents are equal the numbers
- * say the same thing twice and the line falls back to the cut fact. Once a
- * document holds more than one match, the totals are the bigger truth and the
- * document total inside them still says what was left out.
+ * The card's header: what this search found, and nothing else. It never
+ * repeats the query, because the row title directly above already says it.
+ *
+ * Results and documents are equal whenever every document matched once, and
+ * stating both would say the same thing twice, so the header drops to the
+ * document count alone. How many documents were *shown* is a different fact
+ * and belongs to the bound line.
  */
-export function searchBoundLabel(results: SearchResultRows): string | null {
-  if (results.matches <= results.total) return boundLabel(results);
+export function searchCardSummary(results: SearchResultRows): string {
+  const documents = results.total;
+  if (results.matches <= documents) {
+    return plural(documents, { one: "# document", other: "# documents" });
+  }
   const matches = results.matches;
-  const documents = plural(results.total, { one: "# document", other: "# documents" });
-  return t`${matches} results in ${documents}`;
+  const inDocuments = plural(documents, { one: "# document", other: "# documents" });
+  return t`${matches} results in ${inDocuments}`;
 }
 
 /**
- * `5 matches` beside a row that shows one passage. Silent at one, where the
- * passage on screen already is the whole answer — a count only earns its line
- * by naming what the single excerpt leaves out.
+ * What a count badge means, for anyone who hears the card rather than sees it.
+ * The badge itself is the bare number: it sits in a column, and a column reads
+ * by shape.
  */
-export function matchCountLabel(count: number | undefined): string | null {
-  if (count === undefined || count < 2) return null;
+export function matchCountLabel(count: number): string {
   return plural(count, { one: "# match", other: "# matches" });
+}
+
+/** `and 2 more` — the passages the server sent but the section keeps folded. */
+export function moreMatchesLabel(count: number): string {
+  return plural(count, { one: "# more", other: "# more" });
 }
 
 export function truncate(text: string, max: number): string {

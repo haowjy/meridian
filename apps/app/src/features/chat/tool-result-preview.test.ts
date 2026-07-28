@@ -3,9 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import {
   boundLabel,
   matchCountLabel,
+  moreMatchesLabel,
   normalizeListing,
   normalizeSearchHits,
-  searchBoundLabel,
+  searchCardSummary,
 } from "./tool-result-preview";
 
 vi.mock("@lingui/core/macro", () => ({
@@ -36,16 +37,22 @@ describe("the caller picks the parser", () => {
     const rows = normalizeSearchHits(
       [
         { uri: "manuscript://arc-one", kind: "directory" },
-        { uri: "manuscript://chapter-2.md", excerpt: "79b9|The hollow gate stood." },
+        {
+          uri: "manuscript://chapter-2.md",
+          matches: [{ excerpt: "79b9|The hollow gate stood." }],
+          matchCount: 1,
+        },
       ],
       "gate",
     );
 
     expect(rows.rows).toEqual([
       {
-        kind: "document",
         uri: "manuscript://chapter-2.md",
-        excerpt: { lead: "The hollow ", match: "gate", trail: " stood.", clipped: false },
+        matchCount: 1,
+        passages: [
+          { excerpt: { lead: "The hollow ", match: "gate", trail: " stood.", clipped: false } },
+        ],
       },
     ]);
     expect(rows.total).toBe(2);
@@ -92,10 +99,10 @@ describe("caps and bounds", () => {
     expect(boundLabel(rows)).toBe("8 of 23");
   });
 
-  it("stops search hits at four, because each one is three lines", () => {
+  it("stops search hits at four, because each one is a section", () => {
     const hits = Array.from({ length: 42 }, (_, index) => ({
       uri: `manuscript://chapter-${index + 1}.md`,
-      excerpt: "The hollow gate stood.",
+      matches: [{ excerpt: "The hollow gate stood." }],
     }));
 
     expect(normalizeSearchHits(hits).rows).toHaveLength(4);
@@ -108,55 +115,78 @@ describe("caps and bounds", () => {
 });
 
 describe("what a search says it found", () => {
-  const hit = (index: number, matchCount: number) => ({
+  const hit = (index: number, matchCount: number, passages = 1) => ({
     uri: `manuscript://chapter-${index}.md`,
-    excerpt: `79b9|Elara waited.`,
-    blockHash: "79b9",
+    matches: Array.from({ length: passages }, (_, at) => ({
+      excerpt: `79b${at}|Elara waited ${at}.`,
+      blockHash: `79b${at}`,
+    })),
     matchCount,
   });
 
-  it("carries the hash and the term the door needs, and never the hash on screen", () => {
-    const rows = normalizeSearchHits([hit(1, 5)], "elara");
+  it("carries every passage with the hash and term its door needs", () => {
+    const rows = normalizeSearchHits([hit(1, 5, 2)], "elara");
 
     expect(rows.rows[0]).toEqual({
-      kind: "document",
       uri: "manuscript://chapter-1.md",
-      excerpt: { lead: "", match: "Elara", trail: " waited.", clipped: false },
-      passage: { blockHash: "79b9", term: "elara" },
       matchCount: 5,
+      passages: [
+        {
+          excerpt: { lead: "", match: "Elara", trail: " waited 0.", clipped: false },
+          passage: { blockHash: "79b0", term: "elara" },
+        },
+        {
+          excerpt: { lead: "", match: "Elara", trail: " waited 1.", clipped: false },
+          passage: { blockHash: "79b1", term: "elara" },
+        },
+      ],
     });
   });
 
-  it("leaves a hit with no hash as a plain document door", () => {
+  it("never shows the hash it carries", () => {
+    const rows = normalizeSearchHits([hit(1, 1)], "elara");
+    const { lead, match, trail } = rows.rows[0].passages[0].excerpt;
+
+    expect(`${lead}${match}${trail}`).not.toContain("79b");
+  });
+
+  it("leaves a passage with no hash unable to promise a destination", () => {
     const rows = normalizeSearchHits(
-      [{ uri: "kb://elara.md", excerpt: "A scout from the Vale.", matchCount: 2 }],
+      [{ uri: "kb://elara.md", matches: [{ excerpt: "A scout from the Vale." }], matchCount: 2 }],
       "scout",
     );
 
-    expect(rows.rows[0]).not.toHaveProperty("passage");
+    expect(rows.rows[0].passages[0]).not.toHaveProperty("passage");
   });
 
-  it("counts results across the whole payload, not just the rows that fit", () => {
+  it("skips a hit with no readable passage rather than rendering an empty section", () => {
+    expect(normalizeSearchHits([{ uri: "manuscript://a.md", matches: [] }], "x").rows).toEqual([]);
+    expect(normalizeSearchHits([{ uri: "manuscript://a.md" }], "x").rows).toEqual([]);
+  });
+
+  it("heads the card with totals counted across the whole payload", () => {
     const hits = Array.from({ length: 6 }, (_, index) => hit(index + 1, 2));
 
-    expect(searchBoundLabel(normalizeSearchHits(hits, "elara"))).toBe("12 results in 6 documents");
+    expect(searchCardSummary(normalizeSearchHits(hits, "elara"))).toBe("12 results in 6 documents");
   });
 
-  it("falls back to the cut fact while results and documents say the same thing", () => {
+  it("drops to the document count while results would say the same thing twice", () => {
     const hits = Array.from({ length: 42 }, (_, index) => hit(index + 1, 1));
 
-    expect(searchBoundLabel(normalizeSearchHits(hits, "elara"))).toBe("4 of 42");
+    expect(searchCardSummary(normalizeSearchHits(hits, "elara"))).toBe("42 documents");
+    // How many were shown is a different fact, and it keeps its own line.
+    expect(boundLabel(normalizeSearchHits(hits, "elara"))).toBe("4 of 42");
   });
 
-  it("states no total when any hit declines to count", () => {
-    const hits = [hit(1, 3), { uri: "kb://elara.md", excerpt: "A scout." }];
+  it("claims no total when any hit declines to count", () => {
+    const hits = [hit(1, 3), { uri: "kb://elara.md", matches: [{ excerpt: "A scout." }] }];
 
-    expect(searchBoundLabel(normalizeSearchHits(hits, "elara"))).toBeNull();
+    expect(searchCardSummary(normalizeSearchHits(hits, "elara"))).toBe("2 documents");
   });
 
-  it("says how many matches a row stands for, and stays quiet at one", () => {
+  it("says what a count badge means for anyone who cannot see the column", () => {
     expect(matchCountLabel(5)).toBe("5 matches");
-    expect(matchCountLabel(1)).toBeNull();
-    expect(matchCountLabel(undefined)).toBeNull();
+    expect(matchCountLabel(1)).toBe("1 match");
+    expect(moreMatchesLabel(2)).toBe("2 more");
   });
 });

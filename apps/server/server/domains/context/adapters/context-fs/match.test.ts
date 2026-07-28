@@ -1,23 +1,35 @@
-/** Grep match kernel: what a hit carries back, and what the count is a count of. */
+/** Search match kernel: what a hit carries back, and what the count is a count of. */
 import { describe, expect, it } from "vitest";
-import { matchDocument } from "./match.js";
+import { matchDocument, PASSAGE_CAP } from "./match.js";
 
 const HASHLINES = { hashlines: true };
 const PLAIN = { hashlines: false };
 
 describe("matchDocument", () => {
-  it("carries the matched block's hash and counts every occurrence in the document", () => {
+  it("carries every matching block's hash and counts every occurrence", () => {
     const match = matchDocument(
       ["aa11|Elara waited.", "bb22|The hall was empty.", "cc33|Elara left, and Elara stayed."],
       "elara",
       HASHLINES,
     );
     expect(match).toEqual({
-      excerpt: "aa11|Elara waited.",
-      line: 1,
-      blockHash: "aa11",
+      matches: [
+        { excerpt: "aa11|Elara waited.", blockHash: "aa11" },
+        { excerpt: "cc33|Elara left, and Elara stayed.", blockHash: "cc33" },
+      ],
       matchCount: 3,
     });
+  });
+
+  it("caps the passages it shows and keeps counting past the cap", () => {
+    const blocks = Array.from({ length: 6 }, (_, index) => `aa0${index}|Elara ${index}.`);
+
+    const match = matchDocument(blocks, "elara", HASHLINES);
+
+    expect(match?.matches).toHaveLength(PASSAGE_CAP);
+    expect(match?.matches.at(-1)?.excerpt).toBe("aa02|Elara 2.");
+    // The number is about the document; the list is about what fits.
+    expect(match?.matchCount).toBe(6);
   });
 
   it("never counts the hash itself", () => {
@@ -25,39 +37,21 @@ describe("matchDocument", () => {
     expect(
       matchDocument(["cafe|nothing here", "beef|the cafe was closed"], "cafe", HASHLINES),
     ).toEqual({
-      excerpt: "beef|the cafe was closed",
-      line: 2,
-      blockHash: "beef",
-      matchCount: 1,
-    });
-  });
-
-  it("reports the line a multi-line block starts on, not the line the match sits on", () => {
-    const match = matchDocument(
-      ["aa11|first block", "bb22|\n- one\n- needle\n- three", "cc33|last"],
-      "needle",
-      HASHLINES,
-    );
-    expect(match).toEqual({
-      excerpt: "bb22|\n- one\n- needle\n- three",
-      line: 2,
-      blockHash: "bb22",
+      matches: [{ excerpt: "beef|the cafe was closed", blockHash: "beef" }],
       matchCount: 1,
     });
   });
 
   it("omits the hash when a serialized block has none", () => {
     expect(matchDocument(["|unhashed body"], "unhashed", HASHLINES)).toEqual({
-      excerpt: "|unhashed body",
-      line: 1,
+      matches: [{ excerpt: "|unhashed body" }],
       matchCount: 1,
     });
   });
 
   it("treats plain markdown as lines and never splits a table row into a hash", () => {
     expect(matchDocument(["| name | role |", "| Elara | envoy |"], "elara", PLAIN)).toEqual({
-      excerpt: "| Elara | envoy |",
-      line: 2,
+      matches: [{ excerpt: "| Elara | envoy |" }],
       matchCount: 1,
     });
   });

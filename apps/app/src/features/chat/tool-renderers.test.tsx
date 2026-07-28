@@ -26,6 +26,8 @@ function titleText(node: ReactNode): string {
 vi.mock("@lingui/core/macro", () => ({
   t: (strings: TemplateStringsArray, ...values: unknown[]) =>
     strings.reduce((copy, part, index) => copy + part + (values[index] ?? ""), ""),
+  plural: (count: number, forms: { one: string; other: string }) =>
+    (count === 1 ? forms.one : forms.other).replace("#", String(count)),
 }));
 
 function writeToolView(overrides: Partial<ToolView> = {}): ToolView {
@@ -180,8 +182,8 @@ describe("runtime tool registry", () => {
       output: [
         {
           uri: "manuscript://chapter-12.md",
-          excerpt: "The dragon stirred beneath the mountain.",
-          line: 42,
+          matches: [{ excerpt: "The dragon stirred beneath the mountain." }],
+          matchCount: 1,
           score: 0.91,
         },
       ],
@@ -205,7 +207,9 @@ describe("runtime tool registry", () => {
     const tool = writeToolView({
       toolName: "search",
       input: { pattern: "Elara" },
-      output: [{ uri: "manuscript://chapter-2.md", excerpt: "Then elara spoke the name." }],
+      output: [
+        { uri: "manuscript://chapter-2.md", matches: [{ excerpt: "Then elara spoke the name." }] },
+      ],
     });
 
     const html = expandMarkup(rendererFor("search").expand?.(tool));
@@ -222,7 +226,9 @@ describe("runtime tool registry", () => {
     const tool = writeToolView({
       toolName: "search",
       input: { pattern: "gate" },
-      output: [{ uri: "manuscript://chapter-2.md", excerpt: `${lead}the gate opened.` }],
+      output: [
+        { uri: "manuscript://chapter-2.md", matches: [{ excerpt: `${lead}the gate opened.` }] },
+      ],
     });
 
     const html = expandMarkup(rendererFor("search").expand?.(tool));
@@ -236,7 +242,9 @@ describe("runtime tool registry", () => {
   it("shows the whole line when the pattern is unknown", () => {
     const tool = writeToolView({
       toolName: "search",
-      output: [{ uri: "manuscript://chapter-2.md", excerpt: "The hollow gate stood." }],
+      output: [
+        { uri: "manuscript://chapter-2.md", matches: [{ excerpt: "The hollow gate stood." }] },
+      ],
     });
 
     expect(expandMarkup(rendererFor("search").expand?.(tool))).toContain("The hollow gate stood.");
@@ -248,8 +256,7 @@ describe("runtime tool registry", () => {
       output: [
         {
           uri: "manuscript://chapter-2.md",
-          excerpt: "79b9|The hollow gate stood at the edge of the forest.",
-          line: 1,
+          matches: [{ excerpt: "79b9|The hollow gate stood at the edge of the forest." }],
         },
       ],
     });
@@ -267,7 +274,7 @@ describe("runtime tool registry", () => {
       toolName: "search",
       output: Array.from({ length: 42 }, (_, index) => ({
         uri: `manuscript://chapter-${index + 1}.md`,
-        excerpt: "The dragon stirred beneath the mountain.",
+        matches: [{ excerpt: "The dragon stirred beneath the mountain." }],
       })),
     });
 
@@ -283,7 +290,9 @@ describe("runtime tool registry", () => {
   it("states no bound when nothing was clipped", () => {
     const tool = writeToolView({
       toolName: "search",
-      output: [{ uri: "manuscript://chapter-12.md", excerpt: "The dragon stirred." }],
+      output: [
+        { uri: "manuscript://chapter-12.md", matches: [{ excerpt: "The dragon stirred." }] },
+      ],
     });
 
     expect(expandMarkup(rendererFor("search").expand?.(tool))).not.toContain(" of ");
