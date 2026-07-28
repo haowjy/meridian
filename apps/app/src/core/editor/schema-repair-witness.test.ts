@@ -230,7 +230,30 @@ describe("schema repair witness", () => {
     const events: SchemaRepairEvent[] = [];
     const editor = constructEditor(doc, events);
     const propagatedUpdates: Uint8Array[] = [];
+    const repairMetaKeys: string[][] = [];
+    const sequence: string[] = [];
     doc.on("update", (update) => propagatedUpdates.push(update));
+    doc.on("beforeTransaction", (transaction) => {
+      sequence.push(
+        `before:${transaction.origin === ySyncPluginKey ? "y-sync" : String(transaction.origin)}`,
+      );
+    });
+    doc.on("afterTransaction", (transaction) => {
+      sequence.push(
+        `after:${transaction.origin === ySyncPluginKey ? "y-sync" : String(transaction.origin)}`,
+      );
+    });
+    doc.on("update", (_update, origin) => {
+      sequence.push(`update:${origin === ySyncPluginKey ? "y-sync" : String(origin)}`);
+    });
+    editor.on("transaction", ({ transaction }) => {
+      const meta = transaction.getMeta(ySyncPluginKey);
+      if (meta) {
+        const keys = Object.keys(meta).sort();
+        repairMetaKeys.push(keys);
+        sequence.push(`pm:${keys.join(",")}`);
+      }
+    });
 
     Y.applyUpdate(
       doc,
@@ -246,6 +269,17 @@ describe("schema repair witness", () => {
       removedText: "remote future prose",
     });
     expect(events[0]?.evidenceDegraded).toBeUndefined();
+    expect(repairMetaKeys).toContainEqual(["isChangeOrigin", "isUndoRedoOperation"]);
+    expect(sequence).toEqual([
+      "before:remote-provider-origin",
+      "before:y-sync",
+      "pm:isChangeOrigin,isUndoRedoOperation",
+      "after:remote-provider-origin",
+      "update:remote-provider-origin",
+      "pm:isChangeOrigin,isUndoRedoOperation",
+      "after:y-sync",
+      "update:y-sync",
+    ]);
     expect(editor.getText()).toBe("valid prose");
 
     for (const update of propagatedUpdates) {
@@ -413,6 +447,9 @@ describe("schema repair witness", () => {
       foreignElementUpdate(doc, "paragraph", "remote valid prose"),
       "remote-provider-origin",
     );
+    // A completed remote Yjs batch must not leak its binding meta into the
+    // causally separate writer command that follows in the same JavaScript turn.
+    expect(editor.commands.deleteRange({ from: 1, to: 3 })).toBe(true);
     await finishFlush();
 
     expect(events).toEqual([]);

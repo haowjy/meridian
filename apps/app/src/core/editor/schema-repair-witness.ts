@@ -186,7 +186,8 @@ export function createSchemaRepairWitness({
   let pendingLiveRepairs: PendingLiveRepair[] = [];
   let remoteTransactionSeen = false;
   let userProseMirrorTransactionSeen = false;
-  let flushScheduled = false;
+  let yjsBatchActive = false;
+  let batchToken = 0;
   let destroyed = false;
 
   const reportLiveRepairs = (repairs: PendingLiveRepair[]) => {
@@ -201,22 +202,41 @@ export function createSchemaRepairWitness({
     }
   };
 
-  const finishFlush = () => {
-    flushScheduled = false;
-    if (destroyed) return;
-    if (pendingLiveRepairs.length > 0 && remoteTransactionSeen && !userProseMirrorTransactionSeen) {
-      reportLiveRepairs(pendingLiveRepairs);
-    }
+  const clearBatch = () => {
     pendingLiveRepairs = [];
     precedingProseMirrorTransaction = null;
     remoteTransactionSeen = false;
     userProseMirrorTransactionSeen = false;
   };
 
-  const scheduleFlushEnd = () => {
-    if (flushScheduled) return;
-    flushScheduled = true;
-    queueMicrotask(finishFlush);
+  const finishBatch = (token: number) => {
+    if (destroyed || token !== batchToken) return;
+    if (pendingLiveRepairs.length > 0 && remoteTransactionSeen && !userProseMirrorTransactionSeen) {
+      reportLiveRepairs(pendingLiveRepairs);
+    }
+    clearBatch();
+  };
+
+  const onBeforeAllTransactions = () => {
+    if (phase !== "live") return;
+    batchToken += 1;
+    if (pendingLiveRepairs.length === 0) {
+      clearBatch();
+    } else {
+      precedingProseMirrorTransaction = null;
+    }
+    yjsBatchActive = true;
+  };
+
+  const onAfterAllTransactions = () => {
+    if (phase !== "live") return;
+    yjsBatchActive = false;
+    // A PM transaction emitted after doc.transact() returns still belongs to
+    // this batch when it resolves an existing candidate. Binding meta with no
+    // candidate must not leak into a later writer command in the same task.
+    precedingProseMirrorTransaction = null;
+    const token = ++batchToken;
+    queueMicrotask(() => finishBatch(token));
   };
 
   const onProseMirrorTransaction = ({ transaction }: { transaction: Transaction }) => {
@@ -232,15 +252,13 @@ export function createSchemaRepairWitness({
       if (bindingDispatched) reportLiveRepairs(pendingLiveRepairs);
       pendingLiveRepairs = [];
       precedingProseMirrorTransaction = null;
-    } else {
+    } else if (yjsBatchActive) {
       precedingProseMirrorTransaction = transactionKind;
     }
-    scheduleFlushEnd();
   };
 
   const onAfterTransaction = (transaction: Y.Transaction) => {
     if (phase !== "live") return;
-    scheduleFlushEnd();
     if (!transaction.local) {
       remoteTransactionSeen = true;
       return;
@@ -291,9 +309,9 @@ export function createSchemaRepairWitness({
     const decoded = Y.decodeUpdate(update);
     const count = deletedClockCount(decoded.ds as DeleteSet);
     const deleteOnly = decoded.structs.length === 0 && count > 0;
-    // W1 intentionally does not import the fork's ySyncPluginKey. During this
-    // synchronous bracket the shipped extension assembly has no other
-    // init-time local deleter; clean-open coverage pins that soundness bound.
+    // During this synchronous bracket the shipped extension assembly has no
+    // other init-time local deleter; clean-open coverage pins that soundness
+    // bound, so open classification does not need the live fork-meta signal.
     if (phase !== "open" || !transaction.local || !deleteOnly) return;
 
     // The update callback runs before control returns from construction, while
@@ -308,7 +326,9 @@ export function createSchemaRepairWitness({
   };
 
   document.on("update", onUpdate);
+  document.on("beforeAllTransactions", onBeforeAllTransactions);
   document.on("afterTransaction", onAfterTransaction);
+  document.on("afterAllTransactions", onAfterAllTransactions);
 
   return {
     get phase() {
@@ -324,10 +344,19 @@ export function createSchemaRepairWitness({
       phase = "live";
     },
     destroy() {
+      if (
+        pendingLiveRepairs.length > 0 &&
+        remoteTransactionSeen &&
+        !userProseMirrorTransactionSeen
+      ) {
+        reportLiveRepairs(pendingLiveRepairs);
+      }
       destroyed = true;
       editor?.off("transaction", onProseMirrorTransaction);
       document.off("update", onUpdate);
+      document.off("beforeAllTransactions", onBeforeAllTransactions);
       document.off("afterTransaction", onAfterTransaction);
+      document.off("afterAllTransactions", onAfterAllTransactions);
     },
   };
 }
