@@ -119,6 +119,10 @@ only aborts the active Hocuspocus hook and must not be treated as close
 delivery. Schema-head comparison semantics remain in the
 [collab domain](../../domains/collab/.context/document-authority-and-schema.md).
 
+The current Yjs carrier is a strict `?schema=major.minor.patch` query value.
+Missing or malformed values become the `0.0.0` sentinel before domain admission;
+the exported WebSocket-subprotocol helpers are not wired into this checkout.
+
 ## Route helpers / services
 
 Route tests that import Nitro handlers live under `lib/routes/`, never beside

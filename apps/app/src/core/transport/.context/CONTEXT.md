@@ -15,6 +15,12 @@ rooms. The session registry remains the per-room deduplication owner; the cost
 is one physical socket per attached room. The soft-cap warning runs when a live
 session is added but compares the registry's total session count, including
 branch sessions; it does not evict sessions or block attachments.
+
+The current client declares its schema as a strict
+`?schema=major.minor.patch` query value on each Yjs socket. WebSocket subprotocol
+format/parse helpers exist in `@meridian/prosemirror-schema`, but this transport
+does not use them.
+
 ## Stateless document messages
 
 `HocuspocusDocumentTransport` parses the extensible stateless payload once with

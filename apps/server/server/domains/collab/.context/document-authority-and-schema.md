@@ -60,8 +60,16 @@ surface.
 WebSocket admission compares the bundle's declared schema version with the
 specific live or Work-draft branch head before sync. The check runs per
 connection because Hocuspocus deduplicates document loads. An unstamped live
-head passes; a strictly older client closes with `4406
-client-schema-superseded`. A stored head older than the running server closes
-with `4407 document-schema-stale`; load-time stale-schema errors retain that
-typed close as a race backstop. Physical close delivery and Hocuspocus hook
-termination belong to the [server transport boundary](../../../lib/.context/CONTEXT.md).
+head passes. A server/head major mismatch in either direction closes first with
+`4407 document-schema-stale`; otherwise a client whose `(major, minor)` is
+behind the head closes with `4406 client-schema-superseded`. Patch differences
+never gate. Load-time `DocumentSchemaMajorMismatchError` handling retains the
+typed 4407 close as a race backstop.
+
+Domain and port contracts carry `CollabSchemaVersion` triples. Drizzle adapters
+alone encode them as order-preserving packed integers and decode them on read.
+Head and branch persistence use monotonic `greatest()` stamps so a rolled-back
+server cannot lower the durable version.
+
+Physical close delivery, request parsing, and Hocuspocus hook termination
+belong to the [server transport boundary](../../../lib/.context/CONTEXT.md).

@@ -22,6 +22,18 @@ documents from the same node/mark specs.
   `AGENT_EDIT_UNDO_CLIENT_ID` occupying slot `999`. Random-authoring docs that
   may persist or sync use `createCollabYDoc()` so they re-roll out of the
   reserved band before writing.
+- **One schema-version algebra.** `CollabSchemaVersion` triples are the only
+  representation that crosses package, port, or domain seams. Strict
+  `major.minor.patch` strings are boundary serialization; packed integers
+  (`major * 1_000_000 + minor * 1_000 + patch`) are SQL-only and must be
+  packed/unpacked inside Drizzle adapters. A server serves any head with the
+  same major. A client may bind only when its `(major, minor)` is at least the
+  head's; patch never gates. Minor is additive even in `0.x`.
+- **One client-state partition tag.** `collabSchemaKeyTag()` returns
+  `v{major}.{minor}`. IndexedDB persistence, reload guards, and fence quarantine
+  reuse state across patch releases but not across schema-surface changes.
+  Subprotocol format/parse helpers are exported for the carrier boundary but
+  are not wired into the current transport.
 - **TipTap parity is load-bearing but unenforced.** Structural changes must be
   mirrored in the app's separately assembled TipTap schema.
 

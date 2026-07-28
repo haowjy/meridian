@@ -103,10 +103,12 @@ Yjs document session. It must stay structurally aligned with
   Storage failure leaves the in-memory fence effective but not durable.
 - A `4406 client-schema-superseded` reset gets one silent reload before the
   session raises `client-superseded`. The sessionStorage guard is keyed by room
-  and `COLLAB_SCHEMA_VERSION`, is written before `location.reload()`, and clears
-  only after first transport sync. A blocked guard or repeated refusal raises
-  the fence without another reload. `4407 document-schema-stale` never reloads
-  or raises a fence because a new bundle cannot repair an older stored head.
+  and the schema `major.minor` tag, is written before `location.reload()`, and
+  clears only after first transport sync. IndexedDB persistence and localStorage
+  quarantine use the same tag: patch releases reuse them, while a minor or major
+  change partitions them. A blocked guard or repeated refusal raises the fence
+  without another reload. `4407 document-schema-stale` never reloads or raises
+  a fence because a new bundle cannot repair a server/head major mismatch.
 - TipTap extensions may provide editing behavior, but they must not add node or
   mark types outside the shared schema unless the schema package and server
   markdown adapter are updated in the same change.
