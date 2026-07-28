@@ -9,6 +9,8 @@
 - `apps/server`, `packages/prosemirror-schema`: collaboration upgrades now
   resolve schema triples from WebSocket subprotocol offers and explicitly echo
   a client-offered token so typed schema refusals survive the handshake.
+- `apps/app`: collaboration sockets now offer the bundle schema as their sole
+  WebSocket subprotocol instead of appending a version query parameter.
 - `apps/app`, `apps/server`, `packages/database`, `packages/prosemirror-schema`:
   collaboration schema compatibility now uses `major.minor.patch`; same-major
   heads remain writable, older clients stay fenced, and patch releases preserve

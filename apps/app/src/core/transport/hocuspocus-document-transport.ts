@@ -24,7 +24,7 @@ import {
   WS_CLOSE,
   yjsWsPath,
 } from "@meridian/contracts/protocol";
-import { COLLAB_SCHEMA_VERSION, formatCollabSchemaVersion } from "@meridian/prosemirror-schema";
+import { COLLAB_SCHEMA_VERSION, formatCollabSchemaSubprotocol } from "@meridian/prosemirror-schema";
 import type { Awareness } from "y-protocols/awareness";
 import type * as Y from "yjs";
 import type {
@@ -57,8 +57,15 @@ class RoomScopedHocuspocusWebsocket extends HocuspocusProviderWebsocket {
   }
 }
 
-export function schemaVersionedYjsWsPath(): string {
-  return `${yjsWsPath()}?schema=${formatCollabSchemaVersion(COLLAB_SCHEMA_VERSION)}`;
+// Keep the build-time gate local so production removes the tap adapter while
+// the authenticated composition root owns dev-time installation.
+const DocumentWebSocket =
+  import.meta.env.DEV || import.meta.env.VITE_DEBUG_OVERLAY === "1" ? TappedWebSocket : WebSocket;
+
+export class CollabSchemaWebSocket extends DocumentWebSocket {
+  constructor(url: string | URL) {
+    super(url, [formatCollabSchemaSubprotocol(COLLAB_SCHEMA_VERSION)]);
+  }
 }
 
 function mapStatus(status: WebSocketStatus): DocumentSessionConnectionState {
@@ -144,12 +151,8 @@ export function createHocuspocusDocumentTransport({
   const listeners = new Set<(state: DocumentSessionConnectionState) => void>();
   const changeEventListeners = new Set<(message: ChangeEventWsMessage) => void>();
   const websocket = new RoomScopedHocuspocusWebsocket({
-    url: buildSameOriginWsUrl(schemaVersionedYjsWsPath()),
-    // Keep the build-time gate local so production removes the tap adapter,
-    // while the authenticated composition root owns dev-time installation.
-    ...(import.meta.env.DEV || import.meta.env.VITE_DEBUG_OVERLAY === "1"
-      ? { WebSocketPolyfill: TappedWebSocket }
-      : {}),
+    url: buildSameOriginWsUrl(yjsWsPath()),
+    WebSocketPolyfill: CollabSchemaWebSocket,
   });
   let currentState = mapStatus(websocket.status);
   let terminal = false;

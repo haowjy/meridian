@@ -1,9 +1,16 @@
 /** Production-adapter contract coverage for document transport status subscription. */
 
-import { COLLAB_SCHEMA_VERSION, formatCollabSchemaVersion } from "@meridian/prosemirror-schema";
+import { COLLAB_SCHEMA_VERSION, formatCollabSchemaSubprotocol } from "@meridian/prosemirror-schema";
 import { describe, expect, it, vi } from "vitest";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
+
+const websocketConfigurations = vi.hoisted(
+  () => [] as Array<{ url: string; WebSocketPolyfill?: unknown }>,
+);
+const socketCreations = vi.hoisted(
+  () => [] as Array<{ url: string; protocols?: string | string[] }>,
+);
 
 vi.mock("@hocuspocus/provider", () => {
   const WebSocketStatus = {
@@ -14,6 +21,10 @@ vi.mock("@hocuspocus/provider", () => {
 
   class HocuspocusProviderWebsocket {
     readonly status = WebSocketStatus.Disconnected;
+
+    constructor(configuration: { url: string; WebSocketPolyfill?: unknown }) {
+      websocketConfigurations.push(configuration);
+    }
 
     async connect(): Promise<void> {}
     destroy(): void {}
@@ -31,19 +42,20 @@ vi.mock("@hocuspocus/provider", () => {
 });
 
 vi.mock("./dev-transport", () => ({
-  buildSameOriginWsUrl: () => "ws://test/api/yjs",
+  buildSameOriginWsUrl: (path: string) => `ws://test${path}`,
 }));
 
 vi.mock("./tapped-websocket", () => ({
   notifyYjsRoomAttached: () => {},
-  TappedWebSocket: class {},
+  TappedWebSocket: class {
+    constructor(url: string | URL, protocols?: string | string[]) {
+      socketCreations.push({ url: url.toString(), protocols });
+    }
+  },
 }));
 
-const {
-  classifyDocumentTransportClose,
-  createHocuspocusDocumentTransport,
-  schemaVersionedYjsWsPath,
-} = await import("./hocuspocus-document-transport");
+const { CollabSchemaWebSocket, classifyDocumentTransportClose, createHocuspocusDocumentTransport } =
+  await import("./hocuspocus-document-transport");
 
 describe("Hocuspocus document transport adapter", () => {
   it.each([
@@ -78,10 +90,32 @@ describe("Hocuspocus document transport adapter", () => {
     ).toBeNull();
   });
 
-  it("declares the bundle schema version on each document socket URL", () => {
-    expect(schemaVersionedYjsWsPath()).toBe(
-      `/ws/yjs?schema=${formatCollabSchemaVersion(COLLAB_SCHEMA_VERSION)}`,
-    );
+  it("offers exactly the formatted schema subprotocol", () => {
+    new CollabSchemaWebSocket("ws://test/ws/yjs");
+
+    expect(socketCreations.at(-1)).toEqual({
+      url: "ws://test/ws/yjs",
+      protocols: [formatCollabSchemaSubprotocol(COLLAB_SCHEMA_VERSION)],
+    });
+  });
+
+  it("uses the unversioned Yjs path and injects the schema socket", () => {
+    const document = new Y.Doc();
+    const awareness = new Awareness(document);
+    const transport = createHocuspocusDocumentTransport({
+      roomName: "document-1",
+      document,
+      awareness,
+    });
+
+    expect(websocketConfigurations.at(-1)).toMatchObject({
+      url: "ws://test/ws/yjs",
+      WebSocketPolyfill: CollabSchemaWebSocket,
+    });
+
+    transport.destroy();
+    awareness.destroy();
+    document.destroy();
   });
 
   it("emits its initial status before subscribeStatus returns", () => {
