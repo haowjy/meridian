@@ -19,7 +19,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { AgentNameStore } from "./agent-name-store";
 import { createEditorConfig } from "./config";
 import type { DocumentSession } from "./document-session";
-import { createSchemaRepairWitness } from "./schema-repair-witness";
+import { createSchemaRepairWitness, type SchemaRepairEvent } from "./schema-repair-witness";
 
 type EditorMountBase = {
   documentId: string;
@@ -97,8 +97,8 @@ export function useMountedEditor({
   // Frozen on first render: identity is constant for the mount by construction
   // (the mount key covers it), and freezing keeps the extension array's identity
   // stable so TipTap's option sync never sees a reason to touch the schema.
-  const [construction] = useState(() =>
-    createEditorConfig({
+  const [construction] = useState(() => {
+    const editorConfig = createEditorConfig({
       document: session.document,
       awareness: session.awareness,
       cursorProvider: session.cursorProvider,
@@ -110,33 +110,41 @@ export function useMountedEditor({
       agentNames,
       placeholder,
       autofocus: false,
-    }),
-  );
+    });
+    return {
+      editorConfig,
+      initialOptions: {
+        ...editorConfig,
+        editable: surface.editable,
+        editorProps: { ...editorConfig.editorProps, ...surface.editorProps },
+      },
+      witness: {
+        document: session.document,
+        evidenceDegraded,
+        onRepair: (event: SchemaRepairEvent) => session.reportSchemaRepair(event),
+      },
+    };
+  });
 
   const options = useMemo<Partial<EditorOptions>>(
     () => ({
-      ...construction,
+      ...construction.editorConfig,
       editable: surface.editable,
-      editorProps: { ...construction.editorProps, ...surface.editorProps },
+      editorProps: { ...construction.editorConfig.editorProps, ...surface.editorProps },
     }),
     [construction, surface.editable, surface.editorProps],
   );
 
   const [editor, setEditor] = useState<Editor | null>(null);
-  const [initialOptions] = useState(options);
 
   useEffect(() => {
     // TipTap's useEditor defers construction into its own passive effect when
     // immediatelyRender is false. Owning construction here is what creates one
     // gap-free synchronous bracket around every extension lifecycle mutation.
-    const witness = createSchemaRepairWitness({
-      document: session.document,
-      evidenceDegraded,
-      onRepair: (event) => session.reportSchemaRepair(event),
-    });
+    const witness = createSchemaRepairWitness(construction.witness);
     let mounted: Editor;
     try {
-      mounted = new Editor(initialOptions);
+      mounted = new Editor(construction.initialOptions);
       // Atomic with construction: live observation starts before this effect
       // yields, rather than in a later effect or TipTap's deferred onCreate.
       witness.enterLive(mounted);
@@ -149,7 +157,7 @@ export function useMountedEditor({
       witness.destroy();
       if (!mounted.isDestroyed) mounted.destroy();
     };
-  }, [evidenceDegraded, initialOptions, session]);
+  }, [construction]);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
