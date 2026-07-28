@@ -59,7 +59,7 @@ the UI says neither "intent" nor "outcome".
 | `read format:outline` | The headings it saw, indented by depth | The listing cap, with a count | None; the row title's door serves |
 | `create` / `insert` / `replace` | The submitted content, on the recessed surface | Height, with a fade | The document, at the fade |
 | `undo` / `redo` / `diff` | Nothing | — | — |
-| `grep` | Match rows: document, and the passage that matched | The search cap, with a count | Each document |
+| `grep` | Match rows: document, its match count, and the passage that matched | The search cap, with a count | Each matched passage |
 | `ls` | Listing rows: name plus glyph | The listing cap, with a count | Each document; folders are inert |
 | `invoke` | Output tail, or one of two availability failures | The tail's own bound | — |
 | unknown | Nothing | — | — |
@@ -93,11 +93,31 @@ run-up was dropped, and the matched words carry weight through type alone. No
 coloured ground: this is the writer's own prose, and a highlighter across it
 reads as markup rather than as their sentence.
 
-Two things the design asks of this expand are **blocked on the payload**
-(meridian-flow #433), not forgotten: a per-document match count, and the
-`12 results in 3 documents` bound. The adapter returns only the first match per
-document, so results and documents are always equal and both would state a
-tautology. Until the payload carries counts, the bound stays `N of M`.
+### A match row is a passage door
+
+One hit comes back per document, so the row is a document that promises a
+particular sentence. Two numbers and one destination follow from that.
+
+- **`5 matches` takes the slot the line number vacated**, above the passage.
+  Showing one passage under-reports what the model received, and the count is
+  what closes the gap. **Silent at one**: there the excerpt already is the
+  whole answer, and stating it would be the same tautology the bound avoids.
+- **The bound line states totals once they differ.** `12 results in 3
+  documents` (VS Code's grammar) whenever results outnumber documents; while
+  they are equal the two numbers say the same thing and the line falls back to
+  the cut fact, `4 of 42`. The totals are summed across the whole payload, not
+  the four rows that fit, and any hit that declines to count suppresses the
+  claim entirely.
+- **The row's door opens the passage, not the top of the file.** The hit
+  carries `blockHash` (parsed server-side from the hashline; never from the
+  stripped display text) plus the term that matched, and `DocumentName` hands
+  both to `openContextUri`. Non-manuscript schemes have no hashlines, so those
+  rows stay plain document doors — the absence is the contract.
+- **The door does not pre-check that the passage survived.** Same principle as
+  the document door: it degrades at the destination, through the resolution
+  ladder in `core/editor/passage-navigation.ts`, which lands on the block, or
+  on a single re-found occurrence, or says the passage changed. It never
+  guesses among duplicates.
 
 An `ls` expand is **a record of what the model received, not a file browser.**
 The tree panel already browses, and nothing consumes a folder route, so folders

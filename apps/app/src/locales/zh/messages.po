@@ -63,12 +63,17 @@ msgid "'.' and '..' cannot be used as names"
 msgstr ""
 
 #: src/features/chat/tool-result-preview.ts
-msgid "(fetched)"
-msgstr "（已抓取）"
+#~ msgid "(fetched)"
+#~ msgstr "（已抓取）"
 
 #: src/features/chat/tool-result-preview.ts
-msgid "(untitled)"
-msgstr "（未命名）"
+#~ msgid "(untitled)"
+#~ msgstr "（未命名）"
+
+#. placeholder {0}: results.total
+#: src/features/chat/tool-result-preview.ts
+msgid "{0, plural, one {# document} other {# documents}}"
+msgstr ""
 
 #. placeholder {0}: serverPendingCount ?? 0
 #: src/features/chat/ComposerWriteModeControl.tsx
@@ -105,6 +110,10 @@ msgstr ""
 msgid "{0} isn't in {section}."
 msgstr ""
 
+#: src/features/chat/tool-result-preview.ts
+msgid "{count, plural, one {# match} other {# matches}}"
+msgstr ""
+
 #: src/lib/date-groups.ts
 msgid "{days}d"
 msgstr "{days}天"
@@ -112,6 +121,10 @@ msgstr "{days}天"
 #: src/lib/date-groups.ts
 msgid "{hours}h"
 msgstr "{hours}小时"
+
+#: src/features/chat/tool-result-preview.ts
+msgid "{matches} results in {documents}"
+msgstr ""
 
 #: src/lib/date-groups.ts
 msgid "{minutes}m"
@@ -1018,8 +1031,8 @@ msgstr ""
 
 #. placeholder {0}: row.line
 #: src/features/chat/tool-result-preview.ts
-msgid "Line {0}"
-msgstr ""
+#~ msgid "Line {0}"
+#~ msgstr ""
 
 #: src/features/editor/EditorToolbar.tsx
 msgid "Link"
@@ -1312,7 +1325,11 @@ msgid "Only part of this change could be reversed."
 msgstr ""
 
 #: src/features/chat/DocumentName.tsx
-msgid "Open {fullName}"
+#~ msgid "Open {fullName}"
+#~ msgstr ""
+
+#: src/features/chat/DocumentName.tsx
+msgid "Open {title}"
 msgstr ""
 
 #: src/features/project/shell/ContextSidebar.tsx

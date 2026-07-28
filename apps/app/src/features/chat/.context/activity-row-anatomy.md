@@ -43,6 +43,12 @@ navigation policy per renderer to remember or uphold.
   (`features/project/context/context-pane-state.ts`, `dead-route`). That
   explanatory pane is the other half of this decision: without it, not
   pre-checking would be the wrong call.
+- **One door, two precisions.** A name standing for a whole document opens the
+  document; a name standing for a matched passage (`grep` match rows) carries
+  that passage in the same call and opens there. Same affordance, same
+  underline, same predicate — only the destination is finer. A passage anchor
+  is a block hash plus the term that matched, and a row without a hash is
+  simply a document door.
 - **`insideDoor`** is for the one case where an ancestor is already the door
   (the receipt's full-width document rows). A door inside a door is invalid
   HTML and a second competing tab stop.

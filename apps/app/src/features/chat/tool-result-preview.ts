@@ -22,10 +22,11 @@
  * not words, and the writer never sees one. This is the seam where a tool
  * payload becomes a line of the writer's book.
  */
-import { t } from "@lingui/core/macro";
+import { plural, t } from "@lingui/core/macro";
 import { stripBlockHash } from "@meridian/agent-edit";
 
 import type { JsonValue } from "@meridian/contracts/protocol";
+import type { ContextPassageAnchor } from "./ChatContextNavigation";
 
 /**
  * A matched passage, split so the row can weight the match itself. Centred on
@@ -42,8 +43,19 @@ export type ExcerptSpan = {
 };
 
 export type ToolResultRow =
-  /** A document the tool found or listed. Its name opens it. */
-  | { kind: "document"; uri: string; excerpt?: ExcerptSpan }
+  /**
+   * A document the tool found or listed. Its name opens it — at the matched
+   * passage when the hit carried one, otherwise at the document itself.
+   */
+  | {
+      kind: "document";
+      uri: string;
+      excerpt?: ExcerptSpan;
+      /** Present only when the hit can promise a passage: hash plus what matched. */
+      passage?: ContextPassageAnchor;
+      /** Occurrences in this document, when the payload says. */
+      matchCount?: number;
+    }
   /** A folder in a listing. Never a door: folders are not documents. */
   | { kind: "folder"; uri: string };
 
@@ -59,6 +71,13 @@ export type CappedList<T> = {
 };
 
 export type ToolResultRows = CappedList<ToolResultRow>;
+
+/**
+ * A capped list of documents plus what the search found across all of them.
+ * `matches` is 0 when any hit failed to say, which is what keeps the bound
+ * line from claiming a total it cannot stand behind.
+ */
+export type SearchResultRows = ToolResultRows & { matches: number };
 
 /**
  * One line per entry, so this is what fits before a list starts crowding the
@@ -90,11 +109,31 @@ const LISTING: RowSpec = { cap: LISTING_CAP, toRow: listingEntry };
 export function normalizeSearchHits(
   output: JsonValue | undefined,
   pattern?: string,
-): ToolResultRows {
-  return normalizeEntries(output, {
+): SearchResultRows {
+  const list = normalizeEntries(output, {
     cap: SEARCH_CAP,
     toRow: (row) => searchHit(row, pattern),
   });
+  return { ...list, matches: totalMatches(output) };
+}
+
+/**
+ * Sums per-document counts across the WHOLE payload, unlike the row parse,
+ * which stops at the cap: "12 results in 3 documents" is a claim about the
+ * search, not about the four rows that fit. Reading one number per entry is
+ * cheap; building a row is not.
+ *
+ * Zero when any entry declines to count, because a partial sum stated as a
+ * total is worse than not stating one.
+ */
+function totalMatches(output: JsonValue | undefined): number {
+  if (!Array.isArray(output)) return 0;
+  let total = 0;
+  for (const entry of output) {
+    if (!isRecord(entry) || typeof entry.matchCount !== "number" || entry.matchCount < 1) return 0;
+    total += entry.matchCount;
+  }
+  return total;
 }
 
 /** What `ls` returned: the folders and documents the model was shown. */
@@ -126,10 +165,20 @@ function searchHit(row: Record<string, JsonValue>, pattern?: string): ToolResult
   if (typeof row.uri !== "string" || typeof row.excerpt !== "string") return null;
   // `row.line` is deliberately dropped. Chapters are not line-addressed, and a
   // line number is developer vocabulary in a novelist's transcript.
+  //
+  // The hash is the opposite case: never shown, always carried. It comes from
+  // the payload's own field, never from the excerpt — display text has already
+  // been stripped for the writer and is not a source of truth. A hit without
+  // one (every scheme but manuscript) is still a document door; it just cannot
+  // promise a passage.
   return {
     kind: "document",
     uri: row.uri,
     excerpt: excerptAround(stripBlockHash(row.excerpt), pattern),
+    ...(typeof row.blockHash === "string" && row.blockHash && pattern
+      ? { passage: { blockHash: row.blockHash, term: pattern } }
+      : {}),
+    ...(typeof row.matchCount === "number" ? { matchCount: row.matchCount } : {}),
   };
 }
 
@@ -171,6 +220,30 @@ export function boundLabel<T>({ rows, total }: CappedList<T>): string | null {
   if (total <= rows.length) return null;
   const shown = rows.length;
   return t`${shown} of ${total}`;
+}
+
+/**
+ * What a search found, in the shape that carries information. One hit is
+ * reported per document, so while results and documents are equal the numbers
+ * say the same thing twice and the line falls back to the cut fact. Once a
+ * document holds more than one match, the totals are the bigger truth and the
+ * document total inside them still says what was left out.
+ */
+export function searchBoundLabel(results: SearchResultRows): string | null {
+  if (results.matches <= results.total) return boundLabel(results);
+  const matches = results.matches;
+  const documents = plural(results.total, { one: "# document", other: "# documents" });
+  return t`${matches} results in ${documents}`;
+}
+
+/**
+ * `5 matches` beside a row that shows one passage. Silent at one, where the
+ * passage on screen already is the whole answer — a count only earns its line
+ * by naming what the single excerpt leaves out.
+ */
+export function matchCountLabel(count: number | undefined): string | null {
+  if (count === undefined || count < 2) return null;
+  return plural(count, { one: "# match", other: "# matches" });
 }
 
 export function truncate(text: string, max: number): string {

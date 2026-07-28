@@ -51,8 +51,11 @@ import {
   capList,
   type ExcerptSpan,
   LISTING_CAP,
+  matchCountLabel,
   normalizeListing,
   normalizeSearchHits,
+  type SearchResultRows,
+  searchBoundLabel,
   type ToolResultRow,
   type ToolResultRows,
   truncate,
@@ -136,21 +139,35 @@ function rowKey(row: ToolResultRow, index: number): string {
 }
 
 /** Search hits: the document, and the passage that matched inside it. */
-function ResultRows({ results }: { results: ToolResultRows }) {
-  const bound = boundLabel(results);
+function ResultRows({ results }: { results: SearchResultRows }) {
+  const bound = searchBoundLabel(results);
   return (
     <>
       <ul className="space-y-2">
-        {results.rows.map((row, index) => (
-          <li key={rowKey(row, index)} className="space-y-0.5">
-            {/* A match row is about a document, and the uniform rule covers it:
-                the same door, the same underline as a row title. */}
-            <div className="flex min-w-0 text-compact font-medium text-prose-foreground">
-              <DocumentName path={row.uri} />
-            </div>
-            {row.kind === "document" && row.excerpt ? <Excerpt span={row.excerpt} /> : null}
-          </li>
-        ))}
+        {results.rows.map((row, index) => {
+          const count = row.kind === "document" ? matchCountLabel(row.matchCount) : null;
+          return (
+            <li key={rowKey(row, index)} className="space-y-0.5">
+              {/* A match row is about a document, and the uniform rule covers it:
+                  the same door, the same underline as a row title. What it
+                  carries is finer: the passage that matched, so the door lands
+                  on the sentence the row is showing. */}
+              <div className="flex min-w-0 text-compact font-medium text-prose-foreground">
+                <DocumentName
+                  path={row.uri}
+                  passage={row.kind === "document" ? row.passage : undefined}
+                />
+              </div>
+              {/* The slot the line number used to hold, now saying something a
+                  writer can use: how much of what they searched for is in here.
+                  Its own line, because a count and a document name are two
+                  facts and a glyph between them would be punctuation doing
+                  layout's job. */}
+              {count ? <div className="text-meta text-ink-subtle">{count}</div> : null}
+              {row.kind === "document" && row.excerpt ? <Excerpt span={row.excerpt} /> : null}
+            </li>
+          );
+        })}
       </ul>
       {bound ? <BoundLine>{bound}</BoundLine> : null}
     </>

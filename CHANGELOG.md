@@ -61,6 +61,9 @@
 - `apps/server`: grep hits now report how many times the pattern occurs in each
   document, and manuscript hits carry the hash of the block that matched, so a
   search result can lead back to the passage instead of the top of the file.
+- `apps/app`: search results now say how many times the pattern occurs in each
+  document, and the expand states totals ("12 results in 3 documents") once a
+  document holds more than one match.
 
 - `apps/server`: Anthropic-format cache usage now normalizes to inclusive input
   totals, so uncached prompt tokens are priced instead of silently clamped away;
