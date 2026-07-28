@@ -59,12 +59,15 @@ Yjs document session. It must stay structurally aligned with
   phases. Open-phase local delete-only normalization is classified
   synchronously during construction and resolved against the pre-bind snapshot
   by Y item identity; structural boundary tokens keep separate removed passages
-  from being concatenated. Live-phase classification correlates local
-  y-sync-origin delete-only transactions with same-flush ProseMirror
-  `ySyncPluginKey` meta (`binding` or `isChangeOrigin`), with remote
-  interleaving and no user transaction as the fallback. Live evidence is
-  captured in `afterTransaction` before Yjs GC and degrades to node types plus
-  clock magnitude rather than suppressing the verdict. Verdicts append to
+  from being concatenated. In live mode, `beforeAllTransactions` and
+  `afterAllTransactions` bound correlation to one Yjs batch. A local,
+  y-sync-origin delete-only transaction becomes a candidate; its pre-GC
+  `afterTransaction` capture is reported when its matching ProseMirror
+  `ySyncPluginKey` meta marks binding work (`binding` or `isChangeOrigin`), or
+  after remote interleaving with no user transaction. Batch close clears PM
+  context synchronously and tokenizes deferred fallback so binding meta cannot
+  leak into a later ordinary writer command. Evidence degrades to node types
+  plus clock magnitude rather than suppressing the verdict. Verdicts append to
   `DocumentSessionSnapshot.schemaRepairs`; they do not raise a schema fence,
   write quarantine, change connection status, or pause editing.
 - Live peer marks are the session projection of durable trail changes. Their

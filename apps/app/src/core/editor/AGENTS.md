@@ -29,10 +29,9 @@ change-trail events, not manuscript content.
 - Schema repair is observed and reported, never fenced. Keep the pre-bind
   snapshot, single update listener, and atomic open-to-live phase transition
   together in `schema-repair-witness.ts`; do not add a second listener or move
-  construction back behind TipTap's deferred `useEditor` lifecycle. Live
-  classification correlates y-sync delete-only transactions with same-flush
-  ProseMirror binding meta; ordinary writer transactions must remain
-  zero-verdict.
+  construction back behind TipTap's deferred `useEditor` lifecycle. Its live
+  correlation is scoped to a Yjs transaction batch, not a JavaScript turn, so
+  ordinary writer transactions must remain zero-verdict.
 - Do not persist, branch-project, or locally author peer marks. Resolve
   awareness cursor colors to concrete RGB before publication.
 
