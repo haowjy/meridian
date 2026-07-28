@@ -13,7 +13,7 @@ export const COLLAB_SCHEMA_VERSION: CollabSchemaVersion = {
 };
 
 const VERSION = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$/;
-const WIRE = /^meridian\.collab\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$/;
+const SUBPROTOCOL_PREFIX = "meridian.collab.";
 const MAX_COMPONENT = 999;
 const MINOR_MULTIPLIER = 1_000;
 const MAJOR_MULTIPLIER = 1_000_000;
@@ -69,12 +69,12 @@ export function unpackCollabSchemaVersion(packed: number): CollabSchemaVersion {
 }
 
 export function formatCollabSchemaSubprotocol(version: CollabSchemaVersion): string {
-  return `meridian.collab.${formatCollabSchemaVersion(version)}`;
+  return `${SUBPROTOCOL_PREFIX}${formatCollabSchemaVersion(version)}`;
 }
 
 export function parseCollabSchemaSubprotocol(token: string): CollabSchemaVersion | null {
-  const match = token.match(WIRE);
-  return match ? versionFromMatch(match) : null;
+  if (!token.startsWith(SUBPROTOCOL_PREFIX)) return null;
+  return parseCollabSchemaVersion(token.slice(SUBPROTOCOL_PREFIX.length));
 }
 
 function offeredSubprotocols(header: string | null): string[] {
