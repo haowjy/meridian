@@ -282,17 +282,19 @@ describe("runtime tool registry", () => {
     expect(expandMarkup(rendererFor("search").expand?.(tool))).not.toContain(" of ");
   });
 
-  it("offers no chevron when every result is malformed", () => {
-    // A chevron is a promise. The cheap existence check and the parser used to
-    // be separate code paths, so `[null]` earned a chevron that opened onto
-    // nothing.
+  it("offers no chevron for a search that found nothing", () => {
+    // A chevron is a promise, and an empty result set has nothing to promise.
+    // Payloads the contract cannot produce are not pinned here: the row trusts
+    // the contract, and a second validator beside the real one is how the
+    // cheap check and the parser came to disagree in the first place.
+    expect(rendererFor("search").expand?.(writeToolView({ toolName: "search", output: [] }))).toBe(
+      null,
+    );
     expect(
-      rendererFor("search").expand?.(writeToolView({ toolName: "search", output: [null] })),
+      rendererFor("search").expand?.(writeToolView({ toolName: "search", output: undefined })),
     ).toBe(null);
     expect(
-      rendererFor("search").expand?.(
-        writeToolView({ toolName: "search", output: [{ uri: "manuscript://a.md" }] }),
-      ),
+      rendererFor("search").expand?.(writeToolView({ toolName: "search", output: "not a list" })),
     ).toBe(null);
   });
 

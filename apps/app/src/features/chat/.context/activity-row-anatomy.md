@@ -114,8 +114,17 @@ The row owns whether there is an expand and when it is built. What goes inside
 one lives in [tool-expands.md](tool-expands.md).
 
 - **No chevron unless there is something behind it.** An expand affordance is a
-  promise, so the same parse that fills the expand answers whether to offer it.
+  promise, so whatever answers "is there anything here?" has to agree with
+  whatever fills the expand. Two ways to keep them agreeing: parse once and use
+  that parse for both, or lean on a payload contract strict enough that its
+  shape alone is the answer. Never a second validator beside the real one —
+  that is how the two came to disagree the first time.
 - **Built on open, not on render.** `ToolRenderer.expand` returns a builder;
-  deciding *whether* there is content is cheap, rendering it is not.
+  deciding *whether* there is content is cheap, rendering it is not. `search`
+  takes the contract route: a hit that cannot fill a section is refused at
+  normalization, so a non-empty payload *is* content and a closed row reads
+  `Array.isArray` and stops. Sections and the totals scan wait for the writer
+  who opens the row — a settled turn holds a dozen closed rows, and none of
+  them should be parsing search results.
 - **Open state is local to the row.** It resets when frontier rows fold at
   settle. That is correct — the fold reopens calm — so do not hoist it.

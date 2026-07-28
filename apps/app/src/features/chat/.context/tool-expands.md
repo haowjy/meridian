@@ -142,7 +142,9 @@ rule, never by spacing alone.
   (`features/project/chat/usePassageDoors.ts`), not per passage row.
 
 Passages come from the payload's `matches` array, capped server-side; the
-client never invents one. The hash travels in its own field and the excerpt
+client never invents one, and a closed row never parses one (see
+[activity-row-anatomy.md](activity-row-anatomy.md) for how the chevron stays
+honest without that parse). The hash travels in its own field and the excerpt
 arrives as prose, so no renderer parses the hashline format to show a sentence
 to a writer — that parsing lives once, on the server, where the format is
 already known.

@@ -517,15 +517,17 @@ function listingOrNothing(tool: ToolView): ToolExpand | null {
 }
 
 function resultRowsOrNothing(tool: ToolView): ToolExpand | null {
-  // A chevron is a promise, so the answer to "is there anything here?" comes
-  // from the same parse that will fill the expand. The parse stops at the row
-  // cap; only the React tree waits for the writer to open the row.
-  const results = normalizeSearchHits(
-    tool.output ?? undefined,
-    stringInput(inputObject(tool), "pattern"),
+  // A chevron is a promise, and here the contract keeps it: a search hit that
+  // cannot fill a section is refused at normalization, so a non-empty payload
+  // IS content. That lets the closed row answer "is there anything here?" by
+  // looking at the array, and leaves every section — and the totals scan —
+  // for the writer who actually opens it. A settled turn holds a dozen closed
+  // rows; none of them should be parsing search results.
+  const output = tool.output;
+  if (!Array.isArray(output) || output.length === 0) return null;
+  return () => (
+    <ResultRows results={normalizeSearchHits(output, stringInput(inputObject(tool), "pattern"))} />
   );
-  if (results.rows.length === 0) return null;
-  return () => <ResultRows results={results} />;
 }
 
 /**
