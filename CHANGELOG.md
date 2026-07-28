@@ -58,6 +58,10 @@
 - `apps/server`, `packages/contracts`: collaboration sockets now refuse clients
   older than a live or draft head with `4406`; stale stored heads close with
   `4407` instead of reconnecting indefinitely.
+- `apps/server`: grep hits now report how many times the pattern occurs in each
+  document, and manuscript hits carry the hash of the block that matched, so a
+  search result can lead back to the passage instead of the top of the file.
+
 - `apps/server`: Anthropic-format cache usage now normalizes to inclusive input
   totals, so uncached prompt tokens are priced instead of silently clamped away;
   OpenAI-compatible trailing usage-only chunks are also retained.

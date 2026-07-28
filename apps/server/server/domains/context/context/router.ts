@@ -67,6 +67,8 @@ function toSearchResult(
   return {
     uri: uriFor(scheme, hit.path, authority),
     excerpt: hit.excerpt,
+    blockHash: hit.blockHash,
+    matchCount: hit.matchCount,
     line: hit.line,
     score: hit.score,
   };

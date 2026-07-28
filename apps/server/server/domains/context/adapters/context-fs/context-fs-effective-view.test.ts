@@ -75,10 +75,13 @@ describe("ContextFS manuscript effective view", () => {
     ]);
     const hits = await fs.search("branch");
     expect(hits.ok ? hits.value : []).toEqual([
-      expect.objectContaining({
+      {
         path: "draft-created.md",
         excerpt: "createdhash|new branch bytes",
-      }),
+        blockHash: "createdhash",
+        line: 1,
+        matchCount: 1,
+      },
     ]);
   });
 
@@ -137,10 +140,14 @@ describe("ContextFS manuscript effective view", () => {
         expect.objectContaining({
           path: "branch-touched.md",
           excerpt: effective.get(BRANCH_DOC_ID),
+          blockHash: "branchhash",
+          matchCount: 1,
         }),
         expect.objectContaining({
           path: "draft-created.md",
           excerpt: effective.get(CREATED_DOC_ID),
+          blockHash: "createdhash",
+          matchCount: 1,
         }),
       ]),
     );

@@ -136,6 +136,18 @@ export interface SearchResult {
   uri: string;
   /** Matched line or snippet. */
   excerpt: string;
+  /**
+   * Hash of the block the excerpt came from, so a caller can navigate back to
+   * the passage rather than to the top of the file. Present only for schemes
+   * whose documents are serialized as hashlines (manuscript); its absence
+   * elsewhere is the contract, not an error.
+   */
+  blockHash?: string;
+  /**
+   * How many times the query occurs in this file. One hit is reported per
+   * file, so this is what says the file holds more of what was asked for.
+   */
+  matchCount: number;
   /** 1-based line number within the file, if applicable. */
   line?: number;
   /** Relevance score, 0-1. Adapter-dependent. */
