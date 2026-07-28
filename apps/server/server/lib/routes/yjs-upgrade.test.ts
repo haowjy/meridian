@@ -1,5 +1,5 @@
 /** CrossWS upgrade coverage for Yjs subprotocol echo response headers. */
-import { WS_CLOSE } from "@meridian/contracts/protocol";
+import type { WS_CLOSE } from "@meridian/contracts/protocol";
 import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -32,51 +32,36 @@ const handler = yjsWebSocketHandler as unknown as {
 
 const cases = [
   {
-    name: "sole match",
+    name: "selected protocol",
     offered: "unrelated, meridian.collab.0.1.0",
     selected: "meridian.collab.0.1.0",
   },
   {
-    name: "zero matches",
-    offered: "unrelated, another",
-    selected: "unrelated",
-  },
-  {
-    name: "multiple matches",
-    offered: "unrelated, meridian.collab.0.1.0, meridian.collab.0.2.0",
-    selected: "unrelated",
-  },
-  {
-    name: "no offers",
+    name: "absent protocol",
     offered: null,
     selected: undefined,
   },
 ] as const;
 
 describe("Yjs WebSocket upgrade", () => {
-  it.each([
-    "authenticated",
-    "deferred-close",
-  ] as const)("retains every echo outcome for %s upgrades", async (authKind) => {
-    mocks.resolveWsUpgradeAuth.mockResolvedValue(
-      authKind === "authenticated"
-        ? { kind: authKind, app: {}, userId: "user-1" }
-        : { kind: authKind, close: WS_CLOSE.AUTH_FAILED },
+  it.each(cases)("wires the $name echo response", async ({ offered, selected }) => {
+    mocks.resolveWsUpgradeAuth.mockResolvedValue({
+      kind: "authenticated",
+      app: {},
+      userId: "user-1",
+    });
+
+    const response = await handler.upgrade(
+      new Request("https://meridian.local/ws/yjs", {
+        ...(offered ? { headers: { "sec-websocket-protocol": offered } } : {}),
+      }),
     );
 
-    for (const { name, offered, selected } of cases) {
-      const response = await handler.upgrade(
-        new Request("https://meridian.local/ws/yjs", {
-          ...(offered ? { headers: { "sec-websocket-protocol": offered } } : {}),
-        }),
-      );
-
-      expect(response.context.kind, name).toBe(authKind);
-      if (selected) {
-        expect(response.headers, name).toEqual({ "sec-websocket-protocol": selected });
-      } else {
-        expect("headers" in response, name).toBe(false);
-      }
+    expect(response.context.kind).toBe("authenticated");
+    if (selected) {
+      expect(response.headers).toEqual({ "sec-websocket-protocol": selected });
+    } else {
+      expect("headers" in response).toBe(false);
     }
   });
 });

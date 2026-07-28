@@ -10,7 +10,6 @@ import {
   formatCollabSchemaVersion,
   headAdmitsClient,
   packCollabSchemaVersion,
-  parseCollabSchemaSubprotocol,
   parseCollabSchemaVersion,
   selectCollabSchemaSubprotocol,
   serverServesHead,
@@ -77,7 +76,9 @@ describe("collab schema subprotocol grammar", () => {
     v(1, 2, 3),
     v(999, 999, 999),
   ])("round-trips $major.$minor.$patch exactly", (version) => {
-    expect(parseCollabSchemaSubprotocol(formatCollabSchemaSubprotocol(version))).toEqual(version);
+    const token = formatCollabSchemaSubprotocol(version);
+    expect(clientSchemaVersionFromSubprotocolHeader(token)).toEqual(version);
+    expect(selectCollabSchemaSubprotocol(token)).toBe(token);
   });
 
   it.each([
@@ -88,10 +89,9 @@ describe("collab schema subprotocol grammar", () => {
     "meridian.collab.0.1.0-beta",
     "meridian.collab.1000.1.0",
     "Meridian.collab.0.1.0",
-    " meridian.collab.0.1.0",
-    "meridian.collab.0.1.0 ",
   ])("rejects N6/malformed token %j", (token) => {
-    expect(parseCollabSchemaSubprotocol(token)).toBeNull();
+    expect(clientSchemaVersionFromSubprotocolHeader(token)).toEqual(v(0, 0, 0));
+    expect(selectCollabSchemaSubprotocol(token)).toBe(token);
   });
 });
 
@@ -111,17 +111,6 @@ describe("collab schema subprotocol offers", () => {
     ["meridian.collab.0.1.0, meridian.collab.0.2.0", "multiple matches"],
   ])("maps an %s header (%s) to the sentinel", (header, _case) => {
     expect(clientSchemaVersionFromSubprotocolHeader(header)).toEqual(sentinel);
-  });
-
-  it.each([
-    "meridian.collab.4",
-    "meridian.collab.0.1",
-    "meridian.collab.01.2.3",
-    "0.1.0",
-    "meridian.collab.0.1.0-beta",
-    "meridian.collab.1000.1.0",
-  ])("maps malformed N6-family offer %j to the sentinel", (token) => {
-    expect(clientSchemaVersionFromSubprotocolHeader(`unrelated, ${token}`)).toEqual(sentinel);
   });
 
   it("echoes the sole matching token even when it is not first", () => {

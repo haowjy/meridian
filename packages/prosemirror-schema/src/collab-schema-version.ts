@@ -14,15 +14,18 @@ export const COLLAB_SCHEMA_VERSION: CollabSchemaVersion = {
 
 const VERSION = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$/;
 const SUBPROTOCOL_PREFIX = "meridian.collab.";
-const MAX_COMPONENT = 999;
-const MINOR_MULTIPLIER = 1_000;
-const MAJOR_MULTIPLIER = 1_000_000;
-const MAX_PACKED_VERSION = 999_999_999;
+const COMPONENT_BASE = 1_000;
+const MAX_COMPONENT = COMPONENT_BASE - 1;
+const MINOR_MULTIPLIER = COMPONENT_BASE;
+const MAJOR_MULTIPLIER = COMPONENT_BASE ** 2;
+const MAX_PACKED_VERSION = COMPONENT_BASE ** 3 - 1;
 const UNKNOWN_VERSION: CollabSchemaVersion = { major: 0, minor: 0, patch: 0 };
 
 function assertComponent(component: number, name: keyof CollabSchemaVersion): void {
   if (!Number.isInteger(component) || component < 0 || component > MAX_COMPONENT) {
-    throw new RangeError(`Collab schema ${name} must be an integer from 0 through 999`);
+    throw new RangeError(
+      `Collab schema ${name} must be an integer from 0 through ${MAX_COMPONENT}`,
+    );
   }
 }
 
@@ -72,7 +75,7 @@ export function formatCollabSchemaSubprotocol(version: CollabSchemaVersion): str
   return `${SUBPROTOCOL_PREFIX}${formatCollabSchemaVersion(version)}`;
 }
 
-export function parseCollabSchemaSubprotocol(token: string): CollabSchemaVersion | null {
+function parseCollabSchemaSubprotocol(token: string): CollabSchemaVersion | null {
   if (!token.startsWith(SUBPROTOCOL_PREFIX)) return null;
   return parseCollabSchemaVersion(token.slice(SUBPROTOCOL_PREFIX.length));
 }

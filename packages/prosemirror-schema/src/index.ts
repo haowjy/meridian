@@ -18,7 +18,6 @@ export {
   formatCollabSchemaVersion,
   headAdmitsClient,
   packCollabSchemaVersion,
-  parseCollabSchemaSubprotocol,
   parseCollabSchemaVersion,
   selectCollabSchemaSubprotocol,
   serverServesHead,
