@@ -156,6 +156,34 @@ describe("schema repair witness", () => {
     });
   });
 
+  it("preserves an empty structural separator between removed text items", () => {
+    const doc = new Y.Doc({ gc: false });
+    const block = new Y.XmlElement("future_block");
+    const beforeText = new Y.XmlText();
+    const hardBreak = new Y.XmlElement("hard_break");
+    const afterText = new Y.XmlText();
+    doc.transact(() => {
+      doc.getXmlFragment(PROSEMIRROR_FRAGMENT_NAME).insert(0, [block]);
+      block.insert(0, [beforeText, hardBreak, afterText]);
+      beforeText.insert(0, "before");
+      afterText.insert(0, "after");
+    }, "seed-structural-separator");
+    const before = Y.encodeStateAsUpdate(doc);
+    let deletion: Uint8Array | null = null;
+    doc.on("update", (update, origin) => {
+      if (origin === "delete-structural-separator") deletion = update;
+    });
+
+    doc.transact(() => {
+      doc.getXmlFragment(PROSEMIRROR_FRAGMENT_NAME).delete(0, 1);
+    }, "delete-structural-separator");
+
+    expect(extractSchemaRepairEvidence(before, deletion as unknown as Uint8Array)).toMatchObject({
+      deletedNodeTypes: ["future_block", "hard_break"],
+      removedText: "before\nafter",
+    });
+  });
+
   it("marks a verdict when the bind horizon evidence was degraded", () => {
     const doc = new Y.Doc({ gc: false });
     appendElement(doc, "sidebar", "late evidence");

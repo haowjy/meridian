@@ -82,31 +82,41 @@ export function extractSchemaRepairEvidence(
   Y.applyUpdate(snapshot, preRepairSnapshot);
 
   const deletedNodeTypes: string[] = [];
-  const walk = (type: YTypeLike): string => {
-    const pieces: Array<{ text: string; structural: boolean }> = [];
+  type TextToken = { kind: "text"; text: string } | { kind: "boundary" };
+  const walk = (type: YTypeLike): TextToken[] => {
+    const tokens: TextToken[] = [];
     for (let item = type._start; item; item = item.right) {
       const slices = deletedSlices(item, deleteSet);
       const content = item.content;
       if (content instanceof Y.ContentString) {
         const text = slices.map((slice) => content.str.slice(slice.from, slice.to)).join("");
-        if (text) pieces.push({ text, structural: false });
+        if (text) tokens.push({ kind: "text", text });
       }
       const child = contentType(content);
       if (!child) continue;
       if (slices.length > 0 && child.nodeName && !deletedNodeTypes.includes(child.nodeName)) {
         deletedNodeTypes.push(child.nodeName);
       }
-      const text = walk(child);
-      if (text) pieces.push({ text, structural: Boolean(child.nodeName) });
+      if (child.nodeName) tokens.push({ kind: "boundary" });
+      tokens.push(...walk(child));
+      if (child.nodeName) tokens.push({ kind: "boundary" });
     }
-    return pieces.reduce(
-      (text, piece, index) =>
-        `${text}${index > 0 && (pieces[index - 1]?.structural || piece.structural) ? "\n" : ""}${piece.text}`,
-      "",
-    );
+    return tokens;
   };
 
-  const text = walk(snapshot.getXmlFragment(PROSEMIRROR_FRAGMENT_NAME) as unknown as YTypeLike);
+  let text = "";
+  let boundary = false;
+  for (const token of walk(
+    snapshot.getXmlFragment(PROSEMIRROR_FRAGMENT_NAME) as unknown as YTypeLike,
+  )) {
+    if (token.kind === "boundary") {
+      if (text) boundary = true;
+      continue;
+    }
+    if (boundary) text += "\n";
+    text += token.text;
+    boundary = false;
+  }
   snapshot.destroy();
 
   return {
