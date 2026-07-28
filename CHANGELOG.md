@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- `apps/server`: schema-aware document reads now repair a private clone instead
+  of mutating shared collaboration state, and warn when invalid structure is found.
 - `tools/dev`: worktree pruning now ignores Meridian diagnostics and skips
   work items that disappear during discovery.
 - `apps/app`: schema-fenced chapters now remain quarantined and read-only, with

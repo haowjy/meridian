@@ -10,6 +10,7 @@ import { type EventSink, emitEvent, unknownToEventPayload } from "../../observab
 import type { BranchAgentEditDiagnostics } from "../domain/branch-agent-edit.js";
 import type { SweepProjectionDiagnostics } from "../domain/branch-push-contracts.js";
 import type { DocumentProjectionDiagnostics } from "../domain/document-projection-refresher.js";
+import type { MarkdownSerializationAnomalyObserver } from "../domain/markdown-document.js";
 import type { ReversalNoticeDiagnostics } from "../domain/reversal-notices.js";
 
 export function createBranchAgentEditDiagnostics(
@@ -109,6 +110,25 @@ export function createDocumentProjectionDiagnostics(
       });
     },
     payload: unknownToEventPayload,
+  };
+}
+
+export function createMarkdownSerializationAnomalyObserver(
+  eventSink?: EventSink,
+): MarkdownSerializationAnomalyObserver {
+  return ({ documentId, schemaVersion, deletedNodeTypes, deletedClockCount }) => {
+    if (!eventSink) return;
+    emitEvent(eventSink, {
+      level: "warn",
+      source: "collab.schema",
+      name: "serialize.anomaly_observed",
+      correlation: { documentId },
+      payload: {
+        schemaVersion,
+        deletedNodeTypes,
+        deletedClockCount,
+      },
+    });
   };
 }
 
