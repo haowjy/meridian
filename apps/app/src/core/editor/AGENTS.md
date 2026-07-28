@@ -19,11 +19,17 @@ change-trail events, not manuscript content.
   rebuild destroys the Yjs UndoManager and drops keystrokes in flight.
   `EditorMountIdentity` carries every construction fact, `editorMountKey()`
   turns it into the React key that owns the mount, and `useMountedEditor()`
-  hands TipTap no dependency array to maintain. Anything a caller can change
-  while the writer keeps typing is `EditorSurfaceOptions` and reaches the
-  running instance; projection data arrives through stores the extensions
-  subscribe to (`SessionMarkerStore`, `AgentNameStore`). A new construction
-  knob belongs in the identity type — never in a hook dependency list.
+  constructs and destroys TipTap itself so the schema-repair witness can
+  synchronously bracket every extension lifecycle mutation. Anything a caller
+  can change while the writer keeps typing is `EditorSurfaceOptions` and
+  reaches the running instance; projection data arrives through stores the
+  extensions subscribe to (`SessionMarkerStore`, `AgentNameStore`). A new
+  construction knob belongs in the identity type — never in an effect
+  dependency list.
+- Schema repair is observed and reported, never fenced. Keep the pre-bind
+  snapshot, single update listener, and atomic open-to-live phase transition
+  together in `schema-repair-witness.ts`; do not add a second listener or move
+  construction back behind TipTap's deferred `useEditor` lifecycle.
 - Do not persist, branch-project, or locally author peer marks. Resolve
   awareness cursor colors to concrete RGB before publication.
 

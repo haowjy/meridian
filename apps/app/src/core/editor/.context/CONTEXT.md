@@ -30,11 +30,13 @@ Yjs document session. It must stay structurally aligned with
     the React key that owns the mount, and `editorRoomKey()` names the room the
     session registry must supply. Callers derive both from the same identity, so
     a session swap cannot arrive without a new mount.
-  - `useMountedEditor()` freezes construction on first render and calls
-    `useEditor` with no dependency array. TipTap 3 then reconciles changed
-    options onto the live instance with `setOptions()`; the extension array's
-    identity is stable, so its option comparison finds nothing to do on an
-    ordinary re-render.
+  - `useMountedEditor()` freezes construction on first render and manually
+    constructs TipTap in its own effect. One synchronous block snapshots the
+    Y.Doc, arms the schema-repair witness in its open phase, calls `new Editor`,
+    and flips the witness to live before yielding. The hook also owns
+    destruction. Surface changes are reconciled onto the live instance with
+    `setOptions()` and `setEditable()`; they never become construction
+    dependencies.
   - `EditorSurfaceOptions` (editability and ProseMirror `editorProps`) is
     everything that may change mid-mount. Editability needs its own
     `setEditable()` call because TipTap's option sync deliberately re-asserts
@@ -48,6 +50,17 @@ Yjs document session. It must stay structurally aligned with
 - Live sessions may use versioned IndexedDB persistence. Review sessions do not:
   the branch room is server-persisted and generation-fenced, and a local cache
   risks recovering state into the wrong review generation.
+- Before binding, `EditorView` waits for local persistence and, for attached
+  rooms, first server sync under one five-second overall timeout. Detached live
+  rooms wait only for local persistence. Expiry always permits binding and
+  marks witness evidence degraded; the horizon buys better evidence and is
+  never an admission gate.
+- `schema-repair-witness.ts` owns one Y.Doc update listener across open and live
+  phases. Open-phase local delete-only normalization is classified
+  synchronously during construction and resolved against the pre-bind snapshot
+  by Y item identity. Verdicts append to
+  `DocumentSessionSnapshot.schemaRepairs`; they do not raise a schema fence,
+  write quarantine, change connection status, or pause editing.
 - Live peer marks are the session projection of durable trail changes. Their
   anchored popover lazy-reads trail detail and the originating thread snapshot.
   The popover is evidence and navigation only; producing-turn receipt Undo/Redo
