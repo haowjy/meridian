@@ -116,19 +116,23 @@ export function createDocumentProjectionDiagnostics(
 export function createMarkdownSerializationAnomalyObserver(
   eventSink?: EventSink,
 ): MarkdownSerializationAnomalyObserver {
-  return ({ documentId, schemaVersion, deletedNodeTypes, deletedClockCount }) => {
+  return (anomaly) => {
     if (!eventSink) return;
-    emitEvent(eventSink, {
-      level: "warn",
-      source: "collab.schema",
-      name: "serialize.anomaly_observed",
-      correlation: { documentId },
-      payload: {
-        schemaVersion,
-        deletedNodeTypes,
-        deletedClockCount,
-      },
-    });
+    try {
+      emitEvent(eventSink, {
+        level: "warn",
+        source: "collab.schema",
+        name: "serialize.anomaly_observed",
+        correlation: { documentId: anomaly.documentId },
+        payload: {
+          schemaVersion: anomaly.schemaVersion,
+          deletedNodeTypes: anomaly.deletedNodeTypes,
+          deletedClockCount: anomaly.deletedClockCount,
+        },
+      });
+    } catch (cause) {
+      console.error("collab schema serialization anomaly emission failed", anomaly, cause);
+    }
   };
 }
 

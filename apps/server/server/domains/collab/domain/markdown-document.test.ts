@@ -7,7 +7,7 @@ import {
   COLLAB_SCHEMA_VERSION,
   createCollabYDoc,
 } from "@meridian/prosemirror-schema";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 import { createInMemoryEventSink } from "../../observability/index.js";
 import { createMarkdownSerializationAnomalyObserver } from "../adapters/agent-edit-observability.js";
@@ -140,6 +140,35 @@ describe("code document serialization", () => {
 });
 
 describe("schema-aware serialization purity", () => {
+  it("returns the repaired projection without mutating its source when the anomaly sink throws", async () => {
+    const subject = setup("md");
+    vi.spyOn(subject.eventSink, "emit").mockImplementation(() => {
+      throw new Error("sink-failed");
+    });
+    const fallbackDiagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+    const input = createCollabYDoc({ gc: false });
+    const paragraph = new Y.XmlElement("paragraph");
+    paragraph.insert(0, [new Y.XmlText("kept prose")]);
+    const unknown = new Y.XmlElement("sidebar");
+    unknown.insert(0, [new Y.XmlText("future prose")]);
+    fragmentOf(input).insert(0, [paragraph, unknown]);
+    const beforeState = Y.encodeStateAsUpdate(input);
+    const beforeXml = fragmentOf(input).toString();
+
+    try {
+      await expect(subject.engine.serializeDocument(DOCUMENT_ID, input)).resolves.toBe(
+        "kept prose\n",
+      );
+
+      expect(Y.encodeStateAsUpdate(input)).toEqual(beforeState);
+      expect(fragmentOf(input).toString()).toBe(beforeXml);
+      expect(fallbackDiagnostic).toHaveBeenCalledOnce();
+    } finally {
+      fallbackDiagnostic.mockRestore();
+      input.destroy();
+    }
+  });
+
   it("repairs only a clone and reports the removed structure without prose", async () => {
     const subject = setup("md");
     const input = createCollabYDoc({ gc: false });
