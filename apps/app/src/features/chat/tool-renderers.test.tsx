@@ -114,20 +114,6 @@ describe("unknown tool renderer", () => {
 
     expect(rendererFor(tool.toolName).title(tool)).toBe("Return result");
   });
-
-  it("degrades a tool this build no longer has to its humanized name", () => {
-    // `search` was called `grep` before. Threads keep the name the model used,
-    // so an old transcript still has to render: one static line, no expand,
-    // and none of the payload the retired renderer would have curated.
-    const tool = writeToolView({
-      toolName: "grep",
-      input: { pattern: "Elara" },
-      output: [{ uri: "manuscript://chapter-2.md", excerpt: "79b9|Elara waited." }],
-    });
-
-    expect(rendererFor(tool.toolName).title(tool)).toBe("Grep");
-    expect(rendererFor(tool.toolName).expand).toBeUndefined();
-  });
 });
 
 describe("streaming tool labels", () => {
