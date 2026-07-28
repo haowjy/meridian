@@ -36,7 +36,7 @@ type SchemaShapeHistoryEntry = {
   surface: SchemaSurface;
 };
 
-type BumpClass = "none" | "minor" | "major";
+type BumpClass = "none" | "addition" | "mutation" | "major";
 
 function attributeSurface(attrs: Attrs | undefined): Record<string, AttributeSurface> {
   return Object.fromEntries(
@@ -83,25 +83,28 @@ function classifyTypeMap(
   for (const [name, previousType] of Object.entries(previous)) {
     const currentType = current[name];
     if (!currentType) return "major";
-    if (previousType.content !== currentType.content) result = "minor";
+    if (previousType.content !== currentType.content) result = maxBump(result, "mutation");
     for (const [attrName, previousAttr] of Object.entries(previousType.attrs)) {
       const currentAttr = currentType.attrs[attrName];
       if (!currentAttr) return "major";
-      if (!equal(previousAttr, currentAttr)) result = "minor";
+      if (!equal(previousAttr, currentAttr)) result = maxBump(result, "mutation");
     }
     for (const [attrName, currentAttr] of Object.entries(currentType.attrs)) {
       if (attrName in previousType.attrs) continue;
       if (!currentAttr.hasDefault) return "major";
-      result = "minor";
+      result = maxBump(result, "addition");
     }
   }
-  if (Object.keys(current).some((name) => !(name in previous))) result = "minor";
+  if (Object.keys(current).some((name) => !(name in previous))) {
+    result = maxBump(result, "addition");
+  }
   return result;
 }
 
 function maxBump(a: BumpClass, b: BumpClass): BumpClass {
   if (a === "major" || b === "major") return "major";
-  if (a === "minor" || b === "minor") return "minor";
+  if (a === "mutation" || b === "mutation") return "mutation";
+  if (a === "addition" || b === "addition") return "addition";
   return "none";
 }
 
@@ -131,17 +134,23 @@ function validateBump(
     }
     return;
   }
-  if (bump === "minor") {
-    if (
-      current.major !== previous.major ||
-      current.minor !== previous.minor + 1 ||
-      current.patch !== 0
-    ) {
+  const nextMinor =
+    current.major === previous.major && current.minor === previous.minor + 1 && current.patch === 0;
+  if (bump === "addition") {
+    if (!nextMinor) {
       throw new Error("Additive schema surface changes require an x.(y+1).0 version bump.");
     }
     return;
   }
-  if (current.major !== previous.major + 1 || current.minor !== 0 || current.patch !== 0) {
+  const nextMajor =
+    current.major === previous.major + 1 && current.minor === 0 && current.patch === 0;
+  if (bump === "mutation") {
+    if (!nextMinor && !nextMajor) {
+      throw new Error("Schema surface mutations require an x.(y+1).0 or (x+1).0.0 version bump.");
+    }
+    return;
+  }
+  if (!nextMajor) {
     throw new Error(
       `Removing or renaming schema surface, changing the fragment name, or changing Yjs encoding requires a major bump, human ruling, and migration plan. See ${POLICY}.`,
     );
@@ -245,30 +254,53 @@ describe("collaboration schema shape", () => {
   it("requires a minor bump for a new type or defaulted attribute", () => {
     const addedType: SchemaSurface = structuredClone(baseline.surface);
     addedType.nodes.callout = { attrs: {}, content: "block+" };
-    expect(classifySurfaceChange(baseline.surface, addedType)).toBe("minor");
+    expect(classifySurfaceChange(baseline.surface, addedType)).toBe("addition");
 
     const addedAttr: SchemaSurface = structuredClone(baseline.surface);
     addedAttr.nodes.paragraph.attrs.variant = { hasDefault: true, default: null };
-    expect(classifySurfaceChange(baseline.surface, addedAttr)).toBe("minor");
+    expect(classifySurfaceChange(baseline.surface, addedAttr)).toBe("addition");
     expect(() =>
       validateBump(
         baseline.version,
         { major: baseline.version.major, minor: baseline.version.minor + 1, patch: 0 },
-        "minor",
+        "addition",
       ),
     ).not.toThrow();
-    expect(() => validateBump(baseline.version, baseline.version, "minor")).toThrow("x.(y+1).0");
+    expect(() => validateBump(baseline.version, baseline.version, "addition")).toThrow("x.(y+1).0");
+    expect(() =>
+      validateBump(
+        baseline.version,
+        { major: baseline.version.major + 1, minor: 0, patch: 0 },
+        "addition",
+      ),
+    ).toThrow("x.(y+1).0");
   });
 
-  it("requires at least the minor path for content and default mutations", () => {
+  it("accepts the next minor or next major for content and default mutations", () => {
     const contentChanged: SchemaSurface = structuredClone(baseline.surface);
     contentChanged.nodes.paragraph.content = "inline+";
-    expect(classifySurfaceChange(baseline.surface, contentChanged)).toBe("minor");
+    expect(classifySurfaceChange(baseline.surface, contentChanged)).toBe("mutation");
 
     const defaultChanged: SchemaSurface = structuredClone(baseline.surface);
     defaultChanged.nodes.heading.attrs.level.default = 2;
-    expect(classifySurfaceChange(baseline.surface, defaultChanged)).toBe("minor");
-    expect(() => validateBump(baseline.version, baseline.version, "minor")).toThrow("x.(y+1).0");
+    expect(classifySurfaceChange(baseline.surface, defaultChanged)).toBe("mutation");
+    expect(() => validateBump(baseline.version, baseline.version, "mutation")).toThrow(
+      "x.(y+1).0 or (x+1).0.0",
+    );
+    expect(() =>
+      validateBump(
+        baseline.version,
+        { major: baseline.version.major, minor: baseline.version.minor + 1, patch: 0 },
+        "mutation",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateBump(
+        baseline.version,
+        { major: baseline.version.major + 1, minor: 0, patch: 0 },
+        "mutation",
+      ),
+    ).not.toThrow();
   });
 
   it.each([

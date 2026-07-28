@@ -28,7 +28,7 @@ classify the transition from its immutable predecessor.
 |---|---|
 | Surface identical | No bump required; patch allowed |
 | New node/mark, or new attribute with a default | Minor `x.(y+1).0` |
-| Content expression or attribute default changed | Minor at minimum; review must confirm the change only loosens the schema |
+| Content expression or attribute default changed | Next minor `x.(y+1).0` or next major `(x+1).0.0`; review must confirm the minor path only loosens the schema |
 | Node/mark/attribute removed or renamed, fragment renamed, or Yjs encoding changed | Major `(x+1).0.0`, human ruling, and migration plan |
 
 Minor is additive even for `0.x`. Patch changes must keep the surface
