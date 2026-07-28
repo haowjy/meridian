@@ -118,6 +118,10 @@ particular sentence. Two numbers and one destination follow from that.
   ladder in `core/editor/passage-navigation.ts`, which lands on the block, or
   on a single re-found occurrence, or says the passage changed. It never
   guesses among duplicates.
+- **Every door retires the last one.** Ordinary doors included: a resolution
+  the writer has clicked past must not land a highlight or a notice behind
+  them, so ownership advances at the door boundary
+  (`features/project/chat/usePassageDoors.ts`), not per passage row.
 
 An `ls` expand is **a record of what the model received, not a file browser.**
 The tree panel already browses, and nothing consumes a folder route, so folders

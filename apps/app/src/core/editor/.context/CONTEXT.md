@@ -183,7 +183,10 @@ survives every edit inside the block and dangles only when the block goes.
 
 Opening is **not** part of it. A search row is a document door first; the route
 change happens either way, and this only decides where inside the document to
-land. Three outcomes, produced by `passage-resolution.ts` against live
+land. Ownership of that decision advances at the project route's door boundary
+(`features/project/chat/usePassageDoors.ts`), which every door reports to,
+passage or not — a resolution the writer has clicked past must not arrive
+behind them. Three outcomes, produced by `passage-resolution.ts` against live
 ProseMirror text:
 
 1. the hash names a live block and the term is still in it — mark its

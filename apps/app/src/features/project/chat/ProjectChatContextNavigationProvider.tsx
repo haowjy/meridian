@@ -2,10 +2,12 @@
  * ProjectChatContextNavigationProvider — adapts chat-local document URI opens
  * to the project route's context-file selection contract.
  *
- * Every door routes the same way. A door that names a passage does one thing
- * more: after the route change it asks the editor runtime to land on that
- * passage. The extra step never gates the ordinary one, so a search row whose
- * passage has moved still opens its document.
+ * Every door routes the same way, and every door tells passage navigation it
+ * happened — carrying an anchor when the row had one. That second call is not
+ * an extra for passage rows: it is where navigation ownership changes hands,
+ * so an ordinary door retires whatever a search row was still resolving. It
+ * never gates the route change, so a search row whose passage has moved still
+ * opens its document.
  */
 import type { ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { type ReactNode, useCallback } from "react";
@@ -18,7 +20,7 @@ import {
   contextRouteTargetFromUri,
   canOpenContextUri as isContextUriRoutable,
 } from "@/lib/context-uri";
-import { usePassageNavigation } from "./usePassageNavigation";
+import { usePassageDoors } from "./usePassageDoors";
 
 type SelectContextPath = (
   path: string,
@@ -37,16 +39,16 @@ export function ProjectChatContextNavigationProvider({
   onSelectContextPath?: SelectContextPath;
   children: ReactNode;
 }) {
-  const navigateToPassage = usePassageNavigation(projectId);
+  const doorOpened = usePassageDoors(projectId, activeWorkId);
   const openContextUri = useCallback(
     (uri: string, passage?: ContextPassageAnchor) => {
       if (!onSelectContextPath) return;
       const target = contextRouteTargetFromUri(uri, activeWorkId);
       if (!target) return;
       onSelectContextPath(target.path, target.scheme);
-      if (passage) navigateToPassage(target, passage);
+      doorOpened(target, passage);
     },
-    [activeWorkId, navigateToPassage, onSelectContextPath],
+    [activeWorkId, doorOpened, onSelectContextPath],
   );
   const canOpenContextUri = useCallback(
     (uri: string) => isContextUriRoutable(uri, activeWorkId),
