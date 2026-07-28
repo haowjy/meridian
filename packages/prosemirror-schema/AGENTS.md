@@ -17,5 +17,23 @@ Shared ProseMirror structural contract used by TipTap/Yjs editor code.
 - Keep this package independent from React components, TipTap runtime objects,
   database adapters, and server domain code.
 
+## Schema version bump policy
+
+`src/schema-shape.snapshot.json` records the collab schema version and the
+surface protected by `src/schema-shape.test.ts`.
+
+| Change | Version class |
+|---|---|
+| Surface identical | No bump required; patch allowed |
+| New node/mark, or new attribute with a default | Minor `x.(y+1).0` |
+| Content expression or attribute default changed | Minor at minimum; review must confirm the change only loosens the schema |
+| Node/mark/attribute removed or renamed, fragment renamed, or Yjs encoding changed | Major `(x+1).0.0`, human ruling, and migration plan |
+
+Minor is additive even for `0.x`. Patch changes must keep the surface
+identical. A major is expected never; do not update the snapshot around a
+removal or encoding change without the required ruling and migration plan.
+Schema changes must still update TipTap extensions, markdown adapters, and
+schema parity coverage together.
+
 See [`.context/CONTEXT.md`](.context/CONTEXT.md) for the schema surface and
 compatibility rules.
