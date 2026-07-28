@@ -6,6 +6,10 @@
   before binding, then report schema-normalized prose in a dismissible copyable
   notice without blocking editing; repairs that arrive during live
   collaboration are now reported too, while ordinary typing stays silent.
+- `apps/server`: typed collaboration schema refusals now emit correlated
+  admission records with the compared client, document, and server versions.
+- `apps/server`: schema-aware document reads now repair a private clone instead
+  of mutating shared collaboration state, and warn when invalid structure is found.
 - `tools/dev`: worktree pruning now ignores Meridian diagnostics and skips
   work items that disappear during discovery.
 - `apps/app`: schema-fenced chapters now remain quarantined and read-only, with

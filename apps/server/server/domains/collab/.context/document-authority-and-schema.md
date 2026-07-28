@@ -22,6 +22,9 @@ resolver injected in `composition.ts`) before every parse or serialization:
 verbatim (`language` = filetype), read back without fences. Checkpoint restore,
 branch/effective reads, and review previews use this document-aware surface;
 schema-blind serialization is private to the engine.
+Schema projection always runs on a private `gc: false` clone: normalization can
+repair that clone and emit `collab.schema/serialize.anomaly_observed`, but a read
+cannot mutate its input Y.Doc.
 
 **Durable whole-document projections route through this engine.** Push
 completion derives the projection at settlement through
