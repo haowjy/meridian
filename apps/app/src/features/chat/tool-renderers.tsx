@@ -27,8 +27,8 @@ import {
   type JsonValue,
   meridianErrorFromStructuredToolOutput,
 } from "@meridian/contracts/protocol";
-import { FileText, Folder } from "lucide-react";
-import type { ReactNode } from "react";
+import { ChevronRight, FileText, Folder } from "lucide-react";
+import { type ReactNode, useState } from "react";
 
 import { cn } from "@/lib/utils";
 import { Markdown } from "@/rich-content/Markdown";
@@ -52,9 +52,12 @@ import {
   capList,
   LISTING_CAP,
   matchCountLabel,
+  moreMatchesLabel,
   normalizeListing,
   normalizeSearchHits,
+  type SearchHitRow,
   type SearchResultRows,
+  searchCardSummary,
   type ToolResultRow,
   type ToolResultRows,
   truncate,
@@ -137,33 +140,112 @@ function rowKey(row: ToolResultRow, index: number): string {
   return `${index}:${row.uri}`;
 }
 
-/** Search hits: the document, and the passages that matched inside it. */
+/**
+ * A search result set, as one contained surface.
+ *
+ * The card exists so a set of results reads as a set: the transcript is a
+ * column of the agent's actions, and eight passages loose in it would be eight
+ * more actions. Its header carries the totals and nothing else — the row title
+ * directly above already says what was searched for, and saying it twice makes
+ * the card look like a different question.
+ *
+ * **Documents are separated by rules, not by spacing alone.** That separation
+ * is the whole reason this shape was chosen over a looser list.
+ */
 function ResultRows({ results }: { results: SearchResultRows }) {
   const bound = boundLabel(results);
   return (
-    <>
-      <ul className="space-y-2">
+    <div className="rounded-md border border-border bg-result-card p-2.5">
+      <p className="border-border-subtle border-b pb-2 text-meta text-ink-subtle">
+        {searchCardSummary(results)}
+      </p>
+      <ul>
         {results.rows.map((row, index) => (
-          <li key={`${index}:${row.uri}`} className="space-y-0.5">
-            <div className="flex min-w-0 text-compact font-medium text-prose-foreground">
-              <DocumentName path={row.uri} />
-            </div>
-            {row.matchCount !== undefined ? (
-              <div className="text-meta text-ink-subtle">{matchCountLabel(row.matchCount)}</div>
-            ) : null}
-            {row.passages.map((passage, at) => (
-              <PassageDoor
-                key={`${at}:${passage.excerpt.trail}`}
-                path={row.uri}
-                excerpt={passage.excerpt}
-                passage={passage.passage}
-              />
-            ))}
+          <li
+            key={`${index}:${row.uri}`}
+            className={cn("py-2.5", index > 0 && "border-border-subtle border-t")}
+          >
+            <SearchHit row={row} />
           </li>
         ))}
       </ul>
       {bound ? <BoundLine>{bound}</BoundLine> : null}
+    </div>
+  );
+}
+
+/**
+ * One document's section: its name, how much of the query it holds, its best
+ * passage, and a way to see the rest without leaving the transcript.
+ *
+ * The disclosure sits *after* the passage it extends, not beside the document
+ * name. In the header it would take focus before the passage a writer is
+ * actually reading, and a focus order that disagrees with reading order is the
+ * one thing keyboard users cannot recover from.
+ */
+function SearchHit({ row }: { row: SearchHitRow }) {
+  const [open, setOpen] = useState(false);
+  const [best, ...rest] = row.passages;
+  return (
+    <>
+      <div className="flex min-w-0 items-baseline gap-[7px] text-compact font-medium text-prose-foreground">
+        <DocumentName path={row.uri} />
+        <MatchCount count={row.matchCount ?? row.passages.length} />
+      </div>
+      <div className="mt-0.5">
+        <PassageDoor path={row.uri} excerpt={best.excerpt} passage={best.passage} />
+      </div>
+      {rest.length > 0 ? (
+        <>
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={(event) => {
+              // The row behind this section is the expand toggle; growing a
+              // document must not fold the whole search away.
+              event.stopPropagation();
+              setOpen((wasOpen) => !wasOpen);
+            }}
+            className="focus-ring mt-1 inline-flex items-center gap-0.5 rounded-sm text-meta text-muted-foreground underline decoration-border decoration-1 underline-offset-[3px] transition-colors hover:text-jade-text hover:decoration-jade-text focus-visible:text-jade-text focus-visible:decoration-jade-text"
+          >
+            {moreMatchesLabel(rest.length)}
+            <ChevronRight
+              aria-hidden
+              className={cn("size-2.5 transition-transform", open && "rotate-90")}
+            />
+          </button>
+          {open ? (
+            // Indented against a rule so the extra passages read as belonging
+            // to the document above them. It grows in place: the transcript is
+            // the single scroll owner and no expand may own another.
+            <div className="mt-1 ml-[13px] space-y-0.5 border-border-subtle border-l pl-2.5">
+              {rest.map((passage, index) => (
+                <PassageDoor
+                  key={`${index}:${passage.excerpt.match}${passage.excerpt.trail}`}
+                  path={row.uri}
+                  excerpt={passage.excerpt}
+                  passage={passage.passage}
+                />
+              ))}
+            </div>
+          ) : null}
+        </>
+      ) : null}
     </>
+  );
+}
+
+/**
+ * How much of the query this document holds, as a column. The bare number is
+ * the point — a column reads by shape — so the words live where a screen
+ * reader can still hear them.
+ */
+function MatchCount({ count }: { count: number }) {
+  return (
+    <span className="ml-auto inline-grid min-w-5 shrink-0 place-items-center rounded-full border border-border bg-muted px-1.5 py-px text-meta font-semibold text-ink-muted">
+      <span aria-hidden>{count}</span>
+      <span className="sr-only">{matchCountLabel(count)}</span>
+    </span>
   );
 }
 

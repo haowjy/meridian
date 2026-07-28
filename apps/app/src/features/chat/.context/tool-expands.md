@@ -59,7 +59,7 @@ the UI says neither "intent" nor "outcome".
 | `read format:outline` | The headings it saw, indented by depth | The listing cap, with a count | None; the row title's door serves |
 | `create` / `insert` / `replace` | The submitted content, on the recessed surface | Height, with a fade | The document, at the fade |
 | `undo` / `redo` / `diff` | Nothing | — | — |
-| `search` | Match rows: document, its match count, and the passage that matched | The search cap, with a count | Each matched passage |
+| `search` | A result card: totals, then a section per document | The document cap, with a count | Each matched passage |
 | `ls` | Listing rows: name plus glyph | The listing cap, with a count | Each document; folders are inert |
 | `invoke` | Output tail, or one of two availability failures | The tail's own bound | — |
 | unknown | Nothing | — | — |
@@ -85,43 +85,62 @@ hash would otherwise leak its separator into the writer's prose. Targeting is re
 server-side, so a scoped read's payload already *is* the region asked for: the
 preview rule is "show the top of what came back" for every read.
 
-A search row shows the **document and its passage, and no line number**:
-chapters are not line-addressed, and a line number is developer vocabulary in a
-novelist's transcript. The passage is centred on the match rather than started
-at the line's beginning, cut on a word boundary with a leading ellipsis when
-run-up was dropped, and the matched words carry weight through type alone. No
-coloured ground: this is the writer's own prose, and a highlighter across it
-reads as markup rather than as their sentence.
+A search expand is **a card, not a run of rows.** The transcript is a column of
+the agent's actions; eight passages loose in it read as eight more actions. The
+result set gets one recessed contained surface, its border a step firmer than
+the rules inside it so the container always outranks its own divisions.
+Separation between documents is the point of the shape, and it is carried by a
+rule, never by spacing alone.
 
-### A match row is a passage door
+### What the card says
 
-One hit comes back per document, so the row is a document that promises a
-particular sentence. Two numbers and one destination follow from that.
+- **The header carries the totals and nothing else.** `12 results in 3
+  documents`, VS Code's grammar. It never repeats the query: the `Searched
+  ‹query›` row title sits directly above it, and saying it twice makes the card
+  read as a different question. When results and documents are equal every
+  document matched once, so the header drops to `3 documents` rather than
+  saying the same thing twice.
+- **The bound line keeps one job**: how many documents were *shown* of how many
+  matched (`4 of 42`). That is a different fact from the totals and it only
+  appears when the list was actually cut.
+- **The count badge is per document, right-aligned, and always present** —
+  including at one. It sits in a column, and a blank cell in a column is worse
+  than a `1`. It counts the whole document, not the passages fetched, so it
+  stays honest when the server's cap clipped the list. The words live in
+  screen-reader-only text; the badge itself is the bare number, because a
+  column reads by shape.
 
-- **`5 matches` takes the slot the line number vacated**, above the passage.
-  Showing one passage under-reports what the model received, and the count is
-  what closes the gap. **Silent at one**: there the excerpt already is the
-  whole answer, and stating it would be the same tautology the bound avoids.
-- **The bound line states totals once they differ.** `12 results in 3
-  documents` (VS Code's grammar) whenever results outnumber documents; while
-  they are equal the two numbers say the same thing and the line falls back to
-  the cut fact, `4 of 42`. The totals are summed across the whole payload, not
-  the four rows that fit, and any hit that declines to count suppresses the
-  claim entirely.
-- **The row's door opens the passage, not the top of the file.** The hit
-  carries `blockHash` (parsed server-side from the hashline; never from the
-  stripped display text) plus the term that matched, and `DocumentName` hands
-  both to `openContextUri`. Non-manuscript schemes have no hashlines, so those
-  rows stay plain document doors — the absence is the contract.
-- **The door does not pre-check that the passage survived.** Same principle as
-  the document door: it degrades at the destination, through the resolution
-  ladder in `core/editor/passage-navigation.ts`, which lands on the block, or
-  on a single re-found occurrence, or says the passage changed. It never
-  guesses among duplicates.
+### What the card does
+
+- **Each document shows its best passage, and grows in place.** `N more`
+  discloses the passages the server sent but the section kept folded. It grows
+  inline: no nested scrollport, because the transcript is the single scroll
+  owner. If the server's cap clipped more than it sent, the disclosure shows
+  what it has and the badge still names the total.
+- **The disclosure sits after the passage it extends**, not beside the document
+  name. In the header it would take focus before the passage the writer is
+  reading, and a focus order that disagrees with reading order is what keyboard
+  users cannot recover from. Reading, DOM, and focus order are the same order:
+  document name, its passage, `N more`, the rest.
+- **The matched term is the door's handle.** Underlining a whole excerpt turns
+  the writer's prose into a link and buries the word they searched for, so the
+  term carries the underline and the jade hover while the whole row stays the
+  click target. One button per passage, never a control inside a control: the
+  visible affordance is smaller than the target, which is the point.
+- **A passage with no anchor is not a door.** Non-manuscript schemes carry no
+  block hash, so those excerpts render as prose and the document's own name
+  stays the way in. The passage door also does not pre-check that its passage
+  survived; it degrades at the destination, through the resolution ladder in
+  `core/editor/passage-navigation.ts`, which lands on the block, or on a single
+  re-found occurrence, or says the passage changed. It never guesses among
+  duplicates.
 - **Every door retires the last one.** Ordinary doors included: a resolution
   the writer has clicked past must not land a highlight or a notice behind
   them, so ownership advances at the door boundary
   (`features/project/chat/usePassageDoors.ts`), not per passage row.
+
+Passages come from the payload's `matches` array, capped server-side; the
+client never invents one and never shows the block hash it carries.
 
 An `ls` expand is **a record of what the model received, not a file browser.**
 The tree panel already browses, and nothing consumes a folder route, so folders

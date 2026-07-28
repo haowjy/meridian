@@ -73,6 +73,11 @@
   instead of naming a command-line program. Rows already read "Searched" and
   are unchanged. Tool calls recorded under the old name show as a plain
   one-line row with no expand.
+- `apps/server`, `apps/app`: a search now reports up to three passages per
+  document instead of one, and the results open as a card: totals at the top, a
+  section per document separated by a rule, a match count beside each name, and
+  "N more" to grow a document's passages in place. The searched word is the
+  handle you click, and each passage opens at its own place in the document.
 
 - `apps/server`: Anthropic-format cache usage now normalizes to inclusive input
   totals, so uncached prompt tokens are priced instead of silently clamped away;
