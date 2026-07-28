@@ -162,6 +162,7 @@ describe("runtime tool registry", () => {
   it("renders the server grep result array as curated rows", () => {
     const tool = writeToolView({
       toolName: "grep",
+      input: { pattern: "dragon" },
       output: [
         {
           uri: "manuscript://chapter-12.md",
@@ -177,9 +178,54 @@ describe("runtime tool registry", () => {
     expect(html).toContain("chapter-12");
     expect(html).not.toContain("manuscript://");
     expect(html).not.toContain(".md");
-    expect(html).toContain("Line 42");
-    expect(html).toContain("The dragon stirred beneath the mountain.");
+    // Chapters are not line-addressed: a line number is developer vocabulary.
+    expect(html).not.toContain("Line 42");
+    // The passage renders in parts so the match can carry weight.
+    expect(html).toContain("The ");
+    expect(html).toContain(">dragon<");
+    expect(html).toContain(" stirred beneath the mountain.");
     expect(html).not.toContain("0.91");
+  });
+
+  it("weights the searched words inside the passage", () => {
+    const tool = writeToolView({
+      toolName: "grep",
+      input: { pattern: "Elara" },
+      output: [{ uri: "manuscript://chapter-2.md", excerpt: "Then elara spoke the name." }],
+    });
+
+    const html = expandMarkup(rendererFor("grep").expand?.(tool));
+
+    // The document's own casing wins, matched case-insensitively.
+    expect(html).toContain("font-semibold");
+    expect(html).toContain(">elara<");
+    expect(html).toContain("Then ");
+    expect(html).toContain(" spoke the name.");
+  });
+
+  it("centres a long passage on the match and marks the cut", () => {
+    const lead = "A very long run-up that the writer does not need to read again, and then ";
+    const tool = writeToolView({
+      toolName: "grep",
+      input: { pattern: "gate" },
+      output: [{ uri: "manuscript://chapter-2.md", excerpt: `${lead}the gate opened.` }],
+    });
+
+    const html = expandMarkup(rendererFor("grep").expand?.(tool));
+
+    expect(html).toContain("…");
+    expect(html).not.toContain("A very long run-up");
+    expect(html).toContain(">gate<");
+    expect(html).toContain(" opened.");
+  });
+
+  it("shows the whole line when the pattern is unknown", () => {
+    const tool = writeToolView({
+      toolName: "grep",
+      output: [{ uri: "manuscript://chapter-2.md", excerpt: "The hollow gate stood." }],
+    });
+
+    expect(expandMarkup(rendererFor("grep").expand?.(tool))).toContain("The hollow gate stood.");
   });
 
   it("never shows the writer a block hash", () => {

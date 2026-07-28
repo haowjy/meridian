@@ -25,13 +25,20 @@ describe("the caller picks the parser", () => {
   });
 
   it("reads every search hit, even after one that looks like a listing entry", () => {
-    const rows = normalizeSearchHits([
-      { uri: "manuscript://arc-one", kind: "directory" },
-      { uri: "manuscript://chapter-2.md", excerpt: "79b9|The hollow gate stood." },
-    ]);
+    const rows = normalizeSearchHits(
+      [
+        { uri: "manuscript://arc-one", kind: "directory" },
+        { uri: "manuscript://chapter-2.md", excerpt: "79b9|The hollow gate stood." },
+      ],
+      "gate",
+    );
 
     expect(rows.rows).toEqual([
-      { kind: "document", uri: "manuscript://chapter-2.md", snippet: "The hollow gate stood." },
+      {
+        kind: "document",
+        uri: "manuscript://chapter-2.md",
+        excerpt: { lead: "The hollow ", match: "gate", trail: " stood.", clipped: false },
+      },
     ]);
     expect(rows.total).toBe(2);
   });

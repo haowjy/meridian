@@ -44,11 +44,12 @@ import { DocumentName } from "./DocumentName";
 import { documentDisplayName, folderDisplayName } from "./document-display-name";
 import type { ToolView } from "./group-delivery-segments";
 import { type OutlineHeading, readPayloadMarkup, readPayloadOutline } from "./read-payload";
-import { humanizeSkillSlug, toolInputObject, type WriteMode } from "./tool-command";
+import { humanizeSkillSlug, stringInput, toolInputObject, type WriteMode } from "./tool-command";
 import {
   boundLabel,
   type CappedList,
   capList,
+  type ExcerptSpan,
   LISTING_CAP,
   normalizeListing,
   normalizeSearchHits,
@@ -134,7 +135,7 @@ function rowKey(row: ToolResultRow, index: number): string {
   return `${index}:${row.uri}`;
 }
 
-/** Search hits: the document, where it matched, and the passage. */
+/** Search hits: the document, and the passage that matched inside it. */
 function ResultRows({ results }: { results: ToolResultRows }) {
   const bound = boundLabel(results);
   return (
@@ -147,19 +148,30 @@ function ResultRows({ results }: { results: ToolResultRows }) {
             <div className="flex min-w-0 text-compact font-medium text-prose-foreground">
               <DocumentName path={row.uri} />
             </div>
-            {row.kind === "document" && row.subtitle ? (
-              <div className="truncate font-mono text-meta text-muted-foreground">
-                {row.subtitle}
-              </div>
-            ) : null}
-            {row.kind === "document" && row.snippet ? (
-              <div className="text-xs leading-relaxed text-ink-muted">{row.snippet}</div>
-            ) : null}
+            {row.kind === "document" && row.excerpt ? <Excerpt span={row.excerpt} /> : null}
           </li>
         ))}
       </ul>
       {bound ? <BoundLine>{bound}</BoundLine> : null}
     </>
+  );
+}
+
+/**
+ * The matched passage, with the searched words carrying the weight. No coloured
+ * ground: this is the writer's prose, and a highlighter across it would read as
+ * markup rather than as their sentence.
+ */
+function Excerpt({ span }: { span: ExcerptSpan }) {
+  return (
+    <div className="text-xs leading-relaxed text-ink-muted">
+      {span.clipped ? "…" : null}
+      {span.lead}
+      {span.match ? (
+        <span className="font-semibold text-prose-foreground">{span.match}</span>
+      ) : null}
+      {span.trail}
+    </div>
   );
 }
 
@@ -434,7 +446,10 @@ function resultRowsOrNothing(tool: ToolView): ToolExpand | null {
   // A chevron is a promise, so the answer to "is there anything here?" comes
   // from the same parse that will fill the expand. The parse stops at the row
   // cap; only the React tree waits for the writer to open the row.
-  const results = normalizeSearchHits(tool.output ?? undefined);
+  const results = normalizeSearchHits(
+    tool.output ?? undefined,
+    stringInput(inputObject(tool), "pattern"),
+  );
   if (results.rows.length === 0) return null;
   return () => <ResultRows results={results} />;
 }

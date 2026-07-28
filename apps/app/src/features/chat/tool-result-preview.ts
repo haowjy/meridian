@@ -27,9 +27,23 @@ import { stripBlockHash } from "@meridian/agent-edit";
 
 import type { JsonValue } from "@meridian/contracts/protocol";
 
+/**
+ * A matched passage, split so the row can weight the match itself. Centred on
+ * the match rather than started at the line's beginning: what the writer is
+ * looking for is the word they searched, not the paragraph's opening.
+ */
+export type ExcerptSpan = {
+  lead: string;
+  /** The match in the document's own casing, empty when the pattern is unknown. */
+  match: string;
+  trail: string;
+  /** Lead-in was cut, so the row prints a leading ellipsis. */
+  clipped: boolean;
+};
+
 export type ToolResultRow =
   /** A document the tool found or listed. Its name opens it. */
-  | { kind: "document"; uri: string; subtitle?: string; snippet?: string }
+  | { kind: "document"; uri: string; excerpt?: ExcerptSpan }
   /** A folder in a listing. Never a door: folders are not documents. */
   | { kind: "folder"; uri: string };
 
@@ -64,13 +78,23 @@ type RowSpec = {
   toRow: (entry: Record<string, JsonValue>) => ToolResultRow | null;
 };
 
-/** Three lines each (name, location, passage), so fewer of them fit. */
-const SEARCH_HITS: RowSpec = { cap: 4, toRow: searchHit };
+/** Two lines each (name, passage), so fewer of them fit than a bare listing. */
+const SEARCH_CAP = 4;
 const LISTING: RowSpec = { cap: LISTING_CAP, toRow: listingEntry };
 
-/** What `grep` returned: one document per hit, with the passage it matched. */
-export function normalizeSearchHits(output: JsonValue | undefined): ToolResultRows {
-  return normalizeEntries(output, SEARCH_HITS);
+/**
+ * What `grep` returned: one document per hit, with the passage it matched. The
+ * pattern comes from the tool input so the row can find the match inside the
+ * line and weight it.
+ */
+export function normalizeSearchHits(
+  output: JsonValue | undefined,
+  pattern?: string,
+): ToolResultRows {
+  return normalizeEntries(output, {
+    cap: SEARCH_CAP,
+    toRow: (row) => searchHit(row, pattern),
+  });
 }
 
 /** What `ls` returned: the folders and documents the model was shown. */
@@ -98,13 +122,36 @@ function isRecord(value: JsonValue): value is Record<string, JsonValue> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function searchHit(row: Record<string, JsonValue>): ToolResultRow | null {
+function searchHit(row: Record<string, JsonValue>, pattern?: string): ToolResultRow | null {
   if (typeof row.uri !== "string" || typeof row.excerpt !== "string") return null;
+  // `row.line` is deliberately dropped. Chapters are not line-addressed, and a
+  // line number is developer vocabulary in a novelist's transcript.
   return {
     kind: "document",
     uri: row.uri,
-    subtitle: typeof row.line === "number" ? t`Line ${row.line}` : undefined,
-    snippet: stripBlockHash(row.excerpt),
+    excerpt: excerptAround(stripBlockHash(row.excerpt), pattern),
+  };
+}
+
+/** How much run-up to a match the row keeps before it cuts and marks the cut. */
+const LEAD_BUDGET = 40;
+
+function excerptAround(text: string, pattern?: string): ExcerptSpan {
+  const index = pattern ? text.toLowerCase().indexOf(pattern.toLowerCase()) : -1;
+  if (index < 0 || !pattern) return { lead: text, match: "", trail: "", clipped: false };
+
+  const fullLead = text.slice(0, index);
+  const clipped = fullLead.length > LEAD_BUDGET;
+  // Cut on a word boundary: a passage that opens mid-word reads as damage
+  // rather than as an excerpt.
+  const lead = clipped
+    ? fullLead.slice(fullLead.length - LEAD_BUDGET).replace(/^\S*\s+/, "")
+    : fullLead;
+  return {
+    lead,
+    match: text.slice(index, index + pattern.length),
+    trail: text.slice(index + pattern.length),
+    clipped,
   };
 }
 

@@ -59,7 +59,7 @@ the UI says neither "intent" nor "outcome".
 | `read format:outline` | The headings it saw, indented by depth | The listing cap, with a count | None; the row title's door serves |
 | `create` / `insert` / `replace` | The submitted content, on the recessed surface | Height, with a fade | The document, at the fade |
 | `undo` / `redo` / `diff` | Nothing | — | — |
-| `grep` | Match rows: document, location, passage | The search cap, with a count | Each document |
+| `grep` | Match rows: document, and the passage that matched | The search cap, with a count | Each document |
 | `ls` | Listing rows: name plus glyph | The listing cap, with a count | Each document; folders are inert |
 | `invoke` | Output tail, or one of two availability failures | The tail's own bound | — |
 | unknown | Nothing | — | — |
@@ -84,6 +84,20 @@ system, so the reader that inverts the writer is the correct one, and an empty
 hash would otherwise leak its separator into the writer's prose. Targeting is resolved
 server-side, so a scoped read's payload already *is* the region asked for: the
 preview rule is "show the top of what came back" for every read.
+
+A search row shows the **document and its passage, and no line number**:
+chapters are not line-addressed, and a line number is developer vocabulary in a
+novelist's transcript. The passage is centred on the match rather than started
+at the line's beginning, cut on a word boundary with a leading ellipsis when
+run-up was dropped, and the matched words carry weight through type alone. No
+coloured ground: this is the writer's own prose, and a highlighter across it
+reads as markup rather than as their sentence.
+
+Two things the design asks of this expand are **blocked on the payload**
+(meridian-flow #433), not forgotten: a per-document match count, and the
+`12 results in 3 documents` bound. The adapter returns only the first match per
+document, so results and documents are always equal and both would state a
+tautology. Until the payload carries counts, the bound stays `N of M`.
 
 An `ls` expand is **a record of what the model received, not a file browser.**
 The tree panel already browses, and nothing consumes a folder route, so folders

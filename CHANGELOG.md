@@ -12,7 +12,9 @@
   in past tense (a failed read no longer claims "Read"; `diff` no longer claims
   "Wrote").
 - `apps/app`: tool expands now state what they clipped ("4 of 7") instead of
-  silently truncating, and closed rows no longer parse result payloads.
+  silently truncating, and closed rows no longer parse result payloads. Search
+  results drop the "Line 42" subtitle and centre each passage on the match,
+  with the searched words in bold.
 - `apps/app`, `packages/agent-edit`: search excerpts no longer show internal
   block hashes (`79b9|…`), and activity-row glyphs now center on their text
   line.
