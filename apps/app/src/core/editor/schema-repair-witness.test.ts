@@ -2,6 +2,7 @@
 /** Contract coverage for bind-time schema repair observation and evidence. */
 
 import { Editor } from "@tiptap/core";
+import type { Transaction } from "@tiptap/pm/state";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Awareness } from "y-protocols/awareness";
@@ -91,6 +92,36 @@ function constructEditor(
     witness.destroy();
     throw error;
   }
+}
+
+function liveWitnessWithoutBinding(doc: Y.Doc, events: SchemaRepairEvent[]) {
+  const transactionHandlers = new Set<(payload: { transaction: Transaction }) => void>();
+  const editor = {
+    on: (_event: string, handler: (payload: { transaction: Transaction }) => void) => {
+      transactionHandlers.add(handler);
+    },
+    off: (_event: string, handler: (payload: { transaction: Transaction }) => void) => {
+      transactionHandlers.delete(handler);
+    },
+  } as unknown as Editor;
+  const witness = createSchemaRepairWitness({
+    document: doc,
+    onRepair: (event) => events.push(event),
+    now: () => "2026-07-28T12:00:00.000Z",
+  });
+  witnesses.push(witness);
+  witness.enterLive(editor);
+  return {
+    witness,
+    dispatchUserTransaction() {
+      const transaction = {
+        getMeta: () => undefined,
+        steps: [],
+        docs: [],
+      } as unknown as Transaction;
+      for (const handler of transactionHandlers) handler({ transaction });
+    },
+  };
 }
 
 describe("schema repair witness", () => {
@@ -380,6 +411,42 @@ describe("schema repair witness", () => {
     });
   });
 
+  it.each([
+    "before",
+    "after",
+  ] as const)("retains a live repair when an unrelated user transaction occurs %s it in the same batch", async (userTransactionOrder) => {
+    const doc = new Y.Doc();
+    appendElement(doc, "paragraph", "valid prose");
+    appendElement(doc, "sidebar", "interleaved future prose");
+    const events: SchemaRepairEvent[] = [];
+    const { dispatchUserTransaction } = liveWitnessWithoutBinding(doc, events);
+    const root = doc.getXmlFragment(PROSEMIRROR_FRAGMENT_NAME);
+    let repaired = false;
+    const repairAfterRemote = (transaction: Y.Transaction) => {
+      if (transaction.origin !== "remote-provider-origin" || repaired) return;
+      repaired = true;
+      if (userTransactionOrder === "before") dispatchUserTransaction();
+      doc.transact(() => root.delete(1, 1), ySyncPluginKey);
+      if (userTransactionOrder === "after") dispatchUserTransaction();
+    };
+    doc.on("afterTransaction", repairAfterRemote);
+
+    Y.applyUpdate(
+      doc,
+      foreignElementUpdate(doc, "paragraph", "remote valid prose"),
+      "remote-provider-origin",
+    );
+    await finishFlush();
+    doc.off("afterTransaction", repairAfterRemote);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      phase: "live",
+      deletedNodeTypes: ["sidebar"],
+      removedText: "interleaved future prose",
+    });
+  });
+
   it("reports magnitude with degraded evidence when deleted structs are not resolvable", async () => {
     const doc = new Y.Doc();
     appendElement(doc, "paragraph", "valid prose");
@@ -453,5 +520,114 @@ describe("schema repair witness", () => {
     await finishFlush();
 
     expect(events).toEqual([]);
+  });
+
+  it.each([
+    ["valid remote content", "paragraph", "remote valid prose", "remote", 3, []],
+    ["valid remote content and marked prose", "paragraph", "remote valid prose", "bold", 7, []],
+    ["a repair before binding cleanup", "sidebar", "invalid prose", "before", 3, ["invalid prose"]],
+    [
+      "a repair before the writer command",
+      "sidebar",
+      "invalid prose",
+      "after",
+      3,
+      ["invalid prose"],
+    ],
+  ] as const)("attributes only the repair when a writer deletion shares a batch with %s", async (_name, remoteNode, remoteText, writerOrder, deleteTo, expectedRemovedText) => {
+    const doc = new Y.Doc();
+    appendElement(doc, "paragraph", "writer prose");
+    const events: SchemaRepairEvent[] = [];
+    let editor: Editor;
+    let deleted = false;
+    const deleteWriterText = () => {
+      if (deleted) return;
+      deleted = true;
+      expect(editor.commands.deleteRange({ from: 1, to: deleteTo })).toBe(true);
+    };
+    const deleteBeforeBindingCleanup = () => {
+      if (writerOrder === "before") deleteWriterText();
+    };
+    if (writerOrder === "before") {
+      doc.getXmlFragment(PROSEMIRROR_FRAGMENT_NAME).observeDeep(deleteBeforeBindingCleanup);
+    }
+    editor = constructEditor(doc, events);
+    if (writerOrder === "bold") {
+      expect(editor.chain().setTextSelection({ from: 1, to: deleteTo }).setBold().run()).toBe(true);
+    }
+    const deleteDuringCleanup = (transaction: Y.Transaction) => {
+      if (
+        ((writerOrder === "remote" || writerOrder === "bold") &&
+          transaction.origin === "remote-provider-origin") ||
+        (writerOrder === "after" &&
+          transaction.origin === ySyncPluginKey &&
+          transaction.deleteSet.clients.size > 0)
+      ) {
+        deleteWriterText();
+      }
+    };
+    doc.on("afterTransaction", deleteDuringCleanup);
+
+    Y.applyUpdate(doc, foreignElementUpdate(doc, remoteNode, remoteText), "remote-provider-origin");
+    await finishFlush();
+    doc.off("afterTransaction", deleteDuringCleanup);
+    if (writerOrder === "before") {
+      doc.getXmlFragment(PROSEMIRROR_FRAGMENT_NAME).unobserveDeep(deleteBeforeBindingCleanup);
+    }
+
+    expect(events.map((event) => event.removedText)).toEqual(expectedRemovedText);
+  });
+
+  it("does not carry remote fallback eligibility into a new Yjs batch", async () => {
+    const doc = new Y.Doc();
+    appendElement(doc, "paragraph", "valid prose");
+    appendElement(doc, "sidebar", "first fallback");
+    const separateText = doc.getText("separate");
+    separateText.insert(0, "second separate");
+    const events: SchemaRepairEvent[] = [];
+    liveWitnessWithoutBinding(doc, events);
+    const root = doc.getXmlFragment(PROSEMIRROR_FRAGMENT_NAME);
+    let repaired = false;
+    doc.on("afterTransaction", (transaction) => {
+      if (transaction.origin !== "remote-provider-origin" || repaired) return;
+      repaired = true;
+      doc.transact(() => root.delete(1, 1), ySyncPluginKey);
+    });
+
+    Y.applyUpdate(
+      doc,
+      foreignElementUpdate(doc, "paragraph", "remote valid prose"),
+      "remote-provider-origin",
+    );
+    doc.transact(() => separateText.delete(0, separateText.length), ySyncPluginKey);
+    await finishFlush();
+
+    expect(events.map((event) => event.removedText)).toEqual(["first fallback"]);
+  });
+
+  it("reports an eligible pending repair only once across repeated destroy", () => {
+    const doc = new Y.Doc();
+    appendElement(doc, "paragraph", "valid prose");
+    appendElement(doc, "sidebar", "destroy candidate");
+    const events: SchemaRepairEvent[] = [];
+    const { witness } = liveWitnessWithoutBinding(doc, events);
+    const root = doc.getXmlFragment(PROSEMIRROR_FRAGMENT_NAME);
+    let repaired = false;
+    doc.on("afterTransaction", (transaction) => {
+      if (transaction.origin !== "remote-provider-origin" || repaired) return;
+      repaired = true;
+      doc.transact(() => root.delete(1, 1), ySyncPluginKey);
+    });
+
+    Y.applyUpdate(
+      doc,
+      foreignElementUpdate(doc, "paragraph", "remote valid prose"),
+      "remote-provider-origin",
+    );
+    witness.destroy();
+    witness.destroy();
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.removedText).toBe("destroy candidate");
   });
 });

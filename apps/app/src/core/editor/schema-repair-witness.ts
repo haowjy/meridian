@@ -152,7 +152,88 @@ type PendingLiveRepair = {
   evidence: SchemaRepairEvidence;
   evidenceDegraded: boolean;
   postRepairSnapshot: Uint8Array;
+  remoteFallbackEligible: boolean;
 };
+type LiveRepairAttempt = {
+  userAuthored: boolean;
+  userDeletion: SchemaRepairEvidence | null;
+  bindingSeen: boolean;
+  remoteInterleaved: boolean;
+  candidate: PendingLiveRepair | null;
+};
+
+function proseMirrorDeletion(transaction: Transaction): SchemaRepairEvidence | null {
+  const deletedNodeTypes: string[] = [];
+  const removedText: string[] = [];
+  let deletedClockCount = 0;
+
+  transaction.steps.forEach((step, index) => {
+    const before = transaction.docs[index];
+    if (!before) return;
+    step.getMap().forEach((from, to) => {
+      if (from >= to) return;
+      deletedClockCount += to - from;
+      const content = before.slice(from, to).content;
+      const text = content.textBetween(0, content.size, "\n", "\n");
+      if (text) removedText.push(text);
+      content.descendants((node) => {
+        if (!node.isText && !deletedNodeTypes.includes(node.type.name)) {
+          deletedNodeTypes.push(node.type.name);
+        }
+      });
+    });
+  });
+
+  if (deletedClockCount === 0) return null;
+  return {
+    deletedNodeTypes,
+    deletedClockCount,
+    ...(removedText.length > 0 ? { removedText: removedText.join("\n") } : {}),
+  };
+}
+
+function withoutUserDeletion(
+  evidence: SchemaRepairEvidence,
+  userDeletion: SchemaRepairEvidence,
+): { evidence: SchemaRepairEvidence; degraded: boolean } | null {
+  const allRemovedTextIsUserAuthored =
+    evidence.removedText === userDeletion.removedText ||
+    (!evidence.removedText && !userDeletion.removedText);
+  const allDeletedNodeTypesAreUserAuthored = evidence.deletedNodeTypes.every((nodeType) =>
+    userDeletion.deletedNodeTypes.includes(nodeType),
+  );
+  if (allRemovedTextIsUserAuthored && allDeletedNodeTypesAreUserAuthored) return null;
+
+  const deletedClockCount = evidence.deletedClockCount - userDeletion.deletedClockCount;
+  if (deletedClockCount <= 0) return null;
+
+  let removedText = evidence.removedText;
+  let degraded = false;
+  if (removedText && userDeletion.removedText) {
+    const index = removedText.indexOf(userDeletion.removedText);
+    if (index >= 0) {
+      let before = removedText.slice(0, index);
+      let after = removedText.slice(index + userDeletion.removedText.length);
+      if (before.endsWith("\n")) before = before.slice(0, -1);
+      else if (after.startsWith("\n")) after = after.slice(1);
+      removedText = `${before}${after}`;
+    } else {
+      removedText = undefined;
+      degraded = true;
+    }
+  }
+
+  return {
+    evidence: {
+      deletedNodeTypes: evidence.deletedNodeTypes.filter(
+        (nodeType) => !userDeletion.deletedNodeTypes.includes(nodeType),
+      ),
+      deletedClockCount,
+      ...(removedText ? { removedText } : {}),
+    },
+    degraded,
+  };
+}
 
 export type SchemaRepairWitness = {
   readonly phase: "open" | "live";
@@ -182,11 +263,14 @@ export function createSchemaRepairWitness({
   let phase: "open" | "live" = "open";
   let latestPostRepairSnapshot: Uint8Array | null = null;
   let editor: Editor | null = null;
-  let precedingProseMirrorTransaction: "binding" | "user" | null = null;
-  let pendingLiveRepairs: PendingLiveRepair[] = [];
+  let activeProseMirrorTransaction: {
+    transaction: Transaction;
+    binding: boolean;
+    userDeletion: SchemaRepairEvidence | null;
+  } | null = null;
+  let liveRepairAttempts: LiveRepairAttempt[] = [];
+  const attemptsByTransaction = new WeakMap<Y.Transaction, LiveRepairAttempt>();
   let remoteTransactionSeen = false;
-  let userProseMirrorTransactionSeen = false;
-  let yjsBatchActive = false;
   let batchToken = 0;
   let destroyed = false;
 
@@ -203,67 +287,121 @@ export function createSchemaRepairWitness({
   };
 
   const clearBatch = () => {
-    pendingLiveRepairs = [];
-    precedingProseMirrorTransaction = null;
+    liveRepairAttempts = [];
+    // beforeAllTransactions may run inside TipTap's beforeTransaction →
+    // transaction bracket, so the active PM cause survives this batch reset.
     remoteTransactionSeen = false;
-    userProseMirrorTransactionSeen = false;
   };
+
+  const fallbackRepairs = () =>
+    liveRepairAttempts.flatMap(({ candidate }) =>
+      candidate?.remoteFallbackEligible ? [candidate] : [],
+    );
 
   const finishBatch = (token: number) => {
     if (destroyed || token !== batchToken) return;
-    if (pendingLiveRepairs.length > 0 && remoteTransactionSeen && !userProseMirrorTransactionSeen) {
-      reportLiveRepairs(pendingLiveRepairs);
-    }
+    reportLiveRepairs(fallbackRepairs());
     clearBatch();
   };
 
   const onBeforeAllTransactions = () => {
     if (phase !== "live") return;
     batchToken += 1;
-    if (pendingLiveRepairs.length === 0) {
-      clearBatch();
-    } else {
-      precedingProseMirrorTransaction = null;
-    }
-    yjsBatchActive = true;
+    // A new Y batch seals the previous batch before its queued microtask runs;
+    // candidates and remote eligibility may never bleed into this generation.
+    reportLiveRepairs(fallbackRepairs());
+    clearBatch();
   };
 
   const onAfterAllTransactions = () => {
     if (phase !== "live") return;
-    yjsBatchActive = false;
     // A PM transaction emitted after doc.transact() returns still belongs to
     // this batch when it resolves an existing candidate. Binding meta with no
     // candidate must not leak into a later writer command in the same task.
-    precedingProseMirrorTransaction = null;
+    activeProseMirrorTransaction = null;
     const token = ++batchToken;
     queueMicrotask(() => finishBatch(token));
   };
 
-  const onProseMirrorTransaction = ({ transaction }: { transaction: Transaction }) => {
-    if (phase !== "live") return;
+  const bindingDispatched = (transaction: Transaction) => {
     const meta = transaction.getMeta(ySyncPluginKey) as Record<string, unknown> | undefined;
-    const bindingDispatched =
+    return (
       meta !== undefined &&
-      (Object.hasOwn(meta, "binding") || Object.hasOwn(meta, "isChangeOrigin"));
-    const transactionKind = bindingDispatched ? "binding" : "user";
-    if (!bindingDispatched) userProseMirrorTransactionSeen = true;
+      (Object.hasOwn(meta, "binding") || Object.hasOwn(meta, "isChangeOrigin"))
+    );
+  };
 
-    if (pendingLiveRepairs.length > 0) {
-      if (bindingDispatched) reportLiveRepairs(pendingLiveRepairs);
-      pendingLiveRepairs = [];
-      precedingProseMirrorTransaction = null;
-    } else if (yjsBatchActive) {
-      precedingProseMirrorTransaction = transactionKind;
+  const removeAttempt = (attempt: LiveRepairAttempt) => {
+    liveRepairAttempts = liveRepairAttempts.filter((pending) => pending !== attempt);
+  };
+
+  const onBeforeProseMirrorTransaction = ({ transaction }: { transaction: Transaction }) => {
+    if (phase !== "live") return;
+    const binding = bindingDispatched(transaction);
+    const userDeletion = binding ? null : proseMirrorDeletion(transaction);
+    activeProseMirrorTransaction = { transaction, binding, userDeletion };
+    if (!binding) {
+      // TipTap emits beforeTransaction after ProseMirror applies the state, but
+      // before view.updateState. A PM→Y transaction may therefore have started
+      // just before this callback or may start while this bracket is active.
+      for (let index = liveRepairAttempts.length - 1; index >= 0; index -= 1) {
+        const attempt = liveRepairAttempts[index];
+        if (!attempt || attempt.bindingSeen || attempt.remoteInterleaved || attempt.userAuthored) {
+          continue;
+        }
+        attempt.userAuthored = true;
+        attempt.userDeletion = userDeletion;
+        break;
+      }
+      return;
     }
+
+    const attempt = liveRepairAttempts.find(
+      (pending) => !pending.userAuthored && !pending.bindingSeen,
+    );
+    if (!attempt) return;
+    attempt.bindingSeen = true;
+    if (attempt.candidate) {
+      reportLiveRepairs([attempt.candidate]);
+      removeAttempt(attempt);
+    }
+  };
+
+  const onProseMirrorTransaction = ({ transaction }: { transaction: Transaction }) => {
+    if (activeProseMirrorTransaction?.transaction === transaction) {
+      activeProseMirrorTransaction = null;
+    }
+  };
+
+  const onBeforeTransaction = (transaction: Y.Transaction) => {
+    if (phase !== "live" || !transaction.local || transaction.origin !== ySyncPluginKey) {
+      return;
+    }
+    const attempt: LiveRepairAttempt = {
+      userAuthored: activeProseMirrorTransaction?.binding === false,
+      userDeletion: activeProseMirrorTransaction?.userDeletion ?? null,
+      bindingSeen: false,
+      remoteInterleaved: remoteTransactionSeen,
+      candidate: null,
+    };
+    liveRepairAttempts.push(attempt);
+    attemptsByTransaction.set(transaction, attempt);
   };
 
   const onAfterTransaction = (transaction: Y.Transaction) => {
     if (phase !== "live") return;
     if (!transaction.local) {
       remoteTransactionSeen = true;
+      for (const attempt of liveRepairAttempts) {
+        attempt.remoteInterleaved = true;
+        const { candidate } = attempt;
+        if (candidate) candidate.remoteFallbackEligible = true;
+      }
       return;
     }
     if (transaction.origin !== ySyncPluginKey) return;
+    const attempt = attemptsByTransaction.get(transaction);
+    if (!attempt) return;
 
     const deleteSet = transaction.deleteSet as DeleteSet;
     const count = deletedClockCount(deleteSet);
@@ -271,7 +409,10 @@ export function createSchemaRepairWitness({
     for (const [client, clock] of transaction.afterState) {
       insertedClockCount += clock - (transaction.beforeState.get(client) ?? 0);
     }
-    if (count === 0 || insertedClockCount !== 0) return;
+    if (count === 0 || insertedClockCount !== 0) {
+      removeAttempt(attempt);
+      return;
+    }
 
     // afterTransaction runs before Yjs replaces deleted structs with
     // ContentDeleted under gc:true. Capture now; correlation may resolve later
@@ -280,24 +421,32 @@ export function createSchemaRepairWitness({
       document.getXmlFragment(PROSEMIRROR_FRAGMENT_NAME) as unknown as YTypeLike,
       deleteSet,
     );
+    // When a writer command runs during remote cleanup, y-prosemirror can fold
+    // that command and normalization into one queued Y transaction. PM steps
+    // are the only exact record of which part the writer deliberately removed.
+    const repairEvidence = attempt.userDeletion
+      ? withoutUserDeletion(extracted.evidence, attempt.userDeletion)
+      : { evidence: extracted.evidence, degraded: false };
+    if (!repairEvidence) {
+      removeAttempt(attempt);
+      return;
+    }
     const candidate: PendingLiveRepair = {
-      evidence: extracted.evidence,
+      evidence: repairEvidence.evidence,
       evidenceDegraded:
+        repairEvidence.degraded ||
         extracted.contentUnavailable ||
         extracted.resolvedClockCount < extracted.evidence.deletedClockCount,
       postRepairSnapshot: Y.encodeStateAsUpdate(document),
+      remoteFallbackEligible: attempt.remoteInterleaved,
     };
 
-    if (precedingProseMirrorTransaction === "binding") {
+    if (attempt.bindingSeen) {
       reportLiveRepairs([candidate]);
-      precedingProseMirrorTransaction = null;
+      removeAttempt(attempt);
       return;
     }
-    if (precedingProseMirrorTransaction === "user") {
-      precedingProseMirrorTransaction = null;
-      return;
-    }
-    pendingLiveRepairs.push(candidate);
+    attempt.candidate = candidate;
   };
 
   const onUpdate = (
@@ -327,6 +476,7 @@ export function createSchemaRepairWitness({
 
   document.on("update", onUpdate);
   document.on("beforeAllTransactions", onBeforeAllTransactions);
+  document.on("beforeTransaction", onBeforeTransaction);
   document.on("afterTransaction", onAfterTransaction);
   document.on("afterAllTransactions", onAfterAllTransactions);
 
@@ -340,23 +490,24 @@ export function createSchemaRepairWitness({
     },
     enterLive(liveEditor) {
       editor = liveEditor;
+      editor.on("beforeTransaction", onBeforeProseMirrorTransaction);
       editor.on("transaction", onProseMirrorTransaction);
       phase = "live";
     },
     destroy() {
-      if (
-        pendingLiveRepairs.length > 0 &&
-        remoteTransactionSeen &&
-        !userProseMirrorTransactionSeen
-      ) {
-        reportLiveRepairs(pendingLiveRepairs);
-      }
+      if (destroyed) return;
       destroyed = true;
+      const repairs = fallbackRepairs();
+      clearBatch();
+      activeProseMirrorTransaction = null;
+      editor?.off("beforeTransaction", onBeforeProseMirrorTransaction);
       editor?.off("transaction", onProseMirrorTransaction);
       document.off("update", onUpdate);
       document.off("beforeAllTransactions", onBeforeAllTransactions);
+      document.off("beforeTransaction", onBeforeTransaction);
       document.off("afterTransaction", onAfterTransaction);
       document.off("afterAllTransactions", onAfterAllTransactions);
+      reportLiveRepairs(repairs);
     },
   };
 }
