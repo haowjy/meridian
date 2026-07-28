@@ -11,6 +11,9 @@ let editor: Editor;
 
 const marks = () => editor.view.dom.querySelectorAll("[data-passage-match]");
 
+/** Yjs's UndoManager merges edits inside a 500ms window into one stack item. */
+const settleUndoBatch = () => new Promise((resolve) => setTimeout(resolve, 600));
+
 beforeEach(() => {
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
     callback(0);
@@ -57,6 +60,46 @@ describe("PassageHighlightExtension", () => {
 
     editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, 10)));
 
+    expect(marks()).toHaveLength(0);
+  });
+
+  it("gets out of the way when the writer undoes, even though Yjs signs it", () => {
+    // Collaborative undo reaches ProseMirror as a ySync transaction, so its
+    // metadata is the only thing separating the writer's own Ctrl+Z from a
+    // peer's edit arriving.
+    editor.commands.showPassageMatches([{ from: 1, to: 6 }]);
+
+    const undo = editor.state.tr.insertText("Cold iron. ", 1);
+    undo.setMeta(ySyncPluginKey, { isChangeOrigin: true, isUndoRedoOperation: true });
+    editor.view.dispatch(undo);
+
+    expect(marks()).toHaveLength(0);
+  });
+
+  it("gets out of the way on a real collaborative undo", async () => {
+    editor.commands.setContent({
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "Elara waited." }] },
+        { type: "paragraph", content: [{ type: "text", text: "The hall was empty." }] },
+      ],
+    });
+    // The UndoManager batches by time, so let the seeded content settle into
+    // its own stack item before the writer's edit starts a new one.
+    await settleUndoBatch();
+    // Edits the SECOND paragraph while the mark sits in the first, so the
+    // assertion is about the undo and not about which text was replaced.
+    // This pins the writer-facing outcome rather than the mechanism: today
+    // y-sync's reconciliation would also map the mark away, so only the
+    // metadata test below isolates the classification itself.
+    editor.commands.insertContentAt(35, " Then she left.");
+    await settleUndoBatch();
+    editor.commands.showPassageMatches([{ from: 1, to: 6 }]);
+    expect(marks()).toHaveLength(1);
+
+    expect(editor.commands.undo()).toBe(true);
+
+    expect(editor.state.doc.textContent).toBe("Elara waited.The hall was empty.");
     expect(marks()).toHaveLength(0);
   });
 

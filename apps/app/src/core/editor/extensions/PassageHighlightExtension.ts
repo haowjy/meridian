@@ -6,13 +6,17 @@
  * writer may be mid-sentence somewhere else. This marks; it does not take.
  *
  * The mark is short-lived by contract. It fades on its own, and it clears the
- * moment the writer does anything — types, or moves the caret — because from
- * then on the document is their business again. Remote Yjs updates are not the
- * writer moving: they arrive constantly and would otherwise wipe the mark
+ * moment the writer does anything — types, moves the caret, or undoes — because
+ * from then on the document is their business again. A peer's edit is not the
+ * writer moving: those arrive constantly and would otherwise wipe the mark
  * before it was read.
+ *
+ * Telling the two apart needs care. Collaborative undo is the writer's own
+ * keystroke, but it reaches ProseMirror through the same ySync channel a peer's
+ * edit does, so the metadata has to be read rather than merely noticed.
  */
 import { type Editor, Extension } from "@tiptap/core";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import type { TextRange } from "../passage-resolution";
@@ -80,8 +84,7 @@ export const PassageHighlightExtension = Extension.create({
                 : DecorationSet.empty;
             }
             if (prior === DecorationSet.empty) return prior;
-            const remote = tr.getMeta(ySyncPluginKey) !== undefined;
-            if (!remote && (tr.docChanged || tr.selectionSet)) return DecorationSet.empty;
+            if (writerMoved(tr)) return DecorationSet.empty;
             return prior.map(tr.mapping, tr.doc);
           },
         },
@@ -90,6 +93,20 @@ export const PassageHighlightExtension = Extension.create({
     ];
   },
 });
+
+/**
+ * Whether this transaction is the writer taking the document back.
+ *
+ * `@tiptap/y-tiptap` signs every change it applies with the same plugin key and
+ * distinguishes them in the payload: an undo carries `isUndoRedoOperation`
+ * because its Yjs origin is the local `UndoManager`, which only the writer's
+ * own Ctrl+Z reaches. A peer's edit carries the key without it.
+ */
+function writerMoved(tr: Transaction): boolean {
+  if (!tr.docChanged && !tr.selectionSet) return false;
+  const ySync = tr.getMeta(ySyncPluginKey) as { isUndoRedoOperation?: boolean } | undefined;
+  return ySync === undefined || ySync.isUndoRedoOperation === true;
+}
 
 /**
  * Center the passage only when it is off-screen or crowding an edge. A writer
