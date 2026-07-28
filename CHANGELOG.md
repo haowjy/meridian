@@ -10,6 +10,39 @@
   admission records with the compared client, document, and server versions.
 - `apps/server`: schema-aware document reads now repair a private clone instead
   of mutating shared collaboration state, and warn when invalid structure is found.
+- `apps/app`: a document whose kind the app doesn't recognize (an
+  ordinary markdown chapter, for one) now shows a plain file icon in the
+  chat context rail instead of blanking the whole project view.
+- `apps/app`: document names in the activity timeline are now doors — clicking
+  a name opens that document in the context pane; clicking the rest of the row
+  still toggles its detail. Names stay plain text where navigation can't work
+  (standalone chat), and they name the document only: no "(Knowledge Base)"
+  location tag, since the door already goes there.
+- `apps/app`: activity rows now lead with the command — one glyph per command,
+  mutation chips only for real mutations, and completed rows say what happened
+  in past tense (a failed read no longer claims "Read"; `diff` no longer claims
+  "Wrote").
+- `apps/app`: tool expands now state what they clipped ("4 of 7") instead of
+  silently truncating, and closed rows no longer parse result payloads. Search
+  results drop the "Line 42" subtitle and centre each passage on the match,
+  with the searched words in bold.
+- `apps/app`, `packages/agent-edit`: search excerpts no longer show internal
+  block hashes (`79b9|…`), and activity-row glyphs now center on their text
+  line.
+- `apps/app`: the turn edits card header now counts documents ("Edited 1
+  document") instead of naming one. Names live in the card's rows, where they
+  open the document.
+- `apps/app`: opening a document the assistant referred to that is no longer in
+  the project now explains what happened and names the document, instead of
+  showing the generic empty desk with a "New document" button.
+- `apps/app`: Explored rows now open onto the folder listing the assistant
+  received; document names in it open the document, folders stay plain.
+- `apps/app`: Read rows now open onto the passage the assistant read, as quoted
+  material. A clipped passage fades at its bound and offers to open the whole
+  document. Skimmed rows show the headings the assistant saw.
+- `apps/app`: rows for writes and edits now open onto the content the assistant
+  submitted, as quoted material on a recessed surface. A failed write still
+  shows why it failed.
 - `tools/dev`: worktree pruning now ignores Meridian diagnostics and skips
   work items that disappear during discovery.
 - `apps/app`: schema-fenced chapters now remain quarantined and read-only, with
@@ -36,6 +69,27 @@
 - `apps/server`, `packages/contracts`: collaboration sockets now refuse clients
   older than a live or draft head with `4406`; stale stored heads close with
   `4407` instead of reconnecting indefinitely.
+- `apps/server`: grep hits now report how many times the pattern occurs in each
+  document, and manuscript hits carry the hash of the block that matched, so a
+  search result can lead back to the passage instead of the top of the file.
+- `apps/app`: search results now say how many times the pattern occurs in each
+  document, and the expand states totals ("12 results in 3 documents") once a
+  document holds more than one match.
+- `apps/app`: clicking a search result now opens the document at the passage
+  that matched, with a brief mark on the words themselves and no cursor
+  movement. If the passage changed since the search, the document still opens
+  and says so rather than landing somewhere that looks right.
+- `apps/server`, `apps/app`: the tool that searches your project is now called
+  `search` rather than `grep`, so the assistant's own narration says "search"
+  instead of naming a command-line program. Rows already read "Searched" and
+  are unchanged. Tool calls recorded under the old name show as a plain
+  one-line row with no expand.
+- `apps/server`, `apps/app`: a search now reports up to three passages per
+  document instead of one, and the results open as a card: totals at the top, a
+  section per document separated by a rule, a match count beside each name, and
+  "N more" to grow a document's passages in place. The searched word is the
+  handle you click, and each passage opens at its own place in the document.
+
 - `apps/server`: Anthropic-format cache usage now normalizes to inclusive input
   totals, so uncached prompt tokens are priced instead of silently clamped away;
   OpenAI-compatible trailing usage-only chunks are also retained.
