@@ -376,6 +376,7 @@ describe("Yjs connect-time schema version gate", () => {
 
   it("records one error event when document loading discovers a major mismatch", async () => {
     const services = versionGateServices({ liveHead: null });
+    const clientSchemaVersion = version(0, 1, 77);
     Object.assign(services.documentSync, {
       loadHocuspocusDocument: vi.fn(async () => {
         throw staleSchemaError();
@@ -387,7 +388,7 @@ describe("Yjs connect-time schema version gate", () => {
       hocuspocus.configuration.onLoadDocument?.({
         documentName: liveDocumentName,
         document: new Y.Doc({ gc: false }),
-        context: connectContext(COLLAB_SCHEMA_VERSION),
+        context: connectContext(clientSchemaVersion),
       } as never),
     ).rejects.toMatchObject({ code: 4407 });
 
@@ -401,7 +402,7 @@ describe("Yjs connect-time schema version gate", () => {
         code: 4407,
         reason: "document-schema-stale",
         roomKey: liveDocumentName,
-        clientSchemaVersion: null,
+        clientSchemaVersion,
         headSchemaVersion: version(1, 0),
         serverSchemaVersion: COLLAB_SCHEMA_VERSION,
       },

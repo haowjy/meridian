@@ -124,7 +124,7 @@ function refuseSchemaAdmission(input: {
   roomKey: string;
   documentId: DocumentId;
   close: SchemaAdmissionRefusal;
-  clientSchemaVersion: CollabSchemaVersion | null;
+  clientSchemaVersion: CollabSchemaVersion;
   headSchemaVersion: CollabSchemaVersion;
   serverSchemaVersion: CollabSchemaVersion;
 }): never {
@@ -500,7 +500,7 @@ export function createHocuspocus(services: YjsGatewayServices): Hocuspocus<YjsCo
           roomKey: documentName,
           documentId: cause.docId as DocumentId,
           close: WS_CLOSE.DOCUMENT_SCHEMA_STALE,
-          clientSchemaVersion: null,
+          clientSchemaVersion: context.clientSchemaVersion,
           headSchemaVersion: cause.storedVersion,
           serverSchemaVersion: cause.expectedVersion,
         });
