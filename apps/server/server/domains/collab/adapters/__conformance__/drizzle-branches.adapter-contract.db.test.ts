@@ -342,6 +342,29 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         .from(documentBranches)
         .where(eq(documentBranches.id, branch.branchId));
       expect(preserved?.schemaVersion).toBe(aheadPacked);
+
+      const parentPacked = packCollabSchemaVersion({ major: 0, minor: 0, patch: 9 });
+      await db
+        .update(documentBranches)
+        .set({ schemaVersion: parentPacked })
+        .where(eq(documentBranches.id, branch.branchId));
+      const peer = await store.ensureThreadPeerBranch({
+        documentId: DOC_ID as never,
+        threadId: THREAD_ID as never,
+        liveDoc: currentDoc,
+      });
+      await db
+        .update(documentBranches)
+        .set({ schemaVersion: aheadPacked })
+        .where(eq(documentBranches.id, peer.branchId));
+
+      await createBranchCoordinator({ store }).resetFromBranch(peer.branchId);
+
+      const [reset] = await db
+        .select({ schemaVersion: documentBranches.schemaVersion })
+        .from(documentBranches)
+        .where(eq(documentBranches.id, peer.branchId));
+      expect(reset?.schemaVersion).toBe(aheadPacked);
     });
 
     it("persists live->work and work->thread pulls", async () => {

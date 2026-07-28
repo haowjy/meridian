@@ -109,6 +109,16 @@ export function createDrizzleBranchStore(
     ), 0)`;
   }
 
+  function monotonicSchemaStamp(version = COLLAB_SCHEMA_VERSION) {
+    const packedVersion = packCollabSchemaVersion(version);
+    const packedRunningVersion = packCollabSchemaVersion(COLLAB_SCHEMA_VERSION);
+    return sql<number>`greatest(
+      ${documentBranches.schemaVersion},
+      ${packedVersion},
+      ${packedRunningVersion}
+    )`;
+  }
+
   async function activeWorkDraft(
     documentId: DocumentId,
     workId: WorkId,
@@ -549,16 +559,13 @@ export function createDrizzleBranchStore(
     }
   }
 
-  async function updateBranchSnapshot(
-    input: PersistBranchInput | ResetBranchSnapshotInput,
-  ): Promise<boolean> {
-    const packedSchemaVersion = packCollabSchemaVersion(COLLAB_SCHEMA_VERSION);
+  async function updateBranchSnapshot(input: PersistBranchInput): Promise<boolean> {
     const [row] = await currentDrizzleDb(db)
       .update(documentBranches)
       .set({
         state: Buffer.from(input.state),
         stateVector: Buffer.from(input.stateVector),
-        schemaVersion: sql`greatest(${documentBranches.schemaVersion}, ${packedSchemaVersion})`,
+        schemaVersion: monotonicSchemaStamp(),
         updatedAt: new Date(),
       })
       .where(
@@ -870,7 +877,7 @@ export function createDrizzleBranchStore(
             state: Buffer.from(input.state),
             stateVector: Buffer.from(input.stateVector),
             discardedStateVector: Buffer.from(input.discardedStateVector),
-            schemaVersion: packCollabSchemaVersion(input.schemaVersion),
+            schemaVersion: monotonicSchemaStamp(input.schemaVersion),
             updatedAt: new Date(),
           })
           .where(
