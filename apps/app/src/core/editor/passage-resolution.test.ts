@@ -76,6 +76,60 @@ describe("resolvePassage", () => {
     expect(resolvePassage(doc, null, "")).toEqual({ kind: "stale" });
   });
 
+  it("refuses a term that only reads as contiguous across a hard break", () => {
+    // "gate" ⏎ "keeper" is not the word "gatekeeper". The server matched real
+    // text; inventing one here would land the writer on a passage that never
+    // contained what they searched for.
+    const doc = schema.node("doc", null, [
+      schema.node("paragraph", null, [
+        schema.text("gate"),
+        schema.node("hard_break"),
+        schema.text("keeper"),
+      ]),
+    ]);
+
+    expect(resolvePassage(doc, blockSpan(doc, 0), "gatekeeper")).toEqual({ kind: "stale" });
+    expect(resolvePassage(doc, null, "gatekeeper")).toEqual({ kind: "stale" });
+  });
+
+  it("refuses a term that only reads as contiguous across an inline image", () => {
+    const doc = schema.node("doc", null, [
+      schema.node("paragraph", null, [
+        schema.text("gate"),
+        schema.node("image", { src: "vale.png" }),
+        schema.text("keeper"),
+      ]),
+    ]);
+
+    expect(resolvePassage(doc, blockSpan(doc, 0), "gatekeeper")).toEqual({ kind: "stale" });
+  });
+
+  it("still finds a term that sits wholly inside one run", () => {
+    const doc = schema.node("doc", null, [
+      schema.node("paragraph", null, [
+        schema.text("the gate"),
+        schema.node("hard_break"),
+        schema.text("stood open"),
+      ]),
+    ]);
+
+    expect(resolvePassage(doc, blockSpan(doc, 0), "stood")).toEqual({
+      kind: "block",
+      ranges: [{ from: 10, to: 15 }],
+    });
+  });
+
+  it("keeps ranges on real characters when lowercasing changes length", () => {
+    // "İ".toLowerCase() is two code units, so folded offsets are not source
+    // offsets. Indexing source positions with folded ones drops the match.
+    const doc = docOf("İstanbul was far from the vale.");
+    const resolved = resolvePassage(doc, blockSpan(doc, 0), "İstanbul");
+
+    expect(resolved.kind).toBe("block");
+    expect(resolved.kind === "block" && resolved.ranges).toEqual([{ from: 1, to: 9 }]);
+    expect(doc.textBetween(1, 9)).toBe("İstanbul");
+  });
+
   it("keeps positions honest across mark boundaries", () => {
     // Marks split one sentence into several text nodes; reading textContent
     // would still line up, but reading it per node would not.

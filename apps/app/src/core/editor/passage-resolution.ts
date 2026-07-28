@@ -10,6 +10,11 @@
  * a nearby-but-wrong paragraph is the failure this module exists to refuse.
  *
  * Pure over a ProseMirror document: no editor, no Yjs, no timing.
+ *
+ * The searchable projection is the delicate part. It must find exactly what the
+ * server's search would find, and nothing the writer did not write: text either
+ * side of a line break or an image is not one word, and case folding is not
+ * length-preserving in every language.
  */
 import type { Node as PMNode } from "@tiptap/pm/model";
 
@@ -47,7 +52,7 @@ export function resolvePassage(
  * Every occurrence of `term` inside `range`, case-insensitively — the casing
  * the search itself matched with.
  */
-export function findTerm(doc: PMNode, term: string, range: TextRange): TextRange[] {
+function findTerm(doc: PMNode, term: string, range: TextRange): TextRange[] {
   const needle = term.toLowerCase();
   if (needle.length === 0) return [];
   const found: TextRange[] = [];
@@ -57,14 +62,14 @@ export function findTerm(doc: PMNode, term: string, range: TextRange): TextRange
 
   doc.nodesBetween(from, to, (node, pos) => {
     if (!node.isTextblock) return true;
-    const { text, positions } = linearText(node, pos + 1);
-    const haystack = text.toLowerCase();
-    let index = haystack.indexOf(needle);
-    while (index >= 0) {
-      const start = positions[index];
-      const end = positions[index + needle.length - 1] + 1;
-      if (start >= from && end <= to) found.push({ from: start, to: end });
-      index = haystack.indexOf(needle, index + needle.length);
+    for (const run of textRuns(node, pos + 1)) {
+      let index = run.folded.indexOf(needle);
+      while (index >= 0) {
+        const start = run.source[index].from;
+        const end = run.source[index + needle.length - 1].to;
+        if (start >= from && end <= to) found.push({ from: start, to: end });
+        index = run.folded.indexOf(needle, index + needle.length);
+      }
     }
     // A textblock's inline content is already flattened above.
     return false;
@@ -73,24 +78,58 @@ export function findTerm(doc: PMNode, term: string, range: TextRange): TextRange
 }
 
 /**
- * A textblock's text with a document position per character. Built by walking
- * inline children rather than reading `textContent`, because marks split text
- * into several nodes and inline leaves (an image, a figure) occupy positions
- * while contributing no characters — either drift would land the highlight on
- * the wrong words.
+ * One stretch of uninterrupted text, folded for matching, with the document
+ * range of the source character behind every folded character.
  */
-function linearText(block: PMNode, start: number): { text: string; positions: number[] } {
-  let text = "";
-  const positions: number[] = [];
+type TextRun = { folded: string; source: TextRange[] };
+
+/**
+ * A textblock's inline content as searchable runs.
+ *
+ * **Runs break at every non-text inline leaf.** A hard break or an image
+ * separates words the way a space does, so joining across one would let `gate`
+ * and `keeper` read as `gatekeeper` — a term the writer never wrote, offered
+ * as the unique occurrence step 3 is allowed to jump to. Splitting makes
+ * contiguity structural rather than a separator character we hope nobody
+ * searches for.
+ *
+ * **Folding is per source character, and its length is not preserved.**
+ * `"İ".toLowerCase()` is two code units, so a folded offset is not a source
+ * offset; every folded character therefore carries the range of the character
+ * that produced it. Iteration is by code point so a surrogate pair is never
+ * split. Marks also cut text into several nodes, which is why this walks
+ * children instead of reading `textContent`.
+ */
+function textRuns(block: PMNode, start: number): TextRun[] {
+  const runs: TextRun[] = [];
+  let folded = "";
+  let source: TextRange[] = [];
   let offset = 0;
+
+  const endRun = () => {
+    if (folded.length > 0) runs.push({ folded, source });
+    folded = "";
+    source = [];
+  };
+
   block.forEach((child) => {
     if (child.isText && child.text) {
-      for (let index = 0; index < child.text.length; index += 1) {
-        positions.push(start + offset + index);
+      let index = 0;
+      for (const character of child.text) {
+        const range = {
+          from: start + offset + index,
+          to: start + offset + index + character.length,
+        };
+        const lowered = character.toLowerCase();
+        for (let unit = 0; unit < lowered.length; unit += 1) source.push(range);
+        folded += lowered;
+        index += character.length;
       }
-      text += child.text;
+    } else {
+      endRun();
     }
     offset += child.nodeSize;
   });
-  return { text, positions };
+  endRun();
+  return runs;
 }

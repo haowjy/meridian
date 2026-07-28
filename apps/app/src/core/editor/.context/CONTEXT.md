@@ -195,6 +195,12 @@ ProseMirror text:
    a novelist to a nearby-but-wrong paragraph is worse than saying nothing was
    found.
 
+The searchable projection is where honesty is won or lost. Text runs break at
+every non-text inline leaf, so `gate` and `keeper` either side of a hard break
+can never read as the unique `gatekeeper` step 2 is allowed to jump to, and
+case folding carries the source range of every character because
+`"İ".toLowerCase()` is longer than its source.
+
 `PassageHighlightExtension` owns the mark and the reveal. It is **never a
 selection** — the writer's cursor may be elsewhere mid-sentence — it scrolls
 center-biased only when the passage is not already on screen, and it clears on
