@@ -205,9 +205,12 @@ returning to that document later replayed a forgotten complaint.
 
 The searchable projection is where honesty is won or lost. Text runs break at
 every non-text inline leaf, so `gate` and `keeper` either side of a hard break
-can never read as the unique `gatekeeper` step 2 is allowed to jump to, and
-case folding carries the source range of every character because
-`"İ".toLowerCase()` is longer than its source.
+can never read as the unique `gatekeeper` step 2 is allowed to jump to. Each
+run then folds as one string, the way the server folds: case is contextual, and
+`"ΟΣ"` lowercases to `"ος"` whole but `"οσ"` letter by letter, which both misses
+the searched word and matches a different one. Every folded unit still carries
+the source range behind it, because `"İ".toLowerCase()` is longer than its
+source.
 
 `PassageHighlightExtension` owns the mark and the reveal. It is **never a
 selection** — the writer's cursor may be elsewhere mid-sentence — it scrolls

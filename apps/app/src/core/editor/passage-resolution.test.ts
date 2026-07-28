@@ -130,6 +130,49 @@ describe("resolvePassage", () => {
     expect(doc.textBetween(1, 9)).toBe("İstanbul");
   });
 
+  it("folds the way the server does, where a letter's case depends on its neighbours", () => {
+    // "ΟΣ".toLowerCase() ends in a final sigma, "ος". Folding character by
+    // character yields "οσ" instead, which misses the word the writer searched
+    // and still matches the "ος" inside "πύργος" — leaving the mark on a
+    // different word. Both occurrences are real; the first one is the point.
+    const doc = docOf("ΟΣ πύργος έπεσε.");
+    const resolved = resolvePassage(doc, blockSpan(doc, 0), "ΟΣ");
+
+    expect(resolved.kind).toBe("block");
+    expect(resolved.kind === "block" && resolved.ranges).toEqual([
+      { from: 1, to: 3 },
+      { from: 8, to: 10 },
+    ]);
+    expect(doc.textBetween(1, 3)).toBe("ΟΣ");
+  });
+
+  it("says stale when only contextual folding would have matched", () => {
+    // Nothing else in this sentence folds to "ος", so per-character folding
+    // finds nothing at all and the ladder would wrongly report the passage
+    // gone while it sits in plain sight.
+    const doc = docOf("ΟΣ πύργοι έπεσαν.");
+    const resolved = resolvePassage(doc, blockSpan(doc, 0), "ΟΣ");
+
+    expect(resolved.kind).toBe("block");
+    expect(resolved.kind === "block" && resolved.ranges).toEqual([{ from: 1, to: 3 }]);
+  });
+
+  it("folds a term that ends at a run boundary", () => {
+    // The break makes "ΟΣ" a run of its own, so its sigma is final there too.
+    // Folding granularity is the bug class, so the boundary gets its own case.
+    const doc = schema.node("doc", null, [
+      schema.node("paragraph", null, [
+        schema.text("ΟΣ"),
+        schema.node("hard_break"),
+        schema.text("ΤΑ"),
+      ]),
+    ]);
+    const resolved = resolvePassage(doc, blockSpan(doc, 0), "ΟΣ");
+
+    expect(resolved.kind).toBe("block");
+    expect(resolved.kind === "block" && resolved.ranges).toEqual([{ from: 1, to: 3 }]);
+  });
+
   it("keeps positions honest across mark boundaries", () => {
     // Marks split one sentence into several text nodes; reading textContent
     // would still line up, but reading it per node would not.

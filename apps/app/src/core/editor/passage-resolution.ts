@@ -13,8 +13,8 @@
  *
  * The searchable projection is the delicate part. It must find exactly what the
  * server's search would find, and nothing the writer did not write: text either
- * side of a line break or an image is not one word, and case folding is not
- * length-preserving in every language.
+ * side of a line break or an image is not one word, and case folding is neither
+ * length-preserving nor context-free in every language.
  */
 import type { Node as PMNode } from "@tiptap/pm/model";
 
@@ -93,22 +93,35 @@ type TextRun = { folded: string; source: TextRange[] };
  * contiguity structural rather than a separator character we hope nobody
  * searches for.
  *
- * **Folding is per source character, and its length is not preserved.**
- * `"İ".toLowerCase()` is two code units, so a folded offset is not a source
- * offset; every folded character therefore carries the range of the character
- * that produced it. Iteration is by code point so a surrogate pair is never
- * split. Marks also cut text into several nodes, which is why this walks
- * children instead of reading `textContent`.
+ * **A whole run folds at once, because case is contextual.** `"ΟΣ"` lowercases
+ * to `"ος"` with a final sigma, while folding its letters one at a time gives
+ * `"οσ"` — which fails to match the server's needle and happily matches the
+ * `"ος"` inside a later `"πύργος"`. The server folds whole strings, so a run
+ * is the smallest unit that can agree with it.
+ *
+ * **Folded length is still not source length.** `"İ".toLowerCase()` is two
+ * code units, so every folded unit carries the range of the source code point
+ * behind it, walked by code point so a surrogate pair is never split. The
+ * contextual substitutions are one-for-one, which is what lets that per-code-
+ * point count describe the whole-run fold; when the two ever disagree in
+ * length, the run is searched through the text its own map describes rather
+ * than reporting a position we cannot justify. Marks also cut text into
+ * several nodes, which is why this walks children instead of `textContent`.
  */
 function textRuns(block: PMNode, start: number): TextRun[] {
   const runs: TextRun[] = [];
-  let folded = "";
+  let text = "";
+  let perCodePoint = "";
   let source: TextRange[] = [];
   let offset = 0;
 
   const endRun = () => {
-    if (folded.length > 0) runs.push({ folded, source });
-    folded = "";
+    if (text.length > 0) {
+      const folded = text.toLowerCase();
+      runs.push({ folded: folded.length === source.length ? folded : perCodePoint, source });
+    }
+    text = "";
+    perCodePoint = "";
     source = [];
   };
 
@@ -122,9 +135,10 @@ function textRuns(block: PMNode, start: number): TextRun[] {
         };
         const lowered = character.toLowerCase();
         for (let unit = 0; unit < lowered.length; unit += 1) source.push(range);
-        folded += lowered;
+        perCodePoint += lowered;
         index += character.length;
       }
+      text += child.text;
     } else {
       endRun();
     }
