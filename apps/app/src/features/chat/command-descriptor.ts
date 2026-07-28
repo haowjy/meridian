@@ -85,11 +85,6 @@ export type CommandExpand =
 export type CommandDescriptor = {
   /** One glyph per command. Read down the icon column and the turn has a shape. */
   Icon: LucideIcon;
-  /**
-   * Whether the command changes the writer's document at all. The chip's
-   * draft and failure rules are general and live in {@link commandChipTone}.
-   */
-  mutates: boolean;
   phrases: (tool: ToolView, writeMode: WriteMode) => ToolActivityVocabulary;
   /** A failure is its own claim, so it never reuses the success verb. */
   failureVerb: (writeMode: WriteMode) => string;
@@ -115,7 +110,6 @@ function truncatePattern(pattern: string): string {
 const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
   read: {
     Icon: BookOpen,
-    mutates: false,
     phrases: () => tenses(t`Reading…`, t`Read`),
     failureVerb: () => t`Couldn't read`,
     pathlessTitle: () => t`Read file`,
@@ -125,7 +119,6 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
   // over that payload claims the model saw the words.
   skim: {
     Icon: List,
-    mutates: false,
     phrases: () => tenses(t`Skimming…`, t`Skimmed`),
     failureVerb: () => t`Couldn't read`,
     pathlessTitle: () => t`Read file`,
@@ -133,7 +126,6 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
   },
   create: {
     Icon: FilePlus2,
-    mutates: true,
     phrases: (_tool, writeMode) =>
       writeMode === "draft" ? tenses(t`Drafting…`, t`Drafted`) : tenses(t`Writing…`, t`Wrote`),
     failureVerb: (writeMode) => (writeMode === "draft" ? t`Couldn't draft` : t`Couldn't write`),
@@ -142,7 +134,6 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
   },
   edit: {
     Icon: PenLine,
-    mutates: true,
     phrases: (_tool, writeMode) =>
       writeMode === "draft" ? tenses(t`Drafting…`, t`Drafted`) : tenses(t`Editing…`, t`Edited`),
     failureVerb: (writeMode) => (writeMode === "draft" ? t`Couldn't draft` : t`Couldn't edit`),
@@ -154,7 +145,6 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
   // read, and it holds in draft mode too.
   undo: {
     Icon: Undo2,
-    mutates: true,
     phrases: () => tenses(t`Undoing…`, t`Undid`),
     failureVerb: () => t`Couldn't undo`,
     pathlessTitle: null,
@@ -162,7 +152,6 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
   },
   redo: {
     Icon: Redo2,
-    mutates: true,
     phrases: () => tenses(t`Redoing…`, t`Redid`),
     failureVerb: () => t`Couldn't redo`,
     pathlessTitle: null,
@@ -170,7 +159,6 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
   },
   review: {
     Icon: History,
-    mutates: false,
     phrases: () => tenses(t`Checking recent changes…`, t`Checked recent changes`),
     failureVerb: () => t`Couldn't check recent changes`,
     pathlessTitle: null,
@@ -178,7 +166,6 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
   },
   search: {
     Icon: Search,
-    mutates: false,
     phrases: (tool) => {
       const pattern = stringInput(toolInputObject(tool), "pattern");
       if (!pattern) return tenses(t`Searching…`, t`Searched context`);
@@ -194,7 +181,6 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
   },
   list: {
     Icon: FolderTree,
-    mutates: false,
     phrases: (tool) => {
       const path = stringInput(toolInputObject(tool), "path");
       if (!path) return tenses(t`Exploring folders…`, t`Explored folders`);
@@ -210,7 +196,6 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
   },
   invoke: {
     Icon: Sparkles,
-    mutates: false,
     phrases: (tool) => {
       const slug = stringInput(toolInputObject(tool), "skillname");
       if (!slug) return tenses(t`Invoking a skill…`, t`Invoked a skill`);
@@ -223,7 +208,6 @@ const COMMAND_DESCRIPTORS: Record<ToolCommand, CommandDescriptor> = {
   },
   unknown: {
     Icon: Wrench,
-    mutates: false,
     phrases: (tool) => {
       const name = humanizeToolName(tool.toolName);
       return tenses(name, name);
@@ -256,18 +240,4 @@ export function toolActivityPhrase(
 /** Flattens a phrase for the screen reader, which hears no typography. */
 export function toolActivityAnnouncement(phrase: ToolActivityPhrase): string {
   return phrase.parameter ? `${phrase.verb} ${phrase.parameter}` : phrase.verb;
-}
-
-/**
- * The primary chip means *your document changed*. A draft is a proposal
- * awaiting review, so it has mutated nothing — the draft dock carries that
- * signal instead. A failed command changed nothing either, whatever it
- * intended.
- */
-export function commandChipTone(
-  tool: ToolView,
-  { writeMode = "direct", failed = false }: { writeMode?: WriteMode; failed?: boolean } = {},
-): "primary" | "neutral" {
-  if (failed || writeMode === "draft") return "neutral";
-  return descriptorFor(tool).mutates ? "primary" : "neutral";
 }

@@ -21,7 +21,7 @@
 
 import { memo, useMemo } from "react";
 import { ActivityRow, type ActivityRowStatus } from "./ActivityRow";
-import { commandChipTone, descriptorFor } from "./command-descriptor";
+import { descriptorFor } from "./command-descriptor";
 import type { ToolView } from "./group-delivery-segments";
 import type { WriteMode } from "./tool-command";
 import { rendererFor } from "./tool-renderers";
@@ -48,7 +48,6 @@ function ToolRowComponent({ tool, writeMode = "direct" }: ToolRowProps) {
   return (
     <ActivityRow
       Icon={descriptorFor(tool).Icon}
-      chipTone={commandChipTone(tool, { writeMode, failed: tool.isError })}
       title={presentation.title}
       status={status}
       expand={presentation.expand}

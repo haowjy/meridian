@@ -1,12 +1,7 @@
 import type { Block } from "@meridian/contracts/protocol";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  commandChipTone,
-  descriptorFor,
-  toolActivityAnnouncement,
-  toolActivityPhrase,
-} from "./command-descriptor";
+import { descriptorFor, toolActivityAnnouncement, toolActivityPhrase } from "./command-descriptor";
 import type { ToolView } from "./group-delivery-segments";
 import type { ToolCommand } from "./tool-command";
 
@@ -99,35 +94,6 @@ describe("announcements match the visible row", () => {
       active: "Exploring folders…",
       complete: "Explored folders",
     });
-  });
-});
-
-describe("the primary chip means the document changed", () => {
-  it.each([
-    [{ command: "create" }, "primary"],
-    [{ command: "insert" }, "primary"],
-    [{ command: "undo" }, "primary"],
-    [{ command: "redo" }, "primary"],
-    [{ command: "read" }, "neutral"],
-    [{ command: "diff" }, "neutral"],
-  ])("gives %o the %s chip", (input, expected) => {
-    expect(commandChipTone(toolView({ input }))).toBe(expected);
-  });
-
-  it.each(["grep", "ls", "invoke", "return_result"])("leaves %s neutral", (toolName) => {
-    expect(commandChipTone(toolView({ toolName }))).toBe("neutral");
-  });
-
-  it("leaves a draft neutral, because a proposal has not changed the document", () => {
-    expect(
-      commandChipTone(toolView({ input: { command: "insert" } }), { writeMode: "draft" }),
-    ).toBe("neutral");
-  });
-
-  it("leaves a failed write neutral, because nothing landed", () => {
-    expect(commandChipTone(toolView({ input: { command: "create" } }), { failed: true })).toBe(
-      "neutral",
-    );
   });
 });
 

@@ -65,21 +65,21 @@ rescues static markup.
 ## The command outranks the parameter
 
 Did the agent *look at* my book or *change* it is the timeline's most important
-distinction, and doors add weight to the parameter. Three layers answer it, in
-order of strength:
+distinction, and doors add weight to the parameter. Two layers answer it:
 
 1. **One glyph per command, not per tool.** The icon column is already an
    aligned channel; bound to the command it becomes scannable. The glyph
-   carries **shape only**: every command's icon renders at the same neutral
-   tone, so the column reads as one channel instead of a second colour
-   language arguing with the chip.
-2. **Chip tone.** The chip's ground is where mutation shows: `primary` means
-   *your document changed*. Drafts stay neutral (a proposal has not mutated
-   anything) and so do failed writes.
-3. **Type.** Command at `--ink`/500, parameter at `--muted`/400.
+   carries **shape only**, at one neutral tone for every command.
+2. **Type.** Command at `--ink`/500, parameter at `--muted`/400.
 
-Layer 1 says *what* the command was; layers 2 and 3 say whether it touched the
-book. Do not put mutation back into the glyph.
+**Row chrome is tone-flat, deliberately.** The chip is a place to put the
+glyph, not a signal: it does not tint for mutating commands, and neither does
+anything else in the row. Mutation is carried by the verb the row already says
+(`Wrote`, `Edited` against `Read`, `Searched`) and, durably, by the edits
+receipt, which reports what actually landed rather than what a command
+intended. That leaves jade meaning exactly one thing in the timeline: **this is
+a door.** A second jade in the row chrome would spend the accent on something
+the words already say, and cost the door its only signal.
 
 A fixed-width command column is the escalation if type is not enough. It is
 deferred, not rejected: 64px is 21% of a 360px docked chat.
@@ -88,8 +88,7 @@ deferred, not rejected: 64px is 21% of a 360px docked chat.
 
 `tool-command.ts` classifies the writer-facing command; `command-descriptor.ts`
 holds one exhaustive table of what the timeline does with it, including both
-tenses, the glyph, the chip's mutation policy, the failure verb, and the expand
-shape. Renderers consume the table; nothing derives past tense inline, and
+tenses, the glyph, the failure verb, and the expand shape. Renderers consume the table; nothing derives past tense inline, and
 adding a command is one entry. The same vocabulary feeds
 `useLiveTurnAnnouncements`, so the visible row and the announced string cannot
 drift — they had, for `ls`.

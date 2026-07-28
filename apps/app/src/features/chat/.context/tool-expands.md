@@ -1,7 +1,7 @@
 # features/chat — Tool rendering tiers and what expands show
 
 How a tool call becomes a row, and what opens behind that row's chevron. The
-row's own anatomy (doors, glyph, chip, verb) lives in
+row's own anatomy (doors, glyph, verb, tone) lives in
 [activity-row-anatomy.md](activity-row-anatomy.md); this page owns the
 rendering tiers and the expand contents.
 

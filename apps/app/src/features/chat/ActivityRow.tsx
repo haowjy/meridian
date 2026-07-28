@@ -55,18 +55,10 @@ import { cn } from "@/lib/utils";
 
 export type ActivityRowStatus = "running" | "done" | "error";
 
-/**
- * Answers "did anything change?" before a word is read. `primary` is reserved
- * for commands that mutated the writer's document; everything the agent merely
- * looked at stays neutral.
- */
-export type ActivityRowChipTone = "neutral" | "primary";
-
 export type ActivityRowProps = {
   Icon: LucideIcon;
   /** Preserve the rail gutter while omitting a redundant per-row icon chip. */
   quietIcon?: boolean;
-  chipTone?: ActivityRowChipTone;
   /** Single-line action title (e.g. `Read foo.md`). Omit when using `children`. */
   title?: ReactNode;
   /** Status indicator. Hidden when the row is `done` and not interactive. */
@@ -131,7 +123,6 @@ export const ACTIVITY_ROW_TEXT_INSET = "pl-[29px]";
 export function ActivityRow({
   Icon,
   quietIcon = false,
-  chipTone = "neutral",
   title,
   status,
   expand,
@@ -161,16 +152,11 @@ export function ActivityRow({
     ) : (
       <div className={cn("flex w-[19px] shrink-0 flex-col items-center", ICON_TOP_PAD)}>
         <span className={cn("flex items-center", COMPACT_LINE_BOX, firstLinePad)}>
-          <span
-            className={cn(
-              // The glyph is shape, never signal: every command's icon reads at
-              // the same tone, so the column stays a scannable channel rather
-              // than a second colour language competing with the chip.
-              "grid size-[19px] shrink-0 place-items-center rounded-md text-ink-subtle",
-              chipTone === "primary" ? "bg-chip-primary-bg" : "bg-chip-muted-bg",
-            )}
-            data-chip-tone={chipTone}
-          >
+          {/* Row chrome is deliberately tone-flat. The chip is a place for the
+              glyph, not a signal of its own: whether the agent changed the book
+              is carried by the verb and by the edits receipt, and jade in the
+              timeline means one thing only, which is that something is a door. */}
+          <span className="grid size-[19px] shrink-0 place-items-center rounded-md bg-chip-muted-bg text-ink-subtle">
             <Icon className="size-3" aria-hidden />
           </span>
         </span>
