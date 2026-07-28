@@ -16,10 +16,11 @@ is one physical socket per attached room. The soft-cap warning runs when a live
 session is added but compares the registry's total session count, including
 branch sessions; it does not evict sessions or block attachments.
 
-The current client declares its schema as a strict
-`?schema=major.minor.patch` query value on each Yjs socket. WebSocket subprotocol
-format/parse helpers exist in `@meridian/prosemirror-schema`, but this transport
-does not use them.
+The client declares its schema as the sole WebSocket subprotocol on each Yjs
+socket. `CollabSchemaWebSocket` formats the current version through
+`@meridian/prosemirror-schema`; the Yjs URL carries no schema parameter. The
+subclass wraps `TappedWebSocket` in debug builds and the native `WebSocket` in
+production so observation does not create a second transport path.
 
 ## Stateless document messages
 

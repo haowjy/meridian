@@ -32,8 +32,12 @@ documents from the same node/mark specs.
 - **One client-state partition tag.** `collabSchemaKeyTag()` returns
   `v{major}.{minor}`. IndexedDB persistence, reload guards, and fence quarantine
   reuse state across patch releases but not across schema-surface changes.
-  Subprotocol format/parse helpers are exported for the carrier boundary but
-  are not wired into the current transport.
+- **One WebSocket carrier grammar.** The client offers
+  `meridian.collab.{major}.{minor}.{patch}` as its sole Yjs subprotocol.
+  Header resolution accepts exactly one matching offered token; absent, zero,
+  or multiple matches resolve to the `0.0.0` sentinel. Echo selection returns
+  that sole match, otherwise the first offered token, or nothing when no token
+  was offered.
 - **TipTap parity is load-bearing but unenforced.** Structural changes must be
   mirrored in the app's separately assembled TipTap schema.
 
