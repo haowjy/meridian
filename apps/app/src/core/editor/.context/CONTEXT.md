@@ -30,13 +30,15 @@ Yjs document session. It must stay structurally aligned with
     the React key that owns the mount, and `editorRoomKey()` names the room the
     session registry must supply. Callers derive both from the same identity, so
     a session swap cannot arrive without a new mount.
-  - `useMountedEditor()` freezes construction on first render and manually
-    constructs TipTap in its own effect. One synchronous block snapshots the
-    Y.Doc, arms the schema-repair witness in its open phase, calls `new Editor`,
-    and flips the witness to live before yielding. The hook also owns
-    destruction. Surface changes are reconciled onto the live instance with
-    `setOptions()` and `setEditable()`; they never become construction
-    dependencies.
+  - `useMountedEditor()` freezes one construction bundle on first render:
+    extension configuration, initial options, and the witness's document,
+    horizon-degradation flag, and report callback. It manually constructs TipTap
+    in its own effect. One synchronous block snapshots the Y.Doc, arms the
+    schema-repair witness in its open phase, calls `new Editor`, and flips the
+    witness to live before yielding. The hook also owns destruction. Surface
+    changes are reconciled onto the live instance with `setOptions()` and
+    `setEditable()`; they never become construction dependencies or alter the
+    armed witness.
   - `EditorSurfaceOptions` (editability and ProseMirror `editorProps`) is
     everything that may change mid-mount. Editability needs its own
     `setEditable()` call because TipTap's option sync deliberately re-asserts
@@ -60,22 +62,30 @@ Yjs document session. It must stay structurally aligned with
   synchronously during construction and resolved against the pre-bind snapshot
   by Y item identity; structural boundary tokens keep separate removed passages
   from being concatenated. In live mode, `beforeAllTransactions` and
-  `afterAllTransactions` bound correlation to one Yjs batch. A local,
-  y-sync-origin delete-only transaction becomes a candidate; its pre-GC
+  `afterAllTransactions` bound candidate lifetime to one Yjs batch. A local,
+  y-sync-origin delete-only transaction becomes its own candidate; its pre-GC
   `afterTransaction` capture belongs to an attempt opened at Yjs
   `beforeTransaction`. TipTap's `beforeTransaction`/`transaction` lifecycle
   identifies attempts created by a writer PM transaction, which are discarded
   individually; binding meta (`binding` or `isChangeOrigin`) claims the oldest
   unclaimed attempt, while remote-interleaved unclaimed attempts fall back at
-  batch close. If remote cleanup folds a writer deletion and normalization into
+  batch close. This is per-candidate correlation, not one verdict decision for
+  the whole batch: unrelated user transactions do not discard other candidates.
+  If remote cleanup folds a writer deletion and delete-only normalization into
   one Y transaction, the writer's PM-step deletion evidence is removed from the
-  candidate. Unrelated user transactions do not discard other candidates. Batch
-  close clears PM context synchronously and tokenizes deferred fallback so
-  binding meta cannot leak into a later ordinary writer command. Evidence
-  degrades to node types plus clock magnitude rather than suppressing the verdict.
+  candidate. A normalization coalesced into a mixed delete-and-insert Y
+  transaction is not a candidate at all; the repair still merges and journals,
+  but its notice is lost. Batch close clears PM context synchronously and
+  tokenizes deferred fallback so binding meta cannot leak into a later ordinary
+  writer command. Evidence degrades to node types plus clock magnitude rather
+  than suppressing a candidate verdict.
   Verdicts append to
   `DocumentSessionSnapshot.schemaRepairs`; they do not raise a schema fence,
   write quarantine, change connection status, or pause editing.
+  Reporting is per replica: a client reports only a repair performed by its own
+  binding. Several replicas can therefore report the same arriving invalid
+  content, while a replica that only receives another replica's remote repair
+  reports nothing. There is no room-level reporter or suppression protocol.
 - Live peer marks are the session projection of durable trail changes. Their
   anchored popover lazy-reads trail detail and the originating thread snapshot.
   The popover is evidence and navigation only; producing-turn receipt Undo/Redo

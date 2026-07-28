@@ -30,8 +30,12 @@ change-trail events, not manuscript content.
   snapshot, single update listener, and atomic open-to-live phase transition
   together in `schema-repair-witness.ts`; do not add a second listener or move
   construction back behind TipTap's deferred `useEditor` lifecycle. Its live
-  correlation is scoped to a Yjs transaction batch, not a JavaScript turn, so
-  ordinary writer transactions must remain zero-verdict.
+  correlation resolves each delete-only candidate independently within a Yjs
+  transaction batch; the batch bounds candidate lifetime, not a batch-wide
+  verdict. Ordinary writer transactions must remain zero-verdict. A repair
+  coalesced into a mixed delete-and-insert transaction is intentionally not
+  classified, so do not weaken the delete-only gate without a sound attribution
+  design.
 - Do not persist, branch-project, or locally author peer marks. Resolve
   awareness cursor colors to concrete RGB before publication.
 

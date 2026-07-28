@@ -116,9 +116,10 @@ access uses `DocumentAccessPort.canAccessDocument()`.
 For typed Yjs admission refusals, `YjsConnectionContext.closeTransport` is the
 physical-close seam. `refuseSchemaAdmission()` emits the correlated
 `collab.schema` / `admission.refused` record, then invokes `refuseConnection()`;
-event-delivery failure cannot replace the typed close. The resulting throw only
-aborts the active Hocuspocus hook and must not be treated as close delivery.
-Schema-head comparison semantics remain in the
+event-delivery failure cannot replace the typed close. Its payload is always
+complete: code, reason, room key, and non-null client, head, and server schema
+triples, including the load-path race backstop. The resulting throw only aborts
+the active Hocuspocus hook and must not be treated as close delivery. Schema-head comparison semantics remain in the
 [collab domain](../../domains/collab/.context/document-authority-and-schema.md).
 
 The Yjs gateway resolves the client schema from `Sec-WebSocket-Protocol`.
