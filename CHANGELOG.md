@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- `apps/server`: typed collaboration schema refusals now emit correlated
+  admission records with the compared client, document, and server versions.
 - `apps/server`: schema-aware document reads now repair a private clone instead
   of mutating shared collaboration state, and warn when invalid structure is found.
 - `tools/dev`: worktree pruning now ignores Meridian diagnostics and skips
