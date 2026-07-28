@@ -2,9 +2,12 @@
  * Schema repair witness — observes and reports binding-authored content removal.
  *
  * The witness owns one Y.Doc update listener across both construction and live
- * editing. W1 classifies synchronous construction repairs; the live phase stays
- * armed so its correlation logic can be added without another observation gap.
+ * editing. Construction repairs are unambiguous; live repairs are correlated
+ * with the ProseMirror transaction emitted by the y-sync binding.
  */
+import type { Editor } from "@tiptap/core";
+import type { Transaction } from "@tiptap/pm/state";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
 
 import { PROSEMIRROR_FRAGMENT_NAME } from "./schema";
@@ -16,7 +19,7 @@ export type SchemaRepairEvent = {
   deletedClockCount: number;
   /** Full removed prose, session-scoped (open phase always, live best-effort). */
   removedText?: string;
-  /** Present only when the bind horizon expired before all evidence sources arrived. */
+  /** Present when the bind horizon or pre-GC live capture could not recover all evidence. */
   evidenceDegraded?: true;
 };
 
@@ -34,6 +37,11 @@ type ItemLike = {
   content?: unknown;
 };
 type YTypeLike = { _start: ItemLike | null; nodeName?: string };
+type ExtractedEvidence = {
+  evidence: SchemaRepairEvidence;
+  resolvedClockCount: number;
+  contentUnavailable: boolean;
+};
 
 function decodedDeleteSet(update: Uint8Array): DeleteSet {
   return Y.decodeUpdate(update).ds as DeleteSet;
@@ -73,24 +81,22 @@ function contentType(content: unknown): YTypeLike | null {
  * sibling positions between before and after documents, which would be
  * ambiguous when repeated or nested siblings have the same shape.
  */
-export function extractSchemaRepairEvidence(
-  preRepairSnapshot: Uint8Array,
-  repairUpdate: Uint8Array,
-): SchemaRepairEvidence {
-  const deleteSet = decodedDeleteSet(repairUpdate);
-  const snapshot = new Y.Doc({ gc: false });
-  Y.applyUpdate(snapshot, preRepairSnapshot);
-
+function extractEvidenceFromType(type: YTypeLike, deleteSet: DeleteSet): ExtractedEvidence {
   const deletedNodeTypes: string[] = [];
+  let resolvedClockCount = 0;
+  let contentUnavailable = false;
   type TextToken = { kind: "text"; text: string } | { kind: "boundary" };
-  const walk = (type: YTypeLike): TextToken[] => {
+  const walk = (current: YTypeLike): TextToken[] => {
     const tokens: TextToken[] = [];
-    for (let item = type._start; item; item = item.right) {
+    for (let item = current._start; item; item = item.right) {
       const slices = deletedSlices(item, deleteSet);
       const content = item.content;
+      resolvedClockCount += slices.reduce((total, slice) => total + slice.to - slice.from, 0);
       if (content instanceof Y.ContentString) {
         const text = slices.map((slice) => content.str.slice(slice.from, slice.to)).join("");
         if (text) tokens.push({ kind: "text", text });
+      } else if (slices.length > 0 && content instanceof Y.ContentDeleted) {
+        contentUnavailable = true;
       }
       const child = contentType(content);
       if (!child) continue;
@@ -106,9 +112,7 @@ export function extractSchemaRepairEvidence(
 
   let text = "";
   let boundary = false;
-  for (const token of walk(
-    snapshot.getXmlFragment(PROSEMIRROR_FRAGMENT_NAME) as unknown as YTypeLike,
-  )) {
+  for (const token of walk(type)) {
     if (token.kind === "boundary") {
       if (text) boundary = true;
       continue;
@@ -117,20 +121,44 @@ export function extractSchemaRepairEvidence(
     text += token.text;
     boundary = false;
   }
-  snapshot.destroy();
 
   return {
-    deletedNodeTypes,
-    deletedClockCount: deletedClockCount(deleteSet),
-    ...(text ? { removedText: text } : {}),
+    evidence: {
+      deletedNodeTypes,
+      deletedClockCount: deletedClockCount(deleteSet),
+      ...(text ? { removedText: text } : {}),
+    },
+    resolvedClockCount,
+    contentUnavailable,
   };
 }
+
+export function extractSchemaRepairEvidence(
+  preRepairSnapshot: Uint8Array,
+  repairUpdate: Uint8Array,
+): SchemaRepairEvidence {
+  const deleteSet = decodedDeleteSet(repairUpdate);
+  const snapshot = new Y.Doc({ gc: false });
+  Y.applyUpdate(snapshot, preRepairSnapshot);
+  const { evidence } = extractEvidenceFromType(
+    snapshot.getXmlFragment(PROSEMIRROR_FRAGMENT_NAME) as unknown as YTypeLike,
+    deleteSet,
+  );
+  snapshot.destroy();
+  return evidence;
+}
+
+type PendingLiveRepair = {
+  evidence: SchemaRepairEvidence;
+  evidenceDegraded: boolean;
+  postRepairSnapshot: Uint8Array;
+};
 
 export type SchemaRepairWitness = {
   readonly phase: "open" | "live";
   readonly preBindSnapshot: Uint8Array;
   readonly latestPostRepairSnapshot: Uint8Array | null;
-  enterLive(): void;
+  enterLive(editor: Editor): void;
   destroy(): void;
 };
 
@@ -153,6 +181,106 @@ export function createSchemaRepairWitness({
   const preBindSnapshot = Y.encodeStateAsUpdate(document);
   let phase: "open" | "live" = "open";
   let latestPostRepairSnapshot: Uint8Array | null = null;
+  let editor: Editor | null = null;
+  let precedingProseMirrorTransaction: "binding" | "user" | null = null;
+  let pendingLiveRepairs: PendingLiveRepair[] = [];
+  let remoteTransactionSeen = false;
+  let userProseMirrorTransactionSeen = false;
+  let flushScheduled = false;
+  let destroyed = false;
+
+  const reportLiveRepairs = (repairs: PendingLiveRepair[]) => {
+    for (const repair of repairs) {
+      latestPostRepairSnapshot = repair.postRepairSnapshot;
+      onRepair({
+        phase: "live",
+        detectedAt: now(),
+        ...repair.evidence,
+        ...(repair.evidenceDegraded || evidenceDegraded ? { evidenceDegraded: true as const } : {}),
+      });
+    }
+  };
+
+  const finishFlush = () => {
+    flushScheduled = false;
+    if (destroyed) return;
+    if (pendingLiveRepairs.length > 0 && remoteTransactionSeen && !userProseMirrorTransactionSeen) {
+      reportLiveRepairs(pendingLiveRepairs);
+    }
+    pendingLiveRepairs = [];
+    precedingProseMirrorTransaction = null;
+    remoteTransactionSeen = false;
+    userProseMirrorTransactionSeen = false;
+  };
+
+  const scheduleFlushEnd = () => {
+    if (flushScheduled) return;
+    flushScheduled = true;
+    queueMicrotask(finishFlush);
+  };
+
+  const onProseMirrorTransaction = ({ transaction }: { transaction: Transaction }) => {
+    if (phase !== "live") return;
+    const meta = transaction.getMeta(ySyncPluginKey) as Record<string, unknown> | undefined;
+    const bindingDispatched =
+      meta !== undefined &&
+      (Object.hasOwn(meta, "binding") || Object.hasOwn(meta, "isChangeOrigin"));
+    const transactionKind = bindingDispatched ? "binding" : "user";
+    if (!bindingDispatched) userProseMirrorTransactionSeen = true;
+
+    if (pendingLiveRepairs.length > 0) {
+      if (bindingDispatched) reportLiveRepairs(pendingLiveRepairs);
+      pendingLiveRepairs = [];
+      precedingProseMirrorTransaction = null;
+    } else {
+      precedingProseMirrorTransaction = transactionKind;
+    }
+    scheduleFlushEnd();
+  };
+
+  const onAfterTransaction = (transaction: Y.Transaction) => {
+    if (phase !== "live") return;
+    scheduleFlushEnd();
+    if (!transaction.local) {
+      remoteTransactionSeen = true;
+      return;
+    }
+    if (transaction.origin !== ySyncPluginKey) return;
+
+    const deleteSet = transaction.deleteSet as DeleteSet;
+    const count = deletedClockCount(deleteSet);
+    let insertedClockCount = 0;
+    for (const [client, clock] of transaction.afterState) {
+      insertedClockCount += clock - (transaction.beforeState.get(client) ?? 0);
+    }
+    if (count === 0 || insertedClockCount !== 0) return;
+
+    // afterTransaction runs before Yjs replaces deleted structs with
+    // ContentDeleted under gc:true. Capture now; correlation may resolve later
+    // in this same JavaScript flush without retaining the deleted structs.
+    const extracted = extractEvidenceFromType(
+      document.getXmlFragment(PROSEMIRROR_FRAGMENT_NAME) as unknown as YTypeLike,
+      deleteSet,
+    );
+    const candidate: PendingLiveRepair = {
+      evidence: extracted.evidence,
+      evidenceDegraded:
+        extracted.contentUnavailable ||
+        extracted.resolvedClockCount < extracted.evidence.deletedClockCount,
+      postRepairSnapshot: Y.encodeStateAsUpdate(document),
+    };
+
+    if (precedingProseMirrorTransaction === "binding") {
+      reportLiveRepairs([candidate]);
+      precedingProseMirrorTransaction = null;
+      return;
+    }
+    if (precedingProseMirrorTransaction === "user") {
+      precedingProseMirrorTransaction = null;
+      return;
+    }
+    pendingLiveRepairs.push(candidate);
+  };
 
   const onUpdate = (
     update: Uint8Array,
@@ -180,6 +308,7 @@ export function createSchemaRepairWitness({
   };
 
   document.on("update", onUpdate);
+  document.on("afterTransaction", onAfterTransaction);
 
   return {
     get phase() {
@@ -189,11 +318,16 @@ export function createSchemaRepairWitness({
     get latestPostRepairSnapshot() {
       return latestPostRepairSnapshot;
     },
-    enterLive() {
+    enterLive(liveEditor) {
+      editor = liveEditor;
+      editor.on("transaction", onProseMirrorTransaction);
       phase = "live";
     },
     destroy() {
+      destroyed = true;
+      editor?.off("transaction", onProseMirrorTransaction);
       document.off("update", onUpdate);
+      document.off("afterTransaction", onAfterTransaction);
     },
   };
 }

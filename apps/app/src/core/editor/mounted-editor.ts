@@ -137,13 +137,12 @@ export function useMountedEditor({
     let mounted: Editor;
     try {
       mounted = new Editor(initialOptions);
+      // Atomic with construction: live observation starts before this effect
+      // yields, rather than in a later effect or TipTap's deferred onCreate.
+      witness.enterLive(mounted);
     } catch (error) {
       witness.destroy();
       throw error;
-    } finally {
-      // Atomic with construction: live observation starts before this effect
-      // yields, rather than in a later effect or TipTap's deferred onCreate.
-      witness.enterLive();
     }
     setEditor(mounted);
     return () => {

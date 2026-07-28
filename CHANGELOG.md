@@ -4,7 +4,8 @@
 
 - `apps/app`: chapters now wait briefly for complete local and server state
   before binding, then report schema-normalized prose in a dismissible copyable
-  notice without blocking editing.
+  notice without blocking editing; repairs that arrive during live
+  collaboration are now reported too, while ordinary typing stays silent.
 - `tools/dev`: worktree pruning now ignores Meridian diagnostics and skips
   work items that disappear during discovery.
 - `apps/app`: schema-fenced chapters now remain quarantined and read-only, with
