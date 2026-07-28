@@ -290,6 +290,60 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       );
     });
 
+    it("restamps persisted branches monotonically", async () => {
+      const branch = await store.ensureWorkDraftBranch({
+        documentId: DOC_ID as never,
+        workId: WORK_ID as never,
+        liveDoc: docWithText("initial"),
+      });
+      const stalePacked = packCollabSchemaVersion({ major: 0, minor: 0, patch: 4 });
+      await db
+        .update(documentBranches)
+        .set({ schemaVersion: stalePacked })
+        .where(eq(documentBranches.id, branch.branchId));
+
+      const currentDoc = docWithText("current server edit");
+      const currentState = Y.encodeStateAsUpdate(currentDoc);
+      const currentStateVector = Y.encodeStateVector(currentDoc);
+      await expect(
+        store.updateBranchSnapshot({
+          branchId: branch.branchId,
+          expectedGeneration: branch.generation,
+          expectedState: branch.state,
+          expectedStateVector: branch.stateVector,
+          state: currentState,
+          stateVector: currentStateVector,
+        }),
+      ).resolves.toBe(true);
+      const [restamped] = await db
+        .select({ schemaVersion: documentBranches.schemaVersion })
+        .from(documentBranches)
+        .where(eq(documentBranches.id, branch.branchId));
+      expect(restamped?.schemaVersion).toBe(packCollabSchemaVersion(COLLAB_SCHEMA_VERSION));
+
+      const aheadPacked = packCollabSchemaVersion({ major: 0, minor: 2, patch: 7 });
+      await db
+        .update(documentBranches)
+        .set({ schemaVersion: aheadPacked })
+        .where(eq(documentBranches.id, branch.branchId));
+      const rollbackDoc = docWithText("rollback server edit");
+      await expect(
+        store.updateBranchSnapshot({
+          branchId: branch.branchId,
+          expectedGeneration: branch.generation,
+          expectedState: currentState,
+          expectedStateVector: currentStateVector,
+          state: Y.encodeStateAsUpdate(rollbackDoc),
+          stateVector: Y.encodeStateVector(rollbackDoc),
+        }),
+      ).resolves.toBe(true);
+      const [preserved] = await db
+        .select({ schemaVersion: documentBranches.schemaVersion })
+        .from(documentBranches)
+        .where(eq(documentBranches.id, branch.branchId));
+      expect(preserved?.schemaVersion).toBe(aheadPacked);
+    });
+
     it("persists live->work and work->thread pulls", async () => {
       const live = docWithText("live prose");
       const work = await store.ensureWorkDraftBranch({

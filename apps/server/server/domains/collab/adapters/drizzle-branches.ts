@@ -552,11 +552,13 @@ export function createDrizzleBranchStore(
   async function updateBranchSnapshot(
     input: PersistBranchInput | ResetBranchSnapshotInput,
   ): Promise<boolean> {
+    const packedSchemaVersion = packCollabSchemaVersion(COLLAB_SCHEMA_VERSION);
     const [row] = await currentDrizzleDb(db)
       .update(documentBranches)
       .set({
         state: Buffer.from(input.state),
         stateVector: Buffer.from(input.stateVector),
+        schemaVersion: sql`greatest(${documentBranches.schemaVersion}, ${packedSchemaVersion})`,
         updatedAt: new Date(),
       })
       .where(
