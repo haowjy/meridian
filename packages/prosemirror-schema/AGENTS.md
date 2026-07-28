@@ -19,8 +19,10 @@ Shared ProseMirror structural contract used by TipTap/Yjs editor code.
 
 ## Schema version bump policy
 
-`src/schema-shape.snapshot.json` records the collab schema version and the
-surface protected by `src/schema-shape.test.ts`.
+`src/schema-shape.history.json` is the append-only record of collab schema
+versions and surfaces protected by `src/schema-shape.test.ts`. Never modify or
+remove an existing entry. Append the new version and surface so the test can
+classify the transition from its immutable predecessor.
 
 | Change | Version class |
 |---|---|
@@ -30,7 +32,7 @@ surface protected by `src/schema-shape.test.ts`.
 | Node/mark/attribute removed or renamed, fragment renamed, or Yjs encoding changed | Major `(x+1).0.0`, human ruling, and migration plan |
 
 Minor is additive even for `0.x`. Patch changes must keep the surface
-identical. A major is expected never; do not update the snapshot around a
+identical. A major is expected never; do not append an entry around a
 removal or encoding change without the required ruling and migration plan.
 Schema changes must still update TipTap extensions, markdown adapters, and
 schema parity coverage together.

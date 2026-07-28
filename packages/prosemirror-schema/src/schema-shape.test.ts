@@ -1,4 +1,5 @@
-/** Snapshot and bump-class gate for the collaboration schema surface. */
+/** Append-only history and bump-class gate for the collaboration schema surface. */
+import { execFileSync } from "node:child_process";
 import type { Attrs, MarkSpec, NodeSpec } from "prosemirror-model";
 import { describe, expect, it } from "vitest";
 import {
@@ -8,9 +9,11 @@ import {
   documentNodes,
   PROSEMIRROR_FRAGMENT_NAME,
 } from "./index.js";
-import snapshot from "./schema-shape.snapshot.json";
+import versionHistory from "./schema-shape.history.json";
 
 const POLICY = "packages/prosemirror-schema/AGENTS.md#schema-version-bump-policy";
+const HISTORY_PATH = "packages/prosemirror-schema/src/schema-shape.history.json";
+const PREDECESSOR_PATH = "packages/prosemirror-schema/src/schema-shape.snapshot.json";
 
 type AttributeSurface = {
   hasDefault: boolean;
@@ -28,7 +31,7 @@ type SchemaSurface = {
   marks: Record<string, TypeSurface>;
 };
 
-type SchemaShapeSnapshot = {
+type SchemaShapeHistoryEntry = {
   version: CollabSchemaVersion;
   surface: SchemaSurface;
 };
@@ -116,8 +119,15 @@ function validateBump(
   bump: BumpClass,
 ): void {
   if (bump === "none") {
-    if (!equal(previous, current)) {
-      throw new Error("An identical schema surface requires the snapshot version to be updated.");
+    const unchanged = equal(previous, current);
+    const nextPatch =
+      current.major === previous.major &&
+      current.minor === previous.minor &&
+      current.patch === previous.patch + 1;
+    if (!unchanged && !nextPatch) {
+      throw new Error(
+        "An identical schema surface permits only an unchanged version or the next patch.",
+      );
     }
     return;
   }
@@ -138,14 +148,93 @@ function validateBump(
   }
 }
 
-const baseline = snapshot as SchemaShapeSnapshot;
+const history = versionHistory as SchemaShapeHistoryEntry[];
+const baseline = history[history.length - 1];
+
+if (!baseline) {
+  throw new Error("The collaboration schema version history must contain an initial entry.");
+}
+
+function git(...args: string[]): string {
+  return execFileSync("git", args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+}
+
+function historyAt(reference: string): SchemaShapeHistoryEntry[] | null {
+  try {
+    return JSON.parse(git("show", `${reference}:${HISTORY_PATH}`)) as SchemaShapeHistoryEntry[];
+  } catch {
+    return null;
+  }
+}
+
+function predecessorSnapshot(): SchemaShapeHistoryEntry {
+  const deletion = git(
+    "log",
+    "--full-history",
+    "-1",
+    "--format=%H",
+    "--diff-filter=D",
+    "--",
+    `:(top)${PREDECESSOR_PATH}`,
+  );
+  if (!deletion) {
+    throw new Error(`Cannot locate the immutable predecessor ${PREDECESSOR_PATH}.`);
+  }
+  try {
+    return JSON.parse(git("show", `${deletion}^:${PREDECESSOR_PATH}`)) as SchemaShapeHistoryEntry;
+  } catch {
+    throw new Error(`Cannot read the immutable predecessor ${PREDECESSOR_PATH}.`);
+  }
+}
+
+function baseReference(): string | null {
+  if (process.env.GITHUB_EVENT_NAME === "pull_request") return "HEAD^1";
+  try {
+    return git("merge-base", "HEAD", "origin/main");
+  } catch {
+    return null;
+  }
+}
+
+function expectHistoryPrefix(reference: string): boolean {
+  const previous = historyAt(reference);
+  if (!previous) return false;
+  expect(
+    history.slice(0, previous.length),
+    `Existing collaboration schema history entries from ${reference} are immutable; append a new entry instead.`,
+  ).toEqual(previous);
+  return true;
+}
 
 describe("collaboration schema shape", () => {
-  it("matches the recorded surface and version", () => {
-    const surface = currentSurface();
-    const bump = classifySurfaceChange(baseline.surface, surface);
-    validateBump(baseline.version, COLLAB_SCHEMA_VERSION, bump);
-    expect(surface).toEqual(baseline.surface);
+  it("only appends to committed version history", () => {
+    if (!expectHistoryPrefix("HEAD")) {
+      throw new Error(`Cannot read committed collaboration schema history from ${HISTORY_PATH}.`);
+    }
+    const base = baseReference();
+    if (!base || base === git("rev-parse", "HEAD")) return;
+    if (!expectHistoryPrefix(base)) {
+      expect(history[0], "The initial history entry must match its immutable predecessor.").toEqual(
+        predecessorSnapshot(),
+      );
+    }
+  });
+
+  it("preserves valid transitions in the append-only version history", () => {
+    for (let index = 1; index < history.length; index += 1) {
+      const previous = history[index - 1];
+      const current = history[index];
+      const bump = classifySurfaceChange(previous.surface, current.surface);
+      validateBump(previous.version, current.version, bump);
+    }
+  });
+
+  it("matches the latest recorded surface and version", () => {
+    expect(currentSurface()).toEqual(baseline.surface);
+    expect(COLLAB_SCHEMA_VERSION).toEqual(baseline.version);
   });
 
   it("permits an identical surface without a bump", () => {
