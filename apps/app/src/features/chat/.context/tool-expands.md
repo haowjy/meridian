@@ -104,7 +104,9 @@ rule, never by spacing alone.
   matched (`4 of 42`). That is a different fact from the totals and it only
   appears when the list was actually cut.
 - **The count badge is per document, right-aligned, and always present** —
-  including at one. It sits in a column, and a blank cell in a column is worse
+  including at one. The contract guarantees it: a hit without a positive count,
+  or without a passage to show, is refused at normalization rather than
+  rendered around. Downstream code takes the shape as given. It sits in a column, and a blank cell in a column is worse
   than a `1`. It counts the whole document, not the passages fetched, so it
   stays honest when the server's cap clipped the list. The words live in
   screen-reader-only text; the badge itself is the bare number, because a

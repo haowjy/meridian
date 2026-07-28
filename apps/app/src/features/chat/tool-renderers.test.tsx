@@ -208,7 +208,11 @@ describe("runtime tool registry", () => {
       toolName: "search",
       input: { pattern: "Elara" },
       output: [
-        { uri: "manuscript://chapter-2.md", matches: [{ excerpt: "Then elara spoke the name." }] },
+        {
+          uri: "manuscript://chapter-2.md",
+          matches: [{ excerpt: "Then elara spoke the name." }],
+          matchCount: 1,
+        },
       ],
     });
 
@@ -227,7 +231,11 @@ describe("runtime tool registry", () => {
       toolName: "search",
       input: { pattern: "gate" },
       output: [
-        { uri: "manuscript://chapter-2.md", matches: [{ excerpt: `${lead}the gate opened.` }] },
+        {
+          uri: "manuscript://chapter-2.md",
+          matches: [{ excerpt: `${lead}the gate opened.` }],
+          matchCount: 1,
+        },
       ],
     });
 
@@ -243,7 +251,11 @@ describe("runtime tool registry", () => {
     const tool = writeToolView({
       toolName: "search",
       output: [
-        { uri: "manuscript://chapter-2.md", matches: [{ excerpt: "The hollow gate stood." }] },
+        {
+          uri: "manuscript://chapter-2.md",
+          matches: [{ excerpt: "The hollow gate stood." }],
+          matchCount: 1,
+        },
       ],
     });
 
@@ -256,6 +268,7 @@ describe("runtime tool registry", () => {
       output: Array.from({ length: 42 }, (_, index) => ({
         uri: `manuscript://chapter-${index + 1}.md`,
         matches: [{ excerpt: "The dragon stirred beneath the mountain." }],
+        matchCount: 1,
       })),
     });
 
@@ -272,7 +285,11 @@ describe("runtime tool registry", () => {
     const tool = writeToolView({
       toolName: "search",
       output: [
-        { uri: "manuscript://chapter-12.md", matches: [{ excerpt: "The dragon stirred." }] },
+        {
+          uri: "manuscript://chapter-12.md",
+          matches: [{ excerpt: "The dragon stirred." }],
+          matchCount: 1,
+        },
       ],
     });
 

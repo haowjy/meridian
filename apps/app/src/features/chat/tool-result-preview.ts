@@ -63,11 +63,16 @@ export type SearchPassage = {
  * One document a search matched. `matchCount` counts the whole document, while
  * `passages` holds only what the server sent — the count is what stays honest
  * about the difference.
+ *
+ * Both are guaranteed here rather than guarded downstream: a hit with no
+ * passage has nothing to show, and a hit that cannot say how much it found
+ * cannot fill its badge. Either one is a malformed payload, and the honest
+ * place to refuse it is the boundary that reads it.
  */
 export type SearchHitRow = {
   uri: string;
-  passages: SearchPassage[];
-  matchCount?: number;
+  passages: [SearchPassage, ...SearchPassage[]];
+  matchCount: number;
 };
 
 /**
@@ -85,8 +90,8 @@ export type ToolResultRows = CappedList<ToolResultRow>;
 
 /**
  * A capped list of documents plus what the search found across all of them.
- * `matches` is 0 when any hit failed to say, which is what keeps the card's
- * header from claiming a total it cannot stand behind.
+ * `matches` is 0 when the payload holds an entry that cannot say, which is
+ * what keeps the card's header from claiming a total it cannot stand behind.
  */
 export type SearchResultRows = CappedList<SearchHitRow> & { matches: number };
 
@@ -182,6 +187,7 @@ function isRecord(value: JsonValue): value is Record<string, JsonValue> {
  */
 function searchHit(row: Record<string, JsonValue>, pattern?: string): SearchHitRow | null {
   if (typeof row.uri !== "string" || !Array.isArray(row.matches)) return null;
+  if (typeof row.matchCount !== "number" || row.matchCount < 1) return null;
   const passages: SearchPassage[] = [];
   for (const match of row.matches) {
     if (!isRecord(match) || typeof match.excerpt !== "string") continue;
@@ -192,12 +198,9 @@ function searchHit(row: Record<string, JsonValue>, pattern?: string): SearchHitR
         : {}),
     });
   }
-  if (passages.length === 0) return null;
-  return {
-    uri: row.uri,
-    passages,
-    ...(typeof row.matchCount === "number" ? { matchCount: row.matchCount } : {}),
-  };
+  const [best, ...rest] = passages;
+  if (!best) return null;
+  return { uri: row.uri, passages: [best, ...rest], matchCount: row.matchCount };
 }
 
 /** How much run-up to a match the row keeps before it cuts and marks the cut. */

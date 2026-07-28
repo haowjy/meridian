@@ -190,7 +190,7 @@ function SearchHit({ row }: { row: SearchHitRow }) {
     <>
       <div className="flex min-w-0 items-baseline gap-[7px] text-compact font-medium text-prose-foreground">
         <DocumentName path={row.uri} />
-        <MatchCount count={row.matchCount ?? row.passages.length} />
+        <MatchCount count={row.matchCount} />
       </div>
       <div className="mt-0.5">
         <PassageDoor path={row.uri} excerpt={best.excerpt} passage={best.passage} />

@@ -103,6 +103,7 @@ describe("caps and bounds", () => {
     const hits = Array.from({ length: 42 }, (_, index) => ({
       uri: `manuscript://chapter-${index + 1}.md`,
       matches: [{ excerpt: "The hollow gate stood." }],
+      matchCount: 1,
     }));
 
     expect(normalizeSearchHits(hits).rows).toHaveLength(4);
@@ -152,9 +153,14 @@ describe("what a search says it found", () => {
     expect(rows.rows[0].passages[0]).not.toHaveProperty("passage");
   });
 
-  it("skips a hit with no readable passage rather than rendering an empty section", () => {
-    expect(normalizeSearchHits([{ uri: "manuscript://a.md", matches: [] }], "x").rows).toEqual([]);
-    expect(normalizeSearchHits([{ uri: "manuscript://a.md" }], "x").rows).toEqual([]);
+  it("refuses a hit the contract says cannot exist, rather than rendering around it", () => {
+    const reject = (entry: unknown) =>
+      expect(normalizeSearchHits([entry as never], "x").rows).toEqual([]);
+
+    reject({ uri: "manuscript://a.md", matches: [], matchCount: 1 });
+    reject({ uri: "manuscript://a.md", matchCount: 1 });
+    reject({ uri: "manuscript://a.md", matches: [{ excerpt: "x is here." }] });
+    reject({ uri: "manuscript://a.md", matches: [{ excerpt: "x is here." }], matchCount: 0 });
   });
 
   it("heads the card with totals counted across the whole payload", () => {
@@ -171,7 +177,9 @@ describe("what a search says it found", () => {
     expect(boundLabel(normalizeSearchHits(hits, "elara"))).toBe("4 of 42");
   });
 
-  it("claims no total when any hit declines to count", () => {
+  it("claims no total when the payload holds an entry it cannot count", () => {
+    // `total` is the payload's size; a rejected entry still counted toward it,
+    // so the header must not multiply out a total it cannot stand behind.
     const hits = [hit(1, 3), { uri: "kb://elara.md", matches: [{ excerpt: "A scout." }] }];
 
     expect(searchCardSummary(normalizeSearchHits(hits, "elara"))).toBe("2 documents");
