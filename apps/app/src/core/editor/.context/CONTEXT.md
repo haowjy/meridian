@@ -195,6 +195,11 @@ ProseMirror text:
    a novelist to a nearby-but-wrong paragraph is worse than saying nothing was
    found.
 
+The notice's lifetime is store-owned and token-scoped, never the rendering
+component's. A notice is about a navigation, and navigations continue while its
+document is off screen; leaving expiry to the component stranded it, so
+returning to that document later replayed a forgotten complaint.
+
 The searchable projection is where honesty is won or lost. Text runs break at
 every non-text inline leaf, so `gate` and `keeper` either side of a hard break
 can never read as the unique `gatekeeper` step 2 is allowed to jump to, and

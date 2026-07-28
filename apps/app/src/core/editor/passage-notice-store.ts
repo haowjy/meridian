@@ -5,42 +5,61 @@
  *
  * A door that silently lands at the top of a chapter is the failure this
  * exists to prevent — the writer would read the wrong paragraph believing it
- * was the one they searched for. One notice at a time, keyed by document, so a
- * later jump replaces an earlier one rather than stacking.
+ * was the one they searched for.
+ *
+ * **The notice's life belongs to the store, not to whoever is rendering it.**
+ * A notice is about a navigation, and navigations keep happening whether or
+ * not its document is on screen. Leaving expiry to the component meant
+ * switching tabs stranded the notice, so returning to that document days later
+ * would greet the writer with a stale complaint about a search they had
+ * forgotten. Each notice carries a token so an older expiry can never take a
+ * newer notice with it.
  *
  * Client-only module singleton, like the announcement store: nothing here is
  * SSR-rendered, so no per-request isolation is needed.
  */
 import { create } from "zustand";
 
-type PassageNoticeStore = {
-  /** The document currently showing a stale-passage notice, if any. */
-  documentId: string | null;
-  /** Serial of the current notice, so a repeat jump restarts its dismissal. */
-  raisedAt: number;
-  reportPassageChanged: (documentId: string) => void;
-  dismissPassageNotice: () => void;
-};
+/** Long enough to read one sentence while glancing at the page behind it. */
+const NOTICE_LIFETIME_MS = 7_000;
 
-const usePassageNoticeStore = create<PassageNoticeStore>((set) => ({
-  documentId: null,
-  raisedAt: 0,
-  reportPassageChanged: (documentId) => set({ documentId, raisedAt: Date.now() }),
-  dismissPassageNotice: () => set({ documentId: null, raisedAt: 0 }),
-}));
+type PassageNotice = { documentId: string; token: number };
+
+const usePassageNoticeStore = create<{ notice: PassageNotice | null }>(() => ({ notice: null }));
+
+let expiry: ReturnType<typeof setTimeout> | null = null;
+let issued = 0;
+
+function cancelExpiry(): void {
+  if (expiry === null) return;
+  clearTimeout(expiry);
+  expiry = null;
+}
 
 /** Say that a jump into this document could not find the passage it promised. */
 export function reportPassageChanged(documentId: string): void {
-  usePassageNoticeStore.getState().reportPassageChanged(documentId);
+  issued += 1;
+  const token = issued;
+  cancelExpiry();
+  usePassageNoticeStore.setState({ notice: { documentId, token } });
+  expiry = setTimeout(() => dismissPassageNotice(token), NOTICE_LIFETIME_MS);
 }
 
-export function dismissPassageNotice(): void {
-  usePassageNoticeStore.getState().dismissPassageNotice();
+/**
+ * Clear the notice. With a token, only the notice that token belongs to — an
+ * expiry that has already been queued must not silence the navigation that
+ * superseded it.
+ */
+export function dismissPassageNotice(token?: number): void {
+  const { notice } = usePassageNoticeStore.getState();
+  if (!notice || (token !== undefined && notice.token !== token)) return;
+  cancelExpiry();
+  usePassageNoticeStore.setState({ notice: null });
 }
 
-/** `null` when this document has nothing to say; otherwise the notice's serial. */
-export function usePassageNotice(documentId: string | null): number | null {
-  return usePassageNoticeStore((state) =>
-    documentId !== null && state.documentId === documentId ? state.raisedAt : null,
+/** Whether this document is the one currently owed an explanation. */
+export function usePassageNotice(documentId: string | null): boolean {
+  return usePassageNoticeStore(
+    (state) => documentId !== null && state.notice?.documentId === documentId,
   );
 }
