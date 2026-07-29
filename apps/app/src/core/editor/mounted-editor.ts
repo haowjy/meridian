@@ -13,14 +13,14 @@
  *   `setOptions` sync (plus `setEditable`, which that sync deliberately skips).
  */
 import type { YjsTrackedSchemaType } from "@meridian/contracts/protocol";
-import type { Editor, EditorOptions } from "@tiptap/core";
-import { useEditor } from "@tiptap/react";
+import { Editor, type EditorOptions } from "@tiptap/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { AgentNameStore } from "./agent-name-store";
 import { createEditorConfig } from "./config";
 import type { DocumentSession } from "./document-session";
 import type { SlashCommandCatalog } from "./extensions/SlashCommandExtension";
+import { createSchemaRepairWitness, type SchemaRepairEvent } from "./schema-repair-witness";
 
 type EditorMountBase = {
   documentId: string;
@@ -89,6 +89,8 @@ export type MountedEditorInput = {
    */
   slashCommandCatalog?: () => SlashCommandCatalog | null;
   surface: EditorSurfaceOptions;
+  /** The horizon expired, so any resulting verdict must carry that limitation. */
+  evidenceDegraded?: boolean;
 };
 
 export function useMountedEditor({
@@ -98,6 +100,7 @@ export function useMountedEditor({
   placeholder,
   slashCommandCatalog,
   surface,
+  evidenceDegraded = false,
 }: MountedEditorInput): Editor | null {
   // The getter is read at menu-open time, so freezing the reference is safe
   // only if it never goes stale. Keep the live one in a ref the frozen getter
@@ -107,8 +110,8 @@ export function useMountedEditor({
   // Frozen on first render: identity is constant for the mount by construction
   // (the mount key covers it), and freezing keeps the extension array's identity
   // stable so TipTap's option sync never sees a reason to touch the schema.
-  const [construction] = useState(() =>
-    createEditorConfig({
+  const [construction] = useState(() => {
+    const editorConfig = createEditorConfig({
       document: session.document,
       awareness: session.awareness,
       cursorProvider: session.cursorProvider,
@@ -121,28 +124,62 @@ export function useMountedEditor({
       placeholder,
       autofocus: false,
       slashCommands: { catalog: () => catalogRef.current?.() ?? null },
-    }),
-  );
+    });
+    return {
+      editorConfig,
+      initialOptions: {
+        ...editorConfig,
+        editable: surface.editable,
+        editorProps: { ...editorConfig.editorProps, ...surface.editorProps },
+      },
+      witness: {
+        document: session.document,
+        evidenceDegraded,
+        onRepair: (event: SchemaRepairEvent) => session.reportSchemaRepair(event),
+      },
+    };
+  });
 
-  const options = useMemo(
+  const options = useMemo<Partial<EditorOptions>>(
     () => ({
-      ...construction,
+      ...construction.editorConfig,
       editable: surface.editable,
-      editorProps: { ...construction.editorProps, ...surface.editorProps },
-      immediatelyRender: false,
-      shouldRerenderOnTransaction: false,
+      editorProps: { ...construction.editorConfig.editorProps, ...surface.editorProps },
     }),
     [construction, surface.editable, surface.editorProps],
   );
 
-  // TipTap 3 syncs changed options onto the live instance instead of rebuilding it.
-  const editor = useEditor(options);
+  const [editor, setEditor] = useState<Editor | null>(null);
 
   useEffect(() => {
-    // That sync re-asserts the editor's current editable flag rather than the
-    // one it was handed, so editability needs its own seam.
-    if (editor && !editor.isDestroyed) editor.setEditable(surface.editable, false);
-  }, [editor, surface.editable]);
+    // TipTap's useEditor defers construction into its own passive effect when
+    // immediatelyRender is false. Owning construction here is what creates one
+    // gap-free synchronous bracket around every extension lifecycle mutation.
+    const witness = createSchemaRepairWitness(construction.witness);
+    let mounted: Editor;
+    try {
+      mounted = new Editor(construction.initialOptions);
+      // Atomic with construction: live observation starts before this effect
+      // yields, rather than in a later effect or TipTap's deferred onCreate.
+      witness.enterLive(mounted);
+    } catch (error) {
+      witness.destroy();
+      throw error;
+    }
+    setEditor(mounted);
+    return () => {
+      witness.destroy();
+      if (!mounted.isDestroyed) mounted.destroy();
+    };
+  }, [construction]);
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    // Match useEditor's option reconciliation without letting changed surface
+    // options become construction dependencies.
+    editor.setOptions({ ...options, editable: editor.isEditable });
+    editor.setEditable(surface.editable, false);
+  }, [editor, options, surface.editable]);
 
   return editor;
 }

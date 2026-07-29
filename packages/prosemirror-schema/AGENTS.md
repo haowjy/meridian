@@ -3,10 +3,10 @@
 Shared ProseMirror structural contract used by TipTap/Yjs editor code.
 
 - Preserve structural compatibility between server document logic and the app's
-  separately built TipTap editor. Parity is currently unenforced, so any attr or
-  node added here has to be mirrored by hand in
-  `apps/app/src/core/editor/extensions/meridian-extensions.ts`; a schema the two
-  sides disagree on decodes on one and fails on the other.
+  separately built TipTap editor. Every attr or node added here is mirrored by
+  hand in `apps/app/src/core/editor/extensions/meridian-extensions.ts`, and
+  `apps/app/src/core/editor/schema-parity.test.ts` mechanically guards node/mark
+  names and structural specs against that mirror.
 - Export structural node/mark specs, `buildDocumentSchema()`, schema versioning,
   the shared fragment name, reserved client-ID policy, and the Y.Doc factory.
   DOM parsing/rendering belongs to TipTap extensions and markdown serializers,

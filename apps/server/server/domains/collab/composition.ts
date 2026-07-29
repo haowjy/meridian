@@ -17,6 +17,7 @@ import {
   createAgentEditObservabilityOptions,
   createBranchAgentEditDiagnostics,
   createDocumentProjectionDiagnostics,
+  createMarkdownSerializationAnomalyObserver,
   createReversalNoticeDiagnostics,
   createSweepProjectionDiagnostics,
 } from "./adapters/agent-edit-observability.js";
@@ -189,6 +190,7 @@ export function createCollabDomain(deps: CollabDomainDeps): CollabDomain {
     resolveDocumentFiletype: lookups.resolveDocumentFiletype,
     observability,
     assetPathResolver: deps.assetPathResolver,
+    observeSerializationAnomaly: createMarkdownSerializationAnomalyObserver(deps.eventSink),
   });
   const projectionRefresher = createDocumentProjectionRefresher({
     documents: runtime.markdownDocuments,

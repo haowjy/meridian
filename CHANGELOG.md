@@ -23,8 +23,17 @@
 - `packages/prosemirror-schema`: collaboration schema surface is now `0.2.0`.
   Block alignment adds an `align` attr to paragraphs, headings, and tables, so
   clients below `0.2` no longer bind documents that carry one.
-- `packages/prosemirror-schema`: TipTap/server schema parity has no automated
-  guard (the test was removed pre-launch); the colocated docs no longer claim one.
+- `apps/app`: chapters now wait briefly for complete local and server state
+  before binding, then report schema-normalized prose in a dismissible copyable
+  notice without blocking editing; repairs that arrive during live
+  collaboration are now reported too, while ordinary typing stays silent.
+- `apps/server`: typed collaboration schema refusals now emit correlated
+  admission records with the compared client, document, and server versions.
+- `apps/server`: schema-aware document reads now repair a private clone instead
+  of mutating shared collaboration state, and warn when invalid structure is found.
+- `apps/app`: a document whose kind the app doesn't recognize (an
+  ordinary markdown chapter, for one) now shows a plain file icon in the
+  chat context rail instead of blanking the whole project view.
 - `apps/app`: document names in the activity timeline are now doors — clicking
   a name opens that document in the context pane; clicking the rest of the row
   still toggles its detail. Names stay plain text where navigation can't work
@@ -101,7 +110,9 @@
   section per document separated by a rule, a match count beside each name, and
   "N more" to grow a document's passages in place. The searched word is the
   handle you click, and each passage opens at its own place in the document.
-
+- `apps/app`: the TipTap editor schema and the server document schema are
+  structurally compared again by a parity unit test, so drift fails `pnpm check`
+  instead of surfacing as decode/sync errors.
 - `apps/server`: Anthropic-format cache usage now normalizes to inclusive input
   totals, so uncached prompt tokens are priced instead of silently clamped away;
   OpenAI-compatible trailing usage-only chunks are also retained.

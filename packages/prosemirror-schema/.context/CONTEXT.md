@@ -38,9 +38,10 @@ documents from the same node/mark specs.
   or multiple matches resolve to the `0.0.0` sentinel. Echo selection returns
   that sole match, otherwise the first offered token, or nothing when no token
   was offered.
-- **TipTap parity is load-bearing but unenforced.** `createEditorExtensions()`
-  must build a schema structurally equal to this package's, and no test compares
-  them. Treat every change here as a two-file change.
+- **TipTap parity is load-bearing.** The app test
+  `apps/app/src/core/editor/schema-parity.test.ts` mechanically compares the
+  TipTap schema from `createEditorExtensions()` against this package by
+  node/mark names and structural specs.
 
 ## Current document surface
 
@@ -86,8 +87,7 @@ markdown scene breaks, while leaving product UX and DOM rendering out of scope.
 
 - Add a node/mark here only when the app TipTap schema and server collab logic
   both need to accept that structure.
-- Update the app editor extensions and this package together for any schema
-  shape change; the separately built schemas have no parity guard, so nothing
-  else will catch the drift.
+- Update the app editor extensions with any schema shape change; the parity
+  guard enforces the mirrored structural contract.
 - Keep provider/product behavior out of this package. Figure uploads, signed
   URLs, MDX component rendering, and rich editing UI belong in app/editor or server domains.

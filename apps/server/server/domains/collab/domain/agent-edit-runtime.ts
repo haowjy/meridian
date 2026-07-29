@@ -18,7 +18,11 @@ import {
 } from "@meridian/prosemirror-schema";
 import { asLiveAgentEditCore } from "./agent-edit-cores.js";
 import type { DocumentWriteHookRunner } from "./document-projection-refresher.js";
-import { createMarkdownDocumentEngine, type RuntimeOrigin } from "./markdown-document.js";
+import {
+  createMarkdownDocumentEngine,
+  type MarkdownSerializationAnomalyObserver,
+  type RuntimeOrigin,
+} from "./markdown-document.js";
 import type { InitialDocumentSeeds } from "./ports/initial-document-seeds.js";
 import { createSemanticProvenanceWriter } from "./provenance.js";
 
@@ -48,6 +52,7 @@ export function createAgentEditRuntime(input: {
    * it out and get the resolver that refuses to serialize an asset ref.
    */
   assetPathResolver?: AssetPathResolver;
+  observeSerializationAnomaly?: MarkdownSerializationAnomalyObserver;
 }) {
   const schema = buildDocumentSchema();
   const markupCodec = mdxCodec({
@@ -103,6 +108,7 @@ export function createAgentEditRuntime(input: {
         },
       ),
     resolveFiletype: input.resolveDocumentFiletype,
+    observeSerializationAnomaly: input.observeSerializationAnomaly,
   });
   return {
     codec,
