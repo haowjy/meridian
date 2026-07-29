@@ -471,20 +471,6 @@ function ActiveSessionEditorView({
         class: editorProseClass,
         "aria-label": ariaLabel ?? t`Collaborative document editor`,
       },
-      handleTextInput(view, from, _to, text) {
-        if (!view.editable || text !== " ") return false;
-        const commandText = "/image";
-        const textBefore = view.state.selection.$from.parent.textBetween(
-          0,
-          view.state.selection.$from.parentOffset,
-          "\n",
-          "\n",
-        );
-        if (!textBefore.endsWith(commandText)) return false;
-        view.dispatch(view.state.tr.delete(from - commandText.length, from));
-        imageInputRef.current?.click();
-        return true;
-      },
       handlePaste(view, event) {
         if (!view.editable) return false;
         const file = imageFileFromClipboard(event);
@@ -564,7 +550,7 @@ function ActiveSessionEditorView({
     identity,
     session,
     agentNames,
-    placeholder: identity.schemaType === "document" ? t`Type / to insert…` : t`Start writing…`,
+    placeholder: t`Start writing…`,
     slashCommandCatalog,
     surface: { editable: effectiveEditable, editorProps },
     evidenceDegraded,

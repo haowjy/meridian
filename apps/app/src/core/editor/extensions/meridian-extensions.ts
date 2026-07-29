@@ -30,7 +30,6 @@ import { ReactNodeViewRenderer } from "@tiptap/react";
 
 import { FigureNodeView, ImageNodeView } from "../FigureNodeView";
 import { JsxContainerNodeView, JsxLeafNodeView } from "../JsxNodeViews";
-import { MermaidCodeBlockNodeView } from "../MermaidCodeBlock";
 
 type RenderAttrs = Record<string, unknown>;
 type JsonRecord = Record<string, unknown>;
@@ -144,12 +143,14 @@ export const MeridianListItem = ListItem.extend({
   },
 });
 
+// Deliberately no node view: a `mermaid` fence is a plain, editable code block.
+// `MermaidCodeBlock.tsx` stays in the tree unregistered because rendering the
+// diagram hides the fence's `<pre>`, and with the caret-enters-source escape
+// hatch gone the caret lands in a hidden element and silently drops keystrokes.
+// The rebuild's diagram lane re-registers this node view together with the
+// dialog that owns source access (interaction model §5.2).
 export const MeridianCodeBlockLowlight = CodeBlockLowlight.extend({
   name: "code_block",
-
-  addNodeView() {
-    return ReactNodeViewRenderer(MermaidCodeBlockNodeView);
-  },
 });
 
 /** Keeps block alignment live when the resize plugin takes over table rendering. */

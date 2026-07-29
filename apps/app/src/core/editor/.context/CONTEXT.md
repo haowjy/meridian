@@ -173,10 +173,13 @@ Yjs document session. It must stay structurally aligned with
   the fuzzy filter, and a read-at-open catalog getter supplied by the mounting
   surface. The trigger plugin was deleted with the condemned chrome and the
   rebuild owns its replacement, so typing `/` currently inserts a literal slash.
-- A `code_block` whose `language` is `mermaid` renders as a diagram and never
-  shows its source in the page. A parse error is the only fallback that reveals
-  the fence. There is no caret-enters-source mode; the source escape hatch is
-  the rebuild's diagram dialog.
+- A `code_block` whose `language` is `mermaid` is a plain editable code block:
+  `MeridianCodeBlockLowlight` registers no node view. `MermaidCodeBlock.tsx`
+  keeps the SVG pipeline (`renderMermaid`, token-themed preview) in the tree,
+  unregistered, because rendering a fence hides its `<pre>` and there is no
+  in-page source escape hatch, so the caret lands in a hidden element and drops
+  keystrokes. The rebuild re-registers the node view together with the diagram
+  dialog that owns source access; caret-enters-source is not coming back.
 - Clipboard HTML is rebuilt, not scrubbed: `sanitize-paste.ts` copies allowed
   elements into a fresh document with an attribute allowlist, so a
   newly-supported browser attribute is unsafe by default. `createEditorConfig`

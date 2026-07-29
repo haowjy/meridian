@@ -2397,8 +2397,8 @@ msgid "Try again, or return to the live document."
 msgstr "Try again, or return to the live document."
 
 #: src/features/editor/EditorView.tsx
-msgid "Type / to insert…"
-msgstr "Type / to insert…"
+#~ msgid "Type / to insert…"
+#~ msgstr "Type / to insert…"
 
 #: src/features/chat/TextBlock.tsx
 msgid "Type your answer…"

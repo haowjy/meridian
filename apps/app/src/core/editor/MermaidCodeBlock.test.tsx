@@ -32,7 +32,10 @@ describe("Mermaid code blocks", () => {
     expect(document.body.textContent).not.toContain("Syntax error in text");
   });
 
-  it("renders a mermaid fence as a diagram and keeps its source off the page", async () => {
+  // The Mermaid node view is unregistered until the rebuild's diagram dialog
+  // owns source access: rendering the fence hides its `<pre>`, which leaves the
+  // caret in a hidden element and drops keystrokes.
+  it("leaves a mermaid fence as a plain editable code block", async () => {
     const element = document.createElement("div");
     document.body.append(element);
     editor = new Editor({
@@ -52,15 +55,12 @@ describe("Mermaid code blocks", () => {
     root = createRoot(element);
     root.render(<EditorContent editor={editor} />);
 
-    // The caret sitting inside the fence used to swap the diagram back to
-    // source. It no longer does: source lives behind the rebuild's dialog.
-    editor.commands.setTextSelection(1);
-
     await vi.waitFor(() => {
-      expect(document.querySelector("[data-mermaid-preview]")).not.toBeNull();
-      expect(document.querySelector("[data-language='mermaid'] pre")?.className).toContain(
-        "hidden",
-      );
+      // The schema's own `pre > code.language-mermaid`, not a node-view wrapper.
+      expect(document.querySelector("pre > code")?.className).toContain("language-mermaid");
     });
+    expect(document.querySelector("[data-node-view-wrapper][data-language]")).toBeNull();
+    expect(document.querySelector("[data-mermaid-preview]")).toBeNull();
+    expect(document.querySelector("pre > code")?.textContent).toContain("flowchart LR");
   });
 });
