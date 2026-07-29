@@ -1,7 +1,14 @@
-/** Slash-command insertion menu for empty manuscript paragraphs. */
-import { Extension, type Range } from "@tiptap/core";
-import { PluginKey } from "@tiptap/pm/state";
-import Suggestion, { exitSuggestion, type SuggestionProps } from "@tiptap/suggestion";
+/**
+ * Slash-command catalog seam.
+ *
+ * The trigger plugin was deleted with the rest of the condemned editor chrome
+ * (interaction model §8: "salvage the catalog getter, rewrite the trigger").
+ * What survives is the seam the host already speaks: the item/catalog shape,
+ * the fuzzy filter, and the read-at-open getter. The extension therefore
+ * currently mounts no ProseMirror plugin — typing `/` inserts a literal slash
+ * until the rebuild lands a trigger against the new contract.
+ */
+import { Extension } from "@tiptap/core";
 
 export type SlashCommandId =
   | "scene-break"
@@ -35,8 +42,6 @@ export type SlashCommandExtensionOptions = {
    */
   catalog: () => SlashCommandCatalog | null;
 };
-
-export const slashCommandPluginKey = new PluginKey("slashCommand");
 
 function fuzzyScore(value: string, query: string): number | null {
   const candidate = value.toLocaleLowerCase();
@@ -74,161 +79,10 @@ export function filterSlashCommandItems(
     .map(({ item }) => item);
 }
 
-function runSlashCommand(
-  editor: SuggestionProps<SlashCommandItem, SlashCommandItem>["editor"],
-  range: Range,
-  item: SlashCommandItem,
-  requestImageUpload?: () => void,
-) {
-  const chain = editor.chain().focus().deleteRange(range);
-  switch (item.id) {
-    case "scene-break":
-      chain.setHorizontalRule().run();
-      return;
-    case "heading":
-      chain.setHeading({ level: 1 }).run();
-      return;
-    case "quote":
-      chain.toggleBlockquote().run();
-      return;
-    case "bullet-list":
-      chain.toggleBulletList().run();
-      return;
-    case "numbered-list":
-      chain.toggleOrderedList().run();
-      return;
-    case "table":
-      chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
-      return;
-    case "image":
-      chain.run();
-      requestImageUpload?.();
-      return;
-    case "code":
-      chain.setCodeBlock().run();
-      return;
-    case "diagram":
-      chain.setCodeBlock({ language: "mermaid" }).run();
-  }
-}
-
-function createMenuRenderer(menuLabel: () => string) {
-  let element: HTMLDivElement | null = null;
-  let unmount: (() => void) | null = null;
-  let props: SuggestionProps<SlashCommandItem, SlashCommandItem> | null = null;
-  let selectedIndex = 0;
-
-  const paint = () => {
-    if (!element || !props) return;
-    if (selectedIndex >= props.items.length) selectedIndex = Math.max(0, props.items.length - 1);
-    element.replaceChildren();
-    for (const [index, item] of props.items.entries()) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "meridian-slash-menu__item";
-      button.role = "option";
-      button.ariaSelected = String(index === selectedIndex);
-      button.textContent = item.label;
-      button.addEventListener("mouseenter", () => {
-        selectedIndex = index;
-        paint();
-      });
-      button.addEventListener("mousedown", (event) => event.preventDefault());
-      button.addEventListener("click", () => props?.command(item));
-      element.append(button);
-    }
-  };
-
-  return {
-    onStart(nextProps: SuggestionProps<SlashCommandItem, SlashCommandItem>) {
-      props = nextProps;
-      selectedIndex = 0;
-      element = document.createElement("div");
-      element.className = "meridian-slash-menu";
-      element.role = "listbox";
-      element.ariaLabel = menuLabel();
-      paint();
-      unmount = nextProps.mount(element);
-    },
-    onUpdate(nextProps: SuggestionProps<SlashCommandItem, SlashCommandItem>) {
-      props = nextProps;
-      selectedIndex = 0;
-      paint();
-    },
-    onKeyDown({
-      event,
-      view,
-    }: {
-      event: KeyboardEvent;
-      view: Parameters<typeof exitSuggestion>[0];
-    }) {
-      if (event.key === "Escape") {
-        exitSuggestion(view, slashCommandPluginKey);
-        return true;
-      }
-      if (!props?.items.length) return false;
-      if (event.key === "ArrowUp") {
-        selectedIndex = (selectedIndex + props.items.length - 1) % props.items.length;
-        paint();
-        return true;
-      }
-      if (event.key === "ArrowDown") {
-        selectedIndex = (selectedIndex + 1) % props.items.length;
-        paint();
-        return true;
-      }
-      if (event.key === "Enter") {
-        const item = props.items[selectedIndex];
-        if (item) props.command(item);
-        return true;
-      }
-      return false;
-    },
-    onExit() {
-      unmount?.();
-      unmount = null;
-      element = null;
-      props = null;
-    },
-  };
-}
-
 export const SlashCommandExtension = Extension.create<SlashCommandExtensionOptions>({
   name: "slashCommand",
 
   addOptions() {
     return { catalog: () => null };
-  },
-
-  addProseMirrorPlugins() {
-    return [
-      Suggestion<SlashCommandItem, SlashCommandItem>({
-        editor: this.editor,
-        pluginKey: slashCommandPluginKey,
-        char: "/",
-        startOfLine: true,
-        allowedPrefixes: null,
-        allow: ({ state, range }) => {
-          if (!this.options.catalog()) return false;
-          const $from = state.doc.resolve(range.from);
-          if (
-            $from.parent.type.name !== "paragraph" ||
-            range.from !== $from.start() ||
-            $from.parent.content.size !== range.to - range.from
-          ) {
-            return false;
-          }
-          for (let depth = $from.depth - 1; depth > 0; depth -= 1) {
-            const role = $from.node(depth).type.spec.tableRole;
-            if (role === "cell" || role === "header_cell") return false;
-          }
-          return true;
-        },
-        items: ({ query }) => filterSlashCommandItems(this.options.catalog()?.items ?? [], query),
-        command: ({ editor, range, props }) =>
-          runSlashCommand(editor, range, props, this.options.catalog()?.requestImageUpload),
-        render: () => createMenuRenderer(() => this.options.catalog()?.menuLabel ?? ""),
-      }),
-    ];
   },
 });

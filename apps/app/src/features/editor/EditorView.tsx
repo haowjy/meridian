@@ -2,8 +2,8 @@
  * EditorView — the collaborative document editor surface.
  *
  * Binds a `DocumentSession` (Yjs `Y.Doc` + awareness + cursor provider) to a
- * TipTap/ProseMirror editor and renders the surrounding chrome (toolbar,
- * sync-status indicator, image-upload drag/drop/paste + inline-command flow).
+ * TipTap/ProseMirror editor and renders the surrounding chrome (sync-status
+ * indicator, image-upload drag/drop/paste + inline-command flow).
  * Used by the Context screen to open any document. Filename chrome is the
  * host's job (desktop tab strip / phone top-bar breadcrumb), so this view
  * renders no title header of its own.
@@ -29,7 +29,6 @@ import {
   type UIEventHandler,
   useCallback,
   useEffect,
-  useId,
   useMemo,
   useRef,
   useState,
@@ -60,13 +59,7 @@ import {
 import { usePrefetchTrailDetails } from "@/features/change-trail/trail-detail-query";
 import { useDraftReview } from "@/features/chat/DraftReviewProvider";
 import { cn } from "@/lib/utils";
-import { EditorBubbleHost, type EditorBubbleHostHandle } from "./EditorBubbleHost";
-import { codeBubbleContext } from "./EditorCodeBubble";
-import { createImageBubbleContext } from "./EditorImageBubble";
-import { linkBubbleContext } from "./EditorLinkBubble";
 import { EditorSurfaceFrame } from "./EditorSurfaceFrame";
-import { tableBubbleContext } from "./EditorTableBubble";
-import { EditorToolbar } from "./EditorToolbar";
 import { type EditorBindHorizonResult, waitForEditorBindHorizon } from "./editor-bind-horizon";
 import { editorColumnCanvas, editorColumnFill, editorProseClass } from "./editor-column";
 import { PeerMarkPopover, type PeerMarkPopoverTarget } from "./PeerMarkPopover";
@@ -86,8 +79,6 @@ export type EditorViewProps = {
   className?: string;
   /** Overrides TipTap editability; mobile passes false while keeping Yjs live. */
   editable?: boolean;
-  /** Formatting chrome is hidden for mobile read-only viewing. */
-  showToolbar?: boolean;
   /** Accessible label override when the surface is read-only. */
   ariaLabel?: string;
   /** Remote cursor/selection decorations; mobile read-only documents hide them. */
@@ -267,7 +258,6 @@ function ActiveSessionEditorView({
   identity,
   className,
   editable = true,
-  showToolbar = true,
   ariaLabel,
   reviewWorkId = null,
   onReviewSessionUnavailable,
@@ -290,9 +280,6 @@ function ActiveSessionEditorView({
   // this project's asset namespace, and the clipboard translation must not see
   // another project's paths.
   const assetPathResolver = useMemo(() => createEditorAssetPathResolver(), []);
-  const bubbleHostRef = useRef<EditorBubbleHostHandle>(null);
-  const bubbleContentId = useId();
-  const [activeBubbleId, setActiveBubbleId] = useState<string | null>(null);
   const { tree: manuscriptTree } = useProjectContextTree(projectId ?? "", "manuscript", {
     enabled: Boolean(projectId),
   });
@@ -475,31 +462,13 @@ function ActiveSessionEditorView({
     [session, uploadImageFile],
   );
 
-  // Registration order is arbitration precedence: link → code → image → table.
-  // Read-only and fenced surfaces get no mutating contexts at all.
-  const bubbleContexts = useMemo(
-    () =>
-      effectiveEditable
-        ? [
-            linkBubbleContext,
-            codeBubbleContext,
-            createImageBubbleContext(async (file) => {
-              const attrs = await uploadImageFile(file);
-              return { src: attrs.src, alt: attrs.alt ?? "" };
-            }),
-            tableBubbleContext,
-          ]
-        : [],
-    [effectiveEditable, uploadImageFile],
-  );
-
   // Surface config: applied to the running editor, never a reason to rebuild it.
   // Handlers read editability off the view instead of closing over the prop, so
   // the only thing that moves this object is the chrome it describes.
   const editorProps = useMemo<NonNullable<EditorOptions["editorProps"]>>(
     () => ({
       attributes: {
-        class: editorProseClass(showToolbar ? "docked" : "none"),
+        class: editorProseClass,
         "aria-label": ariaLabel ?? t`Collaborative document editor`,
       },
       handleTextInput(view, from, _to, text) {
@@ -588,7 +557,7 @@ function ActiveSessionEditorView({
         },
       },
     }),
-    [ariaLabel, assetPathResolver, handleImageFile, openPeerMark, showToolbar],
+    [ariaLabel, assetPathResolver, handleImageFile, openPeerMark],
   );
 
   const editor = useMountedEditor({
@@ -699,22 +668,6 @@ function ActiveSessionEditorView({
       />
       <TrackedEditorCanvas
         editor={editor}
-        toolbar={
-          showToolbar ? (
-            <EditorToolbar
-              editor={editor}
-              disabled={!effectiveEditable}
-              onImageButtonClick={() => imageInputRef.current?.click()}
-              imageUploadBusy={imageUploadState.kind === "uploading"}
-              imageUploadDisabled={!projectId}
-              linkBubbleOpen={activeBubbleId === linkBubbleContext.id}
-              linkBubbleId={bubbleContentId}
-              onOpenLinkBubble={() =>
-                bubbleHostRef.current?.open(linkBubbleContext.id, { focus: true })
-              }
-            />
-          ) : undefined
-        }
         scrollRef={scrollContainerRef}
         dragActive={dragActive}
         onScroll={(event) => {
@@ -734,13 +687,6 @@ function ActiveSessionEditorView({
           ) : undefined
         }
         uploadStatus={<ImageUploadStatus state={imageUploadState} />}
-      />
-      <EditorBubbleHost
-        ref={bubbleHostRef}
-        editor={editor}
-        contexts={bubbleContexts}
-        contentId={bubbleContentId}
-        onActiveContextChange={setActiveBubbleId}
       />
       <PeerMarkPopover
         key={peerMarkTarget?.marker.changeId ?? "closed"}
@@ -764,7 +710,7 @@ function ActiveSessionEditorView({
   );
 }
 
-function PendingEditorShell({ className, showToolbar = true }: EditorViewProps) {
+function PendingEditorShell({ className }: EditorViewProps) {
   return (
     <section
       className={cn(
@@ -772,17 +718,13 @@ function PendingEditorShell({ className, showToolbar = true }: EditorViewProps) 
         className,
       )}
     >
-      <TrackedEditorCanvas
-        editor={null}
-        toolbar={showToolbar ? <EditorToolbar editor={null} imageUploadDisabled /> : undefined}
-      />
+      <TrackedEditorCanvas editor={null} />
     </section>
   );
 }
 
 function TrackedEditorCanvas({
   editor,
-  toolbar,
   scrollRef,
   dragActive = false,
   onScroll,
@@ -790,7 +732,6 @@ function TrackedEditorCanvas({
   uploadStatus,
 }: {
   editor: Editor | null;
-  toolbar?: ReactNode;
   scrollRef?: Ref<HTMLDivElement>;
   dragActive?: boolean;
   onScroll?: UIEventHandler<HTMLDivElement>;
@@ -799,7 +740,6 @@ function TrackedEditorCanvas({
 }) {
   return (
     <EditorSurfaceFrame
-      toolbar={toolbar}
       editor={editor}
       scrollRef={scrollRef}
       scrollClassName={cn(

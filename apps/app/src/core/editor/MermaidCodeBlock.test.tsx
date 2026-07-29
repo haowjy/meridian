@@ -5,11 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createStandaloneEditorExtensions } from "./config";
-import {
-  isMermaidPreviewRequested,
-  renderMermaid,
-  setMermaidPreviewRequested,
-} from "./MermaidCodeBlock";
+import { renderMermaid } from "./MermaidCodeBlock";
 
 vi.mock("@lingui/core/macro", () => ({
   t: (parts: TemplateStringsArray) => parts.join(""),
@@ -36,7 +32,7 @@ describe("Mermaid code blocks", () => {
     expect(document.body.textContent).not.toContain("Syntax error in text");
   });
 
-  it("switches a requested preview to editable code when its surface is pressed", async () => {
+  it("renders a mermaid fence as a diagram and keeps its source off the page", async () => {
     const element = document.createElement("div");
     document.body.append(element);
     editor = new Editor({
@@ -55,23 +51,14 @@ describe("Mermaid code blocks", () => {
     });
     root = createRoot(element);
     root.render(<EditorContent editor={editor} />);
-    const codeBlock = editor.state.doc.firstChild;
-    const currentEditor = editor;
-    expect(codeBlock).not.toBeNull();
-    editor.commands.setTextSelection((codeBlock?.nodeSize ?? 0) + 1);
-    setMermaidPreviewRequested(editor, 0, true);
+
+    // The caret sitting inside the fence used to swap the diagram back to
+    // source. It no longer does: source lives behind the rebuild's dialog.
+    editor.commands.setTextSelection(1);
 
     await vi.waitFor(() => {
       expect(document.querySelector("[data-mermaid-preview]")).not.toBeNull();
-    });
-    document
-      .querySelector("[data-mermaid-preview]")
-      ?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true }));
-
-    await vi.waitFor(() => {
-      expect(isMermaidPreviewRequested(currentEditor, 0)).toBe(false);
-      expect(editor?.state.selection.from).toBe(1);
-      expect(document.querySelector("[data-language='mermaid'] pre")?.className).not.toContain(
+      expect(document.querySelector("[data-language='mermaid'] pre")?.className).toContain(
         "hidden",
       );
     });

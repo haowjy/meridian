@@ -2,17 +2,19 @@
 
 ## [Unreleased]
 
-- `apps/app`, `packages/markup`, `packages/prosemirror-schema`: writers can build
-  tables (insert, move rows and columns, align a whole column, resize, reset
-  layout), preview Mermaid diagrams inline, insert blocks from a `/` menu, and
-  center or right-align a paragraph, heading, or table. Alignment and column
-  widths travel as a `Layout` wrapper in MDX, so a document nobody has aligned
-  still serializes as byte-identical plain markdown.
-- `apps/app`: contextual bubbles for links, code blocks, images, and tables
-  share one positioning and focus host; the toolbar's link button opens the same
-  bubble instead of setting a placeholder address. Editable link clicks place a
-  cursor rather than navigating away, and pasted HTML is rebuilt through an
-  element and attribute allowlist.
+- `apps/app`, `packages/markup`, `packages/prosemirror-schema`: chapters now
+  carry tables, Mermaid diagrams, and block alignment. A mermaid fence renders
+  as a diagram rather than as source, tables render and round-trip through the
+  clipboard, and center or right alignment on a paragraph, heading, or table
+  travels as a `Layout` wrapper in MDX, so a document nobody has aligned still
+  serializes as byte-identical plain markdown. The writer-facing controls for
+  this structure are being redesigned and land separately.
+- `apps/app`: the manuscript has no formatting toolbar for now. Keyboard
+  shortcuts still apply marks, and the editing chrome returns as a ground-up
+  redesign rather than the ported one, which silently ignored most of what a
+  writer clicked.
+- `apps/app`: editable link clicks place a cursor rather than navigating away,
+  and pasted HTML is rebuilt through an element and attribute allowlist.
 - `apps/app`, `apps/server`, `packages/contracts`, `packages/markup`: uploaded
   images become their own documents under `manuscript://assets/`. Prose holds a
   stable `asset:<documentId>` reference instead of an expiring storage URL, so an

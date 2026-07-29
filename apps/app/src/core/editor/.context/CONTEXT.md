@@ -169,9 +169,14 @@ Yjs document session. It must stay structurally aligned with
   and column moves, whole-column alignment, layout reset). All of them refuse a
   table containing spans, because GFM cannot represent one and the codec throws
   on serialization. Row zero is the structural GFM header and never moves.
-- Slash commands use TipTap Suggestion and activate only when `/` starts an
-  otherwise-empty paragraph outside table cells. The catalog and its localized
-  labels come from the mounting surface, never from the extension.
+- `SlashCommandExtension` is a catalog seam with no trigger: the item shape,
+  the fuzzy filter, and a read-at-open catalog getter supplied by the mounting
+  surface. The trigger plugin was deleted with the condemned chrome and the
+  rebuild owns its replacement, so typing `/` currently inserts a literal slash.
+- A `code_block` whose `language` is `mermaid` renders as a diagram and never
+  shows its source in the page. A parse error is the only fallback that reveals
+  the fence. There is no caret-enters-source mode; the source escape hatch is
+  the rebuild's diagram dialog.
 - Clipboard HTML is rebuilt, not scrubbed: `sanitize-paste.ts` copies allowed
   elements into a fresh document with an attribute allowlist, so a
   newly-supported browser attribute is unsafe by default. `createEditorConfig`
