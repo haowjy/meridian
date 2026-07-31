@@ -290,17 +290,9 @@
 
   /* Atmosphere 云雾 — part of the palette, not decoration. Light chrome
      breathes AIRLIGHT: near-paper white pooling at the dock's floor,
-     dissolving upward. The shelf breathes SHADOW instead — deeper grey-gold
-     pooling at the rail's floor. Both rails dissolve at the floor and
-     sharpen toward the work. (Dark mode: airlight thins to moonlight ×0.25;
-     see the dark ladder note in the header.) Shadow alphas are capped so
-     black ink still clears 4.5:1 at the gradient foot. */
-  --background-image-shelf-depth: linear-gradient(
-    to top,
-    oklch(0.55 0.012 84 / 0.22) 0%,
-    oklch(0.55 0.012 84 / 0.1) 30%,
-    transparent 62%
-  );
+     dissolving upward. The shelf stays flat so navigation and selection
+     contrast do not change as rows scroll. (Dark mode: airlight thins to
+     moonlight ×0.25; see the dark ladder note in the header.) */
   --background-image-dock-airlight: linear-gradient(
     to top,
     oklch(0.99 0.003 84 / 0.14) 0%,
