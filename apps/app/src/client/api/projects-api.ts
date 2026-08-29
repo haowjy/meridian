@@ -48,6 +48,7 @@ import {
   type ListWorkThreadsResponse,
   type MoveContextEntryRequest,
   type MoveContextEntryResult,
+  type ProjectContextIdentityLookupResult,
   type ProjectContextRequestOptions,
   type ProjectContextTreeScheme,
   type ProjectWorkingSet,
@@ -263,6 +264,16 @@ export async function getContextCatalogLookup(
 ): Promise<CatalogLookupResult> {
   return getJson(
     `${apiProjectContextCatalogPath(projectId, "lookup")}?${catalogQuery(scope, lookup)}`,
+  );
+}
+
+export async function getProjectContextAvailability(
+  projectId: string,
+  documentIds: readonly string[],
+): Promise<ProjectContextIdentityLookupResult> {
+  return postJson<ProjectContextIdentityLookupResult>(
+    `/api/projects/${encodeURIComponent(projectId)}/context/availability`,
+    { projectId, documentIds },
   );
 }
 
