@@ -156,7 +156,6 @@ describe("createThreadCache terminal invalidation", () => {
     const keys = [
       threadQueryKeys.snapshot(threadId),
       projectQueryKeys.threads(projectId),
-      projectQueryKeys.works(projectId),
       projectQueryKeys.homeFeed(projectId),
       projectQueryKeys.workDrafts(projectId, "work-1"),
       projectQueryKeys.contextCatalogView(projectId, "scratch", "work-1"),

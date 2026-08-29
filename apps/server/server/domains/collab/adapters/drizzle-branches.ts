@@ -37,6 +37,7 @@ import {
   runInDrizzleTransaction,
 } from "../../../shared/drizzle-transaction.js";
 import { runWithActiveWorkDrafts } from "../../../shared/work-draft-lifecycle.js";
+import type { WorkProjectionMutation } from "../../projects/index.js";
 import {
   type AppendBranchJournalInput,
   assertReadableBranch,
@@ -78,6 +79,7 @@ export function createDrizzleBranchStore(
       }
     | undefined,
   criticalSections: BranchCriticalSections = createBranchCriticalSections(),
+  workProjection?: WorkProjectionMutation,
 ): DrizzleBranchStore {
   const maxCasRetries = 3;
   async function findPrimaryWork(threadId: ThreadId): Promise<WorkId> {
@@ -678,6 +680,7 @@ export function createDrizzleBranchStore(
                       documentId,
                     },
                   });
+                await workProjection?.advanceBranches([branch.branchId]);
                 return true;
               },
             );
@@ -782,6 +785,7 @@ export function createDrizzleBranchStore(
                 documentId: input.documentId,
               },
             });
+          await workProjection?.advanceBranches([work.branchId]);
           return { workDraftBranchId: work.branchId, policy: work.pushPolicy };
         },
       ).catch((cause) => {
@@ -884,6 +888,7 @@ export function createDrizzleBranchStore(
               actorUserId: input.journal.actorUserId ?? null,
               updateMeta: input.journal.updateMeta ?? null,
             });
+          await workProjection?.advanceBranches([input.journal.branchId]);
         }
         return true;
       }).catch((cause) => {
@@ -926,6 +931,7 @@ export function createDrizzleBranchStore(
               inArray(branchWriteJournal.status, ["active", "rollback_pending"]),
             ),
           );
+        await workProjection?.advanceBranches([input.branchId]);
         return true;
       });
     },
@@ -946,6 +952,7 @@ export function createDrizzleBranchStore(
             actorUserId: input.actorUserId ?? null,
             updateMeta: input.updateMeta ?? null,
           });
+        await workProjection?.advanceBranches([input.branchId]);
       });
     },
 

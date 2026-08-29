@@ -76,6 +76,7 @@ import {
   createDrizzleProjectWorkAuthorityResolver,
   createDrizzleProjectWorkRepository,
   createDrizzleUserRepository,
+  createWorkProjectionMutation,
   type ProjectBootstrapRepository,
   type ProjectRepository,
   type ProjectWorkAuthorityResolver,
@@ -333,6 +334,11 @@ export async function createProductionAppPorts(input: {
   const contextCatalog = createDrizzleContextCatalog(db, contextCatalogWakeHub, {
     availabilityMutations: projectContextAvailability,
   });
+  const workProjectionMutation = createWorkProjectionMutation({
+    db,
+    availability: projectContextAvailability,
+    catalog: contextCatalog,
+  });
   const projectRepo = createDrizzleProjectRepository({ db, catalogLifecycle: contextCatalog });
   const workAuthorityResolver = createDrizzleProjectWorkAuthorityResolver(db);
   let contextPorts: UnifiedContextPortFactory;
@@ -347,6 +353,7 @@ export async function createProductionAppPorts(input: {
     eventSink,
     notices,
     workAuthorityResolver,
+    workProjectionMutation,
     threadContext: {
       async requireThreadOwner(input) {
         const thread = await requireThreadOwner(
@@ -419,7 +426,7 @@ export async function createProductionAppPorts(input: {
   });
   workRepo = createDrizzleProjectWorkRepository({
     db,
-    catalogLifecycle: contextCatalog,
+    projectionMutation: workProjectionMutation,
     hasUnreviewedDraft: async (workId) =>
       ((await documentSync.countPendingByWorkIds([workId])).get(workId) ?? 0) > 0,
   });
@@ -868,6 +875,12 @@ export function createInMemoryAppServices(): AppServices {
       async transaction(operation) {
         return operation();
       },
+      async readSnapshot(operation) {
+        return operation();
+      },
+      async snapshotIdentity() {
+        return { catalogGeneration: crypto.randomUUID(), authorityRevision: "0" };
+      },
       async create() {
         throw new Error("in-memory work repository is not implemented");
       },
@@ -942,6 +955,12 @@ export function createInMemoryAppServices(): AppServices {
     workRepo: {
       async transaction(operation) {
         return operation();
+      },
+      async readSnapshot(operation) {
+        return operation();
+      },
+      async snapshotIdentity() {
+        return { catalogGeneration: crypto.randomUUID(), authorityRevision: "0" };
       },
       async create() {
         throw new Error("in-memory work repository is not implemented");

@@ -76,6 +76,7 @@ export const useWorkMutations = (): WorkMutations => ({
   archive: browserWorkCommand<Work, string>(async () => state().work),
   unarchive: browserWorkCommand<Work, string>(async () => state().work),
   delete: browserWorkCommand<void, string>(async () => undefined),
+  restore: browserWorkCommand<Work, string>(async () => state().work),
   isPending: false,
 });
 export const useWorks = () => ({

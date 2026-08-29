@@ -344,18 +344,23 @@ export function createDrizzleProjectBootstrapRepository(deps: {
   };
 }
 
+export type { WorkCatalogEntry } from "@meridian/contracts/works";
 // ── Project CRUD ────────────────────────────────────────────────────────────
 export { createDrizzleProjectRepository } from "./adapters/project-repository/drizzle.js";
 export { createInMemoryProjectRepository } from "./adapters/project-repository/in-memory.js";
 // ── User provisioning ───────────────────────────────────────────────────────
 export { createDrizzleUserRepository } from "./adapters/user-repository/drizzle.js";
 export { createInMemoryUserRepository } from "./adapters/user-repository/in-memory.js";
+export {
+  createWorkProjectionMutation,
+  type WorkProjectionMutation,
+} from "./adapters/work-projection-mutation.js";
 // ── Work CRUD ───────────────────────────────────────────────────────────────
 export { createDrizzleWorkRepository as createDrizzleProjectWorkRepository } from "./adapters/work-repository/drizzle.js";
 export { createInMemoryWorkRepository } from "./adapters/work-repository/in-memory.js";
 export { createWork } from "./create-work.js";
 export { deleteWork, deleteWorkTransition, restoreWork } from "./delete-work.js";
-export { listWorkCatalog, type WorkCatalogEntry } from "./list-work-catalog.js";
+export { listWorkCatalog } from "./list-work-catalog.js";
 export type {
   CreateProjectInput,
   ListProjectsOptions,

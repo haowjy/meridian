@@ -53,6 +53,7 @@ function work(): Work {
     deletedAt: null,
     lastActivityAt: "2026-08-15T00:00:00.000Z",
     aiWriteMode: "draft",
+    entityRevision: "1",
     unpushedChangeCount: 0,
     createdAt: "2026-08-15T00:00:00.000Z",
     updatedAt: "2026-08-15T00:00:00.000Z",

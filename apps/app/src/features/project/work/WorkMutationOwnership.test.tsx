@@ -15,6 +15,7 @@ const api = vi.hoisted(() => ({
   archiveWork: vi.fn(),
   unarchiveWork: vi.fn(),
   deleteWork: vi.fn(),
+  restoreWork: vi.fn(),
   updateWorkWriteMode: vi.fn(),
 }));
 
@@ -35,7 +36,13 @@ describe("Work dialog command ownership", () => {
 
   it("replaces an older lifecycle error with the later delete failure", async () => {
     const work = fixture();
-    api.listProjectWorks.mockResolvedValue({ works: [work] });
+    api.listProjectWorks.mockResolvedValue({
+      projectId: "project-1",
+      catalogGeneration: "generation-1",
+      authorityRevision: "1",
+      requestId: "request-1",
+      works: [work],
+    });
     api.archiveWork.mockRejectedValue(new Error("archive failed first"));
     api.deleteWork.mockRejectedValue(new Error("delete failed later"));
     const client = new QueryClient({
@@ -77,6 +84,7 @@ function fixture(): Work {
     archivedAt: null,
     deletedAt: null,
     aiWriteMode: "draft",
+    entityRevision: "1",
     unpushedChangeCount: 0,
     lastActivityAt: "2026-08-15T00:00:00Z",
     createdAt: "2026-08-15T00:00:00Z",

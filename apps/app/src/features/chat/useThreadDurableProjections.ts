@@ -20,6 +20,7 @@ import {
   readStableThreadWorkBinding,
 } from "@/client/query/thread-work-binding-cache";
 import { convergeWorkProjection } from "@/client/query/work-projection-cache";
+import { repairWorksSnapshot } from "@/client/query/works-projection-acquisition";
 
 type TrailEventValue = {
   threadId: string;
@@ -169,6 +170,7 @@ export function useThreadDurableProjections({
               projectId,
               operation: receipt.operation,
             });
+            void repairWorksSnapshot(queryClient, projectId);
           }
         }
         const projection = decodeWorkProjection(threadId, seq, event);

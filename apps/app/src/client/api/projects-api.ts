@@ -69,10 +69,6 @@ type RequestInitOptions = {
   keepalive?: boolean;
 };
 
-type ListProjectWorksOptions = RequestInitOptions & {
-  status?: "active" | "archived" | "all";
-};
-
 type ListWorkThreadsOptions = RequestInitOptions & {
   cursor?: string | null;
   signal?: AbortSignal;
@@ -129,11 +125,10 @@ export async function listWorkThreads(
 
 export async function listProjectWorks(
   projectId: string,
-  options?: ListProjectWorksOptions,
+  options?: RequestInitOptions,
 ): Promise<ListWorksResponse> {
   const path = apiProjectWorksPath(projectId);
-  const pathWithStatus = options?.status ? `${path}?status=${options.status}` : path;
-  return getJson<ListWorksResponse>(urlFor(pathWithStatus, options), {
+  return getJson<ListWorksResponse>(urlFor(path, options), {
     headers: options?.headers,
   });
 }
@@ -178,6 +173,16 @@ export function unarchiveWork(workId: string, init?: RequestInitOptions): Promis
 
 export function deleteWork(workId: string): Promise<void> {
   return deleteRequest(`/api/works/${workId}`);
+}
+
+export function restoreWork(workId: string, init?: RequestInitOptions): Promise<Work> {
+  return postJson<Work>(
+    urlFor(`/api/works/${workId}/restore`, init),
+    {},
+    {
+      headers: init?.headers,
+    },
+  );
 }
 
 export async function getProjectWorkingSet(

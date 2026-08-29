@@ -52,6 +52,7 @@ const work = (id: string, name: string): Work => ({
   goal: null,
   status: "active",
   aiWriteMode: "draft",
+  entityRevision: "1",
   archivedAt: null,
   lastActivityAt: "2026-08-14T00:00:00.000Z",
   deletedAt: null,
@@ -112,12 +113,20 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+const worksSnapshot = (works: Work[], revision = "1") => ({
+  projectId,
+  catalogGeneration: "generation-1",
+  authorityRevision: revision,
+  requestId: `request-${revision}`,
+  works,
+});
+
 async function waitFor(check: () => boolean) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (check()) return;
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   }
-  throw new Error("condition not reached");
+  throw new Error(`condition not reached: ${document.body.textContent}`);
 }
 
 async function setTextarea(text: string) {
@@ -130,6 +139,20 @@ async function setTextarea(text: string) {
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
   });
   return textarea;
+}
+
+async function chooseWork(name: string) {
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('[aria-label*="choice unavailable"]')?.click(),
+  );
+  await waitFor(() =>
+    [...document.querySelectorAll("button")].some(({ textContent }) => textContent?.includes(name)),
+  );
+  await act(async () =>
+    [...document.querySelectorAll("button")]
+      .find(({ textContent }) => textContent?.includes(name))
+      ?.click(),
+  );
 }
 
 function Destination({
@@ -185,7 +208,7 @@ describe("Home first send", () => {
         requests.push({ path, method, body });
         if (path.includes("/home-feed")) return Promise.resolve(json(homeFeed));
         if (path.includes("/drafts")) return Promise.resolve(json({ drafts: [] }));
-        if (path.includes("/works")) return Promise.resolve(json({ works: [firstWork] }));
+        if (path.includes("/works")) return Promise.resolve(json(worksSnapshot([firstWork])));
         if (path.includes("/agents")) return Promise.resolve(json({ agents }));
         if (method === "POST" && path.endsWith("/threads")) return creation.promise;
         throw new Error(`unexpected request: ${method} ${path}`);
@@ -214,6 +237,7 @@ describe("Home first send", () => {
       </Providers>,
       async () => {
         await waitFor(() => Boolean(document.querySelector('textarea[aria-label="Message"]')));
+        await chooseWork("Arc One");
         const textarea = await setTextarea("Same words");
         await act(async () =>
           textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
@@ -256,7 +280,7 @@ describe("Home first send", () => {
         requests.push({ path, method, body });
         if (path.includes("/home-feed")) return Promise.resolve(json(homeFeed));
         if (path.includes("/drafts")) return Promise.resolve(json({ drafts: [] }));
-        if (path.includes("/works")) return Promise.resolve(json({ works: [firstWork] }));
+        if (path.includes("/works")) return Promise.resolve(json(worksSnapshot([firstWork])));
         if (path.includes("/agents")) return Promise.resolve(json({ agents }));
         if (method === "POST" && path.endsWith("/threads")) return creation.promise;
         throw new Error(`unexpected request: ${method} ${path}`);
@@ -285,6 +309,7 @@ describe("Home first send", () => {
       </Providers>,
       async () => {
         await waitFor(() => Boolean(document.querySelector('textarea[aria-label="Message"]')));
+        await chooseWork("Arc One");
         const textarea = await setTextarea("Immutable first message");
         await act(async () =>
           textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
@@ -326,9 +351,12 @@ describe("Home first send", () => {
         if (path.includes("/works")) {
           worksReads += 1;
           return Promise.resolve(
-            json({
-              works: worksReads === 1 ? [firstWork, secondWork] : [firstWork],
-            }),
+            json(
+              worksSnapshot(
+                worksReads === 1 ? [firstWork, secondWork] : [firstWork],
+                String(worksReads),
+              ),
+            ),
           );
         }
         if (path.includes("/agents")) return Promise.resolve(json({ agents }));
@@ -360,16 +388,8 @@ describe("Home first send", () => {
         />
       </Providers>,
       async () => {
-        await waitFor(() => Boolean(document.querySelector('[aria-label*="currently Arc One"]')));
-        await act(async () =>
-          document.querySelector<HTMLButtonElement>('[aria-label*="currently Arc One"]')?.click(),
-        );
-        await waitFor(() => document.body.textContent?.includes("Expedition") === true);
-        await act(async () =>
-          [...document.querySelectorAll("button")]
-            .find(({ textContent }) => textContent?.trim() === "Expedition")
-            ?.click(),
-        );
+        await waitFor(() => Boolean(document.querySelector('[aria-label*="choice unavailable"]')));
+        await chooseWork("Expedition");
         const textarea = await setTextarea("Exact opening line");
         await act(async () =>
           textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
@@ -415,7 +435,7 @@ describe("Home first send", () => {
         const path = String(input);
         if (path.includes("/home-feed")) return Promise.resolve(json(homeFeed));
         if (path.includes("/drafts")) return Promise.resolve(json({ drafts: [] }));
-        if (path.includes("/works")) return Promise.resolve(json({ works: [] }));
+        if (path.includes("/works")) return Promise.resolve(json(worksSnapshot([])));
         if (path.includes("/agents")) return Promise.resolve(json({ agents }));
         throw new Error(`unexpected request: ${path}`);
       }),
@@ -436,7 +456,7 @@ describe("Home first send", () => {
     );
   });
 
-  it("submits the first archived Work when the catalog has no active Work", async () => {
+  it("submits an archived Work only after the writer selects it", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const archivedWork = { ...firstWork, status: "archived" as const };
     const creates: Array<Record<string, unknown>> = [];
@@ -447,7 +467,7 @@ describe("Home first send", () => {
         const method = init?.method ?? "GET";
         if (path.includes("/home-feed")) return Promise.resolve(json(homeFeed));
         if (path.includes("/drafts")) return Promise.resolve(json({ drafts: [] }));
-        if (path.includes("/works")) return Promise.resolve(json({ works: [archivedWork] }));
+        if (path.includes("/works")) return Promise.resolve(json(worksSnapshot([archivedWork])));
         if (path.includes("/agents")) return Promise.resolve(json({ agents }));
         if (method === "POST" && path.endsWith("/threads")) {
           const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -463,7 +483,8 @@ describe("Home first send", () => {
         <HomeScreen projectId={projectId} onOpenThread={vi.fn()} onSelectThread={vi.fn()} />
       </Providers>,
       async () => {
-        await waitFor(() => Boolean(document.querySelector('[aria-label*="currently Arc One"]')));
+        await waitFor(() => Boolean(document.querySelector('[aria-label*="choice unavailable"]')));
+        await chooseWork("Arc One");
         const textarea = await setTextarea("Archived opening");
         await act(async () =>
           textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),

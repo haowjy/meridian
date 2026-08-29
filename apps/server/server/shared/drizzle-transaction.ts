@@ -72,6 +72,28 @@ export async function runInRootDrizzleTransaction<T>(
   });
 }
 
+/** One root, read-only repeatable-read snapshot while preserving ambient adapter joins. */
+export async function runInRootDrizzleReadSnapshot<T>(
+  db: DrizzleDatabase,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return transactionStorage.exit(async () => {
+    const context: DrizzleTransactionContext = {
+      db,
+      afterCommit: [],
+      afterRollback: [],
+      locals: new Map(),
+    };
+    return db.transaction(
+      (tx) => {
+        context.db = tx;
+        return transactionStorage.run(context, operation);
+      },
+      { isolationLevel: "repeatable read", accessMode: "read only" },
+    );
+  });
+}
+
 /**
  * Run an adapter-atomic unit. Inside an ambient command transaction this is a
  * real nested Drizzle transaction/savepoint; its commit callbacks remain

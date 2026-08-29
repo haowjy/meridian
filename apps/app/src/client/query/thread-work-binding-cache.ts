@@ -9,7 +9,7 @@ import type {
   WorkContextProjectionSignal,
 } from "@meridian/contracts/works";
 import { notifyManager, type QueryClient } from "@tanstack/react-query";
-import { listProjectThreads, listProjectWorks } from "@/client/api/projects-api";
+import { listProjectThreads } from "@/client/api/projects-api";
 import { invalidateProjectHomeFeed } from "./project-invalidation";
 import {
   isProjectContextCatalogKey,
@@ -20,6 +20,11 @@ import {
 import { patchThreadInProjectCaches } from "./project-thread-cache";
 import { threadQueryKeys } from "./thread-query-keys";
 import { convergeWorkProjection } from "./work-projection-cache";
+import {
+  refreshWorksSnapshot,
+  repairWorksSnapshot,
+  seedWorksSnapshot,
+} from "./works-projection-acquisition";
 
 export type ThreadWorkProjectionCursor = { seq: string; workId: string | null };
 
@@ -61,10 +66,7 @@ export function invalidateThreadProjectionDependencies(
       queryKey: projectQueryKeys.threads(input.projectId),
       exact: true,
     });
-    void client.invalidateQueries({
-      queryKey: projectQueryKeys.works(input.projectId),
-      exact: true,
-    });
+    void repairWorksSnapshot(client, input.projectId);
   }
   void client.invalidateQueries({
     predicate: ({ queryKey }) => isProjectWorkDerivedKey(queryKey, input.projectId, ids),
@@ -155,7 +157,7 @@ export function convergeThreadWorkBinding(
     }
 
     client.setQueryData(projectQueryKeys.threads(projectId), transition.threads);
-    client.setQueryData(projectQueryKeys.works(projectId), transition.catalog);
+    seedWorksSnapshot(client, transition.catalog);
     const row = transition.threads.find(({ id }) => id === threadId);
     patchSnapshot(client, threadId, row?.workId ?? null);
     const ids = new Set([transition.previousWorkId, row?.workId].filter(Boolean) as string[]);
@@ -187,11 +189,10 @@ export async function readStableThreadWorkBinding(
     try {
       await Promise.all([
         client.cancelQueries({ queryKey: projectQueryKeys.threads(input.projectId), exact: true }),
-        client.cancelQueries({ queryKey: projectQueryKeys.works(input.projectId), exact: true }),
       ]);
       const [threads, catalog] = await Promise.all([
         listProjectThreads(input.projectId),
-        listProjectWorks(input.projectId, { status: "all" }),
+        refreshWorksSnapshot(client, input.projectId),
       ]);
       const after = client.getQueryData<ThreadWorkProjectionCursor>(cursorKey)?.seq ?? null;
       if (before !== after) continue;

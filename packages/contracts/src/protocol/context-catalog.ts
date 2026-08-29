@@ -18,7 +18,13 @@ export type CatalogAuthorityEntry = {
   authority: { kind: "work"; workId: WorkId; workSlug: WorkSlug } | { kind: "none" };
   name: string;
   available: boolean;
-};
+} & (
+  | { authority: { kind: "none" }; entityRevision?: never }
+  | {
+      authority: { kind: "work"; workId: WorkId; workSlug: WorkSlug };
+      entityRevision: string;
+    }
+);
 
 export type CatalogSourceEntry = {
   kind: "source";

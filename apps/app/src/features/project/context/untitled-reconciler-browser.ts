@@ -1,11 +1,10 @@
 /** Browser adapters and React bindings for the durable untitled reconciler engine. */
 
 import { useSyncExternalStore } from "react";
-import { createUntitledContextDocument, listProjectWorks } from "@/client/api/projects-api";
+import { createUntitledContextDocument } from "@/client/api/projects-api";
 import { lookupContextCatalogFile } from "@/client/query/useContextCatalog";
 import { useContextTabsStore } from "@/client/stores";
 import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
-import { resolveCatalogWork } from "../catalog-work-resolution";
 import type { ContextIdentityMutationService } from "./context-identity-mutation";
 import type { DesiredIdentity } from "./identity-location";
 import {
@@ -72,13 +71,8 @@ function browserDeps(identityMutations: ContextIdentityMutationService): Untitle
   };
 }
 
-export async function resolveUntitledCatalogHome(
-  projectId: string,
-  listWorks: typeof listProjectWorks = listProjectWorks,
-) {
-  const response = await listWorks(projectId, { status: "all" });
-  const catalogWork = resolveCatalogWork({ status: "ready", works: response.works });
-  return resolveUntitledHome(catalogWork.status === "ready" ? catalogWork.work.id : null);
+export async function resolveUntitledCatalogHome(_projectId: string) {
+  return resolveUntitledHome(null);
 }
 
 let shared: UntitledReconciler | null = null;

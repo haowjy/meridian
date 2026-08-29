@@ -89,6 +89,7 @@ function fixture(overrides: Partial<Work> = {}): Work {
     archivedAt: null,
     deletedAt: null,
     aiWriteMode: "draft",
+    entityRevision: "1",
     unpushedChangeCount: 0,
     lastActivityAt: "2026-08-15T00:00:00Z",
     createdAt: "2026-08-15T00:00:00Z",

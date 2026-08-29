@@ -280,6 +280,7 @@ async function buildScopeEntries(db: CatalogDb, scope: CatalogScope): Promise<Ca
         name: works.name,
         status: works.status,
         deletedAt: works.deletedAt,
+        entityRevision: works.entityRevision,
       })
       .from(works)
       .where(eq(works.projectId, scope.projectId));
@@ -301,6 +302,7 @@ async function buildScopeEntries(db: CatalogDb, scope: CatalogScope): Promise<Ca
         authority: { kind: "work", workId: work.id, workSlug: slug },
         name: work.name,
         available: work.deletedAt === null && work.status === "active",
+        entityRevision: String(work.entityRevision),
       });
     }
   }

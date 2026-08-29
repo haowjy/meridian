@@ -8,11 +8,12 @@ import {
   pushLineage,
   works,
 } from "@meridian/database/schema";
-import { and, asc, countDistinct, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, countDistinct, eq, inArray, ne, sql } from "drizzle-orm";
 import type { DrizzleDb } from "../../../shared/drizzle-transaction.js";
 import { currentDrizzleDb, runInDrizzleTransaction } from "../../../shared/drizzle-transaction.js";
 import { runWithActiveWorkDrafts } from "../../../shared/work-draft-lifecycle.js";
 import type { NoticePort } from "../../notices/index.js";
+import type { WorkProjectionMutation } from "../../projects/index.js";
 import {
   type BranchJournalReadStore,
   type BranchJournalRow,
@@ -194,6 +195,7 @@ export function createDrizzlePushCommitStore(
   stagePendingSettlementWithinTx: StagePendingSettlementWithinTx,
   changeTrails: ChangeTrailPersistence,
   notices?: NoticePort,
+  workProjection?: WorkProjectionMutation,
 ): PushCommitStore {
   return {
     async commitPush(input) {
@@ -206,6 +208,7 @@ export function createDrizzlePushCommitStore(
         const push = mapLineage(lineage);
         await persistRequiredTrail(changeTrails, input, push, notices);
         await stagePendingSettlementWithinTx(txDb, input, push);
+        await workProjection?.advanceBranches([input.branch.branchId]);
         return {
           status: "inserted" as const,
           push,
@@ -216,6 +219,7 @@ export function createDrizzlePushCommitStore(
     async commitDiscard(input) {
       return runInDrizzleTransaction(db, async () => {
         await commitPreparedDiscard(currentDrizzleDb(db), input, new Date());
+        await workProjection?.advanceBranches([input.branch.branchId]);
       });
     },
 
@@ -225,6 +229,7 @@ export function createDrizzlePushCommitStore(
         { branchIds: input.journalRows.map((row) => row.branchId) },
         async () => {
           await commitPreparedRedo(currentDrizzleDb(db), input, new Date());
+          await workProjection?.advanceBranches([input.branch.branchId]);
           await changeTrails.reopenOwners(trailOwnersForRows(input.journalRows));
         },
       );
@@ -247,6 +252,7 @@ export function createDrizzlePushCommitStore(
           await persistRequiredTrail(changeTrails, push, mapped, notices);
           await stagePendingSettlementWithinTx(txDb, push, mapped);
         }
+        await workProjection?.advanceBranches(pushes.map(({ branch }) => branch.branchId));
         const mappedPushes = rows.map(mapLineage);
         return {
           pushes: mappedPushes,
@@ -273,7 +279,10 @@ export function createDrizzlePushCommitStore(
   };
 }
 
-export function createDrizzleWorkPushPolicyStore(db: Database): WorkPushPolicyStore {
+export function createDrizzleWorkPushPolicyStore(
+  db: Database,
+  workProjection?: WorkProjectionMutation,
+): WorkPushPolicyStore {
   return {
     async updateWorkDraftPushPolicy(workId, policy) {
       await runInDrizzleTransaction(db, async () => {
@@ -287,10 +296,18 @@ export function createDrizzleWorkPushPolicyStore(db: Database): WorkPushPolicySt
               eq(documentBranches.status, "active"),
             ),
           );
-        await currentDrizzleDb(db)
+        const [changed] = await currentDrizzleDb(db)
           .update(works)
-          .set({ aiWriteMode: aiWriteModeProjection(policy), updatedAt: new Date() })
-          .where(eq(works.id, workId));
+          .set({
+            aiWriteMode: aiWriteModeProjection(policy),
+            entityRevision: sql`${works.entityRevision} + 1`,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(works.id, workId), ne(works.aiWriteMode, aiWriteModeProjection(policy))))
+          .returning({ projectId: works.projectId });
+        if (changed) {
+          await workProjection?.advanceProjects([changed.projectId]);
+        }
       });
     },
   };
