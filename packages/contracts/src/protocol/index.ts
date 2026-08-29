@@ -40,6 +40,7 @@ export type { TurnStatus } from "../threads/status.js";
 export { isTerminalTurnStatus } from "../threads/status.js";
 export * from "./agui.js";
 export * from "./billing.js";
+export * from "./context-catalog.js";
 export * from "./document-links.js";
 export * from "./event-seq.js";
 export * from "./filetype.js";

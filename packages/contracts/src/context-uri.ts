@@ -12,6 +12,9 @@ export type ProjectScopedContextUriScheme = (typeof PROJECT_SCOPED_CONTEXT_URI_S
 export const WORK_SCOPED_CONTEXT_URI_SCHEMES = ["scratch", "uploads"] as const;
 export type WorkScopedContextUriScheme = (typeof WORK_SCOPED_CONTEXT_URI_SCHEMES)[number];
 
+/** A URI already serialized with stable authority rather than contextual shorthand. */
+export type CanonicalContextUri = string;
+
 /** Server-declared operations available through a context scheme. */
 export interface ContextSchemeCapabilities {
   readonly writable: boolean;
