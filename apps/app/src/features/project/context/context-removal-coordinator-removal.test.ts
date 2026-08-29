@@ -88,7 +88,7 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
 
   it("redirects an unavailable Work route even when it owns no open document", () => {
     const rig = scenario({ screen: "context", work: "work-1" });
-    rig.setRoutes([{ scheme: "scratch", path: "/old.md", workId: "work-1" }]);
+    rig.setRoutes([{ documentId: "old", scheme: "scratch", path: "/old.md", workId: "work-1" }]);
 
     rig.coordinator.workUnavailable(projectId, "work-1", []);
 
@@ -106,7 +106,7 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
     const store = new DeviceWorkingSetStore(storage);
     store.setUser("account-1");
     store.adopt(projectId, {
-      recentRoutes: [{ scheme: "kb", path: "/phone.md" }],
+      recentRoutes: [{ documentId: "phone", scheme: "kb", path: "/phone.md" }],
       lastThreadId: null,
     });
     let search: ProjectSearch = {
@@ -162,7 +162,7 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
   ])("keeps newer continuity after delayed exact A for %s", (_case, path, documentId) => {
     setDesk([tracked("a", "/a.md")], "a");
     const rig = scenario({ screen: "context", scheme: "manuscript", path });
-    rig.setRoutes([{ scheme: "manuscript", path: "/a.md" }]);
+    rig.setRoutes([{ documentId: "a", scheme: "manuscript", path: "/a.md" }]);
     rig.coordinator.registerRoutePort(
       projectId,
       { readSearch: rig.search, updateSearch: () => undefined },
@@ -208,7 +208,7 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
       selection: { status: "bound", identity: { documentId } },
       admitted: { path },
     });
-    expect(rig.routes()[0]).toEqual({ scheme: "manuscript", path });
+    expect(rig.routes()[0]).toEqual({ documentId, scheme: "manuscript", path });
     expect(rig.search().path).toBe(path);
   });
 
@@ -230,8 +230,8 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
       path: "/active.md",
     });
     rig.setRoutes([
-      { scheme: "manuscript", path: "/active.md" },
-      { scheme: "manuscript", path: "/background.md" },
+      { documentId: "active", scheme: "manuscript", path: "/active.md" },
+      { documentId: "background", scheme: "manuscript", path: "/background.md" },
     ]);
     rig.coordinator.registerRoutePort(projectId, rig.route, "work-1");
     const revision = rig.coordinator.beginRouteSelection(projectId, {
@@ -265,8 +265,8 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
     const rig = scenario({ screen: "context", scheme, path: "/a.md", work: "work-1" });
     rig.setRoutes([
       scheme === "scratch"
-        ? { scheme, path: "/a.md", workId: "work-1" }
-        : { scheme, path: "/a.md" },
+        ? { documentId: "a", scheme, path: "/a.md", workId: "work-1" }
+        : { documentId: "a", scheme, path: "/a.md" },
     ]);
     const revision = rig.coordinator.beginRouteSelection(projectId, {
       scheme,
@@ -324,7 +324,7 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
       scheme: "kb",
       path: "/phone.md",
     });
-    rig.setRoutes([{ scheme: "kb", path: "/phone.md" }]);
+    rig.setRoutes([{ documentId: "phone", scheme: "kb", path: "/phone.md" }]);
     const registration = rig.coordinator.registerRoutePort(
       projectId,
       { readSearch: rig.search, updateSearch: () => undefined },
@@ -408,7 +408,7 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
   it("prunes phone-only old-Work continuity without admitting the new candidate", () => {
     setDesk([], null);
     const rig = scenario();
-    rig.setRoutes([{ scheme: "scratch", path: "/old.md", workId: "work-old" }]);
+    rig.setRoutes([{ documentId: "old", scheme: "scratch", path: "/old.md", workId: "work-old" }]);
     const oldRevision = rig.coordinator.beginRouteSelection(projectId, {
       scheme: "scratch",
       path: "/old.md",
@@ -450,7 +450,7 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
     const store = new DeviceWorkingSetStore(storage);
     store.setUser("account-1");
     store.adopt(projectId, {
-      recentRoutes: [{ scheme: "scratch", path: "/old.md", workId: "work-old" }],
+      recentRoutes: [{ documentId: "old", scheme: "scratch", path: "/old.md", workId: "work-old" }],
       lastThreadId: null,
     });
     const coordinator = new ContextRemovalCoordinator("account-1", {
@@ -502,10 +502,17 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
     setDesk([tab], null);
     const rig = scenario();
     rig.setRoutes([
-      { scheme: "kb", path: "/keep.md" },
+      { documentId: "keep", scheme: "kb", path: "/keep.md" },
       ...(cause === "work-prune"
-        ? [{ scheme: "scratch" as const, path: "/removed.md", workId: "work-old" }]
-        : [{ scheme: "manuscript" as const, path: "/removed.md" }]),
+        ? [
+            {
+              documentId: "removed",
+              scheme: "scratch" as const,
+              path: "/removed.md",
+              workId: "work-old",
+            },
+          ]
+        : [{ documentId: "removed", scheme: "manuscript" as const, path: "/removed.md" }]),
     ]);
     const registration = rig.coordinator.registerRoutePort(
       projectId,
@@ -518,7 +525,7 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
     else if (cause === "writer-close") rig.coordinator.writerClose(projectId, "removed");
 
     expect(rig.coordinator.getProjectSnapshot(projectId).admitted?.path).toBe("/keep.md");
-    expect(rig.routes()[0]).toEqual({ scheme: "kb", path: "/keep.md" });
+    expect(rig.routes()[0]).toEqual({ documentId: "keep", scheme: "kb", path: "/keep.md" });
     registration.release();
     rig.coordinator.registerRoutePort(
       projectId,
@@ -541,7 +548,7 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
         resolveDraftApply: () => deskCommits.push(["draft"]),
       },
       workingSet: {
-        readRecentRoutes: () => [{ scheme: "manuscript", path: "/a.md" }],
+        readRecentRoutes: () => [{ documentId: "a", scheme: "manuscript", path: "/a.md" }],
         reconcileContextRoutes: (_id, input) => {
           routeCommits.push(input);
           return [];

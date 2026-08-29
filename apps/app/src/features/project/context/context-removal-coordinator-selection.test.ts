@@ -83,7 +83,7 @@ describe("ContextRemovalCoordinator exact evidence protocol", () => {
 
   it("never publishes candidate persistence across begin, supersede, leave, or rejection", () => {
     const reports: WorkingSetRoute[][] = [];
-    let routes: WorkingSetRoute[] = [{ scheme: "kb", path: "/keep.md" }];
+    let routes: WorkingSetRoute[] = [{ documentId: "keep", scheme: "kb", path: "/keep.md" }];
     const coordinator = new ContextRemovalCoordinator("account-1", {
       workingSet: {
         readRecentRoutes: () => routes,
@@ -129,14 +129,16 @@ describe("ContextRemovalCoordinator exact evidence protocol", () => {
     expect(rejectedRevision).toBeGreaterThan(candidateA);
     coordinator.rejectRouteCandidate(projectId, rejectedRevision);
     expect(reports).toHaveLength(1);
-    expect(reports[0]).toEqual([{ scheme: "kb", path: "/keep.md" }]);
+    expect(reports[0]).toEqual([{ documentId: "keep", scheme: "kb", path: "/keep.md" }]);
     expect(reports.flat()).not.toContainEqual(expect.objectContaining({ path: "/candidate-a.md" }));
     expect(reports.flat()).not.toContainEqual(expect.objectContaining({ path: "/candidate-b.md" }));
   });
 
   it("lets a same-path replacement defeat a delayed candidate-rejection repair", () => {
     setDesk([tracked("knowledge", "/knowledge.md")], "knowledge");
-    let routes: WorkingSetRoute[] = [{ scheme: "kb", path: "/knowledge.md" }];
+    let routes: WorkingSetRoute[] = [
+      { documentId: "knowledge", scheme: "kb", path: "/knowledge.md" },
+    ];
     const delayedRepair: { current: ((latest: ProjectSearch) => ProjectSearch) | null } = {
       current: null,
     };
@@ -192,15 +194,19 @@ describe("ContextRemovalCoordinator exact evidence protocol", () => {
       selection: { status: "bound", identity: { documentId: "replacement" } },
       admitted: locator,
     });
-    expect(routes[0]).toEqual({ scheme: "manuscript", path: "/same.md" });
+    expect(routes[0]).toEqual({
+      documentId: "replacement",
+      scheme: "manuscript",
+      path: "/same.md",
+    });
   });
 
   it("does not admit a candidate phone locator during an unrelated desk removal", () => {
     setDesk([tracked("desktop", "/desktop.md")], "desktop");
     const rig = scenario({ screen: "context", work: "work-1", scheme: "kb", path: "/phone.md" });
     rig.setRoutes([
-      { scheme: "kb", path: "/phone.md" },
-      { scheme: "manuscript", path: "/desktop.md" },
+      { documentId: "phone", scheme: "kb", path: "/phone.md" },
+      { documentId: "desktop", scheme: "manuscript", path: "/desktop.md" },
     ]);
     rig.coordinator.beginRouteSelection(projectId, {
       scheme: "kb",
@@ -218,14 +224,14 @@ describe("ContextRemovalCoordinator exact evidence protocol", () => {
       ["desktop"],
     );
 
-    expect(rig.routes()[0]).toEqual({ scheme: "kb", path: "/phone.md" });
+    expect(rig.routes()[0]).toEqual({ documentId: "phone", scheme: "kb", path: "/phone.md" });
     expect(rig.coordinator.getProjectSnapshot(projectId).admitted).toBeNull();
     expect(rig.search().path).toBe("/phone.md");
   });
 
   it("admits an exact pending phone delete synchronously and settles it later", () => {
     const rig = scenario({ screen: "context", work: "work-1", scheme: "kb", path: "/phone.md" });
-    rig.setRoutes([{ scheme: "kb", path: "/phone.md" }]);
+    rig.setRoutes([{ documentId: "phone", scheme: "kb", path: "/phone.md" }]);
     const revision = rig.coordinator.beginRouteSelection(projectId, {
       scheme: "kb",
       path: "/phone.md",
@@ -242,7 +248,7 @@ describe("ContextRemovalCoordinator exact evidence protocol", () => {
       status: "replayed",
       outcome: "obligated",
     });
-    expect(rig.routes()).toEqual([{ scheme: "kb", path: "/phone.md" }]);
+    expect(rig.routes()).toEqual([{ documentId: "phone", scheme: "kb", path: "/phone.md" }]);
 
     rig.coordinator.rejectRouteCandidate(projectId, revision);
     expect(rig.routes()).toEqual([]);
@@ -279,7 +285,7 @@ describe("ContextRemovalCoordinator exact evidence protocol", () => {
   ])("reduces late same-revision admission after %s settlement", (_case, identity, removes, repairs) => {
     const rig = scenario({ screen: "context", work: "work-1", scheme: "kb", path: "/phone.md" });
     rig.coordinator.changeWorkSelection(projectId, "work-1", null);
-    rig.setRoutes([{ scheme: "kb", path: "/phone.md" }]);
+    rig.setRoutes([{ documentId: "phone", scheme: "kb", path: "/phone.md" }]);
     const revision = rig.coordinator.beginRouteSelection(projectId, {
       scheme: "kb",
       path: "/phone.md",
@@ -307,7 +313,7 @@ describe("ContextRemovalCoordinator exact evidence protocol", () => {
 
   it("never assigns an unrelated singleton receipt to a superseded locator", () => {
     const rig = scenario({ screen: "context", work: "work-1", scheme: "kb", path: "/phone.md" });
-    rig.setRoutes([{ scheme: "kb", path: "/phone.md" }]);
+    rig.setRoutes([{ documentId: "phone", scheme: "kb", path: "/phone.md" }]);
     rig.coordinator.beginRouteSelection(projectId, {
       scheme: "kb",
       path: "/phone.md",
@@ -326,7 +332,7 @@ describe("ContextRemovalCoordinator exact evidence protocol", () => {
 
     admit(rig.coordinator, unrelated, ["other"]);
 
-    expect(rig.routes()).toEqual([{ scheme: "kb", path: "/phone.md" }]);
+    expect(rig.routes()).toEqual([{ documentId: "phone", scheme: "kb", path: "/phone.md" }]);
   });
 
   it.each([
@@ -349,8 +355,8 @@ describe("ContextRemovalCoordinator exact evidence protocol", () => {
     });
     rig.setRoutes([
       scheme === "scratch"
-        ? { scheme, path: "/a.md", workId: "work-1" }
-        : { scheme, path: "/a.md" },
+        ? { documentId: "a", scheme, path: "/a.md", workId: "work-1" }
+        : { documentId: "a", scheme, path: "/a.md" },
     ]);
     const revision = rig.coordinator.beginRouteSelection(projectId, {
       scheme,
@@ -508,7 +514,9 @@ describe("ContextRemovalCoordinator exact evidence protocol", () => {
       path: "/phone.md",
       workId: "work-1",
     });
-    expect(rig.routes()).toEqual([{ scheme: "manuscript", path: "/phone.md" }]);
+    expect(rig.routes()).toEqual([
+      { documentId: "phone", scheme: "manuscript", path: "/phone.md" },
+    ]);
   });
 
   it("admits local untitled Scratch in memory without a working-set route", () => {

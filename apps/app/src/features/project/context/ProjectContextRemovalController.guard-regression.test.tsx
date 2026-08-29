@@ -37,6 +37,9 @@ it("keeps a terminally guarded production entry absent until replacement identit
   const projectId = "guarded-entry-project";
   const accountId = "guarded-entry-account";
   const workId = "work-1";
+  const aId = "00000000-0000-0000-0000-0000000000a1";
+  const cId = "00000000-0000-0000-0000-0000000000c1";
+  const replacementAId = "00000000-0000-0000-0000-0000000000a2";
   const locatorA = { scheme: "manuscript" as const, path: "/a.md", workId };
   const locatorC = { scheme: "manuscript" as const, path: "/c.md", workId };
   useContextTabsStore.setState({
@@ -45,7 +48,7 @@ it("keeps a terminally guarded production entry absent until replacement identit
         tabs: [
           {
             kind: "tracked",
-            documentId: "a",
+            documentId: aId,
             scheme: "manuscript",
             path: "/a.md",
             name: "a.md",
@@ -55,7 +58,7 @@ it("keeps a terminally guarded production entry absent until replacement identit
           },
           {
             kind: "tracked",
-            documentId: "c",
+            documentId: cId,
             scheme: "manuscript",
             path: "/c.md",
             name: "c.md",
@@ -64,7 +67,7 @@ it("keeps a terminally guarded production entry absent until replacement identit
             schemaType: "document",
           },
         ],
-        selectedTabIdByWork: { "work-1": "a" },
+        selectedTabIdByWork: { "work-1": aId },
       },
     },
     _deskHydrated: true,
@@ -87,13 +90,13 @@ it("keeps a terminally guarded production entry absent until replacement identit
       reconcileContextRoutes(projectId, {
         removedLocators: [],
         survivingOwnedLocators: [],
-        promote: { scheme: "manuscript", path: "/c.md" },
+        promote: { documentId: cId, scheme: "manuscript", path: "/c.md" },
         clearAll: false,
       });
       reconcileContextRoutes(projectId, {
         removedLocators: [],
         survivingOwnedLocators: [],
-        promote: { scheme: "manuscript", path: "/a.md" },
+        promote: { documentId: aId, scheme: "manuscript", path: "/a.md" },
         clearAll: false,
       });
     }, []);
@@ -158,16 +161,16 @@ it("keeps a terminally guarded production entry absent until replacement identit
   await withReactRoot(<Harness />, async () => {
     if (!coordinator) throw new Error("expected coordinator");
     expect(readRecentRoutes(projectId)).toEqual([
-      { scheme: "manuscript", path: "/a.md" },
-      { scheme: "manuscript", path: "/c.md" },
+      { documentId: aId, scheme: "manuscript", path: "/a.md" },
+      { documentId: cId, scheme: "manuscript", path: "/c.md" },
     ]);
     expect(workingSetStorage.getItem(WORKING_SET_STORAGE_KEY)).toContain("/a.md");
     let revision = coordinator.beginRouteSelection(projectId, locatorA);
-    coordinator.bindRouteSelection(projectId, revision, { kind: "server", documentId: "a" });
-    admitExact(locatorA, "a");
+    coordinator.bindRouteSelection(projectId, revision, { kind: "server", documentId: aId });
+    admitExact(locatorA, aId);
 
     revision = coordinator.beginRouteSelection(projectId, locatorC);
-    admitExact(locatorC, "c");
+    admitExact(locatorC, cId);
     expect(coordinator.getProjectSnapshot(projectId).selection).toMatchObject({
       status: "candidate",
       revision,
@@ -182,7 +185,7 @@ it("keeps a terminally guarded production entry absent until replacement identit
     expect(guarded).toMatchObject({
       selection: { status: "candidate", locator: locatorA },
       admitted: null,
-      removalFence: { removedDocumentIds: ["c"] },
+      removalFence: { removedDocumentIds: [cId] },
     });
     expect(search).toEqual({
       screen: "context",
@@ -205,7 +208,7 @@ it("keeps a terminally guarded production entry absent until replacement identit
           tabs: [
             {
               kind: "tracked",
-              documentId: "replacement-a",
+              documentId: replacementAId,
               scheme: "manuscript",
               path: "/a.md",
               name: "a.md",
@@ -214,13 +217,13 @@ it("keeps a terminally guarded production entry absent until replacement identit
               schemaType: "document",
             },
           ],
-          selectedTabIdByWork: { "work-1": "replacement-a" },
+          selectedTabIdByWork: { "work-1": replacementAId },
         },
       },
     }));
     coordinator.bindRouteSelection(projectId, replacementRevision, {
       kind: "server",
-      documentId: "replacement-a",
+      documentId: replacementAId,
     });
     const replacementSnapshot = coordinator.getProjectSnapshot(projectId);
     coordinator.activate({
@@ -228,18 +231,19 @@ it("keeps a terminally guarded production entry absent until replacement identit
       selectionRevision: replacementSnapshot.selection.revision,
       transitionRevision: replacementSnapshot.transitionRevision,
       locator: locatorA,
-      identity: { kind: "server", documentId: "replacement-a" },
-      owner: { kind: "desk", documentId: "replacement-a" },
+      identity: { kind: "server", documentId: replacementAId },
+      owner: { kind: "desk", documentId: replacementAId },
     });
     expect(coordinator.getProjectSnapshot(projectId)).toMatchObject({
       selection: {
         status: "bound",
         locator: locatorA,
-        identity: { documentId: "replacement-a" },
+        identity: { documentId: replacementAId },
       },
       admitted: locatorA,
     });
     expect(readRecentRoutes(projectId)).toContainEqual({
+      documentId: replacementAId,
       scheme: "manuscript",
       path: "/a.md",
     });
@@ -247,6 +251,7 @@ it("keeps a terminally guarded production entry absent until replacement identit
     const reconstructed = new DeviceWorkingSetStore(workingSetStorage);
     reconstructed.setUser(accountId);
     expect(reconstructed.read(projectId)?.snapshot.recentRoutes).toContainEqual({
+      documentId: replacementAId,
       scheme: "manuscript",
       path: "/a.md",
     });
@@ -334,10 +339,15 @@ it("never restamps a Work-scoped route candidate during a production Work transi
       reconcileContextRoutes(projectId, {
         removedLocators: [],
         survivingOwnedLocators: [
-          { scheme: "kb", path: "/knowledge.md" },
-          { scheme: "scratch", path: wrongPath, workId: "work-2" },
+          { documentId: "knowledge", scheme: "kb", path: "/knowledge.md" },
+          { documentId: "document-route", scheme: "scratch", path: wrongPath, workId: "work-2" },
         ],
-        promote: { scheme: "scratch", path: wrongPath, workId: "work-2" },
+        promote: {
+          documentId: "document-route",
+          scheme: "scratch",
+          path: wrongPath,
+          workId: "work-2",
+        },
         clearAll: false,
       });
       const originalReport = DeviceWorkingSetStore.prototype.report;
@@ -355,8 +365,8 @@ it("never restamps a Work-scoped route candidate during a production Work transi
       });
       reconcileContextRoutes(projectId, {
         removedLocators: [],
-        survivingOwnedLocators: [{ scheme: "kb", path: "/knowledge.md" }],
-        promote: { scheme: "kb", path: "/knowledge.md" },
+        survivingOwnedLocators: [{ documentId: "knowledge", scheme: "kb", path: "/knowledge.md" }],
+        promote: { documentId: "knowledge", scheme: "kb", path: "/knowledge.md" },
         clearAll: false,
       });
     }, []);
@@ -399,7 +409,9 @@ it("never restamps a Work-scoped route candidate during a production Work transi
         selection: { status: "rejected" },
         admitted: { scheme: "kb", path: "/knowledge.md", workId: "work-1" },
       });
-      expect(readRecentRoutes(projectId)).toEqual([{ scheme: "kb", path: "/knowledge.md" }]);
+      expect(readRecentRoutes(projectId)).toEqual([
+        { documentId: "knowledge", scheme: "kb", path: "/knowledge.md" },
+      ]);
       expect(search).toMatchObject({ screen: "context", scheme: "kb", path: "/knowledge.md" });
       const rawWorkingSet = workingSetStorage.getItem(WORKING_SET_STORAGE_KEY);
       expect(rawWorkingSet).not.toBeNull();
@@ -413,8 +425,8 @@ it("never restamps a Work-scoped route candidate during a production Work transi
       ).toBe(true);
       reconcileContextRoutes(projectId, {
         removedLocators: [],
-        survivingOwnedLocators: [{ scheme: "kb", path: "/knowledge.md" }],
-        promote: { scheme: "kb", path: "/knowledge.md" },
+        survivingOwnedLocators: [{ documentId: "knowledge", scheme: "kb", path: "/knowledge.md" }],
+        promote: { documentId: "knowledge", scheme: "kb", path: "/knowledge.md" },
         clearAll: false,
       });
       await new Promise((resolve) => setTimeout(resolve, 3_100));

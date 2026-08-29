@@ -93,12 +93,12 @@ describe("catalog working-set transition", () => {
 
   it("caps only the recent-route identity contribution at 64", () => {
     const routes = Array.from({ length: 65 }, (_, index) => ({
+      documentId: `document-${index}`,
       scheme: "manuscript" as const,
       path: `Chapter-${index}.md`,
     }));
-    const tabs = routes.map((route, index) => ({
+    const tabs = routes.map((route) => ({
       kind: "tracked" as const,
-      documentId: `document-${index}`,
       ...route,
       name: route.path,
       editable: true as const,

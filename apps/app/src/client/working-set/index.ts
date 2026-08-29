@@ -14,5 +14,7 @@ export type { ReconcileContextRoutesInput } from "./store";
 export {
   buildWorkingSetRoute,
   recentRouteForEditorWork,
+  replaceSnapshotRoute,
   workingSetRouteEquals,
+  workingSetRouteIdentityEquals,
 } from "./store";

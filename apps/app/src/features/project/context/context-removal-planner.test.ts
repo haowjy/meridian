@@ -78,8 +78,8 @@ describe("context removal planner", () => {
       selectedTabId: "knowledge",
       admitted: { scheme: "scratch", path: "/old.md", workId: "work-1" },
       recentRoutes: [
-        { scheme: "scratch", path: "/wrong.md", workId: "work-1" },
-        { scheme: "kb", path: "/recent.md" },
+        { documentId: "wrong", scheme: "scratch", path: "/wrong.md", workId: "work-1" },
+        { documentId: "recent", scheme: "kb", path: "/recent.md" },
       ],
     });
 
@@ -107,7 +107,9 @@ describe("context removal planner", () => {
       tabs: [{ ...tracked("draft", "/draft.md"), draftOnly: true }],
       selectedTabId: null,
       admitted: { scheme: "scratch", path: "/work-2.md", workId: "work-2" },
-      recentRoutes: [{ scheme: "uploads", path: "/work-2.bin", workId: "work-2" }],
+      recentRoutes: [
+        { documentId: "work-2.bin", scheme: "uploads", path: "/work-2.bin", workId: "work-2" },
+      ],
     });
 
     expect(plan.fallback).toBeNull();
@@ -124,7 +126,14 @@ describe("context removal planner", () => {
       [],
       "/admitted.md",
     ],
-    ["recent", [], null, null, [{ scheme: "kb" as const, path: "/recent.md" }], "/recent.md"],
+    [
+      "recent",
+      [],
+      null,
+      null,
+      [{ documentId: "recent", scheme: "kb" as const, path: "/recent.md" }],
+      "/recent.md",
+    ],
     [
       "surviving desk",
       [{ ...tracked("survivor", "/survivor.md"), scheme: "kb" as const }],
@@ -206,7 +215,7 @@ describe("context removal planner", () => {
       intent: { cause: "writer-close", documentIds: ["desktop"] },
     });
     expect(plan.workingSet.clearAll).toBe(false);
-    expect(plan.workingSet.promote).toEqual({ scheme: "kb", path: "/phone.md" });
+    expect(plan.workingSet.promote).toBeNull();
     expect(plan.admitted).toEqual(phoneSelection.locator);
   });
 
@@ -332,6 +341,7 @@ describe("context removal planner", () => {
     expect(plan.admitted).toEqual(current.locator);
     expect(plan.workingSet.clearAll).toBe(false);
     expect(plan.workingSet.promote).toEqual({
+      documentId: current.identity.documentId,
       scheme: current.locator.scheme,
       path: current.locator.path,
     });

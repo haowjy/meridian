@@ -272,7 +272,9 @@ export class ContextRemovalCoordinator {
     ) {
       return true;
     }
-    const route = tab ? workingSetRouteForTab(tab) : workingSetRouteForTarget(activation.locator);
+    const route = tab
+      ? workingSetRouteForTab(tab)
+      : workingSetRouteForTarget(activation.identity.documentId, activation.locator);
     if (route) {
       this.workingSet.reconcileContextRoutes(activation.projectId, {
         removedLocators: [],
@@ -549,7 +551,7 @@ export class ContextRemovalCoordinator {
       this.workingSet.reconcileContextRoutes(command.projectId, {
         removedLocators: oldRoutes,
         survivingOwnedLocators: tabs.flatMap((tab) => workingSetRouteForTab(tab) ?? []),
-        promote: workingSetRouteForTarget(target),
+        promote: workingSetRouteForTarget(documentId, target),
         clearAll: false,
       });
     }
@@ -703,7 +705,7 @@ export class ContextRemovalCoordinator {
           documentId: compatibleSelected?.documentId ?? fallbackTab?.documentId ?? null,
         },
       });
-      const promotedRoute = fallback ? workingSetRouteForTarget(fallback) : null;
+      const promotedRoute = fallbackTab ? workingSetRouteForTab(fallbackTab) : null;
       this.workingSet.reconcileContextRoutes(projectId, {
         removedLocators: obsoleteRoutes,
         survivingOwnedLocators: [

@@ -75,7 +75,7 @@ describe("server hydration route settlement", () => {
   it("preserves the restored row on rejection", () => {
     expect(
       settleSeededRoutes(
-        [{ scheme: "manuscript", path: "/a.md" }],
+        [{ documentId: "a", scheme: "manuscript", path: "/a.md" }],
         [restored],
         [{ status: "rejected", reason: new Error("offline") }],
       ),
@@ -87,8 +87,8 @@ describe("server hydration route settlement", () => {
     expect(
       settleSeededRoutes(
         [
-          { scheme: "manuscript", path: "/a.md" },
-          { scheme: "kb", path: "/missing.md" },
+          { documentId: "a", scheme: "manuscript", path: "/a.md" },
+          { documentId: "missing", scheme: "kb", path: "/missing.md" },
         ],
         [restored],
         [
@@ -97,14 +97,14 @@ describe("server hydration route settlement", () => {
             status: "fulfilled",
             value: {
               tab: null,
-              removedRoute: { scheme: "kb", path: "/missing.md" },
+              removedRoute: { documentId: "missing", scheme: "kb", path: "/missing.md" },
             },
           },
         ],
       ),
     ).toEqual([
       { tab: refreshed, removedRoute: null },
-      { tab: null, removedRoute: { scheme: "kb", path: "/missing.md" } },
+      { tab: null, removedRoute: { documentId: "missing", scheme: "kb", path: "/missing.md" } },
     ]);
   });
 });

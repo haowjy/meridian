@@ -153,7 +153,9 @@ export async function seedWorkingSetTabs({
   reconcileContextRoutes(projectId, {
     removedLocators: settled.flatMap(({ removedRoute }) => removedRoute ?? []),
     survivingOwnedLocators: tabs.flatMap((tab) =>
-      tab.kind === "new" ? [] : (buildWorkingSetRoute(tab.scheme, tab.path, tab.workId) ?? []),
+      tab.kind === "new"
+        ? []
+        : (buildWorkingSetRoute(tab.documentId, tab.scheme, tab.path, tab.workId) ?? []),
     ),
     promote: null,
     clearAll: false,
@@ -192,7 +194,7 @@ export async function validateContextDeskTabs({
           // restored server tabs remain route records and validate by locator.
           return {
             tab: null,
-            removedRoute: buildWorkingSetRoute(tab.scheme, tab.path, tab.workId),
+            removedRoute: buildWorkingSetRoute(tab.documentId, tab.scheme, tab.path, tab.workId),
           };
         }
         const refreshed = contextTabFromFile(tab.scheme, file, workId);
@@ -220,7 +222,9 @@ export async function validateContextDeskTabs({
   reconcileContextRoutes(projectId, {
     removedLocators: tabs.flatMap(({ removedRoute }) => removedRoute ?? []),
     survivingOwnedLocators: survivingTabs.flatMap((tab) =>
-      tab.kind === "new" ? [] : (buildWorkingSetRoute(tab.scheme, tab.path, tab.workId) ?? []),
+      tab.kind === "new"
+        ? []
+        : (buildWorkingSetRoute(tab.documentId, tab.scheme, tab.path, tab.workId) ?? []),
     ),
     promote: null,
     clearAll: false,

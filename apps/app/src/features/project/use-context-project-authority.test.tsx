@@ -179,10 +179,10 @@ it("keeps a fulfilled bootstrap removal authoritative when the explicit live rou
   reconcileContextRoutes("project", {
     removedLocators: [],
     survivingOwnedLocators: [
-      { scheme: "kb", path: "/deleted.md" },
-      { scheme: "kb", path: "/knowledge.md" },
+      { documentId: "deleted", scheme: "kb", path: "/deleted.md" },
+      { documentId: "knowledge", scheme: "kb", path: "/knowledge.md" },
     ],
-    promote: { scheme: "kb", path: "/deleted.md" },
+    promote: { documentId: "deleted", scheme: "kb", path: "/deleted.md" },
     clearAll: false,
   });
   mocks.localSnapshots.length = 0;
@@ -276,7 +276,9 @@ it("keeps a fulfilled bootstrap removal authoritative when the explicit live rou
           selection: { status: "rejected", locator: { path: "/deleted.md" } },
           admitted: { path: "/knowledge.md" },
         });
-        expect(readRecentRoutes("project")).toEqual([{ scheme: "kb", path: "/knowledge.md" }]);
+        expect(readRecentRoutes("project")).toEqual([
+          { documentId: "knowledge", scheme: "kb", path: "/knowledge.md" },
+        ]);
         expect(search).toMatchObject({ scheme: "kb", path: "/knowledge.md" });
         const rawWorkingSet = workingSetStorage.getItem(WORKING_SET_STORAGE_KEY);
         expect(rawWorkingSet).not.toBeNull();

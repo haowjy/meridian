@@ -4,9 +4,9 @@ import { recentRouteForEditorWork } from "./store";
 
 describe("recentRouteForEditorWork", () => {
   const mixedRoutes: WorkingSetRoute[] = [
-    { scheme: "scratch", path: "/shared.md", workId: "work-a" },
-    { scheme: "uploads", path: "/shared.pdf", workId: "work-b" },
-    { scheme: "manuscript", path: "/chapter.md" },
+    { documentId: "document-route", scheme: "scratch", path: "/shared.md", workId: "work-a" },
+    { documentId: "document-route", scheme: "uploads", path: "/shared.pdf", workId: "work-b" },
+    { documentId: "document-route", scheme: "manuscript", path: "/chapter.md" },
   ];
 
   it("accepts only the current Work for Work-scoped routes", () => {

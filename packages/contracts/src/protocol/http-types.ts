@@ -10,8 +10,9 @@ import {
   WORK_SCOPED_CONTEXT_URI_SCHEMES,
   type WorkScopedContextUriScheme,
 } from "../context-uri.js";
-import type { UserId, WorkId } from "../ids.js";
+import type { DocumentId, UserId, WorkId } from "../ids.js";
 import type { Project } from "../projects/index.js";
+import { parseRequestId } from "../request-id.js";
 import type {
   Block,
   BlockType,
@@ -187,11 +188,12 @@ export type WorkAuthorityScheme = WorkScopedContextUriScheme;
 
 export type WorkingSetRoute =
   | {
+      documentId: DocumentId;
       scheme: Exclude<ProjectContextTreeScheme, WorkAuthorityScheme>;
       path: string;
       workId?: never;
     }
-  | { scheme: WorkAuthorityScheme; path: string; workId: WorkId };
+  | { documentId: DocumentId; scheme: WorkAuthorityScheme; path: string; workId: WorkId | null };
 
 export type WorkingSetRouteParseResult =
   | { ok: true; value: WorkingSetRoute }
@@ -231,6 +233,10 @@ export function parseWorkingSetRoute(input: unknown): WorkingSetRouteParseResult
   }
 
   const route = input as Record<string, unknown>;
+  const documentId = parseRequestId(route.documentId);
+  if (!documentId) {
+    return { ok: false, message: "Working-set route requires a valid documentId" };
+  }
   if (!isProjectContextTreeScheme(route.scheme)) {
     return { ok: false, message: "Working-set route has an unknown scheme" };
   }
@@ -239,19 +245,31 @@ export function parseWorkingSetRoute(input: unknown): WorkingSetRouteParseResult
   }
 
   if (isWorkScopedProjectContextScheme(route.scheme)) {
-    if (typeof route.workId !== "string" || route.workId.length === 0) {
-      return { ok: false, message: "Work-scoped routes require a workId" };
+    if (!("workId" in route) || (route.workId !== null && typeof route.workId !== "string")) {
+      return { ok: false, message: "Work-scoped routes require an explicit workId or null" };
+    }
+    const workId = route.workId === null ? null : parseRequestId(route.workId);
+    if (route.workId !== null && !workId) {
+      return { ok: false, message: "Working-set route workId must be a valid UUID or null" };
     }
     return {
       ok: true,
-      value: { scheme: route.scheme, path: route.path, workId: route.workId as WorkId },
+      value: {
+        documentId: documentId as DocumentId,
+        scheme: route.scheme,
+        path: route.path,
+        workId: workId as WorkId | null,
+      },
     };
   }
 
   if (route.workId !== undefined) {
     return { ok: false, message: "Non-work-scoped routes must not include a workId" };
   }
-  return { ok: true, value: { scheme: route.scheme, path: route.path } };
+  return {
+    ok: true,
+    value: { documentId: documentId as DocumentId, scheme: route.scheme, path: route.path },
+  };
 }
 
 export function parseWorkingSetRouteList(input: unknown): WorkingSetRouteListParseResult {

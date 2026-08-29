@@ -5,8 +5,12 @@ document routes and remembered thread. `DeviceWorkingSetStore` owns the
 user-stamped persisted record; `WorkingSetSyncDriver` owns server baselines,
 pending reports, hydration, and serialized sweeps.
 
+The versioned local record and server row carry the same canonical route DTO:
+stable document identity plus its current locator. Obsolete locator-only local
+values and pre-migration server rows are deleted rather than decoded.
+
 Live context removal uses `reconcileContextRoutes`: one snapshot transform removes
-only locators with no surviving tab owner, optionally promotes the resulting
+only identities with no surviving tab owner, repairs a same-ID locator in place, optionally promotes the resulting
 active route, and clears all routes only for a genuinely empty desk. Callers must
 not compose remove/promote operations for one removal transition; the sequential
 driver surface is intentionally absent.
@@ -22,8 +26,9 @@ state but never navigates; restore remains owned by the existing context and
 chat controllers.
 
 Server-adopted routes are a seeding plan, not navigation instructions. The
-project layer resolves each against its own stored Work's context tree, opens it inactive,
-and checks that the route remains desired immediately before the async commit.
+project layer opens each route inactive and checks that it remains desired
+immediately before the async commit. One project-entry raw operation owns
+seed/validation.
 One project-entry raw operation owns seed/validation. Strict replay or a pre-live
 readiness interruption adopts that operation; after it completes, Work changes use
 the removal coordinator and never reopen raw tree-absence pruning.
