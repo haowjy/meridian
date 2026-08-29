@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, StrictMode, useLayoutEffect, useState } from "react";
+import { act, StrictMode, useCallback, useLayoutEffect, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { useContextTabsStore } from "@/client/stores";
 import { withReactRoot } from "@/test-support/react-dom-harness";
@@ -33,6 +33,38 @@ function tracked(documentId: string, path: string) {
 }
 
 describe("ContextRemovalAccountProvider", () => {
+  it("keeps the account coordinator across an ordinary composition rerender", async () => {
+    const instances: ContextRemovalCoordinator[] = [];
+    let rerender: (() => void) | null = null;
+    function Child() {
+      instances.push(useContextRemovalCoordinator());
+      return null;
+    }
+    function AuthenticatedComposition() {
+      const queryClient = providerQueryClient;
+      const [, setRevision] = useState(0);
+      rerender = () => setRevision((revision) => revision + 1);
+      const repairProjectCatalog = useCallback(
+        (projectId: string) =>
+          queryClient.invalidateQueries({
+            queryKey: ["projects", projectId, "context-catalog"],
+          }),
+        [queryClient],
+      );
+      return (
+        <TestAccountProvider accountId="account-a" repairProjectCatalog={repairProjectCatalog}>
+          <Child />
+        </TestAccountProvider>
+      );
+    }
+
+    await withReactRoot(<AuthenticatedComposition />, async () => {
+      const first = instances.at(-1);
+      await act(async () => rerender?.());
+      expect(instances.at(-1)).toBe(first);
+    });
+  });
+
   it("reuses one coordinator through Strict effect replay", async () => {
     const instances: ContextRemovalCoordinator[] = [];
     function Child() {

@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Outlet, redirect, useRouterState } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getAuth, getSignInUrl } from "@workos/authkit-tanstack-react-start";
-import { lazy, Suspense, useEffect, useMemo } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo } from "react";
 import { getAccountSettings } from "@/client/api/account-api";
 import { getAuthMe } from "@/client/api/auth-api";
 import { ssrApiRequestInit } from "@/client/api/ssr-api-request";
@@ -158,15 +158,18 @@ function AuthenticatedAccountProviderTree({
   user: { userId: string; workingSetSyncEnabled: boolean | null };
 }) {
   const queryClient = useQueryClient();
+  const repairProjectCatalog = useCallback(
+    (projectId: string) =>
+      queryClient.invalidateQueries({
+        queryKey: ["projects", projectId, "context-catalog"],
+      }),
+    [queryClient],
+  );
   return (
     <ContextRemovalAccountProvider
       key={user.userId}
       accountId={user.userId}
-      repairProjectCatalog={(projectId) =>
-        queryClient.invalidateQueries({
-          queryKey: ["projects", projectId, "context-catalog"],
-        })
-      }
+      repairProjectCatalog={repairProjectCatalog}
     >
       <AuthenticatedProviderTree now={now} pathname={pathname} user={user} />
     </ContextRemovalAccountProvider>
