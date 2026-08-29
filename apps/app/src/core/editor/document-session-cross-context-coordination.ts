@@ -17,11 +17,9 @@ const LOCK_PREFIX = "meridian:f1d:v1:";
 const PENDING_DRAIN_RECONCILE_MS = 5_000;
 
 type LockMode = "shared" | "exclusive";
-type LockRequestOptions = {
-  mode?: LockMode;
-  ifAvailable?: boolean;
-  signal?: AbortSignal;
-};
+type LockRequestOptions =
+  | { mode?: LockMode; signal?: AbortSignal; ifAvailable?: never }
+  | { mode?: LockMode; ifAvailable: true; signal?: never };
 
 export interface CrossContextLockManager {
   request<T>(
@@ -637,15 +635,11 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     name: string,
     callback: () => Promise<void>,
   ): Promise<boolean> {
-    return this.locks.request(
-      name,
-      { mode: "exclusive", ifAvailable: true, signal: this.abort.signal },
-      async (lock) => {
-        if (!lock) return false;
-        await callback();
-        return true;
-      },
-    );
+    return this.locks.request(name, { mode: "exclusive", ifAvailable: true }, async (lock) => {
+      if (!lock) return false;
+      await callback();
+      return true;
+    });
   }
 
   private async runPurgeWorker(documentId: DocumentId): Promise<boolean> {

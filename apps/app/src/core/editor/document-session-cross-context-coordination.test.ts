@@ -175,6 +175,39 @@ class FailAccessLockOnce implements CrossContextLockManager {
   }
 }
 
+class ChromiumShapeWebLocks implements CrossContextLockManager {
+  readonly requests: Array<{
+    name: string;
+    options: { mode?: "shared" | "exclusive"; ifAvailable?: boolean; signal?: AbortSignal };
+  }> = [];
+
+  constructor(
+    private readonly delegate: FifoWebLocks,
+    private failProbeOnce = false,
+  ) {}
+
+  request<T>(
+    name: string,
+    options: { mode?: "shared" | "exclusive"; ifAvailable?: boolean; signal?: AbortSignal },
+    callback: (lock: unknown | null) => T | PromiseLike<T>,
+  ): Promise<T> {
+    this.requests.push({ name, options });
+    if (options.ifAvailable && options.signal) {
+      return Promise.reject(
+        new DOMException(
+          "The 'signal' and 'ifAvailable' options cannot be used together.",
+          "NotSupportedError",
+        ),
+      );
+    }
+    if (options.ifAvailable && this.failProbeOnce) {
+      this.failProbeOnce = false;
+      return Promise.reject(new Error("injected nonblocking probe interruption"));
+    }
+    return this.delegate.request(name, options, callback);
+  }
+}
+
 const coordinators: Array<{ close(): Promise<void> }> = [];
 
 function coordinator(
@@ -297,6 +330,60 @@ describe("document session cross-context coordination", () => {
     });
     expect(a.local.leases.size).toBe(1);
     expect(b.local.leases.size).toBe(0);
+  });
+
+  it("uses Chromium-compatible options for nonblocking probes and aborts queued requests", async () => {
+    const locks = new ChromiumShapeWebLocks(new FifoWebLocks());
+    const value = createDocumentSessionCrossContextCoordination({
+      accountId: "account-native-options",
+      idb: indexedDB,
+      locks,
+      local: new LocalAuthority(),
+      secureContext: true,
+      createWakeChannel: null,
+    });
+    coordinators.push(value);
+
+    await value.admit("project", "doc", "1");
+    await expect(value.revokeAccess("project", "doc", "1", "access-1")).resolves.toEqual({
+      revokedThrough: "1",
+      persistence: "cleared",
+    });
+
+    const nonblocking = locks.requests.filter(({ options }) => options.ifAvailable);
+    expect(nonblocking).toHaveLength(1);
+    expect(nonblocking[0]?.options).toEqual({ mode: "exclusive", ifAvailable: true });
+    expect(
+      locks.requests
+        .filter(({ options }) => !options.ifAvailable)
+        .every(({ options }) => options.signal instanceof AbortSignal),
+    ).toBe(true);
+  });
+
+  it("recovers a durable access pending drain and replays its exact outcome", async () => {
+    const locks = new ChromiumShapeWebLocks(new FifoWebLocks(), true);
+    const value = createDocumentSessionCrossContextCoordination({
+      accountId: "account-access-recovery",
+      idb: indexedDB,
+      locks,
+      local: new LocalAuthority(),
+      secureContext: true,
+      createWakeChannel: null,
+    });
+    coordinators.push(value);
+
+    await value.admit("project", "doc", "2");
+    await expect(value.revokeAccess("project", "doc", "2", "access-2")).rejects.toThrow(
+      "injected nonblocking probe interruption",
+    );
+    await expect(value.revokeAccess("project", "doc", "2", "access-2")).resolves.toEqual({
+      revokedThrough: "2",
+      persistence: "cleared",
+    });
+    await expect(value.revokeAccess("project", "doc", "2", "access-2")).resolves.toEqual({
+      revokedThrough: "2",
+      persistence: "cleared",
+    });
   });
 
   it("keeps terminal revoke pending until a peer destroys and releases its holds", async () => {
