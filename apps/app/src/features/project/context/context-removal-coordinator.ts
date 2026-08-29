@@ -27,7 +27,6 @@ import {
   type ContextRouteRepair,
   type ContextRouteTarget,
   type ProjectSearch,
-  transitionProjectSearch,
 } from "../routing/project-route";
 import {
   type ContextAvailabilityLocalBatchPlan,
@@ -686,36 +685,6 @@ export class ContextRemovalCoordinator {
       cause: "catalog-unavailable",
       documentIds: [...new Set(documentIds)],
     });
-  }
-
-  /** Remove an unavailable Work's owned state and leave any active Work route. */
-  workUnavailable(
-    projectId: string,
-    workId: string,
-    documentIds: readonly string[],
-  ): ContextRemovalOutcome {
-    if (this.unavailable()) return { kind: "noop" };
-    const obsoleteRoutes = this.workingSet
-      .readRecentRoutes(projectId)
-      .filter((candidate) => candidate.workId === workId);
-    const outcome = this.executeRepresented(
-      projectId,
-      { cause: "catalog-unavailable", documentIds: [...new Set(documentIds)] },
-      obsoleteRoutes,
-    );
-    const state = this.project(projectId);
-    if (state.selection.status === "bound" && state.selection.locator.workId === workId) {
-      this.leaveSelection(projectId);
-    }
-    const route = this.routePorts.get(projectId)?.port ?? this.fallbackRoute;
-    if (route?.readSearch(projectId).work === workId) {
-      route.updateSearch(projectId, (latest) =>
-        latest.work === workId
-          ? transitionProjectSearch(latest, { kind: "work-collection" })
-          : latest,
-      );
-    }
-    return outcome;
   }
 
   /** Owns the synchronous old-Work prune and next-Work route transition. */

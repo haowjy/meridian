@@ -14,6 +14,7 @@ import {
   type ContextRouteTarget,
   openContextRouteSearch,
   type ProjectSearch,
+  transitionProjectSearch,
 } from "../routing/project-route";
 import type {
   AppliedAvailabilityCommand,
@@ -79,6 +80,15 @@ export function planContextAvailabilityBatch(
   let routeSearch = input.routeSearch;
   const generationRecords: Array<AppliedAvailabilityCommand & { documentId: string }> = [];
   const sessionEffects: ContextAvailabilityLocalBatchPlan["sessionEffects"][number][] = [];
+  const unavailableWorkIds = new Set(
+    input.commands.flatMap((command) =>
+      command.kind === "authority-revoke" &&
+      command.cause === "authority-unavailable" &&
+      command.authority.kind === "work"
+        ? [command.authority.workId]
+        : [],
+    ),
+  );
 
   for (const command of input.commands) {
     const id = documentId(command);
@@ -275,6 +285,23 @@ export function planContextAvailabilityBatch(
       documentId: id,
       generation: command.generation,
     });
+  }
+
+  if (unavailableWorkIds.size > 0) {
+    recentRoutes = recentRoutes.filter(
+      (route) => route.workId == null || !unavailableWorkIds.has(route.workId),
+    );
+    for (const workId of unavailableWorkIds) delete selectedTabIdByWork[workId];
+    const activeWorkId = input.project.activeWorkId;
+    if (activeWorkId && unavailableWorkIds.has(activeWorkId)) {
+      if (selection.status !== "none" && selection.locator.workId === activeWorkId) {
+        selection = leaveSelection(selection).selection;
+      }
+      if (admitted?.workId === activeWorkId) admitted = null;
+      if (input.routeSearch?.work === activeWorkId && routeSearch) {
+        routeSearch = transitionProjectSearch(routeSearch, { kind: "work-collection" });
+      }
+    }
   }
 
   return {
