@@ -78,7 +78,7 @@ export const projectQueryKeys = {
     ] as const,
   contextCatalog: (projectId: string, scope: CatalogScope) =>
     ["projects", projectId, "context-catalog", catalogScopeKey(scope)] as const,
-  contextCatalogTree: (
+  contextCatalogView: (
     projectId: string,
     scheme: ProjectContextTreeScheme,
     workId?: string | null,

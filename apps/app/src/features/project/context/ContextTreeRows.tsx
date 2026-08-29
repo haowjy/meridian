@@ -1,9 +1,14 @@
-/** Recursive rows and inline actions for one context-tree scheme. */
+/** Direct-child rows and inline actions for one context catalog scheme. */
 
 import { t } from "@lingui/core/macro";
 import type { ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { ChevronRight, Folder, FolderOpen } from "lucide-react";
 import { createContext, type KeyboardEvent, type ReactNode, useContext, useState } from "react";
+import type {
+  CatalogContextView,
+  CatalogFile as ContextFile,
+  CatalogNode as ContextNode,
+} from "@/client/query/context-catalog-projection";
 import { cn } from "@/lib/utils";
 import {
   ContextEntryMenu,
@@ -16,7 +21,6 @@ import { parentContextEntryPath } from "./context-entry-name";
 import { fileKindIcon } from "./context-file-icon";
 import { contextTreeRowClassName } from "./context-row-geometry";
 import { schemeAllowsCreation } from "./context-schemes";
-import type { ContextFile, ContextNode } from "./context-tree";
 import { InlineValidationOverlay } from "./InlineValidationOverlay";
 import { useCreateEntryForm } from "./use-create-entry-form";
 import { useRenameEntryForm } from "./use-rename-entry-form";
@@ -33,8 +37,9 @@ export type TreeEnv = {
   onRequestDelete: (target: EntryActionTarget) => void;
   onCreateDone: () => void;
   onCreatedFilePath: (path: string) => void;
-  isExpanded: (path: string, depth: number) => boolean;
-  togglePath: (path: string, defaultOpen: boolean) => void;
+  isExpanded: (entryId: string, depth: number) => boolean;
+  toggleEntry: (entryId: string, defaultOpen: boolean) => void;
+  catalog: CatalogContextView;
 };
 
 const TreeEnvContext = createContext<TreeEnv | null>(null);
@@ -51,15 +56,16 @@ function useTreeEnv(): TreeEnv {
 
 /** The sole child renderer; root and nested folders mount creation identically. */
 export function TreeChildren({
+  parentId,
   parentPath,
-  children,
   depth,
 }: {
+  parentId: string;
   parentPath: string;
-  children: readonly ContextNode[];
   depth: number;
 }) {
   const env = useTreeEnv();
+  const children = env.catalog.children(parentId);
   const siblingNames = children.map((child) => child.name);
   return (
     <>
@@ -125,10 +131,10 @@ function DirRow({
 }) {
   const env = useTreeEnv();
   const [renaming, setRenaming] = useState(false);
-  const isOpen = env.isExpanded(dir.path, depth);
+  const isOpen = env.isExpanded(dir.entryId, depth);
   const toggle = () => {
     if (env.creating) env.onCreateDone();
-    env.togglePath(dir.path, depth < 2);
+    env.toggleEntry(dir.entryId, depth < 2);
   };
 
   function handleAction(action: EntryAction) {
@@ -178,7 +184,7 @@ function DirRow({
         </div>
       </ContextEntryMenu>
       {isOpen ? (
-        <TreeChildren parentPath={dir.path} children={dir.children} depth={depth + 1} />
+        <TreeChildren parentId={dir.entryId} parentPath={dir.path} depth={depth + 1} />
       ) : null}
     </>
   );

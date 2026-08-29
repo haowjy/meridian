@@ -6,7 +6,6 @@ import type {
   CatalogScope,
   CatalogSnapshot,
 } from "@meridian/contracts/protocol";
-import { catalogScopeKey } from "@meridian/contracts/protocol";
 
 export type CatalogCacheView = {
   scope: CatalogScope;
@@ -15,9 +14,11 @@ export type CatalogCacheView = {
   cursor: string;
   entries: ReadonlyMap<string, CatalogEntry>;
   invalidatedEntryIds: ReadonlySet<string>;
+  childIdsByParentId: ReadonlyMap<string, readonly string[]>;
+  sourceIdsByScheme: ReadonlyMap<string, string>;
 };
 
-function emptyView(scope: CatalogScope): CatalogCacheView {
+export function emptyCatalogView(scope: CatalogScope): CatalogCacheView {
   return {
     scope,
     generation: "",
@@ -25,6 +26,8 @@ function emptyView(scope: CatalogScope): CatalogCacheView {
     cursor: "",
     entries: new Map(),
     invalidatedEntryIds: new Set(),
+    childIdsByParentId: new Map(),
+    sourceIdsByScheme: new Map(),
   };
 }
 
@@ -70,69 +73,73 @@ function applyCommit(
   return { entries, invalidatedEntryIds: invalidated };
 }
 
-/**
- * Mutable cache boundary. Mutations prepare fresh maps before publishing, so a
- * rejected or partial commit can never leak into projections.
- */
-export class ContextCatalogCache {
-  private readonly scopes = new Map<string, CatalogCacheView>();
-  private readonly appliedEvents = new Map<string, Set<string>>();
-
-  read(scope: CatalogScope): CatalogCacheView {
-    return this.scopes.get(catalogScopeKey(scope)) ?? emptyView(scope);
+function withIndexes(
+  view: Omit<CatalogCacheView, "childIdsByParentId" | "sourceIdsByScheme">,
+): CatalogCacheView {
+  const childIdsByParentId = new Map<string, string[]>();
+  const sourceIdsByScheme = new Map<string, string>();
+  for (const entry of view.entries.values()) {
+    if (entry.kind === "source") sourceIdsByScheme.set(entry.scheme, entry.entryId);
+    if (entry.kind !== "folder" && entry.kind !== "file") continue;
+    const ids = childIdsByParentId.get(entry.parentId) ?? [];
+    ids.push(entry.entryId);
+    childIdsByParentId.set(entry.parentId, ids);
   }
-
-  replace(snapshot: CatalogSnapshot): CatalogCacheView {
-    const key = catalogScopeKey(snapshot.scope);
-    const next: CatalogCacheView = {
-      scope: snapshot.scope,
-      generation: snapshot.generation,
-      headRevision: snapshot.headRevision,
-      cursor: snapshot.cursor,
-      entries: new Map(snapshot.entries.map((entry) => [entry.entryId, entry])),
-      invalidatedEntryIds: new Set(),
-    };
-    this.scopes.set(key, next);
-    this.appliedEvents.set(key, new Set());
-    return next;
-  }
-
-  apply(changes: CatalogChanges): CatalogCacheView | null {
-    if (changes.kind === "reset-required") return null;
-    const key = catalogScopeKey(changes.scope);
-    const current = this.read(changes.scope);
-    const seen = new Set(this.appliedEvents.get(key));
-    let next = current;
-    for (const commit of changes.commits) {
-      if (seen.has(commit.eventId)) continue;
-      const applied = applyCommit(next, commit);
-      next = {
-        ...next,
-        entries: applied.entries,
-        invalidatedEntryIds: applied.invalidatedEntryIds,
-        headRevision: commit.lastRevision,
-      };
-      seen.add(commit.eventId);
-    }
-    next = { ...next, cursor: changes.nextCursor, headRevision: changes.headRevision };
-    this.scopes.set(key, next);
-    this.appliedEvents.set(key, seen);
-    return next;
-  }
-}
-
-export function catalogChildren(view: CatalogCacheView, parentId: string): CatalogEntry[] {
-  return [...view.entries.values()]
-    .filter(
-      (entry) =>
-        (entry.kind === "folder" || entry.kind === "file") &&
-        entry.parentId === parentId &&
-        !view.invalidatedEntryIds.has(entry.entryId),
-    )
-    .sort((left, right) => {
+  for (const ids of childIdsByParentId.values()) {
+    ids.sort((leftId, rightId) => {
+      const left = view.entries.get(leftId);
+      const right = view.entries.get(rightId);
+      if (!left || !right) return leftId.localeCompare(rightId);
       if (left.kind !== right.kind) return left.kind === "folder" ? -1 : 1;
       return left.name.localeCompare(right.name) || left.entryId.localeCompare(right.entryId);
     });
+  }
+  return { ...view, childIdsByParentId, sourceIdsByScheme };
+}
+
+export function catalogViewFromSnapshot(snapshot: CatalogSnapshot): CatalogCacheView {
+  return withIndexes({
+    scope: snapshot.scope,
+    generation: snapshot.generation,
+    headRevision: snapshot.headRevision,
+    cursor: snapshot.cursor,
+    entries: new Map(snapshot.entries.map((entry) => [entry.entryId, entry])),
+    invalidatedEntryIds: new Set(),
+  });
+}
+
+/** Apply complete commit groups to the immutable React Query cache value. */
+export function applyCatalogChanges(
+  current: CatalogCacheView,
+  changes: CatalogChanges,
+): CatalogCacheView | null {
+  if (changes.kind === "reset-required") return null;
+  let next = current;
+  for (const commit of changes.commits) {
+    if (BigInt(commit.lastRevision) <= BigInt(next.headRevision)) continue;
+    const applied = applyCommit(next, commit);
+    next = {
+      ...next,
+      entries: applied.entries,
+      invalidatedEntryIds: applied.invalidatedEntryIds,
+      headRevision: commit.lastRevision,
+    };
+  }
+  return withIndexes({
+    scope: next.scope,
+    generation: next.generation,
+    cursor: changes.nextCursor,
+    headRevision: changes.headRevision,
+    entries: next.entries,
+    invalidatedEntryIds: next.invalidatedEntryIds,
+  });
+}
+
+export function catalogChildren(view: CatalogCacheView, parentId: string): CatalogEntry[] {
+  return (view.childIdsByParentId.get(parentId) ?? []).flatMap((entryId) => {
+    const entry = view.entries.get(entryId);
+    return entry && !view.invalidatedEntryIds.has(entryId) ? [entry] : [];
+  });
 }
 
 export function catalogFiles(view: CatalogCacheView): CatalogEntry[] {

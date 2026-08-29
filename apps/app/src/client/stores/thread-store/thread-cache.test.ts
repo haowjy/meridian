@@ -159,12 +159,12 @@ describe("createThreadCache terminal invalidation", () => {
       projectQueryKeys.works(projectId),
       projectQueryKeys.homeFeed(projectId),
       projectQueryKeys.workDrafts(projectId, "work-1"),
-      projectQueryKeys.contextCatalogTree(projectId, "scratch", "work-1"),
+      projectQueryKeys.contextCatalogView(projectId, "scratch", "work-1"),
     ] as const;
     const unrelated = [
       threadQueryKeys.snapshot("thread-2"),
       projectQueryKeys.workDrafts("project-2", "work-1"),
-      projectQueryKeys.contextCatalogTree("project-2", "scratch", "work-1"),
+      projectQueryKeys.contextCatalogView("project-2", "scratch", "work-1"),
     ] as const;
 
     for (const key of [...keys, ...unrelated]) client.setQueryData(key, { fresh: true });

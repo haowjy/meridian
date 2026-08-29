@@ -7,7 +7,7 @@ Reference depth. Read the [AGENTS.md](../AGENTS.md) first.
 ```text
 ContextTreePanel (desktop)          MobileContextBrowser (mobile)
        │                                     │
-       ├─ useContextCatalogTree (projection) ┤
+       ├─ useContextCatalogView (projection) ┤
        ├─ useCreateEntryForm ────────────────┤
        ├─ useRenameEntryForm ────────────────┤
        ├─ useDeleteConfirmation ─────────────┤
@@ -43,8 +43,8 @@ never walks or caches a second recursive tree and never adds a server-search pat
 schemes and file/directory kinds, then mount the presentation-only list.
 
 Desktop scheme/query orchestration lives in `ContextTreePanel`; `ContextTreeRows`
-renders recursive rows through one scheme-scoped environment. Mobile renders one
-level at a time via route params.
+selects each expanded row's direct children by stable parent ID through one
+scheme-scoped environment. Mobile renders one level at a time via route params.
 
 ## Editor tabs and untitled documents
 

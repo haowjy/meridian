@@ -394,6 +394,14 @@ export class ContextFS implements ContextSchemeAdapter {
     content: string,
     options?: ContextWriteOptions,
   ): Promise<Result<{ documentId?: string }, AdapterFault>> {
+    return this.store.transaction(() => this.writeInTransaction(path, content, options));
+  }
+
+  private async writeInTransaction(
+    path: string,
+    content: string,
+    options?: ContextWriteOptions,
+  ): Promise<Result<{ documentId?: string }, AdapterFault>> {
     const { dir, filename } = splitPath(path);
     if (!filename) {
       return { ok: false, error: { code: "io_error", message: "Cannot write to source root" } };
@@ -443,6 +451,16 @@ export class ContextFS implements ContextSchemeAdapter {
     content: string,
     options?: ContextWriteOptions,
   ): Promise<Result<{ documentId: string }, AdapterFault>> {
+    return this.store.transaction(() =>
+      this.createTrackedDocumentInTransaction(path, content, options),
+    );
+  }
+
+  private async createTrackedDocumentInTransaction(
+    path: string,
+    content: string,
+    options?: ContextWriteOptions,
+  ): Promise<Result<{ documentId: string }, AdapterFault>> {
     const { dir, filename } = splitPath(path);
     if (!filename) return Err({ code: "io_error", message: "Cannot create source root" });
     const resolvedFiletype = trackedFiletypeForPath(filename);
@@ -483,6 +501,18 @@ export class ContextFS implements ContextSchemeAdapter {
   }
 
   async createUntitledDocument(
+    path: string,
+    options: ContextCreateUntitledDocumentOptions,
+  ): Promise<
+    Result<
+      { status: "created" | "already-exists"; documentId: string; path: string; name: string },
+      AdapterFault
+    >
+  > {
+    return this.store.transaction(() => this.createUntitledDocumentInTransaction(path, options));
+  }
+
+  private async createUntitledDocumentInTransaction(
     path: string,
     options: ContextCreateUntitledDocumentOptions,
   ): Promise<
@@ -658,26 +688,30 @@ export class ContextFS implements ContextSchemeAdapter {
     if (!filename) {
       return { ok: false, error: { code: "io_error", message: "Cannot write to source root" } };
     }
-    const folderId = await this.ensureFolderId(dir);
-    const { name, extension } = parseFilename(filename);
-    const doc = await this.store.createBinaryDocument({
-      folderId,
-      name,
-      extension,
-      fileType: options.fileType,
-      storageUrl: options.storageUrl,
-      mimeType: options.mimeType,
-      sizeBytes: options.sizeBytes,
+    return this.store.transaction(async () => {
+      const folderId = await this.ensureFolderId(dir);
+      const { name, extension } = parseFilename(filename);
+      const doc = await this.store.createBinaryDocument({
+        folderId,
+        name,
+        extension,
+        fileType: options.fileType,
+        storageUrl: options.storageUrl,
+        mimeType: options.mimeType,
+        sizeBytes: options.sizeBytes,
+      });
+      return Ok({ documentId: doc.id });
     });
-    return Ok({ documentId: doc.id });
   }
 
   async mkdir(path: string, _options?: ContextWriteOptions): Promise<Result<void, AdapterFault>> {
     const segments = path.split("/").filter(Boolean);
     // The source root always exists — empty `mkdir` is a no-op.
     if (segments.length === 0) return Ok(undefined);
-    await this.ensureFolderId(segments);
-    return Ok(undefined);
+    return this.store.transaction(async () => {
+      await this.ensureFolderId(segments);
+      return Ok(undefined);
+    });
   }
 
   async list(path: string): Promise<Result<AdapterFileEntry[], AdapterFault>> {

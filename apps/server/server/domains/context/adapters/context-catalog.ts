@@ -16,8 +16,9 @@ import type {
   CatalogLookupResult,
   CatalogScope,
   CatalogSnapshot,
+  Filetype,
 } from "@meridian/contracts/protocol";
-import { catalogScopeKey, filetypeForPath } from "@meridian/contracts/protocol";
+import { catalogScopeKey, classifyFiletype } from "@meridian/contracts/protocol";
 import { decodeWorkSlug, type ResolvedWorkAuthority } from "@meridian/contracts/works";
 import type { Database } from "@meridian/database";
 import {
@@ -45,7 +46,8 @@ import type {
 
 const DEFAULT_DELTA_LIMIT = 100;
 const MAX_DELTA_LIMIT = 500;
-const RETAINED_COMMITS_PER_SCOPE = 1_000;
+const DEFAULT_RETAINED_COMMITS_PER_SCOPE = 1_000;
+const BINARY_FILE_TYPES = new Set(["docx", "image", "pdf", "binary"]);
 
 type CatalogDb = Pick<Database, "delete" | "insert" | "select" | "update">;
 
@@ -281,6 +283,29 @@ async function buildScopeEntries(db: CatalogDb, scope: CatalogScope): Promise<Ca
         ? `${document.name}.${document.extension}`
         : document.name;
       const path = [...parentPath, filename];
+      const classification = classifyFiletype(document.fileType);
+      const storageBacked =
+        document.storageUrl !== null || BINARY_FILE_TYPES.has(document.fileType);
+      const persistedClassification =
+        !storageBacked && classification.kind === "tracked"
+          ? {
+              editable: true as const,
+              filetype: document.fileType as Filetype,
+              schemaType: classification.schemaType,
+            }
+          : {
+              editable: false as const,
+              fileType:
+                document.fileType === "docx" ||
+                document.fileType === "image" ||
+                document.fileType === "pdf" ||
+                document.fileType === "binary"
+                  ? document.fileType
+                  : classification.kind === "binary" || classification.kind === "custom"
+                    ? classification.fileType
+                    : ("binary" as const),
+              mimeType: document.mimeType,
+            };
       entries.push({
         kind: "file",
         entryId: document.id,
@@ -291,7 +316,7 @@ async function buildScopeEntries(db: CatalogDb, scope: CatalogScope): Promise<Ca
         aliases: documentAliases(document.metadata),
         path,
         uri: canonicalContextUri(scheme, path.join("/"), authority),
-        fileType: filetypeForPath(filename),
+        ...persistedClassification,
         provisionalName: document.provisionalName,
       });
     }
@@ -356,7 +381,12 @@ function mapCommit(row: typeof contextCatalogCommits.$inferSelect): CatalogCommi
 export function createDrizzleContextCatalog(
   db: Database,
   wakePort?: ContextCatalogWakePort,
+  options: { retainedCommitsPerScope?: number } = {},
 ): ContextCatalog & ContextCatalogMutationPort {
+  const retainedCommitsPerScope = Math.max(
+    1,
+    Math.floor(options.retainedCommitsPerScope ?? DEFAULT_RETAINED_COMMITS_PER_SCOPE),
+  );
   async function refreshScope(
     scope: CatalogScope,
     invalidatedRootIds: readonly string[] = [],
@@ -417,7 +447,7 @@ export function createDrizzleContextCatalog(
         lastRevision: revision,
         changes,
       });
-      const oldestRevision = Math.max(1, revision - RETAINED_COMMITS_PER_SCOPE + 1);
+      const oldestRevision = Math.max(1, revision - retainedCommitsPerScope + 1);
       await tx
         .update(contextCatalogScopeHeads)
         .set({ headRevision: revision, oldestRevision, updatedAt: new Date() })
@@ -501,7 +531,13 @@ export function createDrizzleContextCatalog(
         .limit(limit + 1);
       const selected = rows.slice(0, limit);
       const nextRevision = selected.at(-1)?.lastRevision ?? parsed.revision;
-      if (selected[0] && selected[0].firstRevision !== parsed.revision + 1) {
+      let expectedRevision = parsed.revision + 1;
+      const hasGap = selected.some((row) => {
+        if (row.firstRevision !== expectedRevision) return true;
+        expectedRevision = row.lastRevision + 1;
+        return false;
+      });
+      if (hasGap || (selected.length === 0 && parsed.revision < head.headRevision)) {
         return { kind: "reset-required", scope, reason: "gap" };
       }
       return {
@@ -534,10 +570,7 @@ export function createDrizzleContextCatalog(
       const entry = snapshot.entries.find((candidate) =>
         input.entryId !== undefined
           ? candidate.entryId === input.entryId
-          : "uri" in candidate &&
-            (candidate.uri === input.path ||
-              ((candidate.kind === "folder" || candidate.kind === "file") &&
-                `/${candidate.path.join("/")}` === input.path)),
+          : "uri" in candidate && candidate.uri === input.uri,
       );
       return { entry: entry ?? null, headRevision: snapshot.headRevision };
     },

@@ -1,4 +1,4 @@
-import type { CatalogTreeFile } from "@/client/query/context-catalog-projection";
+import type { CatalogFile } from "@/client/query/context-catalog-projection";
 /**
  * Opening a project document by id — the app's one answer to "take me there".
  *
@@ -74,7 +74,7 @@ async function findDocument(
   documentId: string,
   workId: string | null,
   signal: AbortSignal | undefined,
-): Promise<{ scheme: ProjectContextTreeScheme; file: CatalogTreeFile } | null> {
+): Promise<{ scheme: ProjectContextTreeScheme; file: CatalogFile } | null> {
   for (const scheme of NAVIGABLE_SCHEMES) {
     if (isWorkScopedProjectContextScheme(scheme) && !workId) continue;
     const file = await lookupContextCatalogFile(projectId, scheme, workId, {

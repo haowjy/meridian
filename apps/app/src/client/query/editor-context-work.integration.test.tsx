@@ -43,7 +43,7 @@ vi.mock("@/client/api/projects-api", () => ({
 const { useCreateContextEntry } = await import("./useCreateContextEntry");
 const { useDeleteContextEntry } = await import("./useDeleteContextEntry");
 const { useProjectContextRead } = await import("./useProjectContextRead");
-const { useContextCatalogTree } = await import("./useContextCatalog");
+const { useContextCatalogView } = await import("./useContextCatalog");
 const { useRenameContextEntry } = await import("./useRenameContextEntry");
 
 type Commands = ReturnType<typeof useCommands>;
@@ -51,7 +51,7 @@ let commands: Commands | null = null;
 let changeWork: ((workId: string) => void) | null = null;
 
 function useCommands(workId: string) {
-  useContextCatalogTree("project", "scratch", { workId });
+  useContextCatalogView("project", "scratch", { workId });
   useProjectContextRead("project", "scratch", "/file.md", { workId });
   return {
     create: useCreateContextEntry("project"),

@@ -45,7 +45,7 @@ describe("context catalog adapter contract", () => {
     await expect(catalog.lookup({ scope, entryId: source.entryId })).resolves.toMatchObject({
       entry: source,
     });
-    await expect(catalog.lookup({ scope, path: source.uri })).resolves.toMatchObject({
+    await expect(catalog.lookup({ scope, uri: source.uri })).resolves.toMatchObject({
       entry: source,
     });
     await expect(catalog.children({ scope, parentId: source.entryId })).resolves.toMatchObject({

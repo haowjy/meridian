@@ -183,18 +183,20 @@ export class DrizzleContextDocumentStore implements ContextDocumentStore {
   }
 
   async createFolder(parentId: string | null, name: string): Promise<ContextFolder> {
-    const [row] = await this.db
-      .insert(folders)
-      .values({ contextSourceId: this.sourceId, parentId, name })
-      .onConflictDoNothing()
-      .returning();
-    if (row) {
-      await this.deps.catalogMutations?.refreshSources([this.sourceId]);
-      return mapFolder(row);
-    }
-    const existing = await this.findFolder(parentId, name);
-    if (!existing) throw new Error("Failed to create folder");
-    return existing;
+    return runInDrizzleTransaction(this.deps.db, async () => {
+      const [row] = await this.db
+        .insert(folders)
+        .values({ contextSourceId: this.sourceId, parentId, name })
+        .onConflictDoNothing()
+        .returning();
+      if (row) {
+        await this.deps.catalogMutations?.refreshSources([this.sourceId]);
+        return mapFolder(row);
+      }
+      const existing = await this.findFolder(parentId, name);
+      if (!existing) throw new Error("Failed to create folder");
+      return existing;
+    });
   }
 
   async findDocument(
@@ -224,65 +226,70 @@ export class DrizzleContextDocumentStore implements ContextDocumentStore {
   }
 
   async upsertDocument(input: UpsertDocumentInput): Promise<ContextDocument> {
-    const existing = await this.findDocument(input.folderId, input.name, input.extension);
-    if (existing && existing.fileType !== null) {
-      throw new Error(`Cannot replace binary document with tracked text: ${existing.id}`);
-    }
-    const values = {
-      fileType: input.filetype,
-      storageUrl: null,
-      mimeType: null,
-      markdownProjection: input.markdown,
-      sizeBytes: Buffer.byteLength(input.markdown, "utf8"),
-      updatedAt: new Date(),
-    };
-    if (existing) {
-      const [row] = await this.db
-        .update(documents)
-        .set(values)
-        .where(and(eq(documents.id, existing.id), isNull(documents.storageUrl)))
-        .returning();
-      if (!row) throw new Error(`Cannot replace binary document with tracked text: ${existing.id}`);
-      return mapDocument(row);
-    }
-    const [row] = await this.db
-      .insert(documents)
-      .values({
-        id: input.id,
-        contextSourceId: this.sourceId,
-        folderId: input.folderId,
-        name: input.name,
-        extension: input.extension,
+    return runInDrizzleTransaction(this.deps.db, async () => {
+      const existing = await this.findDocument(input.folderId, input.name, input.extension);
+      if (existing && existing.fileType !== null) {
+        throw new Error(`Cannot replace binary document with tracked text: ${existing.id}`);
+      }
+      const values = {
         fileType: input.filetype,
+        storageUrl: null,
+        mimeType: null,
         markdownProjection: input.markdown,
         sizeBytes: Buffer.byteLength(input.markdown, "utf8"),
-      })
-      .returning();
-    if (!row) throw new Error("Failed to insert document");
-    await this.deps.catalogMutations?.refreshSources([this.sourceId]);
-    await notifyMembershipObserver(this.deps.membershipObserver, "documentCreated", row.id);
-    return mapDocument(row);
+        updatedAt: new Date(),
+      };
+      if (existing) {
+        const [row] = await this.db
+          .update(documents)
+          .set(values)
+          .where(and(eq(documents.id, existing.id), isNull(documents.storageUrl)))
+          .returning();
+        if (!row)
+          throw new Error(`Cannot replace binary document with tracked text: ${existing.id}`);
+        return mapDocument(row);
+      }
+      const [row] = await this.db
+        .insert(documents)
+        .values({
+          id: input.id,
+          contextSourceId: this.sourceId,
+          folderId: input.folderId,
+          name: input.name,
+          extension: input.extension,
+          fileType: input.filetype,
+          markdownProjection: input.markdown,
+          sizeBytes: Buffer.byteLength(input.markdown, "utf8"),
+        })
+        .returning();
+      if (!row) throw new Error("Failed to insert document");
+      await this.deps.catalogMutations?.refreshSources([this.sourceId]);
+      await notifyMembershipObserver(this.deps.membershipObserver, "documentCreated", row.id);
+      return mapDocument(row);
+    });
   }
 
   async createDocumentRecordIfAbsent(input: UpsertDocumentInput): Promise<ContextDocument | null> {
-    const [row] = await this.db
-      .insert(documents)
-      .values({
-        id: input.id,
-        contextSourceId: this.sourceId,
-        folderId: input.folderId,
-        name: input.name,
-        extension: input.extension,
-        fileType: input.filetype,
-        markdownProjection: input.markdown,
-        sizeBytes: Buffer.byteLength(input.markdown, "utf8"),
-        provisionalName: input.provisionalName ?? false,
-      })
-      .onConflictDoNothing()
-      .returning();
-    if (!row) return null;
-    await this.deps.catalogMutations?.refreshSources([this.sourceId]);
-    return mapDocument(row);
+    return runInDrizzleTransaction(this.deps.db, async () => {
+      const [row] = await this.db
+        .insert(documents)
+        .values({
+          id: input.id,
+          contextSourceId: this.sourceId,
+          folderId: input.folderId,
+          name: input.name,
+          extension: input.extension,
+          fileType: input.filetype,
+          markdownProjection: input.markdown,
+          sizeBytes: Buffer.byteLength(input.markdown, "utf8"),
+          provisionalName: input.provisionalName ?? false,
+        })
+        .onConflictDoNothing()
+        .returning();
+      if (!row) return null;
+      await this.deps.catalogMutations?.refreshSources([this.sourceId]);
+      return mapDocument(row);
+    });
   }
 
   async findDocumentById(documentId: string) {
@@ -319,46 +326,50 @@ export class DrizzleContextDocumentStore implements ContextDocumentStore {
   }
 
   async upsertBinaryDocument(input: UpsertBinaryDocumentInput): Promise<ContextDocument> {
-    const existing = await this.findDocument(input.folderId, input.name, input.extension);
-    if (existing) {
+    return runInDrizzleTransaction(this.deps.db, async () => {
+      const existing = await this.findDocument(input.folderId, input.name, input.extension);
+      if (existing) {
+        const [row] = await this.db
+          .update(documents)
+          .set({
+            fileType: input.fileType,
+            storageUrl: input.storageUrl,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            updatedAt: new Date(),
+          })
+          .where(eq(documents.id, existing.id))
+          .returning();
+        if (!row) throw new Error(`Failed to update binary document: ${existing.id}`);
+        await this.deps.catalogMutations?.refreshSources([this.sourceId]);
+        return mapDocument(row);
+      }
+      return this.createBinaryDocument(input);
+    });
+  }
+
+  async createBinaryDocument(input: CreateBinaryDocumentInput): Promise<ContextDocument> {
+    return runInDrizzleTransaction(this.deps.db, async () => {
       const [row] = await this.db
-        .update(documents)
-        .set({
+        .insert(documents)
+        .values({
+          id: input.id,
+          contextSourceId: this.sourceId,
+          folderId: input.folderId,
+          name: input.name,
+          extension: input.extension,
           fileType: input.fileType,
           storageUrl: input.storageUrl,
           mimeType: input.mimeType,
           sizeBytes: input.sizeBytes,
-          updatedAt: new Date(),
+          markdownProjection: "",
         })
-        .where(eq(documents.id, existing.id))
         .returning();
-      if (!row) throw new Error(`Failed to update binary document: ${existing.id}`);
+      if (!row) throw new Error("Failed to create binary document");
       await this.deps.catalogMutations?.refreshSources([this.sourceId]);
+      await notifyMembershipObserver(this.deps.membershipObserver, "documentCreated", row.id);
       return mapDocument(row);
-    }
-    return this.createBinaryDocument(input);
-  }
-
-  async createBinaryDocument(input: CreateBinaryDocumentInput): Promise<ContextDocument> {
-    const [row] = await this.db
-      .insert(documents)
-      .values({
-        id: input.id,
-        contextSourceId: this.sourceId,
-        folderId: input.folderId,
-        name: input.name,
-        extension: input.extension,
-        fileType: input.fileType,
-        storageUrl: input.storageUrl,
-        mimeType: input.mimeType,
-        sizeBytes: input.sizeBytes,
-        markdownProjection: "",
-      })
-      .returning();
-    if (!row) throw new Error("Failed to create binary document");
-    await this.deps.catalogMutations?.refreshSources([this.sourceId]);
-    await notifyMembershipObserver(this.deps.membershipObserver, "documentCreated", row.id);
-    return mapDocument(row);
+    });
   }
 
   async listFolders(parentId: string | null): Promise<ContextFolder[]> {
@@ -859,6 +870,7 @@ export class DrizzleContextTreeMutationStore implements ContextTreeMutationStore
         )
         .returning({ id: documents.id });
       if (graduated.length !== 1) rollback("stale_source");
+      await this.catalogMutations?.refreshSources([source.sourceId]);
       return Ok(undefined);
     });
   }

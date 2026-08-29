@@ -185,9 +185,8 @@ class SourceResolvedContextDocumentStore implements ContextDocumentStore {
   private async mutate<T>(operation: (store: DrizzleContextDocumentStore) => Promise<T>) {
     const workId = this.workId;
     try {
-      if (!workId) return await operation(await this.sourceStore());
       return await runInDrizzleTransaction(this.db, async () => {
-        await requireLockedActiveWork(this.db, workId);
+        if (workId) await requireLockedActiveWork(this.db, workId);
         return operation(await this.sourceStore());
       });
     } catch (cause) {
@@ -199,7 +198,11 @@ class SourceResolvedContextDocumentStore implements ContextDocumentStore {
   }
 
   private async sourceStore(): Promise<DrizzleContextDocumentStore> {
-    this.sourceId ??= this.ensureSourceId().catch((cause) => {
+    this.sourceId ??= runInDrizzleTransaction(this.db, async () => {
+      const sourceId = await this.ensureSourceId();
+      await this.catalogMutations?.refreshSources([sourceId]);
+      return sourceId;
+    }).catch((cause) => {
       this.sourceId = null;
       throw cause;
     });

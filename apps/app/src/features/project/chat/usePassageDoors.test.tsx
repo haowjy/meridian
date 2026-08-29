@@ -35,8 +35,18 @@ vi.mock("@/core/editor/passage-navigation", () => ({
   navigateToPassage: (...args: unknown[]) => navigateToPassage(...(args as [])),
 }));
 
-const CHAPTER_2 = { scheme: "manuscript" as const, path: "/chapter-2.md", workId: null };
-const CHAPTER_3 = { scheme: "manuscript" as const, path: "/chapter-3.md", workId: null };
+const CHAPTER_2 = {
+  scheme: "manuscript" as const,
+  path: "/chapter-2.md",
+  uri: "manuscript://chapter-2.md",
+  workId: null,
+};
+const CHAPTER_3 = {
+  scheme: "manuscript" as const,
+  path: "/chapter-3.md",
+  uri: "manuscript://chapter-3.md",
+  workId: null,
+};
 const ANCHOR = { blockHash: "79b9", term: "elara" };
 
 /** Mounts the hook and hands its callback plus a live read of the notice. */

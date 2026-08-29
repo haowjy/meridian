@@ -111,11 +111,16 @@ export function createDrizzleProjectRepository(
     },
     async softDelete(id: ProjectId): Promise<Project> {
       return runInDrizzleTransaction(db, async () => {
-        const [existing] = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
+        const activeDb = currentDrizzleDb(db);
+        const [existing] = await activeDb
+          .select()
+          .from(projects)
+          .where(eq(projects.id, id))
+          .limit(1);
         if (!existing) throw new Error(`Project not found: ${id}`);
         if (existing.deletedAt) return mapProject(existing);
         const now = new Date();
-        const [row] = await db
+        const [row] = await activeDb
           .update(projects)
           .set({ deletedAt: now, updatedAt: now, lastActivityAt: now })
           .where(eq(projects.id, id))
@@ -127,7 +132,7 @@ export function createDrizzleProjectRepository(
     },
     async restore(id: ProjectId): Promise<Project> {
       return runInDrizzleTransaction(db, async () => {
-        const [row] = await db
+        const [row] = await currentDrizzleDb(db)
           .update(projects)
           .set({ deletedAt: null, updatedAt: new Date() })
           .where(eq(projects.id, id))

@@ -2,7 +2,8 @@
 import type { CanonicalContextUri, ContextUriScheme } from "../context-uri.js";
 import type { ContextSourceId, DocumentId, FolderId, ProjectId, UserId, WorkId } from "../ids.js";
 import type { WorkSlug } from "../works/work-slug.js";
-import type { Filetype } from "./filetype.js";
+import type { Filetype, YjsTrackedSchemaType } from "./filetype.js";
+import type { DocumentFileType } from "./http-types.js";
 
 export type CatalogScope =
   | { kind: "project"; projectId: ProjectId }
@@ -40,7 +41,7 @@ export type CatalogFolderEntry = {
   hasChildren: boolean;
 };
 
-export type CatalogFileEntry = {
+type CatalogFileEntryBase = {
   kind: "file";
   entryId: DocumentId;
   scope: CatalogScope;
@@ -50,10 +51,28 @@ export type CatalogFileEntry = {
   aliases: readonly string[];
   path: readonly string[];
   uri: CanonicalContextUri;
-  fileType: Filetype;
   /** Catalog-visible identity state used by cross-device untitled reconciliation. */
   provisionalName: boolean;
 };
+
+/** Persisted viewer/storage classification. It is never reconstructed from a filename. */
+export type CatalogFileEntry = CatalogFileEntryBase &
+  (
+    | {
+        editable: true;
+        filetype: Filetype;
+        schemaType: YjsTrackedSchemaType;
+        fileType?: never;
+        mimeType?: never;
+      }
+    | {
+        editable: false;
+        fileType: DocumentFileType;
+        mimeType: string | null;
+        filetype?: never;
+        schemaType?: never;
+      }
+  );
 
 export type CatalogEntry =
   | CatalogAuthorityEntry
@@ -111,8 +130,8 @@ export type CatalogChildrenResult = {
 };
 
 export type CatalogLookupRequest =
-  | { scope: CatalogScope; entryId: string; path?: never }
-  | { scope: CatalogScope; path: CanonicalContextUri; entryId?: never };
+  | { scope: CatalogScope; entryId: string; uri?: never }
+  | { scope: CatalogScope; uri: CanonicalContextUri; entryId?: never };
 export type CatalogLookupResult = { entry: CatalogEntry | null; headRevision: string };
 
 export type CatalogWakeHint = {

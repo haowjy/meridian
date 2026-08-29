@@ -23,6 +23,8 @@ import {
 } from "../domains/collab/index.js";
 import {
   type ContextCatalog,
+  type ContextCatalogWakeHub,
+  createContextCatalogWakeHub,
   createDrizzleAssetPathResolver,
   createDrizzleContextCatalog,
   createDrizzleDocumentLinkResolver,
@@ -168,6 +170,7 @@ export type AppServices = {
   documentSync: CollabDomain;
   contextPorts: UnifiedContextPortFactory;
   contextCatalog: ContextCatalog;
+  contextCatalogWakeHub: ContextCatalogWakeHub;
   documentLinks: DocumentLinkResolver;
   projects: ProjectBootstrapRepository;
   works: ProjectWorkRepository;
@@ -221,6 +224,7 @@ export type ProductionAppPorts = {
   documentSync: CollabDomain;
   contextPorts: UnifiedContextPortFactory;
   contextCatalog: ContextCatalog;
+  contextCatalogWakeHub: ContextCatalogWakeHub;
   documentLinks: DocumentLinkResolver;
   projects: ProjectBootstrapRepository;
   works: ProjectWorkRepository;
@@ -320,7 +324,8 @@ export async function createProductionAppPorts(input: {
   const { objectStore, localObjectStore } = createObjectStoreFromEnv();
   const documentAccess = createDrizzleDocumentAccess(db);
   const notices = createDrizzleNoticePort(db);
-  const contextCatalog = createDrizzleContextCatalog(db);
+  const contextCatalogWakeHub = createContextCatalogWakeHub();
+  const contextCatalog = createDrizzleContextCatalog(db, contextCatalogWakeHub);
   const projectRepo = createDrizzleProjectRepository({ db, catalogLifecycle: contextCatalog });
   const workAuthorityResolver = createDrizzleProjectWorkAuthorityResolver(db);
   let contextPorts: UnifiedContextPortFactory;
@@ -437,6 +442,7 @@ export async function createProductionAppPorts(input: {
     documentSync,
     contextPorts,
     contextCatalog,
+    contextCatalogWakeHub,
     documentLinks: createDrizzleDocumentLinkResolver(input.db),
     projects,
     works: workRepo,
@@ -647,6 +653,7 @@ export function composeAppServices(ports: ProductionAppPorts): AppServices {
     documentSync: ports.documentSync,
     contextPorts: ports.contextPorts,
     contextCatalog: ports.contextCatalog,
+    contextCatalogWakeHub: ports.contextCatalogWakeHub,
     documentLinks: ports.documentLinks,
     projects: ports.projects,
     works: ports.works,
@@ -821,6 +828,7 @@ export function createInMemoryAppServices(): AppServices {
     documentSync,
     contextPorts: createInMemoryUnifiedContextPortFactory({ documentSync }),
     contextCatalog: new InMemoryContextCatalog(),
+    contextCatalogWakeHub: createContextCatalogWakeHub(),
     documentLinks: new InMemoryDocumentLinkResolver(),
     projects: {
       async findPersonalProjectId() {

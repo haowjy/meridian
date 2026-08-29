@@ -15,8 +15,8 @@ import {
   Upload,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { CatalogTreeDirectory } from "@/client/query/context-catalog-projection";
-import { useContextCatalogTree } from "@/client/query/useContextCatalog";
+import type { CatalogContextView } from "@/client/query/context-catalog-projection";
+import { useContextCatalogView } from "@/client/query/useContextCatalog";
 import { activeWorkDraftGroups, useWorkDrafts } from "@/client/query/useWorkDrafts";
 import { useWorkMutations } from "@/client/query/useWorks";
 import { InlineErrorRow } from "@/components/app/InlineErrorRow";
@@ -286,8 +286,8 @@ function TreeSummary({
   commands: ProjectRouteCommands;
   controller: WorkMetadataController;
 }) {
-  const query = useContextCatalogTree(projectId, scheme, { workId: work.id });
-  const count = query.tree ? countFiles(query.tree) : 0;
+  const query = useContextCatalogView(projectId, scheme, { workId: work.id });
+  const count = query.catalog?.files().length ?? 0;
   const label = scheme === "scratch" ? t`Scratch` : t`Uploads`;
   const workId = parseRequestId(work.id);
   return (
@@ -298,7 +298,7 @@ function TreeSummary({
           onRetry={query.refetch}
           actionLabel={t`Retry ${label}`}
         />
-      ) : !query.tree ? (
+      ) : !query.catalog ? (
         <Loading />
       ) : (
         <div className="min-w-0 space-y-2">
@@ -330,7 +330,7 @@ function TreeSummary({
               </span>
             </span>
           </button>
-          <TreePreview tree={query.tree} />
+          <CatalogPreview catalog={query.catalog} />
         </div>
       )}
     </ResourceSection>
@@ -354,14 +354,9 @@ function Loading() {
 function Empty({ children }: { children: React.ReactNode }) {
   return <p className="text-sm text-muted-foreground">{children}</p>;
 }
-function countFiles(node: CatalogTreeDirectory): number {
-  return node.children.reduce(
-    (sum, child) => sum + (child.kind === "dir" ? countFiles(child) : 1),
-    0,
-  );
-}
-function TreePreview({ tree }: { tree: CatalogTreeDirectory }) {
-  const visible = tree.children.slice(0, 3);
+function CatalogPreview({ catalog }: { catalog: CatalogContextView }) {
+  const children = catalog.children(catalog.root.entryId);
+  const visible = children.slice(0, 3);
   if (!visible.length) return null;
   return (
     <ul className="space-y-1 px-1" aria-label={t`Contents preview`}>
@@ -378,13 +373,9 @@ function TreePreview({ tree }: { tree: CatalogTreeDirectory }) {
           <span className="min-w-0 truncate">{node.name}</span>
         </li>
       ))}
-      {tree.children.length > visible.length ? (
+      {children.length > visible.length ? (
         <li className="text-meta text-muted-foreground">
-          <Plural
-            value={tree.children.length - visible.length}
-            one="# more item"
-            other="# more items"
-          />
+          <Plural value={children.length - visible.length} one="# more item" other="# more items" />
         </li>
       ) : null}
     </ul>

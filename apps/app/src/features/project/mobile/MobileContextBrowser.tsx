@@ -9,7 +9,7 @@
  * folder is driven entirely by the route's `scheme`/`folder` params, so
  * OS/browser back pops levels naturally and the top-bar breadcrumb stays in
  * sync. Data comes from the
- * same `useContextCatalogTree` query the desktop tree panel uses — the
+ * same `useContextCatalogView` query the desktop tree panel uses — the
  * client tree is already fully loaded per scheme, so drilling is pure lookup
  * (`findContextDir`), not refetching.
  */
@@ -19,7 +19,12 @@ import type { ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { isWorkScopedProjectContextScheme } from "@meridian/contracts/protocol";
 import { AlertCircle, ChevronRight, Folder, Loader2 } from "lucide-react";
 import { Fragment, useState } from "react";
-import { useContextCatalogTree } from "@/client/query/useContextCatalog";
+import type {
+  CatalogContextView,
+  CatalogDirectory as ContextDir,
+  CatalogFile as ContextFile,
+} from "@/client/query/context-catalog-projection";
+import { useContextCatalogView } from "@/client/query/useContextCatalog";
 import { useWorks } from "@/client/query/useWorks";
 import { cn } from "@/lib/utils";
 import {
@@ -34,7 +39,6 @@ import { fileKindIcon } from "../context/context-file-icon";
 import { mobileContextTreeOverflowTriggerClassName } from "../context/context-row-geometry";
 import { schemeIcon, schemeLabel, visibleContextSchemes } from "../context/context-schemes";
 import { contextTabFromFile } from "../context/context-tab-from-file";
-import { type ContextDir, type ContextFile, findContextDir } from "../context/context-tree";
 import { useCreateEntryForm } from "../context/use-create-entry-form";
 import { useRenameEntryForm } from "../context/use-rename-entry-form";
 import type { ResolvedProjectViewProps } from "../ProjectView";
@@ -167,7 +171,7 @@ function MobileFolderListing({
   onCreateDone: () => void;
 }) {
   const workId = editorWorkId;
-  const { tree, isError, isFetching } = useContextCatalogTree(projectId, scheme, {
+  const { catalog, isError, isFetching } = useContextCatalogView(projectId, scheme, {
     workId: editorWorkId,
   });
 
@@ -175,8 +179,11 @@ function MobileFolderListing({
   // the tree isn't loaded yet (or the folder URL is stale), fall back to an
   // empty list — the server still rejects duplicates, this just gives live
   // client-side feedback matching the desktop tree panel.
-  const currentDir = tree ? findContextDir(tree, folder ?? "") : null;
-  const siblingNames = currentDir ? currentDir.children.map((child) => child.name) : [];
+  const currentEntry = folder ? catalog?.findPath(folder) : catalog?.root;
+  const currentDir = currentEntry?.kind === "dir" ? currentEntry : null;
+  const siblingNames = currentDir
+    ? (catalog?.children(currentDir.entryId).map((child) => child.name) ?? [])
+    : [];
 
   const deleteConfirm = useDeleteConfirmation({ projectId, workId: editorWorkId, scheme });
 
@@ -198,7 +205,7 @@ function MobileFolderListing({
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <FolderListingBody
-          tree={tree}
+          catalog={catalog}
           isError={isError}
           isFetching={isFetching}
           projectId={projectId}
@@ -223,7 +230,7 @@ function MobileFolderListing({
 }
 
 function FolderListingBody({
-  tree,
+  catalog,
   isError,
   isFetching,
   projectId,
@@ -235,7 +242,7 @@ function FolderListingBody({
   onSelectContextPath,
   onRequestDelete,
 }: {
-  tree: ContextDir | null;
+  catalog: CatalogContextView | null;
   isError: boolean;
   isFetching: boolean;
   projectId: string;
@@ -255,7 +262,7 @@ function FolderListingBody({
       </ListingStatus>
     );
   }
-  if (!tree) {
+  if (!catalog) {
     return (
       <ListingStatus tone="muted">
         {isFetching ? (
@@ -270,7 +277,8 @@ function FolderListingBody({
     );
   }
 
-  const dir = findContextDir(tree, folder ?? "");
+  const found = folder ? catalog.findPath(folder) : catalog.root;
+  const dir = found?.kind === "dir" ? found : null;
   if (!dir) {
     // Stale URL (folder renamed/deleted out from under the route) — honest
     // dead-end; the breadcrumb/back chevron still leads out.
@@ -281,8 +289,9 @@ function FolderListingBody({
     );
   }
 
-  const folders = dir.children.filter((child): child is ContextDir => child.kind === "dir");
-  const files = dir.children.filter((child): child is ContextFile => child.kind === "file");
+  const children = catalog.children(dir.entryId);
+  const folders = children.filter((child): child is ContextDir => child.kind === "dir");
+  const files = children.filter((child): child is ContextFile => child.kind === "file");
 
   if (folders.length === 0 && files.length === 0) {
     return (
@@ -297,7 +306,7 @@ function FolderListingBody({
     onSelectContextPath(contextTab.path, contextTab.scheme);
   }
 
-  const siblingNames = dir.children.map((c) => c.name);
+  const siblingNames = children.map((child) => child.name);
 
   return (
     <ul className="flex flex-col">

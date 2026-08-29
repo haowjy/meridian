@@ -21,6 +21,10 @@ export {
   UNIFIED_CONTEXT_SCHEMES,
 } from "./context/uri.js";
 export {
+  type ContextCatalogWakeHub,
+  createContextCatalogWakeHub,
+} from "./context-catalog-wake-hub.js";
+export {
   contextPortForProjectAuthorities,
   contextPortForProjectBrowse,
   contextPortForThread,

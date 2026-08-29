@@ -44,7 +44,7 @@ const queryState = {
 };
 
 vi.mock("@/client/query/useContextCatalog", () => ({
-  useContextCatalogTree: () => queryState,
+  useContextCatalogView: () => queryState,
 }));
 type ViewerCapture = {
   tabs: ContextTab[];

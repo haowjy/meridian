@@ -19,8 +19,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
-  CatalogTreeDirectory,
-  CatalogTreeNode,
+  CatalogContextView,
+  CatalogFile,
+  CatalogNode,
 } from "@/client/query/context-catalog-projection";
 
 import { createStandaloneEditorExtensions } from "@/core/editor/config";
@@ -36,7 +37,7 @@ const resolveDocumentLink = vi.fn(
     _body: ResolveDocumentLinkRequest,
   ): Promise<ResolveDocumentLinkResponse> => ({ document: null }),
 );
-const trees = new Map<string, CatalogTreeDirectory | null>();
+const trees = new Map<string, CatalogContextView | null>();
 
 vi.mock("@lingui/core/macro", () => ({
   t: (strings: TemplateStringsArray) => strings.join(""),
@@ -46,12 +47,13 @@ vi.mock("@/client/api/document-links-api", () => ({
     resolveDocumentLink(projectId, body),
 }));
 vi.mock("@/client/query/useContextCatalog", () => ({
-  useContextCatalogTree: (
+  useContextCatalogView: (
     _projectId: string,
     scheme: string,
     options?: { enabled?: boolean; workId?: string | null },
   ) => ({
-    tree: options?.enabled === false ? null : (trees.get(treeKey(scheme, options?.workId)) ?? null),
+    catalog:
+      options?.enabled === false ? null : (trees.get(treeKey(scheme, options?.workId)) ?? null),
     isError: false,
     isFetching: false,
     refetch: () => {},
@@ -270,10 +272,11 @@ function answerWikilinksFromTheManuscript() {
   resolveDocumentLink.mockImplementation(async (_projectId, body) => {
     if (body.target.kind !== "wikilink") return { document: null };
     const { name } = body.target;
-    const match = (trees.get(treeKey("manuscript"))?.children ?? []).find(
-      (node) => node.kind === "file" && node.name.replace(/\.md$/, "") === name,
-    );
-    return { document: match?.kind === "file" ? resolvedLink(match.documentId) : null };
+    const match = trees
+      .get(treeKey("manuscript"))
+      ?.files()
+      .find((node) => node.name.replace(/\.md$/, "") === name);
+    return { document: match ? resolvedLink(match.documentId) : null };
   });
 }
 
@@ -341,7 +344,7 @@ function treeKey(scheme: string, workId?: string | null): string {
   return `${scheme}:${workId ?? ""}`;
 }
 
-function manuscriptTree(...names: readonly string[]): CatalogTreeDirectory {
+function manuscriptTree(...names: readonly string[]): CatalogContextView {
   return directory(
     "manuscript://",
     names.map((name) => file(name, `manuscript://${name}`)),
@@ -349,20 +352,24 @@ function manuscriptTree(...names: readonly string[]): CatalogTreeDirectory {
 }
 
 /** Context trees expose stable slug-qualified Scratch authority. */
-function scratchTree(workSlug: string, ...names: readonly string[]): CatalogTreeDirectory {
+function scratchTree(workSlug: string, ...names: readonly string[]): CatalogContextView {
   return directory(
     `scratch://@${workSlug}`,
     names.map((name) => file(name, `scratch://@${workSlug}/${name}`)),
   );
 }
 
-function directory(uri: string, children: CatalogTreeNode[]): CatalogTreeDirectory {
-  return { kind: "dir", name: "", path: "/", uri, children };
+function directory(_uri: string, children: CatalogNode[]): CatalogContextView {
+  return {
+    files: () => children.filter((node): node is CatalogFile => node.kind === "file"),
+  } as unknown as CatalogContextView;
 }
 
-function file(name: string, uri: string): CatalogTreeNode {
+function file(name: string, uri: string): CatalogNode {
   return {
     kind: "file",
+    entryId: `document-${name}`,
+    parentId: uri,
     documentId: `document-${name}`,
     name,
     path: `/${name}`,

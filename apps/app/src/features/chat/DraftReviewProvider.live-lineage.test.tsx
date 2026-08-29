@@ -424,7 +424,9 @@ function contextTreeResponse(materialized: boolean) {
                 aliases: [],
                 path: ["terminal.md"],
                 uri: "manuscript://terminal.md",
-                fileType: "markdown" as const,
+                editable: true as const,
+                filetype: "markdown" as const,
+                schemaType: "document" as const,
                 provisionalName: false,
               },
             ],
@@ -432,5 +434,7 @@ function contextTreeResponse(materialized: boolean) {
         : []),
     ]),
     invalidatedEntryIds: new Set<string>(),
+    childIdsByParentId: new Map([[source.entryId, materialized ? ["doc-terminal"] : []]]),
+    sourceIdsByScheme: new Map([["manuscript", source.entryId]]),
   };
 }

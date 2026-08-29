@@ -54,7 +54,7 @@ describe("useApplyDraft pending lifecycle", () => {
         },
       });
       useQuery({
-        queryKey: projectQueryKeys.contextCatalogTree("project-1", "manuscript"),
+        queryKey: projectQueryKeys.contextCatalogView("project-1", "manuscript"),
         queryFn: async () => {
           treeFetchCount += 1;
           return [];

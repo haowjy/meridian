@@ -2,6 +2,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { act, StrictMode, useLayoutEffect, useState } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
+import type { CatalogContextView, CatalogFile } from "@/client/query/context-catalog-projection";
 import { useContextTabsStore } from "@/client/stores";
 import {
   configureWorkingSetSync,
@@ -33,7 +34,7 @@ vi.mock("@/client/api/projects-api", async (importOriginal) => ({
 }));
 vi.mock("@/client/query/useContextCatalog", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/client/query/useContextCatalog")>()),
-  fetchContextCatalogTree: mocks.readTree,
+  fetchContextCatalogView: mocks.readTree,
 }));
 
 const workingSetStorage = window.localStorage;
@@ -59,6 +60,27 @@ const restored = {
 };
 const disabledHydration = { status: "disabled" as const };
 
+function catalogWith(files: readonly CatalogFile[]): CatalogContextView {
+  return {
+    projectId: "project",
+    scheme: "kb",
+    capabilities: { writable: true, searchable: true, creatable: true },
+    normalized: {} as CatalogContextView["normalized"],
+    root: {
+      kind: "dir",
+      entryId: "kb-source",
+      parentId: null,
+      name: "Knowledge Base",
+      path: "/",
+      uri: "kb://",
+    },
+    children: () => files,
+    files: () => files,
+    findPath: (path) => files.find((file) => file.path === path) ?? null,
+    findDocument: (documentId) => files.find((file) => file.documentId === documentId) ?? null,
+  };
+}
+
 beforeEach(() => {
   useContextTabsStore.setState({
     byProject: { project: { tabs: [restored], selectedTabIdByWork: { "work-1": "restored" } } },
@@ -67,10 +89,7 @@ beforeEach(() => {
 });
 
 it("withholds live hosts through one held raw bootstrap and never restores raw authority", async () => {
-  const read = deferred<{
-    tree: { kind: "dir"; path: string; name: string; children: [] };
-    capabilities: null;
-  }>();
+  const read = deferred<CatalogContextView>();
   mocks.readTree.mockImplementation(() => read.promise);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
@@ -102,12 +121,7 @@ it("withholds live hosts through one held raw bootstrap and never restores raw a
       expect(document.querySelector("[data-phase]")?.textContent).toBe("withheld");
       expect(mocks.readTree).toHaveBeenCalledOnce();
 
-      await act(async () =>
-        read.resolve({
-          tree: { kind: "dir", path: "/", name: "Knowledge Base", children: [] },
-          capabilities: null,
-        }),
-      );
+      await act(async () => read.resolve(catalogWith([])));
       expect(document.querySelector("[data-phase]")?.getAttribute("data-phase")).toBe("live");
       expect(useContextTabsStore.getState().byProject.project?.tabs).toEqual([]);
 
@@ -138,23 +152,7 @@ it("keeps a fulfilled bootstrap removal authoritative when the explicit live rou
     },
     _deskHydrated: true,
   });
-  const read = deferred<{
-    tree: {
-      kind: "dir";
-      path: string;
-      name: string;
-      children: Array<{
-        kind: "file";
-        path: string;
-        name: string;
-        documentId: string;
-        editable: true;
-        filetype: "markdown";
-        schemaType: "document";
-      }>;
-    };
-    capabilities: null;
-  }>();
+  const read = deferred<CatalogContextView>();
   mocks.readTree.mockImplementation(() => read.promise);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
@@ -250,25 +248,23 @@ it("keeps a fulfilled bootstrap removal authoritative when the explicit live rou
         expect(useContextTabsStore.getState().byProject.project?.tabs).toHaveLength(2);
 
         await act(async () =>
-          read.resolve({
-            tree: {
-              kind: "dir",
-              path: "/",
-              name: "Knowledge Base",
-              children: [
-                {
-                  kind: "file",
-                  path: "/knowledge.md",
-                  name: "knowledge.md",
-                  documentId: "knowledge",
-                  editable: true,
-                  filetype: "markdown",
-                  schemaType: "document",
-                },
-              ],
-            },
-            capabilities: null,
-          }),
+          read.resolve(
+            catalogWith([
+              {
+                kind: "file",
+                entryId: "knowledge",
+                parentId: "kb-source",
+                path: "/knowledge.md",
+                uri: "kb://knowledge.md",
+                name: "knowledge.md",
+                documentId: "knowledge",
+                editable: true,
+                filetype: "markdown",
+                schemaType: "document",
+                provisionalName: false,
+              },
+            ]),
+          ),
         );
 
         expect(document.querySelector("[data-phase]")?.textContent).toBe("live");

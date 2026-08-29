@@ -1,7 +1,7 @@
 import type { CatalogEntry, CatalogScope } from "@meridian/contracts/protocol";
 import { describe, expect, it } from "vitest";
-import { ContextCatalogCache } from "@/client/query/context-catalog-cache";
-import { projectCatalogTree } from "@/client/query/useContextCatalog";
+import { catalogViewFromSnapshot } from "@/client/query/context-catalog-cache";
+import { projectCatalogView } from "@/client/query/useContextCatalog";
 import { catalogFileSuggestions } from "./file-suggestions";
 
 const scope = { kind: "project", projectId: "project-1" } as const satisfies CatalogScope;
@@ -24,23 +24,48 @@ const entries: CatalogEntry[] = [
     aliases: [],
     path: ["Chapter.md"],
     uri: "manuscript://Chapter.md",
-    fileType: "markdown",
+    editable: true,
+    filetype: "markdown",
+    schemaType: "document",
+    provisionalName: false,
+  },
+  {
+    kind: "file",
+    entryId: "document-binary",
+    scope,
+    sourceId: "source-1",
+    parentId: "source-1",
+    name: "archive.txt",
+    aliases: [],
+    path: ["archive.txt"],
+    uri: "manuscript://archive.txt",
+    editable: false,
+    fileType: "binary",
+    mimeType: "application/octet-stream",
     provisionalName: false,
   },
 ];
 
 describe("catalog projections", () => {
   it("projects tree and picker from the same normalized identity", () => {
-    const view = new ContextCatalogCache().replace({
+    const view = catalogViewFromSnapshot({
       scope,
       generation: "generation-1",
       headRevision: "0",
       cursor: "cursor-0",
       entries,
     });
-    const tree = projectCatalogTree(scope.projectId, "manuscript", view).tree;
+    const catalog = projectCatalogView(scope.projectId, "manuscript", view);
     const picker = catalogFileSuggestions([view]);
-    expect(tree.children[0]).toMatchObject({ documentId: "document-1", path: "/Chapter.md" });
+    expect(catalog.findDocument("document-1")).toMatchObject({
+      documentId: "document-1",
+      path: "/Chapter.md",
+    });
+    expect(catalog.findDocument("document-binary")).toMatchObject({
+      editable: false,
+      fileType: "binary",
+      mimeType: "application/octet-stream",
+    });
     expect(picker).toContainEqual(
       expect.objectContaining({ scheme: "manuscript", path: "/Chapter.md", kind: "file" }),
     );

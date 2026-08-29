@@ -274,14 +274,14 @@ export class UntitledLifecycleRig {
 
   seedTree(projectId: string, scheme: "manuscript" | "scratch", workId?: string): void {
     this.queryClient.setQueryData(
-      projectQueryKeys.contextCatalogTree(projectId, scheme, workId),
+      projectQueryKeys.contextCatalogView(projectId, scheme, workId),
       {},
     );
   }
 
   treeInvalidated(projectId: string, scheme: "manuscript" | "scratch", workId?: string): boolean {
     return Boolean(
-      this.queryClient.getQueryState(projectQueryKeys.contextCatalogTree(projectId, scheme, workId))
+      this.queryClient.getQueryState(projectQueryKeys.contextCatalogView(projectId, scheme, workId))
         ?.isInvalidated,
     );
   }

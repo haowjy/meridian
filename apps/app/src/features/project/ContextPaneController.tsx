@@ -11,7 +11,7 @@ import {
   type ProjectContextTreeScheme,
 } from "@meridian/contracts/protocol";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useContextCatalogTree } from "@/client/query/useContextCatalog";
+import { useContextCatalogView } from "@/client/query/useContextCatalog";
 import { useContextTabs, useContextTabsActions, useContextTabsStore } from "@/client/stores";
 import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
 import { useContextRemovalCoordinator } from "./context/ContextRemovalAccountProvider";
@@ -21,11 +21,6 @@ import { routeTargetForTab } from "./context/context-removal-planner";
 import { resolveDeskRoute } from "./context/context-route-desk-owner";
 import { contextTabFromFile } from "./context/context-tab-from-file";
 import { contextTabRouteKey } from "./context/context-tab-identity";
-import {
-  findContextFile,
-  findContextFileByDocumentId,
-  firstContextFile,
-} from "./context/context-tree";
 import { untitledDocumentIsEmpty } from "./context/untitled-reconciler";
 import { appendPendingUntitled, isUntitledPending } from "./context/untitled-reconciler-browser";
 import { useContextRemovalProject } from "./context/use-context-removal-project";
@@ -89,10 +84,10 @@ export function ContextViewerSurfaceController({
 
   const needsRouteTab = activeContextScheme !== null && activeContextPath !== null && !activeTab;
   const {
-    tree: routeTree,
+    catalog: routeCatalog,
     isError: routeTreeIsError,
     isFetching: routeTreeIsFetching,
-  } = useContextCatalogTree(projectId, activeContextScheme ?? "kb", {
+  } = useContextCatalogView(projectId, activeContextScheme ?? "kb", {
     enabled: activeContextScheme !== null && activeContextPath !== null,
     workId: routeWorkId,
   });
@@ -107,7 +102,8 @@ export function ContextViewerSurfaceController({
       selection.locator.workId !== routeWorkId
     )
       return;
-    const routedFile = routeTree ? findContextFile(routeTree, activeContextPath) : null;
+    const routed = routeCatalog?.findPath(activeContextPath);
+    const routedFile = routed?.kind === "file" ? routed : null;
     if (deskRoute.kind === "owner" && selection.status === "candidate") {
       if (deskRoute.identity.kind === "server" && routeWorkId) {
         selectTab(projectId, routeWorkId, deskRoute.tab.documentId);
@@ -139,7 +135,7 @@ export function ContextViewerSurfaceController({
       contextRemoval.rejectRouteCandidate(projectId, selection.revision, "missing-local-owner");
     } else if (
       selection.status === "candidate" &&
-      routeTree &&
+      routeCatalog &&
       !routeTreeIsFetching &&
       !routeTreeIsError
     ) {
@@ -154,7 +150,7 @@ export function ContextViewerSurfaceController({
     activeTab,
     deskRoute,
     projectId,
-    routeTree,
+    routeCatalog,
     routeTreeIsFetching,
     routeWorkId,
     removalState.selection,
@@ -277,7 +273,7 @@ export function ContextViewerSurfaceController({
             },
           }
         : null,
-    tree: routeTree,
+    catalog: routeCatalog,
     isFetching: routeTreeIsFetching,
     isError: routeTreeIsError,
     // Closing stamps this fence before removing the tab. Sharing it prevents
@@ -285,22 +281,22 @@ export function ContextViewerSurfaceController({
     removalFenced: routeMaterializationFenced,
   });
 
-  const { tree: defaultOpenTree } = useContextCatalogTree(projectId, "manuscript", {
+  const { catalog: defaultOpenCatalog } = useContextCatalogView(projectId, "manuscript", {
     enabled: wantsDefaultOpen,
     workId: routeWorkId,
   });
   useEffect(() => {
-    if (!wantsDefaultOpen || !defaultOpenTree) return;
+    if (!wantsDefaultOpen || !defaultOpenCatalog) return;
     setWantsDefaultOpen(false);
     // The writer (or a late restore) may have opened something while the
     // tree loaded — an explicit destination always wins over the default.
     if (activeContextScheme !== null || activeContextPath !== null || hasEditorWorkTab) return;
-    const file = firstContextFile(defaultOpenTree);
+    const file = defaultOpenCatalog.files()[0] ?? null;
     if (file) onSelectContextPath(file.path, "manuscript", { replace: true });
   }, [
     activeContextPath,
     activeContextScheme,
-    defaultOpenTree,
+    defaultOpenCatalog,
     hasEditorWorkTab,
     onSelectContextPath,
     wantsDefaultOpen,
@@ -310,9 +306,9 @@ export function ContextViewerSurfaceController({
   // This is how cross-device renames clear provisional chrome without a new
   // metadata channel.
   useEffect(() => {
-    if (!activeTab || activeTab.kind === "new" || !routeTree || activeContextScheme === null)
+    if (!activeTab || activeTab.kind === "new" || !routeCatalog || activeContextScheme === null)
       return;
-    const file = findContextFileByDocumentId(routeTree, activeTab.documentId);
+    const file = routeCatalog.findDocument(activeTab.documentId);
     if (!file) return;
     openTab(projectId, contextTabFromFile(activeContextScheme, file, routeWorkId));
     if (file.path !== activeTab.path)
@@ -323,14 +319,15 @@ export function ContextViewerSurfaceController({
     onSelectContextPath,
     openTab,
     projectId,
-    routeTree,
+    routeCatalog,
     routeWorkId,
   ]);
 
   useEffect(() => {
     if (!needsRouteTab || routeMaterializationFenced) return;
-    if (activeContextScheme === null || activeContextPath === null || !routeTree) return;
-    const file = findContextFile(routeTree, activeContextPath);
+    if (activeContextScheme === null || activeContextPath === null || !routeCatalog) return;
+    const found = routeCatalog.findPath(activeContextPath);
+    const file = found?.kind === "file" ? found : null;
     if (!file) return;
     openTab(projectId, contextTabFromFile(activeContextScheme, file, routeWorkId));
   }, [
@@ -340,7 +337,7 @@ export function ContextViewerSurfaceController({
     openTab,
     openTabKey,
     projectId,
-    routeTree,
+    routeCatalog,
     routeMaterializationFenced,
     routeWorkId,
   ]);

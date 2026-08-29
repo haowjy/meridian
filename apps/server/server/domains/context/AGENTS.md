@@ -52,8 +52,13 @@ Routes: `read.get.ts`, `create.post.ts`, `create-untitled.post.ts`,
 `rename.post.ts`, `move.post.ts`, `delete.post.ts`, `upload.post.ts`.
 
 Metadata browsing uses the sibling catalog routes: complete compact snapshot,
-whole-commit changes, direct children, and stable-ID/canonical-path lookup.
-They authenticate and translate transport only; catalog transaction and replay
+whole-commit changes, direct children, and stable-ID/canonical-URI lookup. Every
+metadata command and lazy source provision publishes catalog state in the same
+ambient Drizzle transaction; content-only Yjs/projection changes do not publish.
+Catalog files preserve persisted tracked or binary classification. The context
+domain emits best-effort truth-free wake hints after commit through the existing
+authenticated thread socket; focus and bounded polling repair dropped hints.
+Routes authenticate and translate transport only; catalog transaction and replay
 policy live in the context domain.
 
 Internal document links resolve through the same domain at

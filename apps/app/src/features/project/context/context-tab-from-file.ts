@@ -7,13 +7,13 @@
  */
 import type { ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { isWorkScopedProjectContextScheme } from "@meridian/contracts/protocol";
-import type { CatalogTreeFile } from "@/client/query/context-catalog-projection";
+import type { CatalogFile } from "@/client/query/context-catalog-projection";
 
 import type { ServerContextTab } from "@/client/stores";
 
 export function contextTabFromFile(
   scheme: ProjectContextTreeScheme,
-  file: CatalogTreeFile,
+  file: CatalogFile,
   workId?: string | null,
 ): ServerContextTab {
   const base = {

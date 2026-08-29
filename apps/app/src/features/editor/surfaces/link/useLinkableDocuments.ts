@@ -1,7 +1,4 @@
-import type {
-  CatalogTreeDirectory,
-  CatalogTreeNode,
-} from "@/client/query/context-catalog-projection";
+import type { CatalogContextView } from "@/client/query/context-catalog-projection";
 /**
  * Every document a link in this scope can reach, from the trees the app already
  * has.
@@ -35,7 +32,7 @@ import { parseUnifiedContextUri } from "@meridian/contracts/context-uri";
 import type {} from "@meridian/contracts/protocol";
 import { useMemo } from "react";
 
-import { useContextCatalogTree } from "@/client/query/useContextCatalog";
+import { useContextCatalogView } from "@/client/query/useContextCatalog";
 import type { WikilinkDocument } from "@/core/completion";
 import { schemeLabel } from "@/features/project/context/context-schemes";
 
@@ -61,11 +58,11 @@ export type LinkableDocumentIndex = {
 };
 
 export function useLinkableDocuments({ projectId, workId }: EditorScope): LinkableDocumentIndex {
-  const { tree: manuscript } = useContextCatalogTree(projectId ?? "", "manuscript", {
+  const { catalog: manuscript } = useContextCatalogView(projectId ?? "", "manuscript", {
     enabled: Boolean(projectId),
     workId: null,
   });
-  const { tree: scratch } = useContextCatalogTree(projectId ?? "", "scratch", {
+  const { catalog: scratch } = useContextCatalogView(projectId ?? "", "scratch", {
     enabled: Boolean(projectId) && Boolean(workId),
     workId,
   });
@@ -100,29 +97,22 @@ function catalogRevision(documents: readonly LinkableDocument[]): string {
  * the only thing separating two documents whose titles look alike.
  */
 function linkableDocuments(
-  tree: CatalogTreeDirectory,
+  catalog: CatalogContextView,
   root: readonly string[],
   workId?: string | null,
 ): LinkableDocument[] {
   const documents: LinkableDocument[] = [];
-
-  const visit = (node: CatalogTreeNode, folders: readonly string[]) => {
-    if (node.kind === "dir") {
-      const inside = node.path === "/" ? folders : [...folders, node.name];
-      for (const child of node.children) visit(child, inside);
-      return;
-    }
+  for (const node of catalog.files()) {
     // An image or a PDF has no title a wikilink can name.
-    if (!node.editable) return;
+    if (!node.editable) continue;
+    const folders = [...root, ...node.path.split("/").filter(Boolean).slice(0, -1)];
     documents.push({
       documentId: node.documentId,
       title: documentTitle(node.name),
       location: folders.join("/"),
       uri: resolverUri(node.uri, workId),
     });
-  };
-
-  visit(tree, root);
+  }
   return documents;
 }
 

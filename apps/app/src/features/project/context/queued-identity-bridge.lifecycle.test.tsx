@@ -70,7 +70,7 @@ const tree = {
   ],
 };
 vi.mock("@/client/query/useContextCatalog", () => ({
-  useContextCatalogTree: (_projectId: string, scheme: ProjectContextTreeScheme) => ({
+  useContextCatalogView: (_projectId: string, scheme: ProjectContextTreeScheme) => ({
     tree: scheme === "manuscript" ? tree : { kind: "dir", name: "Scratch", path: "", children: [] },
     capabilities: null,
     isError: false,

@@ -34,8 +34,8 @@ vi.mock("@/client/query/useWorkDrafts", () => ({
   activeWorkDraftGroups: (groups: unknown[]) => groups,
 }));
 vi.mock("@/client/query/useContextCatalog", () => ({
-  useContextCatalogTree: () => ({
-    tree: { kind: "dir", name: "", path: "", children: [] },
+  useContextCatalogView: () => ({
+    catalog: { root: { entryId: "root" }, files: () => [], children: () => [] },
     isError: false,
     refetch: vi.fn(),
   }),

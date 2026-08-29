@@ -1,5 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { CatalogContextView, CatalogFile } from "@/client/query/context-catalog-projection";
 import { type ContextTab, useContextTabsStore } from "@/client/stores";
 import {
   contextDeskReconciliation,
@@ -11,13 +12,34 @@ import {
 
 const mocks = vi.hoisted(() => ({ readTree: vi.fn() }));
 vi.mock("@/client/query/useContextCatalog", () => ({
-  fetchContextCatalogTree: mocks.readTree,
+  fetchContextCatalogView: mocks.readTree,
 }));
 
 beforeEach(() => {
   mocks.readTree.mockReset();
   useContextTabsStore.setState({ byProject: {}, _deskHydrated: true });
 });
+
+function catalogWith(files: readonly CatalogFile[]): CatalogContextView {
+  return {
+    projectId: "project",
+    scheme: "scratch",
+    capabilities: { writable: true, searchable: true, creatable: true },
+    normalized: {} as CatalogContextView["normalized"],
+    root: {
+      kind: "dir",
+      entryId: "scratch-source",
+      parentId: null,
+      name: "Scratch",
+      path: "/",
+      uri: "scratch://@work-a/",
+    },
+    children: () => files,
+    files: () => files,
+    findPath: (path) => files.find((file) => file.path === path) ?? null,
+    findDocument: (documentId) => files.find((file) => file.documentId === documentId) ?? null,
+  };
+}
 
 describe("Context desk bootstrap source", () => {
   it("replaces from authoritative server hydration and preserves degraded local state", () => {
@@ -153,25 +175,23 @@ describe("device-local bootstrap ownership", () => {
         project: { tabs: [local], selectedTabIdByWork: { "work-a": local.documentId } },
       },
     });
-    mocks.readTree.mockResolvedValue({
-      tree: {
-        kind: "dir",
-        name: "Scratch",
-        path: "",
-        children: [
-          {
-            kind: "file",
-            documentId: "replacement-id",
-            name: "Untitled.md",
-            path: "/Untitled.md",
-            editable: true,
-            filetype: "markdown",
-            schemaType: "document",
-          },
-        ],
-      },
-      capabilities: null,
-    });
+    mocks.readTree.mockResolvedValue(
+      catalogWith([
+        {
+          kind: "file",
+          entryId: "replacement-id",
+          parentId: "scratch-source",
+          documentId: "replacement-id",
+          name: "Untitled.md",
+          path: "/Untitled.md",
+          uri: "scratch://@work-a/Untitled.md",
+          editable: true,
+          filetype: "markdown",
+          schemaType: "document",
+          provisionalName: false,
+        },
+      ]),
+    );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const scope = { projectId: "project", editorWorkId: "work-a", generation: 1 };
 
@@ -208,25 +228,23 @@ describe("device-local bootstrap ownership", () => {
         project: { tabs: [local], selectedTabIdByWork: { "work-a": local.documentId } },
       },
     });
-    mocks.readTree.mockResolvedValue({
-      tree: {
-        kind: "dir",
-        name: "Scratch",
-        path: "",
-        children: [
-          {
-            kind: "file",
-            documentId: "same-id",
-            name: "Renamed.md",
-            path: "/Renamed.md",
-            editable: true,
-            filetype: "markdown",
-            schemaType: "document",
-          },
-        ],
-      },
-      capabilities: null,
-    });
+    mocks.readTree.mockResolvedValue(
+      catalogWith([
+        {
+          kind: "file",
+          entryId: "same-id",
+          parentId: "scratch-source",
+          documentId: "same-id",
+          name: "Renamed.md",
+          path: "/Renamed.md",
+          uri: "scratch://@work-a/Renamed.md",
+          editable: true,
+          filetype: "markdown",
+          schemaType: "document",
+          provisionalName: false,
+        },
+      ]),
+    );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const scope = { projectId: "project", editorWorkId: "work-a", generation: 1 };
 

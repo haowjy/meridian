@@ -16,14 +16,13 @@ import { Trans } from "@lingui/react/macro";
 import type { ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo } from "react";
-import { useContextCatalogTree } from "@/client/query/useContextCatalog";
+import { useContextCatalogView } from "@/client/query/useContextCatalog";
 import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
 import { useDraftReview } from "@/features/chat/DraftReviewProvider";
 import { PassageNotice } from "@/features/editor/PassageNotice";
 import { useContextRemovalCoordinator } from "../context/ContextRemovalAccountProvider";
 import { ContextViewerBareHost } from "../context/ContextViewerHost";
 import { contextTabFromFile } from "../context/context-tab-from-file";
-import { findContextFile } from "../context/context-tree";
 import { useContextRemovalProject } from "../context/use-context-removal-project";
 
 const EditorView = lazy(() =>
@@ -50,19 +49,25 @@ export function MobileDocumentHost({
   const removalState = useContextRemovalProject(projectId);
   const { controller, reviewRoomNameForDraft, setActiveEditorDocumentId } = useDraftReview();
   const hasRouteDocument = activeContextScheme !== null && activeContextPath !== null;
-  const { tree, isError, isFetching } = useContextCatalogTree(
+  const { catalog, isError, isFetching } = useContextCatalogView(
     projectId,
     activeContextScheme ?? "kb",
     { enabled: hasRouteDocument, workId: editorWorkId },
   );
 
   const activeTab = useMemo(() => {
-    if (!hasRouteDocument || activeContextScheme === null || activeContextPath === null || !tree) {
+    if (
+      !hasRouteDocument ||
+      activeContextScheme === null ||
+      activeContextPath === null ||
+      !catalog
+    ) {
       return null;
     }
-    const file = findContextFile(tree, activeContextPath);
+    const found = catalog.findPath(activeContextPath);
+    const file = found?.kind === "file" ? found : null;
     return file ? contextTabFromFile(activeContextScheme, file, workId) : null;
-  }, [activeContextPath, activeContextScheme, hasRouteDocument, tree, workId]);
+  }, [activeContextPath, activeContextScheme, catalog, hasRouteDocument, workId]);
 
   useLayoutEffect(() => {
     if (!hasRouteDocument || activeContextScheme === null || activeContextPath === null) return;
@@ -79,7 +84,7 @@ export function MobileDocumentHost({
         kind: "server",
         documentId: activeTab.documentId,
       });
-    } else if (selection.status === "candidate" && tree && !isFetching && !isError) {
+    } else if (selection.status === "candidate" && catalog && !isFetching && !isError) {
       contextRemoval.rejectRouteCandidate(projectId, selection.revision);
     }
   }, [
@@ -92,7 +97,7 @@ export function MobileDocumentHost({
     isError,
     projectId,
     removalState.selection,
-    tree,
+    catalog,
     workId,
   ]);
 
@@ -157,7 +162,7 @@ export function MobileDocumentHost({
   }
 
   if (!activeTab) {
-    if (isFetching && !tree) {
+    if (isFetching && !catalog) {
       return (
         <DocumentStatus tone="muted">
           <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -165,7 +170,7 @@ export function MobileDocumentHost({
         </DocumentStatus>
       );
     }
-    if (isError || tree) {
+    if (isError || catalog) {
       return (
         <DocumentStatus tone="error">
           <AlertCircle className="size-4" aria-hidden />

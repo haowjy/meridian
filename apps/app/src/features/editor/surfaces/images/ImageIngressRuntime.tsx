@@ -1,4 +1,3 @@
-import type { CatalogTreeNode } from "@/client/query/context-catalog-projection";
 /**
  * The app's half of image ingress: where a picture's bytes actually go.
  *
@@ -16,7 +15,7 @@ import type { Editor } from "@tiptap/core";
 import { useEffect, useMemo } from "react";
 
 import { uploadFigure } from "@/client/api/figures-api";
-import { useContextCatalogTree } from "@/client/query/useContextCatalog";
+import { useContextCatalogView } from "@/client/query/useContextCatalog";
 import {
   editorAssetIndex,
   type ImageBytesPort,
@@ -34,7 +33,7 @@ export function ImageIngressRuntime({
   projectId: string | undefined;
   documentId: string;
 }) {
-  const { tree: manuscriptTree } = useContextCatalogTree(projectId ?? "", "manuscript", {
+  const { catalog: manuscriptCatalog } = useContextCatalogView(projectId ?? "", "manuscript", {
     enabled: Boolean(projectId),
     workId: null,
   });
@@ -53,18 +52,13 @@ export function ImageIngressRuntime({
   // both directions, and it can only do that for assets it has been told about.
   useEffect(() => {
     const assetIndex = editorAssetIndex(editor);
-    if (!assetIndex || !manuscriptTree) return;
-    const remember = (node: CatalogTreeNode) => {
-      if (node.kind === "file") {
-        if (!node.editable && node.fileType === "image") {
-          assetIndex.remember(node.documentId, node.path.replace(/^\//, ""));
-        }
-        return;
+    if (!assetIndex || !manuscriptCatalog) return;
+    for (const file of manuscriptCatalog.files()) {
+      if (!file.editable && file.fileType === "image") {
+        assetIndex.remember(file.documentId, file.path.replace(/^\//, ""));
       }
-      for (const child of node.children) remember(child);
-    };
-    remember(manuscriptTree);
-  }, [editor, manuscriptTree]);
+    }
+  }, [editor, manuscriptCatalog]);
 
   return null;
 }

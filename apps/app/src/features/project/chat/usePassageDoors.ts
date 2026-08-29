@@ -29,6 +29,7 @@ export type PassageDoorTarget = {
   scheme: ProjectContextTreeScheme;
   path: string;
   workId: string | null;
+  uri: string;
 };
 
 /** Tell passage navigation that a door was opened. The passage is optional. */
@@ -55,7 +56,7 @@ export function usePassageDoors(projectId: string, activeWorkId: string | null):
         if (!passage) return;
 
         const file = await lookupContextCatalogFile(projectId, target.scheme, target.workId, {
-          path: target.path,
+          uri: target.uri,
         });
         if (signal.aborted) return;
         // A binary or missing file has no Yjs document to land in; the door's

@@ -16,7 +16,7 @@ import { threadQueryKeys } from "@/client/query/thread-query-keys";
 import {
   contextCatalogQueryOptions,
   contextCatalogScope,
-  projectCatalogTree,
+  projectCatalogView,
 } from "@/client/query/useContextCatalog";
 import {
   type ThreadDraftGroup,
@@ -26,7 +26,6 @@ import {
 import { useContextTabsStore } from "@/client/stores";
 import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
 import { useContextRemovalCoordinator } from "@/features/project/context/ContextRemovalAccountProvider";
-import { findContextFileByDocumentId } from "@/features/project/context/context-tree";
 import { type DraftReviewController, useDraftReviewController } from "./useDraftReviewController";
 
 export type DraftReviewContextValue = {
@@ -135,6 +134,7 @@ function useDraftReviewScopeOwner(
     // draft. For draft-created documents, manifest membership is authoritative:
     // Apply materializes the document; Discard does not.
     const treeQuery = contextCatalogQueryOptions(
+      queryClient,
       projectId,
       contextCatalogScope(projectId, "manuscript", null),
     );
@@ -142,7 +142,7 @@ function useDraftReviewScopeOwner(
       .cancelQueries({ queryKey: treeQuery.queryKey })
       .then(() => queryClient.fetchQuery({ ...treeQuery, staleTime: 0 }))
       .then((view) => {
-        const { tree } = projectCatalogTree(projectId, "manuscript", view);
+        const catalog = projectCatalogView(projectId, "manuscript", view);
         const currentTabs = useContextTabsStore.getState();
         const currentTab = currentTabs.byProject[projectId]?.tabs.find(
           (candidate) => candidate.documentId === activeSelection.documentId,
@@ -158,7 +158,7 @@ function useDraftReviewScopeOwner(
             projectQueryKeys.workDrafts(projectId, workId),
           ) ?? [];
         if (currentDrafts.some((draft) => draft.documentId === activeSelection.documentId)) return;
-        if (findContextFileByDocumentId(tree, activeSelection.documentId)) {
+        if (catalog.findDocument(activeSelection.documentId)) {
           contextRemoval.applyDraftMetadata(projectId, workId, activeSelection.documentId);
         } else {
           void contextRemoval.discardDraft(projectId, workId, activeSelection.documentId);

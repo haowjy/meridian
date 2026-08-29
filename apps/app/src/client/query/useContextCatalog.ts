@@ -1,31 +1,30 @@
-/** React Query acquisition and legacy tree projection over one normalized ID cache. */
+/** React Query acquisition and flat selectors over one normalized ID cache. */
 import type {
   CatalogScope,
   CatalogWakeHint,
   ProjectContextTreeScheme,
 } from "@meridian/contracts/protocol";
-import { catalogScopeKey, classifyFiletype } from "@meridian/contracts/protocol";
-import { type QueryClient, queryOptions, useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { type QueryClient, queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo } from "react";
 import {
   getContextCatalogChanges,
   getContextCatalogLookup,
   getContextCatalogSnapshot,
 } from "@/client/api/projects-api";
+import { useOptionalThreadTransport } from "@/client/providers/TransportProvider";
 import type {
-  CatalogTreeDirectory,
-  CatalogTreeFile,
-  CatalogTreeProjection,
+  CatalogContextView,
+  CatalogDirectory,
+  CatalogFile,
+  CatalogNode,
 } from "@/client/query/context-catalog-projection";
 import {
+  applyCatalogChanges,
   type CatalogCacheView,
-  ContextCatalogCache,
-  catalogChildren,
+  type catalogChildren,
+  catalogViewFromSnapshot,
 } from "./context-catalog-cache";
 import { projectQueryKeys } from "./project-query-keys";
-
-const cache = new ContextCatalogCache();
-const acquiredViews = new Map<string, CatalogCacheView>();
 
 export function contextCatalogScope(
   projectId: string,
@@ -39,32 +38,37 @@ export function contextCatalogScope(
   return { kind: "project", projectId };
 }
 
-async function acquire(projectId: string, requestedScope: CatalogScope): Promise<CatalogCacheView> {
-  const acquisitionKey = `${projectId}:${catalogScopeKey(requestedScope)}`;
-  let view = acquiredViews.get(acquisitionKey);
+async function acquire(
+  queryClient: QueryClient,
+  projectId: string,
+  requestedScope: CatalogScope,
+): Promise<CatalogCacheView> {
+  const queryKey = projectQueryKeys.contextCatalog(projectId, requestedScope);
+  let view = queryClient.getQueryData<CatalogCacheView>(queryKey);
   if (!view?.generation) {
-    view = cache.replace(await getContextCatalogSnapshot(projectId, requestedScope));
-    acquiredViews.set(acquisitionKey, view);
+    view = catalogViewFromSnapshot(await getContextCatalogSnapshot(projectId, requestedScope));
     return view;
   }
   for (let page = 0; page < 10; page += 1) {
     const changes = await getContextCatalogChanges(projectId, requestedScope, view.cursor);
     if (changes.kind === "reset-required") {
-      view = cache.replace(await getContextCatalogSnapshot(projectId, requestedScope));
-      acquiredViews.set(acquisitionKey, view);
+      view = catalogViewFromSnapshot(await getContextCatalogSnapshot(projectId, requestedScope));
       return view;
     }
-    view = cache.apply(changes) ?? view;
-    acquiredViews.set(acquisitionKey, view);
+    view = applyCatalogChanges(view, changes) ?? view;
     if (!changes.hasMore) return view;
   }
   return view;
 }
 
-export function contextCatalogQueryOptions(projectId: string, scope: CatalogScope) {
+export function contextCatalogQueryOptions(
+  queryClient: QueryClient,
+  projectId: string,
+  scope: CatalogScope,
+) {
   return queryOptions({
     queryKey: projectQueryKeys.contextCatalog(projectId, scope),
-    queryFn: () => acquire(projectId, scope),
+    queryFn: () => acquire(queryClient, projectId, scope),
     staleTime: 5_000,
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,
@@ -81,86 +85,120 @@ const ROOT_NAMES: Record<ProjectContextTreeScheme, string> = {
 
 export function projectCatalogFile(
   entry: Extract<ReturnType<typeof catalogChildren>[number], { kind: "file" }>,
-): CatalogTreeFile {
-  const classification = classifyFiletype(entry.fileType);
+): CatalogFile {
   const base = {
     kind: "file" as const,
+    entryId: entry.entryId,
+    parentId: entry.parentId,
     documentId: entry.entryId,
     name: entry.name,
     path: `/${entry.path.join("/")}`,
     uri: entry.uri,
     provisionalName: entry.provisionalName,
   };
-  if (classification.kind === "tracked") {
+  if (entry.editable) {
     return {
       ...base,
       editable: true,
-      filetype: entry.fileType,
-      schemaType: classification.schemaType,
+      filetype: entry.filetype,
+      schemaType: entry.schemaType,
     };
   }
   return {
     ...base,
     editable: false,
-    fileType:
-      classification.kind === "binary" || classification.kind === "custom"
-        ? classification.fileType
-        : "binary",
+    fileType: entry.fileType,
+    ...(entry.mimeType ? { mimeType: entry.mimeType } : {}),
   };
 }
 
-export function projectCatalogTree(
+function projectCatalogDirectory(
+  entry: Extract<ReturnType<typeof catalogChildren>[number], { kind: "folder" }>,
+): CatalogDirectory {
+  return {
+    kind: "dir",
+    entryId: entry.entryId,
+    parentId: entry.parentId,
+    name: entry.name,
+    path: `/${entry.path.join("/")}`,
+    uri: entry.uri,
+  };
+}
+
+export function projectCatalogView(
   projectId: string,
   scheme: ProjectContextTreeScheme,
   view: CatalogCacheView,
-): CatalogTreeProjection {
-  const source = [...view.entries.values()].find(
-    (entry) => entry.kind === "source" && entry.scheme === scheme,
-  );
+): CatalogContextView {
+  const sourceId = view.sourceIdsByScheme.get(scheme);
+  const source = sourceId ? view.entries.get(sourceId) : undefined;
   const rootUri = source?.kind === "source" ? source.uri : `${scheme}://`;
-  const build = (
-    parentId: string,
-    name: string,
-    path: string,
-    uri: string,
-  ): CatalogTreeDirectory => {
-    const children: CatalogTreeDirectory["children"] = [];
-    for (const entry of catalogChildren(view, parentId)) {
-      if (entry.kind === "file") children.push(projectCatalogFile(entry));
-      else if (entry.kind === "folder") {
-        children.push(build(entry.entryId, entry.name, `/${entry.path.join("/")}`, entry.uri));
-      }
-    }
-    return { kind: "dir", name, path, uri, children };
+  const root: CatalogDirectory = {
+    kind: "dir",
+    entryId: sourceId ?? `missing:${scheme}`,
+    parentId: null,
+    name: ROOT_NAMES[scheme],
+    path: "/",
+    uri: rootUri,
   };
-  const tree =
-    source?.kind === "source"
-      ? build(source.entryId, ROOT_NAMES[scheme], "/", rootUri)
-      : { kind: "dir" as const, name: ROOT_NAMES[scheme], path: "/", uri: rootUri, children: [] };
+  const node = (entryId: string): CatalogNode | null => {
+    const entry = view.entries.get(entryId);
+    if (!entry || view.invalidatedEntryIds.has(entryId)) return null;
+    if (entry.kind === "file") return projectCatalogFile(entry);
+    if (entry.kind === "folder") return projectCatalogDirectory(entry);
+    return null;
+  };
+  const files = () =>
+    [...view.entries.values()].flatMap((entry) =>
+      entry.kind === "file" && !view.invalidatedEntryIds.has(entry.entryId)
+        ? [projectCatalogFile(entry)]
+        : [],
+    );
   return {
     projectId,
     scheme,
     capabilities: { writable: true, searchable: true, creatable: scheme !== "uploads" },
-    tree,
+    normalized: view,
+    root,
+    children: (parentId) =>
+      (view.childIdsByParentId.get(parentId) ?? []).flatMap((entryId) => {
+        const child = node(entryId);
+        return child ? [child] : [];
+      }),
+    files,
+    findPath: (path) =>
+      files().find((file) => file.path === path) ??
+      [...view.entries.values()].flatMap((entry) =>
+        entry.kind === "folder" && `/${entry.path.join("/")}` === path
+          ? [projectCatalogDirectory(entry)]
+          : [],
+      )[0] ??
+      null,
+    findDocument: (documentId) => {
+      const found = node(documentId);
+      return found?.kind === "file" ? found : null;
+    },
   };
 }
 
-export async function fetchContextCatalogTree(
+export async function fetchContextCatalogView(
   queryClient: QueryClient,
   projectId: string,
   scheme: ProjectContextTreeScheme,
   workId: string | null,
-): Promise<CatalogTreeProjection> {
+): Promise<CatalogContextView> {
   const scope = contextCatalogScope(projectId, scheme, workId);
-  const view = await queryClient.fetchQuery(contextCatalogQueryOptions(projectId, scope));
-  return projectCatalogTree(projectId, scheme, view);
+  const view = await queryClient.fetchQuery(
+    contextCatalogQueryOptions(queryClient, projectId, scope),
+  );
+  return projectCatalogView(projectId, scheme, view);
 }
 
 export async function lookupContextCatalogFile(
   projectId: string,
   scheme: ProjectContextTreeScheme,
   workId: string | null,
-  lookup: { entryId: string } | { path: string },
+  lookup: { entryId: string } | { uri: string },
 ) {
   const result = await getContextCatalogLookup(
     projectId,
@@ -172,22 +210,33 @@ export async function lookupContextCatalogFile(
     : null;
 }
 
-export function useContextCatalogTree(
+export function useContextCatalogView(
   projectId: string,
   scheme: ProjectContextTreeScheme,
   options: { enabled?: boolean; workId: string | null },
 ) {
   const scope = contextCatalogScope(projectId, scheme, options.workId);
+  const queryClient = useQueryClient();
+  const transport = useOptionalThreadTransport();
+  useEffect(
+    () =>
+      projectId
+        ? transport?.subscribeCatalog(projectId, (hint) =>
+            pullContextCatalogOnHint(queryClient, projectId, hint),
+          )
+        : undefined,
+    [projectId, queryClient, transport],
+  );
   const query = useQuery({
-    ...contextCatalogQueryOptions(projectId, scope),
+    ...contextCatalogQueryOptions(queryClient, projectId, scope),
     enabled: options.enabled ?? true,
   });
   const response = useMemo(
-    () => (query.data ? projectCatalogTree(projectId, scheme, query.data) : null),
+    () => (query.data ? projectCatalogView(projectId, scheme, query.data) : null),
     [projectId, query.data, scheme],
   );
   return {
-    tree: response?.tree ?? null,
+    catalog: response,
     capabilities: response?.capabilities ?? null,
     isError: query.isError,
     isFetching: query.isFetching,
@@ -196,7 +245,18 @@ export function useContextCatalogTree(
 }
 
 export function useContextCatalogScope(projectId: string, scope: CatalogScope, enabled = true) {
-  return useQuery({ ...contextCatalogQueryOptions(projectId, scope), enabled });
+  const queryClient = useQueryClient();
+  const transport = useOptionalThreadTransport();
+  useEffect(
+    () =>
+      enabled && projectId
+        ? transport?.subscribeCatalog(projectId, (hint) =>
+            pullContextCatalogOnHint(queryClient, projectId, hint),
+          )
+        : undefined,
+    [enabled, projectId, queryClient, transport],
+  );
+  return useQuery({ ...contextCatalogQueryOptions(queryClient, projectId, scope), enabled });
 }
 
 /** Duplicate-tolerant wake hint handler; the hint never mutates cache state itself. */
@@ -207,7 +267,9 @@ export function pullContextCatalogOnHint(
 ): void {
   const requestedScope: CatalogScope =
     hint.scope.kind === "user" ? { kind: "user", userId: "self" } : hint.scope;
-  const view = acquiredViews.get(`${projectId}:${catalogScopeKey(requestedScope)}`);
+  const view = queryClient.getQueryData<CatalogCacheView>(
+    projectQueryKeys.contextCatalog(projectId, requestedScope),
+  );
   if (view?.headRevision === hint.headRevision) return;
   void queryClient.invalidateQueries({
     queryKey: projectQueryKeys.contextCatalog(projectId, requestedScope),

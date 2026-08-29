@@ -254,7 +254,7 @@ export async function getContextCatalogChildren(
 export async function getContextCatalogLookup(
   projectId: string,
   scope: CatalogScope,
-  lookup: { entryId: string } | { path: string },
+  lookup: { entryId: string } | { uri: string },
 ): Promise<CatalogLookupResult> {
   return getJson(
     `${apiProjectContextCatalogPath(projectId, "lookup")}?${catalogQuery(scope, lookup)}`,

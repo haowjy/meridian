@@ -299,7 +299,7 @@ export function useDeleteConfirmation({
       if (admission.status === "rejected") throw new Error(admission.reason);
       setTarget(null);
       void queryClient.invalidateQueries({
-        queryKey: projectQueryKeys.contextCatalogTree(
+        queryKey: projectQueryKeys.contextCatalogView(
           projectId,
           scheme,
           isWorkScopedProjectContextScheme(scheme) ? target.workId : undefined,

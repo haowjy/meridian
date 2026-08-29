@@ -1,4 +1,4 @@
-/** Client-only tree projection types over normalized catalog entries. */
+/** Flat UI projection types over the React Query-owned normalized catalog. */
 import type { ContextSchemeCapabilities } from "@meridian/contracts/context-uri";
 import type {
   DocumentFileType,
@@ -6,45 +6,51 @@ import type {
   ProjectContextTreeScheme,
   YjsTrackedSchemaType,
 } from "@meridian/contracts/protocol";
+import type { CatalogCacheView } from "./context-catalog-cache";
 
-type CatalogTreeFileBase = {
+type CatalogFileBase = {
   kind: "file";
+  entryId: string;
+  parentId: string;
   documentId: string;
   name: string;
   path: string;
   uri: string;
-  sizeBytes?: number;
-  updatedAt?: string;
-  readonly?: boolean;
   provisionalName: boolean;
 };
 
-export type CatalogTreeFile =
-  | (CatalogTreeFileBase & {
+export type CatalogFile =
+  | (CatalogFileBase & {
       editable: true;
       filetype: Filetype;
       schemaType: YjsTrackedSchemaType;
     })
-  | (CatalogTreeFileBase & {
+  | (CatalogFileBase & {
       editable: false;
       fileType: DocumentFileType;
       mimeType?: string;
     });
 
-export type CatalogTreeDirectory = {
+export type CatalogDirectory = {
   kind: "dir";
+  entryId: string;
+  parentId: string | null;
   name: string;
   path: string;
   uri: string;
-  readonly?: boolean;
-  children: CatalogTreeNode[];
 };
 
-export type CatalogTreeNode = CatalogTreeDirectory | CatalogTreeFile;
+export type CatalogNode = CatalogDirectory | CatalogFile;
 
-export type CatalogTreeProjection = {
+/** No nested children are stored: every read selects direct children by stable parent ID. */
+export type CatalogContextView = {
   projectId: string;
   scheme: ProjectContextTreeScheme;
   capabilities: ContextSchemeCapabilities;
-  tree: CatalogTreeDirectory;
+  normalized: CatalogCacheView;
+  root: CatalogDirectory;
+  children(parentId: string): readonly CatalogNode[];
+  files(): readonly CatalogFile[];
+  findPath(path: string): CatalogFile | CatalogDirectory | null;
+  findDocument(documentId: string): CatalogFile | null;
 };

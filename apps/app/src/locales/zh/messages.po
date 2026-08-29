@@ -72,7 +72,7 @@ msgstr ""
 msgid "(also {0})"
 msgstr ""
 
-#. placeholder {0}: tree.children.length - visible.length
+#. placeholder {0}: children.length - visible.length
 #: src/features/project/work/WorkDetailScreen.tsx
 msgid "{0, plural, one {# more item} other {# more items}}"
 msgstr ""

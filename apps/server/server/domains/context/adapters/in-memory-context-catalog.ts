@@ -132,7 +132,7 @@ export class InMemoryContextCatalog implements ContextCatalog {
         snapshot.entries.find((entry) =>
           input.entryId !== undefined
             ? entry.entryId === input.entryId
-            : "uri" in entry && entry.uri === input.path,
+            : "uri" in entry && entry.uri === input.uri,
         ) ?? null,
       headRevision: snapshot.headRevision,
     };

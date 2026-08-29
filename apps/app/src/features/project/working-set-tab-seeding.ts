@@ -6,7 +6,7 @@ import {
 } from "@meridian/contracts/protocol";
 import type { QueryClient } from "@tanstack/react-query";
 
-import { fetchContextCatalogTree } from "@/client/query/useContextCatalog";
+import { fetchContextCatalogView } from "@/client/query/useContextCatalog";
 import type { ContextTab } from "@/client/stores";
 import { useContextTabsStore } from "@/client/stores";
 import type { WorkingSetHydrationPlan } from "@/client/working-set";
@@ -17,7 +17,6 @@ import {
   workingSetRouteEquals,
 } from "@/client/working-set";
 import { contextTabFromFile } from "./context/context-tab-from-file";
-import { findContextFile, findContextFileByDocumentId } from "./context/context-tree";
 
 export function contextDeskReconciliation(
   hydration: WorkingSetHydrationPlan,
@@ -72,8 +71,8 @@ async function validateDeviceOwnedTabs(
     tabs.filter(deviceOwnedTab).map(async (tab): Promise<ContextTab | null> => {
       if (tab.kind === "new") return tab;
       const workId = isWorkScopedProjectContextScheme(tab.scheme) ? (tab.workId ?? null) : null;
-      const result = await fetchContextCatalogTree(queryClient, projectId, tab.scheme, workId);
-      const file = findContextFileByDocumentId(result.tree, tab.documentId);
+      const result = await fetchContextCatalogView(queryClient, projectId, tab.scheme, workId);
+      const file = result.findDocument(tab.documentId);
       if (!file) return null;
       const refreshed = contextTabFromFile(tab.scheme, file, workId);
       return refreshed.kind === "tracked" ? { ...refreshed, origin: "local-untitled" } : null;
@@ -131,8 +130,9 @@ export async function seedWorkingSetTabs({
     routes.map(async (route) => {
       const workScoped = isWorkScopedProjectContextScheme(route.scheme);
       const workId: string | null = workScoped ? (route.workId ?? null) : null;
-      const result = await fetchContextCatalogTree(queryClient, projectId, route.scheme, workId);
-      const file = findContextFile(result.tree, route.path);
+      const result = await fetchContextCatalogView(queryClient, projectId, route.scheme, workId);
+      const found = result.findPath(route.path);
+      const file = found?.kind === "file" ? found : null;
       if (!file) {
         // Each persisted route is validated in its own stored Work. The live
         // coordinator applies the currently selected Work after bootstrap.
@@ -179,11 +179,14 @@ export async function validateContextDeskTabs({
         if (tab.kind === "new") return { tab, removedRoute: null };
         const workScoped = isWorkScopedProjectContextScheme(tab.scheme);
         const workId = workScoped ? (tab.workId ?? null) : null;
-        const result = await fetchContextCatalogTree(queryClient, projectId, tab.scheme, workId);
+        const result = await fetchContextCatalogView(queryClient, projectId, tab.scheme, workId);
         const file =
           tab.kind === "tracked" && tab.origin === "local-untitled"
-            ? findContextFileByDocumentId(result.tree, tab.documentId)
-            : findContextFile(result.tree, tab.path);
+            ? result.findDocument(tab.documentId)
+            : (() => {
+                const found = result.findPath(tab.path);
+                return found?.kind === "file" ? found : null;
+              })();
         if (!file) {
           // Local provenance is validated by exact document identity; ordinary
           // restored server tabs remain route records and validate by locator.

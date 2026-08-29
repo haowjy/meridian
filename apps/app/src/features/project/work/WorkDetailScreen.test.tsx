@@ -7,47 +7,66 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { withReactRoot } from "@/test-support/react-dom-harness";
 import { testWorkSlug } from "@/test-support/work-slug";
 
-const mocks = vi.hoisted(() => ({
-  drafts: { status: "success", groups: [] as unknown[], refetch: vi.fn() },
-  scratch: {
-    tree: { kind: "dir", name: "", path: "", children: [] as unknown[] },
-    isError: false,
-    refetch: vi.fn(),
-  },
-  uploads: {
-    tree: { kind: "dir", name: "", path: "", children: [] as unknown[] },
-    isError: false,
-    refetch: vi.fn(),
-  },
-  chats: {
-    threads: [] as unknown[],
-    isError: false,
-    refetch: vi.fn(),
-    nextPageIdentity: null,
-    isFetchingNextPage: false,
-    fetchNextPageFor: vi.fn(),
-    setFavorite: vi.fn(async () => true),
-    getCommandState: vi.fn(() => ({ pending: false, error: null })),
-  },
-  metadata: {
-    mutateAsync: vi.fn(),
-    isPending: false,
-    error: null,
-    mutate: vi.fn(),
-  },
-  lifecycle: {
-    mutateAsync: vi.fn(),
-    isPending: false,
-    error: null,
-    mutate: vi.fn(),
-  },
-  catalog: {
-    works: null,
-    isError: true,
-    isFetching: false,
-    refetch: vi.fn(),
-  },
-}));
+const mocks = vi.hoisted(() => {
+  const scratchNodes: unknown[] = [];
+  const uploadsNodes: unknown[] = [];
+  const files = (nodes: unknown[]) =>
+    nodes.filter(
+      (node): node is { kind: "file" } =>
+        typeof node === "object" && node !== null && "kind" in node && node.kind === "file",
+    );
+  return {
+    drafts: { status: "success", groups: [] as unknown[], refetch: vi.fn() },
+    scratch: {
+      nodes: scratchNodes,
+      catalog: {
+        root: { entryId: "root" },
+        files: () => files(scratchNodes),
+        children: () => scratchNodes,
+      },
+      isError: false,
+      refetch: vi.fn(),
+    },
+    uploads: {
+      nodes: uploadsNodes,
+      catalog: {
+        root: { entryId: "root" },
+        files: () => files(uploadsNodes),
+        children: () => uploadsNodes,
+      },
+      isError: false,
+      refetch: vi.fn(),
+    },
+    chats: {
+      threads: [] as unknown[],
+      isError: false,
+      refetch: vi.fn(),
+      nextPageIdentity: null,
+      isFetchingNextPage: false,
+      fetchNextPageFor: vi.fn(),
+      setFavorite: vi.fn(async () => true),
+      getCommandState: vi.fn(() => ({ pending: false, error: null })),
+    },
+    metadata: {
+      mutateAsync: vi.fn(),
+      isPending: false,
+      error: null,
+      mutate: vi.fn(),
+    },
+    lifecycle: {
+      mutateAsync: vi.fn(),
+      isPending: false,
+      error: null,
+      mutate: vi.fn(),
+    },
+    catalog: {
+      works: null,
+      isError: true,
+      isFetching: false,
+      refetch: vi.fn(),
+    },
+  };
+});
 
 vi.mock("@lingui/core/macro", () => ({
   t: (parts: TemplateStringsArray, ...values: unknown[]) =>
@@ -78,7 +97,7 @@ vi.mock("@/client/query/useWorkDrafts", () => ({
   activeWorkDraftGroups: (groups: unknown[]) => groups,
 }));
 vi.mock("@/client/query/useContextCatalog", () => ({
-  useContextCatalogTree: (_projectId: string, scheme: "scratch" | "uploads") => mocks[scheme],
+  useContextCatalogView: (_projectId: string, scheme: "scratch" | "uploads") => mocks[scheme],
 }));
 vi.mock("@/client/query/useWorkThreads", () => ({ useWorkThreads: () => mocks.chats }));
 vi.mock("@/client/query/useProjectChatUserState", () => ({
@@ -273,12 +292,16 @@ describe("WorkDetailScreen resource boundaries", () => {
 
   it("renders a bounded truthful Scratch and Uploads discovery preview", async () => {
     resetResources();
-    mocks.scratch.tree.children = [
-      { kind: "dir", name: "Notes", path: "/Notes", children: [] },
-      { kind: "file", name: "beats.md", path: "/beats.md" },
-      { kind: "file", name: "scene.md", path: "/scene.md" },
-      { kind: "file", name: "extra.md", path: "/extra.md" },
-    ];
+    mocks.scratch.nodes.splice(
+      0,
+      mocks.scratch.nodes.length,
+      ...[
+        { kind: "dir", name: "Notes", path: "/Notes", children: [] },
+        { kind: "file", name: "beats.md", path: "/beats.md" },
+        { kind: "file", name: "scene.md", path: "/scene.md" },
+        { kind: "file", name: "extra.md", path: "/extra.md" },
+      ],
+    );
     await withReactRoot(<WorkDetailScreen {...props()} work={fixture()} />, () => {
       expect(document.body.textContent).toContain("Notes");
       expect(document.body.textContent).toContain("beats.md");
@@ -306,9 +329,9 @@ describe("WorkDetailScreen resource boundaries", () => {
 function resetResources() {
   mocks.drafts.status = "success";
   mocks.drafts.groups = [];
-  mocks.scratch.tree = { kind: "dir", name: "", path: "", children: [] };
+  mocks.scratch.nodes.length = 0;
   mocks.scratch.isError = false;
-  mocks.uploads.tree = { kind: "dir", name: "", path: "", children: [] };
+  mocks.uploads.nodes.length = 0;
   mocks.uploads.isError = false;
   mocks.chats.threads = [];
   mocks.chats.isError = false;

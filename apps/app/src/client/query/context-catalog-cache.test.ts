@@ -1,6 +1,11 @@
 import type { CatalogEntry, CatalogScope } from "@meridian/contracts/protocol";
 import { describe, expect, it } from "vitest";
-import { ContextCatalogCache, catalogChildren, catalogFiles } from "./context-catalog-cache";
+import {
+  applyCatalogChanges,
+  catalogChildren,
+  catalogFiles,
+  catalogViewFromSnapshot,
+} from "./context-catalog-cache";
 
 const scope = { kind: "project", projectId: "project-1" } as const satisfies CatalogScope;
 const source: CatalogEntry = {
@@ -32,14 +37,15 @@ const file: CatalogEntry = {
   aliases: [],
   path: ["Arc", "Chapter.md"],
   uri: "manuscript://Arc/Chapter.md" as never,
-  fileType: "markdown",
+  editable: true,
+  filetype: "markdown",
+  schemaType: "document",
   provisionalName: false,
 };
 
-describe("ContextCatalogCache", () => {
+describe("catalog cache reducer", () => {
   it("normalizes one identity for tree and picker projections", () => {
-    const cache = new ContextCatalogCache();
-    const view = cache.replace({
+    const view = catalogViewFromSnapshot({
       scope,
       generation: "generation-1",
       headRevision: "1",
@@ -50,8 +56,7 @@ describe("ContextCatalogCache", () => {
   });
 
   it("applies whole commits idempotently and invalidates a subtree immediately", () => {
-    const cache = new ContextCatalogCache();
-    cache.replace({
+    const initial = catalogViewFromSnapshot({
       scope,
       generation: "generation-1",
       headRevision: "1",
@@ -76,23 +81,24 @@ describe("ContextCatalogCache", () => {
       headRevision: "2",
       hasMore: false,
     };
-    const first = cache.apply(delta);
-    const duplicate = cache.apply(delta);
+    const first = applyCatalogChanges(initial, delta);
+    const duplicate = first && applyCatalogChanges(first, delta);
     expect(first && catalogFiles(first)).toEqual([]);
     expect(duplicate?.entries.size).toBe(3);
     expect(duplicate?.cursor).toBe("cursor-2");
   });
 
   it("requests snapshot replacement on reset without mutating live state", () => {
-    const cache = new ContextCatalogCache();
-    const before = cache.replace({
+    const before = catalogViewFromSnapshot({
       scope,
       generation: "generation-1",
       headRevision: "1",
       cursor: "cursor-1",
       entries: [source],
     });
-    expect(cache.apply({ kind: "reset-required", scope, reason: "expired" })).toBeNull();
-    expect(cache.read(scope)).toBe(before);
+    expect(
+      applyCatalogChanges(before, { kind: "reset-required", scope, reason: "expired" }),
+    ).toBeNull();
+    expect(before.entries.size).toBe(1);
   });
 });

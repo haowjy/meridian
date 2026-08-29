@@ -1,4 +1,3 @@
-import type { CatalogTreeDirectory } from "@/client/query/context-catalog-projection";
 // @vitest-environment jsdom
 /** Phone document hosting publishes and renders the Editor review scope. */
 
@@ -70,26 +69,22 @@ const target: AiDraftLaunchTarget = {
   contextPath: "chapters/shared.md",
 };
 
-const tree = {
-  kind: "dir",
-  path: "/",
-  name: "Manuscript",
-  children: [
-    {
-      kind: "file",
-      path: target.contextPath,
-      name: "shared.md",
-      documentId: target.documentId,
-      editable: true,
-      filetype: "markdown",
-      schemaType: "document",
-    },
-  ],
-} as unknown as CatalogTreeDirectory;
+const file = {
+  kind: "file" as const,
+  entryId: target.documentId,
+  parentId: "source",
+  path: target.contextPath,
+  name: "shared.md",
+  documentId: target.documentId,
+  editable: true as const,
+  filetype: "markdown" as const,
+  schemaType: "document" as const,
+};
+const catalog = { findPath: () => file };
 
 vi.mock("@/client/query/useContextCatalog", () => ({
-  useContextCatalogTree: () => ({
-    tree,
+  useContextCatalogView: () => ({
+    catalog,
     capabilities: null,
     isError: false,
     isFetching: false,

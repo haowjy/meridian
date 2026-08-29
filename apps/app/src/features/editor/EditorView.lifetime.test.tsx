@@ -129,8 +129,8 @@ vi.mock("@/client/query/useProjectThreads", () => ({
   useProjectThreads: () => ({ threads: threadList.current, isError: false, isFetching: false }),
 }));
 vi.mock("@/client/query/useContextCatalog", () => ({
-  useContextCatalogTree: () => ({
-    tree: null,
+  useContextCatalogView: () => ({
+    catalog: null,
     isError: false,
     isFetching: false,
     refetch: () => {},

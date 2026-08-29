@@ -88,6 +88,9 @@ class ScenarioThreadTransport implements ThreadTransport {
   }
 
   connect(): void {}
+  subscribeCatalog(): () => void {
+    return () => {};
+  }
   disconnect(): void {}
   reconnect(): void {}
   onConnectionState(): () => void {
