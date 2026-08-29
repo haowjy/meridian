@@ -19,6 +19,7 @@ This domain is not the full project CRUD surface; that lives in
 | `ProjectRepository.ensureDefaultBootstrapReady(userId)` | Auth path: performs one idempotent repair check per process, then uses the durable completion flag as its lock-free fast path. Seed failures leave no partial bootstrap and return false without failing unrelated requests. |
 | `ProjectBootstrapResult` | Project, manuscript document/source, Writer agent definition, and URI IDs needed by the app shell. |
 | `WorkRepository` | Creates/lists/updates/archives/unarchives/deletes/restores Works; delete is guarded by all Work-owned durable content. Its `transaction` boundary keeps compound Work commands atomic. |
+| `ProjectWorkAuthorityResolver` | Exact same-project `byId`/`bySlug` and transactional `lockById` resolution; it is the only projects-domain mint for opaque stable Work URI authority. |
 | `listWorkCatalog(deps, input)` | Owner-gates and lists the requested Work collection, then enriches it through one set-oriented pending-draft count read. |
 | `createWork(input)` | Creates an explicit Work and durably enqueues affected thread Work context in the same transaction. |
 | `updateWorkTransition(workId, input)` | One metadata policy for the human PATCH adapter and LLM `work.update`: locks the lifecycle row, normalizes and compares requested semantic fields, persists only real changes, enqueues context delivery, and returns exact before/after/changed facts. `updateWork` projects its final Work for routes; LLM receipts remain outside this shared operation. |
@@ -56,7 +57,9 @@ This domain is not the full project CRUD surface; that lives in
   their thread lists are flat under `/api/works/:workId`. Collection responses
   contain only the requested catalog Works and never select a Work implicitly.
 - Work slugs are stable project-unique handles assigned at creation. Rename does
-  not change a slug; soft deletion releases both active name and slug uniqueness.
+  not change a slug; UUID-shaped names keep their valid UUID-shaped slug. Soft
+  deletion releases both active name and slug uniqueness. Lookup direction is
+  exact: ID resolution never falls back to slug resolution or vice versa.
 - Work deletion refuses live thread memberships, unreviewed drafts, and live
   files or folders in Work-owned context sources. Empty provisioned sources do
   not block deletion. Work-owned context mutations and deletion serialize on the

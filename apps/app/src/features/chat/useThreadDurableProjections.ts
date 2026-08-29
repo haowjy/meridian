@@ -1,6 +1,7 @@
 /** Persistent owner for durable thread projections, including Work binding and trails. */
 import { EventType } from "@meridian/contracts/protocol";
 import {
+  decodeWorkSlug,
   parseWorkReceipt,
   WORK_CONTEXT_PROJECTION_EVENT,
   type WorkContextProjectionSignal,
@@ -55,9 +56,8 @@ function decodeWorkProjection(
   if (parsedScope.kind === "none") {
     return { seq, signal: { threadId, projectId, scope: { kind: "none" } } };
   }
-  return parsedScope.kind === "work" &&
-    typeof parsedScope.workId === "string" &&
-    typeof parsedScope.workSlug === "string"
+  const workSlug = decodeWorkSlug(parsedScope.workSlug);
+  return parsedScope.kind === "work" && typeof parsedScope.workId === "string" && workSlug
     ? {
         seq,
         signal: {
@@ -66,7 +66,7 @@ function decodeWorkProjection(
           scope: {
             kind: "work",
             workId: parsedScope.workId,
-            workSlug: parsedScope.workSlug,
+            workSlug,
           },
         },
       }

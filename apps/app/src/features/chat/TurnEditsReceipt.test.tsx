@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChangeTrailShell } from "@/client/change-trails";
 import { withReactRoot } from "@/test-support/react-dom-harness";
+import { testWorkSlug } from "@/test-support/work-slug";
 
 vi.mock("@lingui/react/macro", () => ({
   Trans: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -60,7 +61,7 @@ const switchedWorkReceipt = {
   after: {
     kind: "work",
     workId: "work-1",
-    workSlug: "side-quests",
+    workSlug: testWorkSlug("side-quests"),
     name: "Side quests",
     goal: null,
     description: null,

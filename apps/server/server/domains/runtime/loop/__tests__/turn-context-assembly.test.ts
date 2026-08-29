@@ -1,5 +1,6 @@
 import type { Thread } from "@meridian/contracts/threads";
 import { describe, expect, it } from "vitest";
+import { testWorkSlug } from "../../../../test-support/work-slug.js";
 import { assembleComposedSystemPrompt } from "../composed-system-prompt.js";
 import { DOCUMENT_DIALECT_CORE_INSTRUCTION } from "../system-instructions/document-dialect.js";
 import { RUNTIME_URI_SYSTEM_INSTRUCTION } from "../system-instructions/runtime-uris.js";
@@ -77,7 +78,7 @@ describe("assembleNextTurnContext", () => {
                 scope: {
                   kind: "work",
                   workId: "00000000-0000-0000-0000-000000000002",
-                  workSlug: "test-work",
+                  workSlug: testWorkSlug("test-work"),
                 },
                 aiWriteMode: "direct",
                 draftOwner: null,
@@ -124,7 +125,7 @@ describe("assembleNextTurnContext", () => {
                 scope: {
                   kind: "work",
                   workId: "00000000-0000-0000-0000-000000000002",
-                  workSlug: "test-work",
+                  workSlug: testWorkSlug("test-work"),
                 },
                 aiWriteMode: "direct",
                 draftOwner: null,
@@ -174,7 +175,7 @@ describe("assembleNextTurnContext", () => {
                 scope: {
                   kind: "work",
                   workId: "00000000-0000-0000-0000-000000000002",
-                  workSlug: "test-work",
+                  workSlug: testWorkSlug("test-work"),
                 },
                 aiWriteMode: "direct",
                 draftOwner: null,

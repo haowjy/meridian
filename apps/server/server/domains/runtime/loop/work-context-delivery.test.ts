@@ -1,6 +1,8 @@
 /** System updates reuse transcript turns and coalesce while a model turn is active. */
+
 import type { ThreadId } from "@meridian/contracts/runtime";
 import { describe, expect, it, vi } from "vitest";
+import { testWorkSlug } from "../../../test-support/work-slug.js";
 import { createInMemoryProjectRepository } from "../../projects/index.js";
 import {
   createInMemoryEventJournalWriter,
@@ -57,7 +59,7 @@ async function pendingDeliveryFixture() {
                 scope: {
                   kind: "work",
                   workId: "00000000-0000-0000-0000-000000000002",
-                  workSlug: "test-work",
+                  workSlug: testWorkSlug("test-work"),
                 },
                 aiWriteMode: "direct",
                 draftOwner: null,
@@ -103,7 +105,7 @@ describe("createWorkContextDelivery", () => {
             current: {
               projectId: project.id,
               execution: {
-                scope: { kind: "work", workId, workSlug: currentWork },
+                scope: { kind: "work", workId, workSlug: testWorkSlug(currentWork) },
                 aiWriteMode: "direct",
                 draftOwner: null,
               },
@@ -146,7 +148,7 @@ describe("createWorkContextDelivery", () => {
             turnId: turns[0]?.id,
             threadId: thread.id,
             projectId: project.id,
-            scope: { kind: "work", workId, workSlug: "book-2" },
+            scope: { kind: "work", workId, workSlug: testWorkSlug("book-2") },
           },
         }),
       ]),
@@ -238,7 +240,7 @@ describe("createWorkContextDelivery", () => {
                 scope: {
                   kind: "work",
                   workId: "00000000-0000-0000-0000-000000000002",
-                  workSlug: "test-work",
+                  workSlug: testWorkSlug("test-work"),
                 },
                 aiWriteMode: "direct",
                 draftOwner: null,
@@ -326,7 +328,7 @@ describe("createWorkContextDelivery", () => {
                 scope: {
                   kind: "work",
                   workId: "00000000-0000-0000-0000-000000000002",
-                  workSlug: "test-work",
+                  workSlug: testWorkSlug("test-work"),
                 },
                 aiWriteMode: "direct",
                 draftOwner: null,

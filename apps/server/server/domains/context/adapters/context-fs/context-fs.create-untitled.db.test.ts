@@ -9,6 +9,7 @@ import { createDrizzleDocumentAccess } from "../../../../lib/document-access.js"
 import { truncateDrizzleTables } from "../../../../test-support/drizzle-reset.js";
 import { useRollbackTestDatabase } from "../../../../test-support/rollback-test-database.js";
 import { createCollabDomain } from "../../../collab/index.js";
+import { createDrizzleProjectWorkAuthorityResolver } from "../../../projects/index.js";
 import { ContextFS } from "./context-fs.js";
 import { DrizzleContextDocumentStore, DrizzleContextTreeMutationStore } from "./drizzle-store.js";
 
@@ -51,6 +52,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     it("persists and reloads a live document with zero CRDT structs", async () => {
       const collab = createCollabDomain({
         db,
+        workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
         documentAccess: createDrizzleDocumentAccess(db),
       });
       collab.bindHocuspocus(

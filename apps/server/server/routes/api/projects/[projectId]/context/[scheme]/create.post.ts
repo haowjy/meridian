@@ -27,7 +27,7 @@ export async function createContextEntry(input: {
   port: ContextPort;
   userId: string;
   scheme: Parameters<typeof toUri>[0];
-  authority?: import("@meridian/contracts/context-uri").ContextAuthority;
+  authority?: import("@meridian/contracts/context-uri").CanonicalContextAuthority;
   /** Retained in the route-core test seam; authority, never an ID, owns URI serialization. */
   workId?: string | null;
   body: CreateContextEntryBody;

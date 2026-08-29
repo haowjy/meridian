@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
+
 import type { ListWorksResponse, ThreadListItem } from "@meridian/contracts/protocol";
 import type { RebindThreadWorkResponse, Work } from "@meridian/contracts/works";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
+import { testWorkSlug } from "@/test-support/work-slug";
 import { projectQueryKeys } from "./project-query-keys";
 import { threadQueryKeys } from "./thread-query-keys";
 import {
@@ -30,7 +32,7 @@ const responseWork = {
   projectId: "project-1",
   createdByUserId: "user-1",
   name: "B",
-  slug: "b",
+  slug: testWorkSlug("b"),
   goal: null,
   description: null,
   status: "active",
@@ -46,7 +48,7 @@ const response = {
   before: {
     kind: "work",
     workId: "work-a",
-    workSlug: "a",
+    workSlug: testWorkSlug("a"),
     name: "A",
     goal: null,
     description: null,
@@ -55,7 +57,7 @@ const response = {
   after: {
     kind: "work",
     workId: "work-b",
-    workSlug: "b",
+    workSlug: testWorkSlug("b"),
     name: "B",
     goal: null,
     description: null,
@@ -68,7 +70,7 @@ const response = {
     before: {
       kind: "work",
       workId: "work-a",
-      workSlug: "a",
+      workSlug: testWorkSlug("a"),
       name: "A",
       goal: null,
       description: null,
@@ -77,7 +79,7 @@ const response = {
     after: {
       kind: "work",
       workId: "work-b",
-      workSlug: "b",
+      workSlug: testWorkSlug("b"),
       name: "B",
       goal: null,
       description: null,
@@ -112,7 +114,7 @@ describe("thread Work binding convergence", () => {
       signal: {
         projectId: "project-1",
         threadId: "thread-1",
-        scope: { kind: "work", workId: "work-b", workSlug: "work-b" },
+        scope: { kind: "work", workId: "work-b", workSlug: testWorkSlug("work-b") },
       },
     });
     convergeThreadWorkBinding(client, {
@@ -121,7 +123,7 @@ describe("thread Work binding convergence", () => {
       signal: {
         projectId: "project-1",
         threadId: "thread-1",
-        scope: { kind: "work", workId: "work-a", workSlug: "work-a" },
+        scope: { kind: "work", workId: "work-a", workSlug: testWorkSlug("work-a") },
       },
     });
     expect(client.getQueryData(threadQueryKeys.workProjectionCursor("thread-1"))).toEqual({
@@ -143,7 +145,7 @@ describe("thread Work binding convergence", () => {
       signal: {
         projectId: "project-1",
         threadId: "thread-1",
-        scope: { kind: "work", workId: "work-b", workSlug: "work-b" },
+        scope: { kind: "work", workId: "work-b", workSlug: testWorkSlug("work-b") },
       },
     });
 
@@ -276,7 +278,7 @@ describe("thread Work binding convergence", () => {
       signal: {
         projectId: "project-1",
         threadId: "thread-1",
-        scope: { kind: "work", workId: "work-c", workSlug: "work-c" },
+        scope: { kind: "work", workId: "work-c", workSlug: testWorkSlug("work-c") },
       },
     });
     await act(async () => resolveMutation?.(response));

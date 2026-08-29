@@ -13,6 +13,7 @@ import {
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testWorkSlug } from "@/test-support/work-slug";
 
 const save = vi.hoisted(() => vi.fn());
 (
@@ -152,7 +153,7 @@ function fixture(): Work {
     projectId: "project-1",
     createdByUserId: "user-1",
     name: "Work A",
-    slug: "work-a",
+    slug: testWorkSlug("work-a"),
     goal: null,
     description: null,
     status: "active",

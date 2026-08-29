@@ -31,7 +31,7 @@ export function parseContextUri(uri: string): ContextUri | null {
 export function contextUriFromWritePath(path: string): string {
   const parsed = parseUnifiedContextUri(path);
   return parsed.ok
-    ? parsed.value.canonical
+    ? parsed.value.normalized
     : canonicalContextUri("manuscript", path.replace(/^\/+/, ""));
 }
 

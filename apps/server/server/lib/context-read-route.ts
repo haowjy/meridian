@@ -1,4 +1,7 @@
-import { type ContextAuthority, parseUnifiedContextUri } from "@meridian/contracts/context-uri";
+import {
+  type CanonicalContextAuthority,
+  parseUnifiedContextUri,
+} from "@meridian/contracts/context-uri";
 import type { ContextReadResponse, ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { createError } from "nitro/h3";
 import {
@@ -13,6 +16,7 @@ import {
 import { type EventSink, emitEvent } from "../domains/observability/index.js";
 import {
   type ProjectRepository,
+  type ProjectWorkAuthorityResolver,
   requireProjectOwner,
   type WorkRepository,
 } from "../domains/projects/index.js";
@@ -25,6 +29,7 @@ export interface ContextReadRouteDeps {
   contextPorts: UnifiedContextPortFactory;
   objectStore: ObjectStorePort;
   eventSink: EventSink;
+  workAuthorityResolver: ProjectWorkAuthorityResolver;
 }
 export interface ContextReadRouteInput {
   projectId: string;
@@ -52,7 +57,7 @@ function normalizeSchemePath(scheme: ProjectContextTreeScheme, path: string): st
 export function resolveContextReadPath(
   scheme: ProjectContextTreeScheme,
   rawPath: unknown,
-  authority: ContextAuthority = { kind: "contextual" },
+  authority: CanonicalContextAuthority = { kind: "contextual" },
 ): ResolvedReadPath {
   if (Array.isArray(rawPath))
     throw createError({ statusCode: 400, message: "`path` must be a single string" });
@@ -80,9 +85,9 @@ export function resolveContextReadPath(
         if (!sameAuthority) {
           throw createError({ statusCode: 400, message: "Context authority does not match route" });
         }
-        uri = parsed.value.canonical;
+        uri = workScopedBrowseUri(scheme, authority, parsed.value.path);
       }
-    } else uri = parsed.value.canonical;
+    } else uri = parsed.value.normalized;
   } else if (/^[a-z][a-z0-9+.-]*:/.test(trimmed)) {
     throw createError({ statusCode: 400, message: 'Malformed URI: expected "scheme://path"' });
   } else if (isWorkScopedBrowseScheme(scheme)) {
@@ -106,20 +111,24 @@ export async function handleContextReadRequest(
   input: ContextReadRouteInput,
 ): Promise<ContextReadResponse> {
   await requireProjectOwner({ projects: deps.projectRepo }, input.projectId, input.userId);
-  let authority: ContextAuthority = { kind: "contextual" };
+  let authority: CanonicalContextAuthority = { kind: "contextual" };
   if (isWorkScopedBrowseScheme(input.scheme)) {
     if (!input.workId) authority = { kind: "none" };
     else {
-      const work = await deps.workRepo.findById(input.workId);
-      if (!work || work.projectId !== input.projectId || work.deletedAt) {
+      const resolved = await deps.workAuthorityResolver.byId(input.projectId, input.workId);
+      if (!resolved) {
         throw createError({ statusCode: 404, message: "Work not found" });
       }
-      authority = { kind: "work", workSlug: work.slug };
+      authority = resolved;
     }
   }
   const path = resolveContextReadPath(input.scheme, input.rawPath, authority);
   const port = await contextPortForProjectBrowse({
-    deps: { contextPorts: deps.contextPorts, works: deps.workRepo },
+    deps: {
+      contextPorts: deps.contextPorts,
+      works: deps.workRepo,
+      workAuthorityResolver: deps.workAuthorityResolver,
+    },
     projectId: input.projectId,
     userId: input.userId,
     workId: input.workId,

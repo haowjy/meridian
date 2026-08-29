@@ -35,7 +35,7 @@ export async function createUntitledContextDocument(input: {
   userId: string;
   scheme: ContextScheme;
   workId: string | null;
-  authority?: import("@meridian/contracts/context-uri").ContextAuthority;
+  authority?: import("@meridian/contracts/context-uri").CanonicalContextAuthority;
   body: CreateUntitledBody;
 }) {
   const homeUri = toUri(input.scheme, input.body.folderPath ?? "", input.authority);

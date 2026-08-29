@@ -1,7 +1,11 @@
 /** Work command wiring protocol coverage. */
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventSink } from "../domains/observability/index.js";
-import { createInMemoryWorkRepository, WorkDeleteBlockedError } from "../domains/projects/index.js";
+import {
+  createInMemoryWorkRepository,
+  resolvedWorkAuthority,
+  WorkDeleteBlockedError,
+} from "../domains/projects/index.js";
 import type { ToolHandlerContext } from "../domains/runtime/index.js";
 import { createWiredCoreToolRegistrations } from "./wired-core-tools.js";
 
@@ -41,6 +45,28 @@ describe("wired work tool", () => {
       },
     ]);
     const registrations = createWiredCoreToolRegistrations({
+      workAuthorityResolver: {
+        async byId(projectId, workId) {
+          const work = await works.findById(workId);
+          return work && work.projectId === projectId
+            ? resolvedWorkAuthority({ kind: "work", workId: work.id, workSlug: work.slug })
+            : null;
+        },
+        async bySlug(projectId, workSlug) {
+          const work = (await works.listByProject(projectId)).find(
+            (candidate) => candidate.slug === workSlug,
+          );
+          return work
+            ? resolvedWorkAuthority({ kind: "work", workId: work.id, workSlug: work.slug })
+            : null;
+        },
+        async lockById(projectId, workId) {
+          const work = await works.lockById(workId);
+          return work && work.projectId === projectId
+            ? resolvedWorkAuthority({ kind: "work", workId: work.id, workSlug: work.slug })
+            : null;
+        },
+      },
       threads: {
         findById: async () =>
           ({

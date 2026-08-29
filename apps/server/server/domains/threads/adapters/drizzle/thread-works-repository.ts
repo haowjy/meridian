@@ -174,6 +174,19 @@ export function createDrizzleThreadWorksRepository(db: DrizzleDatabase): ThreadW
       return row ?? null;
     },
 
+    async demotePrimaryForRestore(threadId, workId) {
+      await currentDrizzleDb(db)
+        .update(schema.threadWorks)
+        .set({ isPrimary: false })
+        .where(
+          and(
+            eq(schema.threadWorks.threadId, threadId),
+            eq(schema.threadWorks.workId, workId),
+            eq(schema.threadWorks.isPrimary, true),
+          ),
+        );
+    },
+
     async lockPrimary(threadId: ThreadId) {
       const activeDb = currentDrizzleDb(db);
       const [thread] = await activeDb

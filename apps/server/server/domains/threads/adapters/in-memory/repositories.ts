@@ -476,6 +476,11 @@ export function createInMemoryRepositories(
       }
       return { previousWorkId, changed: true };
     },
+    async demotePrimaryForRestore(threadId, workId) {
+      const key = membershipKey(threadId, workId);
+      const membership = threadWorks.get(key);
+      if (membership?.isPrimary) threadWorks.set(key, { ...membership, isPrimary: false });
+    },
     async listByThread(threadId) {
       return [...threadWorks.values()]
         .filter((row) => row.threadId === threadId)

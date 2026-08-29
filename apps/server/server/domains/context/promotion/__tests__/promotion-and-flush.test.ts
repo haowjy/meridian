@@ -4,6 +4,9 @@
 
 import { parseUnifiedContextUri } from "@meridian/contracts/context-uri";
 import { describe, expect, it } from "vitest";
+import { testWorkSlug } from "../../../../test-support/work-slug.js";
+import { createNoopEventSink } from "../../../observability/index.js";
+import { resolvedWorkAuthority } from "../../../projects/domain/work-authority.js";
 import { createInMemoryObjectStore } from "../../../storage/index.js";
 import { createInMemoryResultRepository } from "../adapters/in-memory-result-repository.js";
 import {
@@ -32,8 +35,27 @@ class MemoryFiles implements BinaryFileSource, BinaryFileTarget {
   }
 }
 
-const resolveWorkSlug = async ({ workId }: { workId: string }) =>
-  workId === "work-1" ? "revision-pass" : null;
+const promotionDeps = (
+  objectStore: ReturnType<typeof createInMemoryObjectStore>,
+  results: ReturnType<typeof createInMemoryResultRepository>,
+) => ({
+  objectStore,
+  results,
+  eventSink: createNoopEventSink(),
+  workAuthorityResolver: {
+    async byId(_projectId: string, workId: string) {
+      return workId === "work-1"
+        ? resolvedWorkAuthority({ kind: "work", workId, workSlug: testWorkSlug("revision-pass") })
+        : null;
+    },
+    async bySlug() {
+      return null;
+    },
+    async lockById() {
+      return null;
+    },
+  },
+});
 
 describe("promotion service", () => {
   it("promotes a generated PNG with full provenance and lists by project", async () => {
@@ -42,7 +64,7 @@ describe("promotion service", () => {
     const payload = Uint8Array.from([137, 80, 78, 71]);
     const sourcePath = "runs/root-1/output/qc/overlay.png";
 
-    const promotion = createPromotionService({ objectStore, results, resolveWorkSlug });
+    const promotion = createPromotionService(promotionDeps(objectStore, results));
 
     const promoted = await promotion.promoteArtifact({
       projectId: "wb-1",
@@ -87,7 +109,7 @@ describe("promotion service", () => {
   it("persists explicit no-Work authority for a no-Work owner", async () => {
     const objectStore = createInMemoryObjectStore();
     const results = createInMemoryResultRepository();
-    const promotion = createPromotionService({ objectStore, results, resolveWorkSlug });
+    const promotion = createPromotionService(promotionDeps(objectStore, results));
     const promoted = await promotion.promoteArtifact({
       projectId: "wb-1",
       workId: null,
@@ -110,7 +132,7 @@ describe("promotion service", () => {
   it("skips non-promotable paths via policy", async () => {
     const objectStore = createInMemoryObjectStore();
     const results = createInMemoryResultRepository();
-    const promotion = createPromotionService({ objectStore, results, resolveWorkSlug });
+    const promotion = createPromotionService(promotionDeps(objectStore, results));
 
     const result = await promotion.promoteArtifact({
       projectId: "wb-1",
@@ -147,7 +169,7 @@ describe("interrupt flush and rehydrate", () => {
     await sourceFiles.writeFileBinary(pathA, bytesA);
     await sourceFiles.writeFileBinary(pathB, bytesB);
 
-    const promotion = createPromotionService({ objectStore, results, resolveWorkSlug });
+    const promotion = createPromotionService(promotionDeps(objectStore, results));
     const flushService = createInterruptFlushService({
       promotion,
       objectStore,

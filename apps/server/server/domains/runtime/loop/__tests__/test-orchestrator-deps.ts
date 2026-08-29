@@ -4,7 +4,9 @@
  * exercises. Required runtime dependencies stay visible without repeating the
  * whole DI graph in every fixture.
  */
+
 import type { ProjectPreferences } from "@meridian/contracts/preferences";
+import { testWorkSlug } from "../../../../test-support/work-slug.js";
 import {
   type CreditLedger,
   createBillingUsagePolicy,
@@ -117,7 +119,7 @@ export function createTestOrchestratorDeps(
               scope: {
                 kind: "work",
                 workId: "00000000-0000-0000-0000-000000000002",
-                workSlug: "test-work",
+                workSlug: testWorkSlug("test-work"),
               },
               aiWriteMode: "direct",
               draftOwner: null,

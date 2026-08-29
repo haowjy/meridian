@@ -27,7 +27,7 @@ import type {
   TurnStatus,
   TurnUsage,
 } from "../threads/index.js";
-import type { AiWriteMode, Work } from "../works/index.js";
+import type { AiWriteMode, Work, WorkSlug } from "../works/index.js";
 import type { Filetype, YjsTrackedSchemaType } from "./filetype.js";
 
 export type { JsonValue } from "../threads/index.js";
@@ -153,7 +153,7 @@ export type MoveContextEntryLocator =
   | {
       scheme: WorkAuthorityScheme;
       path: string;
-      authority: { kind: "none" } | { kind: "work"; workId: WorkId };
+      authority: { kind: "none" } | { kind: "work"; workId: WorkId; workSlug: WorkSlug };
     };
 export type MoveContextEntryConflict = {
   status: "conflict";

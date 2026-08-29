@@ -1,5 +1,6 @@
 /** Postgres coverage for Work handles, restore conflicts, and durable-content deletion guards. */
 import { setTimeout as delay } from "node:timers/promises";
+import { canonicalContextUri } from "@meridian/contracts/context-uri";
 import { eq } from "drizzle-orm";
 import postgres from "postgres";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
@@ -23,6 +24,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     const { truncateDrizzleTables } = await import("../../test-support/drizzle-reset.js");
     const {
       createDrizzleProjectWorkRepository,
+      createDrizzleProjectWorkAuthorityResolver,
       deleteWorkTransition,
       restoreWork,
       updateWorkTransition,
@@ -37,6 +39,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       db,
       hasUnreviewedDraft: async () => false,
     });
+    const authorities = createDrizzleProjectWorkAuthorityResolver(db);
 
     beforeEach(async () => {
       await truncateDrizzleTables(db, [schema.users]);
@@ -77,6 +80,26 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       await expect(works.update(first.id, { name: "Renamed" })).resolves.toMatchObject({
         slug: "book-2",
       });
+    });
+
+    it("keeps UUID-shaped slugs and resolves ambiguous strings by exact field role", async () => {
+      const ambiguous = "123e4567-e89b-12d3-a456-426614174000";
+      const byIdWork = await works.create({ id: ambiguous, projectId: PROJECT_ID, name: "Alpha" });
+      const bySlugWork = await works.create({ projectId: PROJECT_ID, name: ambiguous });
+      const collision = await works.create({ projectId: PROJECT_ID, name: `${ambiguous}!` });
+
+      expect([bySlugWork.slug, collision.slug]).toEqual([ambiguous, `${ambiguous}-2`]);
+      const idAuthority = await authorities.byId(PROJECT_ID, byIdWork.id);
+      const slugAuthority = await authorities.bySlug(PROJECT_ID, bySlugWork.slug);
+      expect(idAuthority).toMatchObject({ workId: byIdWork.id, workSlug: "alpha" });
+      expect(slugAuthority).toMatchObject({ workId: bySlugWork.id, workSlug: ambiguous });
+      if (!idAuthority || !slugAuthority) throw new Error("missing resolved authority");
+      expect(canonicalContextUri("scratch", "notes.md", idAuthority)).toBe(
+        "scratch://@alpha/notes.md",
+      );
+      expect(canonicalContextUri("scratch", "notes.md", slugAuthority)).toBe(
+        `scratch://@${ambiguous}/notes.md`,
+      );
     });
 
     it("captures update and delete receipts from the locked committing transition", async () => {

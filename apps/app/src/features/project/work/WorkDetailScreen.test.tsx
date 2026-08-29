@@ -5,6 +5,7 @@ import type { Work } from "@meridian/contracts/works";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { withReactRoot } from "@/test-support/react-dom-harness";
+import { testWorkSlug } from "@/test-support/work-slug";
 
 const mocks = vi.hoisted(() => ({
   drafts: { status: "success", groups: [] as unknown[], refetch: vi.fn() },
@@ -351,7 +352,7 @@ function fixture(overrides: Partial<Work> = {}): Work {
     projectId: "project-1",
     createdByUserId: "user-1",
     name: "Work A",
-    slug: "work-a",
+    slug: testWorkSlug("work-a"),
     goal: null,
     description: null,
     status: "active",

@@ -4,6 +4,7 @@ import type { WorkId } from "@meridian/contracts/runtime";
 import type { WorkReceipt } from "@meridian/contracts/works";
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryWorkRepository } from "../domains/projects/index.js";
+import { testWorkSlug } from "../test-support/work-slug.js";
 import {
   combineWorkReversalOutcome,
   getWorkReceiptReversalAvailability,
@@ -423,8 +424,18 @@ function switchReceipt(
   return {
     operation: "switch",
     category: "binding",
-    before: { kind: "work", workId: before.id, workSlug: before.name, ...state(before.name) },
-    after: { kind: "work", workId: after.id, workSlug: after.name, ...state(after.name) },
+    before: {
+      kind: "work",
+      workId: before.id,
+      workSlug: testWorkSlug(before.name.toLowerCase().replaceAll(" ", "-")),
+      ...state(before.name),
+    },
+    after: {
+      kind: "work",
+      workId: after.id,
+      workSlug: testWorkSlug(after.name.toLowerCase().replaceAll(" ", "-")),
+      ...state(after.name),
+    },
     inverse: null,
   };
 }

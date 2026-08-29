@@ -91,6 +91,7 @@ export interface ToolWiringDeps {
   responseWrites: Pick<AgentEditResponseWriteLifecycle, "trackStagedCreate">;
   threadWorks: Pick<ThreadWorksRepository, "findPrimary" | "rebindPrimary">;
   works: WorkRepository;
+  workAuthorityResolver: import("../domains/projects/index.js").ProjectWorkAuthorityResolver;
   workContextDelivery: Pick<WorkContextDelivery, "projectChanged">;
   obligations: Pick<WorkContextDeliveryRepository, "enqueueThread">;
   drafts: Pick<CollabDrafts, "draftReview">;
@@ -132,7 +133,6 @@ type ModelWork = Pick<
 type ResolvedModelContextPort = {
   port: ContextPort;
   primaryWorkId: string | null;
-  workAuthorities: ReadonlyMap<string, string>;
 };
 
 export type StagedCreateCleanup = {
@@ -198,14 +198,18 @@ async function resolveContextPort(
   responseId?: string,
 ): Promise<ResolvedModelContextPort | ToolErrorOutput> {
   const resolution = await resolveThreadContext(
-    { threads: deps.threads, threadWorks: deps.threadWorks, works: deps.works },
+    {
+      threads: deps.threads,
+      threadWorks: deps.threadWorks,
+      works: deps.works,
+      workAuthorityResolver: deps.workAuthorityResolver,
+    },
     threadId,
   );
   if (!resolution) return toolError({ message: `Thread not found: ${threadId}` });
   return {
     port: contextPortForThread(deps.contextPorts, resolution, { responseId }),
     primaryWorkId: resolution.primaryWorkId,
-    workAuthorities: resolution.workAuthorities,
   };
 }
 

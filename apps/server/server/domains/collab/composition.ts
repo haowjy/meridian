@@ -12,6 +12,7 @@ import {
 import { createDocumentUriResolver } from "../context/document-uri-resolver.js";
 import type { NoticePort } from "../notices/index.js";
 import type { EventSink } from "../observability/index.js";
+import type { ProjectWorkAuthorityResolver } from "../projects/index.js";
 import {
   createAgentEditInvariantDiagnostic,
   createAgentEditObservabilityOptions,
@@ -117,6 +118,7 @@ type CollabDomainDeps = {
   threadContext?: ThreadContextReversalResolver;
   eventSink?: EventSink;
   notices?: NoticePort;
+  workAuthorityResolver: ProjectWorkAuthorityResolver;
 };
 
 export function createCollabDomain(deps: CollabDomainDeps): CollabDomain {
@@ -156,7 +158,7 @@ export function createCollabDomain(deps: CollabDomainDeps): CollabDomain {
     diagnostics: createBranchPullDiagnostics(deps.eventSink),
   });
 
-  const documentUriResolver = createDocumentUriResolver(deps.db);
+  const documentUriResolver = createDocumentUriResolver(deps.db, deps.workAuthorityResolver);
   const documentPresentation = createDocumentPresentationResolver(documentUriResolver);
   const lookups = createDrizzleCollabLookups(deps.db);
   const changeTrails = createDrizzleChangeTrailAggregateWriter(deps.db);

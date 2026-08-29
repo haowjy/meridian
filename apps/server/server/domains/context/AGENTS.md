@@ -8,10 +8,11 @@ default to `manuscript://`.
 Single unified `ContextPort` — callers resolve through `contextPortForThread`,
 never scheme-specific adapters directly.
 
-Wire-qualified Work URIs use `@slug`. Context resolution loads the non-deleted
-same-project Work slug map once, and the router converts a qualifier to the
-stable Work ID before adapter dispatch. `thread_works` membership selects the
-thread's primary Work but never grants context access.
+Wire-qualified Work URIs use `@slug`. Parsing produces grammar-only `WorkSlug`;
+project resolution couples an exact non-deleted Work ID and persisted slug into
+the opaque authority used for stable serialization and adapter dispatch.
+`thread_works` membership selects the thread's primary Work but never grants
+context access.
 
 Scheme capabilities are declared once in `ports/context-adapter.ts` and enforced
 by the router. F0 owns Uploads authority, provisioning, and resolution; F4 owns
@@ -37,9 +38,11 @@ and URI construction. Writer-facing mutation input goes through the shared
 reason-coded validators in `lib/context-mutation-validation.ts`.
 
 `move.post.ts` is intentionally a thinner shell over `lib/context-move-route.ts`:
-the route core authorizes every referenced Work authority and calls
+the route core resolves every requested locator to exact project/no-Work/Work
+authority before it calls
 `ContextPort.commitWriterLocation`. Proven destination occupation returns a
-collision locator; stale source/target plans return a retry result instead.
+collision locator with that same authority; any port identity mismatch is an
+internal contract error. Stale source/target plans return a retry result instead.
 
 `create-untitled.post.ts` accepts a client-minted document ID. Idempotent retries
 recover that ID across all project and authorized Work schemes, returning its

@@ -7,6 +7,7 @@ import type { ThreadId, TurnId } from "@meridian/contracts/runtime";
 import { createDefaultTreeBudget } from "@meridian/contracts/spawn";
 import type { JsonValue, OrchestratorEvent } from "@meridian/contracts/threads";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { testWorkSlug } from "../../../../test-support/work-slug.js";
 import { createInMemoryCreditLedger } from "../../../billing/index.js";
 import { createInMemoryEventSink } from "../../../observability/index.js";
 import type {
@@ -205,7 +206,7 @@ describe("nested spawn runtime (P2b gate)", () => {
                 scope: {
                   kind: "work",
                   workId: "00000000-0000-0000-0000-000000000002",
-                  workSlug: "test-work",
+                  workSlug: testWorkSlug("test-work"),
                 },
                 aiWriteMode: "direct",
                 draftOwner: null,

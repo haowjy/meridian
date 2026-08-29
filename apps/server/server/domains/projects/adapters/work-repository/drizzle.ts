@@ -1,5 +1,10 @@
 import type { ProjectId, WorkId } from "@meridian/contracts/runtime";
-import type { AiWriteMode, Work, WorkStatus } from "@meridian/contracts/works";
+import {
+  type AiWriteMode,
+  decodeWorkSlug,
+  type Work,
+  type WorkStatus,
+} from "@meridian/contracts/works";
 import type { Database } from "@meridian/database";
 import {
   contextSources,
@@ -44,12 +49,14 @@ function workUniqueConstraint(cause: unknown): string | null {
 }
 
 function mapWork(row: WorkRow): Work {
+  const slug = decodeWorkSlug(row.slug);
+  if (!slug) throw new Error(`Persisted Work ${row.id} has an invalid slug`);
   return {
     id: row.id,
     projectId: row.projectId,
     createdByUserId: row.createdByUserId,
     name: row.name,
-    slug: row.slug,
+    slug,
     goal: row.goal,
     description: row.description,
     status: row.status as WorkStatus,
@@ -245,13 +252,16 @@ export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): Wo
       if (!existing) throw new Error(`Work not found: ${id}`);
       if (!existing.deletedAt) return existing;
       try {
-        const [row] = await currentDrizzleDb(db)
-          .update(works)
-          .set({ deletedAt: null, updatedAt: new Date() })
-          .where(eq(works.id, id))
-          .returning();
-        if (!row) throw new Error(`Work not found: ${id}`);
-        return mapWork(row);
+        return await runInDrizzleTransaction(db, async () => {
+          await lockWorkLifecycle(db, id);
+          const [row] = await currentDrizzleDb(db)
+            .update(works)
+            .set({ deletedAt: null, updatedAt: new Date() })
+            .where(eq(works.id, id))
+            .returning();
+          if (!row) throw new Error(`Work not found: ${id}`);
+          return mapWork(row);
+        });
       } catch (cause) {
         const constraint = workUniqueConstraint(cause);
         if (constraint === "works_project_name_active") {

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { withReactRoot } from "@/test-support/react-dom-harness";
+import { testWorkSlug } from "@/test-support/work-slug";
 import type { WorkScreenProps } from "./WorkScreen";
 
 const api = vi.hoisted(() => ({
@@ -69,7 +70,7 @@ function fixture(): Work {
     projectId: "project-1",
     createdByUserId: "user-1",
     name: "Work A",
-    slug: "work-a",
+    slug: testWorkSlug("work-a"),
     goal: null,
     description: null,
     status: "active",

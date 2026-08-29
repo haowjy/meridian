@@ -5,6 +5,7 @@ export const AI_WRITE_MODE_VALUES: readonly AiWriteMode[] = ["direct", "draft"];
 
 import type { ProjectId, ThreadId, UserId, WorkId } from "../ids.js";
 import type { WorkBindingReceiptState } from "./receipts.js";
+import type { WorkSlug } from "./work-slug.js";
 
 export interface Work {
   id: WorkId;
@@ -12,7 +13,7 @@ export interface Work {
   createdByUserId: UserId;
   name: string;
   /** Stable project-unique handle. Renaming a Work does not change it. */
-  slug: string;
+  slug: WorkSlug;
   goal: string | null;
   description: string | null;
   status: WorkStatus;
@@ -46,7 +47,9 @@ export interface UpdateWorkRequest {
   description?: string;
 }
 
-export type ThreadWorkScope = { kind: "none" } | { kind: "work"; workId: WorkId; workSlug: string };
+export type ThreadWorkScope =
+  | { kind: "none" }
+  | { kind: "work"; workId: WorkId; workSlug: WorkSlug };
 
 export type ThreadExecutionContext =
   | { scope: { kind: "none" }; aiWriteMode: "direct"; draftOwner: null }
@@ -99,3 +102,5 @@ export interface WorkContextProjectionSignal {
 }
 
 export * from "./receipts.js";
+export * from "./work-authority.js";
+export * from "./work-slug.js";

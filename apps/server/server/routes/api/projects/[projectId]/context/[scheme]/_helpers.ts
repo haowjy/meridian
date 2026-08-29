@@ -6,7 +6,7 @@
  * performs. Writer-input validation lives in the route-core validation seam.
  */
 
-import type { ContextAuthority } from "@meridian/contracts/context-uri";
+import type { CanonicalContextAuthority } from "@meridian/contracts/context-uri";
 import type { ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { isProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import type { H3Event } from "nitro/h3";
@@ -43,7 +43,7 @@ export async function resolveContextRoute(
   projectId: string;
   scheme: ProjectContextTreeScheme;
   workId: string | null;
-  authority: ContextAuthority;
+  authority: CanonicalContextAuthority;
   port: ContextPort;
 }> {
   const { app, user } = await requireAppUser(event);
@@ -52,7 +52,11 @@ export async function resolveContextRoute(
   const query = getQuery(event);
   const workId = typeof query.workId === "string" ? query.workId : null;
   await requireProjectOwner({ projects: app.projectRepo }, projectId, user.userId);
-  const deps = { contextPorts: app.contextPorts, works: app.workRepo };
+  const deps = {
+    contextPorts: app.contextPorts,
+    works: app.workRepo,
+    workAuthorityResolver: app.workAuthorityResolver,
+  };
   const port = options.recoverAcrossProject
     ? await contextPortForProjectRecovery({
         deps,
@@ -62,15 +66,15 @@ export async function resolveContextRoute(
       })
     : await contextPortForProjectBrowse({ deps, projectId, userId: user.userId, workId });
   if (!port) throw createError({ statusCode: 404, message: "Work not found" });
-  let authority: ContextAuthority = { kind: "contextual" };
+  let authority: CanonicalContextAuthority = { kind: "contextual" };
   if (isWorkScopedBrowseScheme(scheme)) {
     if (!workId) authority = { kind: "none" };
     else {
-      const work = await app.workRepo.findById(workId);
-      if (!work || work.projectId !== projectId || work.deletedAt) {
+      const resolved = await app.workAuthorityResolver.byId(projectId, workId);
+      if (!resolved) {
         throw createError({ statusCode: 404, message: "Work not found" });
       }
-      authority = { kind: "work", workSlug: work.slug };
+      authority = resolved;
     }
   }
   return { app, userId: user.userId, projectId, scheme, workId, authority, port };

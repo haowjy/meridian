@@ -19,6 +19,11 @@ import { MANUSCRIPT_URI } from "../context/manuscript-uri.js";
 
 export const DEFAULT_BOOTSTRAP_URI = MANUSCRIPT_URI;
 
+export { createDrizzleProjectWorkAuthorityResolver } from "./adapters/drizzle-work-authority.js";
+export {
+  type ProjectWorkAuthorityResolver,
+  resolvedWorkAuthority,
+} from "./domain/work-authority.js";
 export {
   type WorkLifecycleState,
   WorkLifecycleUnavailableError,

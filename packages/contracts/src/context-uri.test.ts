@@ -33,7 +33,7 @@ describe("parseContextUri", () => {
     "manuscript:////chapters//Chapter 1.md/",
   ])("canonicalizes equivalent manuscript reference %s", (reference) => {
     const parsed = parseContextUri(reference);
-    expect(parsed.ok && parsed.value.canonical).toBe("manuscript://chapters/Chapter 1.md");
+    expect(parsed.ok && parsed.value.normalized).toBe("manuscript://chapters/Chapter 1.md");
   });
 
   it("parses one Work qualifier without resolving its raw slug", () => {
@@ -43,7 +43,7 @@ describe("parseContextUri", () => {
         scheme: "scratch",
         authority: { kind: "work", workSlug: "Revision-Pass" },
         path: "notes.md",
-        canonical: "scratch://@Revision-Pass/notes.md",
+        normalized: "scratch://@Revision-Pass/notes.md",
       },
     });
   });
@@ -77,32 +77,29 @@ describe("parseContextUri", () => {
     });
   });
 
-  it("rejects a marked UUID-shaped Work authority", () => {
-    const workId = "123e4567-e89b-12d3-a456-426614174000";
-    expect(parseContextUri(`scratch://@${workId}/notes.md`)).toMatchObject({ ok: false });
-    expect(() =>
-      canonicalContextUri("scratch", "notes.md", { kind: "work", workSlug: workId }),
-    ).toThrow(/Invalid Work slug/);
-    expect(parseContextUri("scratch://@00000000-0000-0000-0000-000000000001/x")).toMatchObject({
-      ok: false,
+  it("accepts UUID-shaped Work slug syntax without inferring an ID", () => {
+    const workSlug = "123e4567-e89b-12d3-a456-426614174000";
+    expect(parseContextUri(`scratch://@${workSlug}/notes.md`)).toMatchObject({
+      ok: true,
+      value: { authority: { kind: "work", workSlug } },
     });
   });
 
   it("distinguishes contextual, explicit Work, and explicit no-Work authority", () => {
     expect(parseContextUri("uploads://draft.png")).toMatchObject({
       ok: true,
-      value: { authority: { kind: "contextual" }, canonical: "uploads://draft.png" },
+      value: { authority: { kind: "contextual" }, normalized: "uploads://draft.png" },
     });
     expect(parseContextUri("uploads://@revision-pass/draft.png")).toMatchObject({
       ok: true,
       value: {
         authority: { kind: "work", workSlug: "revision-pass" },
-        canonical: "uploads://@revision-pass/draft.png",
+        normalized: "uploads://@revision-pass/draft.png",
       },
     });
     expect(parseContextUri("uploads://@/draft.png")).toMatchObject({
       ok: true,
-      value: { authority: { kind: "none" }, canonical: "uploads://@/draft.png" },
+      value: { authority: { kind: "none" }, normalized: "uploads://@/draft.png" },
     });
   });
 
@@ -113,9 +110,9 @@ describe("parseContextUri", () => {
     ["scratch://@revision-pass/notes/a.md", "scratch://@revision-pass/notes/a.md"],
     ["scratch://@/", "scratch://@/"],
     ["scratch://@/notes/a.md", "scratch://@/notes/a.md"],
-  ])("round trips every Work-capable authority form: %s", (uri, canonical) => {
+  ])("round trips every Work-capable authority form: %s", (uri, normalized) => {
     const parsed = parseContextUri(uri);
-    expect(parsed).toMatchObject({ ok: true, value: { canonical } });
+    expect(parsed).toMatchObject({ ok: true, value: { normalized } });
   });
 
   it.each([
@@ -130,12 +127,9 @@ describe("parseContextUri", () => {
 
   it("refuses to serialize authorities or paths the parser rejects", () => {
     expect(() =>
-      canonicalContextUri("manuscript", "chapter.md", { kind: "none" } as never),
+      Reflect.apply(canonicalContextUri, undefined, ["manuscript", "chapter.md", { kind: "none" }]),
     ).toThrow(/does not support authority/);
     expect(() => canonicalContextUri("scratch", "folder/@reserved/file.md")).toThrow(/reserved/);
-    expect(() =>
-      canonicalContextUri("scratch", "file.md", { kind: "work", workSlug: "bad_slug" }),
-    ).toThrow(/Invalid Work slug/);
     expect(() => canonicalContextUri("scratch", "../secret.md", { kind: "none" })).toThrow();
   });
 
@@ -146,6 +140,6 @@ describe("parseContextUri", () => {
   ])("normalizes serializer input %s and round trips", (path, expected) => {
     const uri = canonicalContextUri("scratch", path, { kind: "none" });
     expect(uri).toBe(expected);
-    expect(parseContextUri(uri)).toMatchObject({ ok: true, value: { canonical: uri } });
+    expect(parseContextUri(uri)).toMatchObject({ ok: true, value: { normalized: uri } });
   });
 });

@@ -20,9 +20,8 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     const { createProductionUnifiedContextPortFactory } = await import(
       "../../domains/context/unified-context-port-factory.js"
     );
-    const { createDrizzleProjectBootstrapRepository } = await import(
-      "../../domains/projects/index.js"
-    );
+    const { createDrizzleProjectBootstrapRepository, createDrizzleProjectWorkAuthorityResolver } =
+      await import("../../domains/projects/index.js");
     const { useRollbackTestDatabase } = await import(
       "../../test-support/rollback-test-database.js"
     );
@@ -31,17 +30,35 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       "../../routes/api/projects/[projectId]/context/[scheme]/create-untitled.post.js"
     );
     const { commitContextMove, parseContextMove } = await import("../context-move-route.js");
-    const moveContextEntry = (input: {
+    const moveContextEntry = async (input: {
       port: import("../../domains/context/index.js").ContextPort;
       userId: string;
       sourceScheme: string;
       body: unknown;
-    }) =>
-      commitContextMove({
+    }) => {
+      const move = parseContextMove({ sourceScheme: input.sourceScheme, body: input.body });
+      const resolver = createDrizzleProjectWorkAuthorityResolver(db);
+      const resolveLocator = async (locator: typeof move.source) => {
+        if (locator.scope !== "work") return locator;
+        const [work] = await db
+          .select({ projectId: schema.works.projectId })
+          .from(schema.works)
+          .where(eq(schema.works.id, locator.workId));
+        if (!work) throw new Error("missing Work for move test");
+        const authority = await resolver.byId(work.projectId, locator.workId);
+        if (!authority) throw new Error("missing Work authority for move test");
+        return { scope: "work" as const, scheme: locator.scheme, path: locator.path, authority };
+      };
+      return commitContextMove({
         port: input.port,
         userId: input.userId,
-        move: parseContextMove({ sourceScheme: input.sourceScheme, body: input.body }),
+        move: {
+          source: await resolveLocator(move.source),
+          destination: await resolveLocator(move.destination),
+          ...(move.name ? { name: move.name } : {}),
+        },
       });
+    };
 
     const USER_ID = "00000000-0000-4000-8000-000000000941";
     const DOCUMENT_ID = "00000000-0000-4000-8000-000000000942";
@@ -59,6 +76,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     function createBoundCollab() {
       const collab = createCollabDomain({
         db,
+        workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
         documentAccess: createDrizzleDocumentAccess(db),
       });
       collab.bindHocuspocus(
@@ -115,11 +133,13 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         documentSync: collab,
         manifestMembership: collab,
       });
+      const authority = await createDrizzleProjectWorkAuthorityResolver(db).byId(projectId, workId);
+      if (!authority) throw new Error("missing Work authority");
       const port = contextPorts.forWork(
-        workId,
+        authority,
         projectId,
         USER_ID,
-        new Map([["current-work", workId]]),
+        new Map([[authority.workSlug, authority]]),
       );
       await createUntitledContextDocument({
         port,

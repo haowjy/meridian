@@ -299,6 +299,8 @@ export interface ThreadWorksRepository {
   /** Locks the thread after callers have acquired any Work lifecycle locks. */
   lockPrimary(threadId: ThreadId): Promise<{ workId: WorkId } | null>;
   findPrimary(threadId: ThreadId): Promise<{ workId: WorkId } | null>;
+  /** Demotes only the historical primary while restore holds the thread row lock. */
+  demotePrimaryForRestore(threadId: ThreadId, workId: WorkId): Promise<void>;
   listByThread(threadId: ThreadId): Promise<Array<{ workId: WorkId; isPrimary: boolean }>>;
 }
 

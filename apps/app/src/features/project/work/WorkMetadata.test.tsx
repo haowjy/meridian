@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
+
 import type { UpdateWorkRequest, Work } from "@meridian/contracts/works";
 import { act, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { withReactRoot } from "@/test-support/react-dom-harness";
+import { testWorkSlug } from "@/test-support/work-slug";
 import { useWorkMetadataController, WorkMetadata } from "./WorkMetadata";
 
 vi.mock("@lingui/core/macro", () => ({
@@ -327,7 +329,7 @@ function fixture(overrides: Partial<Work> = {}): Work {
     projectId: "project-1",
     createdByUserId: "user-1",
     name: "Work A",
-    slug: "work-a",
+    slug: testWorkSlug("work-a"),
     goal: null,
     description: null,
     status: "active",

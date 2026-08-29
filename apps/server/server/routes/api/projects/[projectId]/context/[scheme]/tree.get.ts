@@ -1,6 +1,6 @@
 /** GET /api/projects/[projectId]/context/[scheme]/tree — project context file tree. */
 
-import type { ContextAuthority } from "@meridian/contracts/context-uri";
+import type { CanonicalContextAuthority } from "@meridian/contracts/context-uri";
 import {
   type ProjectContextTreeDirectory,
   type ProjectContextTreeFile,
@@ -26,7 +26,7 @@ const ROOT_NAMES: Record<ProjectContextTreeScheme, string> = {
   user: "User Files",
 };
 
-function rootUri(scheme: ProjectContextTreeScheme, authority: ContextAuthority): string {
+function rootUri(scheme: ProjectContextTreeScheme, authority: CanonicalContextAuthority): string {
   if (isWorkScopedBrowseScheme(scheme)) {
     if (authority.kind === "contextual") {
       throw createError({ statusCode: 500, message: "Missing resolved context authority" });
@@ -120,7 +120,7 @@ export async function buildProjectContextTree({
 }: {
   projectId: string;
   scheme: ProjectContextTreeScheme;
-  authority: ContextAuthority;
+  authority: CanonicalContextAuthority;
   port: ContextPort;
 }): Promise<ProjectContextTreeResponse> {
   const root = rootUri(scheme, authority);

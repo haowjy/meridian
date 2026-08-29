@@ -1,6 +1,7 @@
 import type { WorkReceipt } from "@meridian/contracts/works";
 import { afterEach, describe, expect, it } from "vitest";
 import { DEFAULT_LOCALE, i18n } from "@/lib/i18n";
+import { testWorkSlug } from "@/test-support/work-slug";
 import { workReceiptLine } from "./work-receipt-copy";
 
 describe("Work receipt presentation", () => {
@@ -18,7 +19,7 @@ describe("Work receipt presentation", () => {
       after: {
         kind: "work",
         workId: "w1",
-        workSlug: "volume-two",
+        workSlug: testWorkSlug("volume-two"),
         name: "第二卷",
         goal: null,
         description: null,

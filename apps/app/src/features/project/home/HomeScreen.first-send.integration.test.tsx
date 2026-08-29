@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 /** Rendered Home first-send contracts across the shared Composer and destination claimant. */
+
 import { I18nProvider } from "@lingui/react";
 import type { ProjectAgentSummary } from "@meridian/contracts/agents";
 import { meridianErrorFromSystem, type Thread } from "@meridian/contracts/protocol";
@@ -14,6 +15,7 @@ import { setTestToolbarInlineIds } from "@/components/app/composer-toolbar/compo
 import { useThreadHandoff } from "@/features/chat/useThreadHandoff";
 import { i18n } from "@/lib/i18n";
 import { withReactRoot } from "@/test-support/react-dom-harness";
+import { testWorkSlug } from "@/test-support/work-slug";
 import { HomeScreen } from "./HomeScreen";
 
 vi.mock("@lingui/react/macro", () => ({
@@ -45,7 +47,7 @@ const work = (id: string, name: string): Work => ({
   projectId,
   createdByUserId: "user-1",
   name,
-  slug: name.toLowerCase().replaceAll(" ", "-"),
+  slug: testWorkSlug(name.toLowerCase().replaceAll(" ", "-")),
   description: null,
   goal: null,
   status: "active",
@@ -60,14 +62,14 @@ const firstWork = work("work-1", "Arc One");
 const secondWork = work("work-2", "Expedition");
 const agents: ProjectAgentSummary[] = [
   {
-    slug: "general",
+    slug: testWorkSlug("general"),
     name: "General",
     description: "General fiction support",
     source: "builtin",
     packageName: null,
   },
   {
-    slug: "prose",
+    slug: testWorkSlug("prose"),
     name: "Prose",
     description: "Line-level prose",
     source: "user",

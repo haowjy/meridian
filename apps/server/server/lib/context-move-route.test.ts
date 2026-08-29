@@ -2,6 +2,8 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ContextPort } from "../domains/context/index.js";
+import { resolvedWorkAuthority } from "../domains/projects/domain/work-authority.js";
+import { testWorkSlug } from "../test-support/work-slug.js";
 import { handleContextMoveRequest, parseContextMove } from "./context-move-route.js";
 
 const WORK_ID = "00000000-0000-4000-8000-000000000701";
@@ -28,6 +30,19 @@ function depsFor(
     value: { movedNodeId: "node-1", destinationPath: "Dest/Source.md" },
   }));
   const port = { commitWriterLocation };
+  const resolveById = async (projectId: string, workId: string) => {
+    const entries = Object.entries(options.works ?? {}).filter(
+      ([, work]) => work.projectId === projectId && !work.deletedAt,
+    );
+    const index = entries.findIndex(([id]) => id === workId);
+    return index < 0
+      ? null
+      : resolvedWorkAuthority({
+          kind: "work",
+          workId,
+          workSlug: testWorkSlug(`work-${index + 1}`),
+        });
+  };
   return {
     projectRepo: {
       findById: vi.fn(async () => ({
@@ -50,6 +65,11 @@ function depsFor(
     contextPorts: {
       forProject: vi.fn(() => port),
       forWork: vi.fn(() => port),
+    },
+    workAuthorityResolver: {
+      byId: resolveById,
+      lockById: resolveById,
+      bySlug: async () => null,
     },
     port,
   };
@@ -165,12 +185,12 @@ describe("handleContextMoveRequest", () => {
     });
     expect(deps.workRepo.listByProject).toHaveBeenCalledOnce();
     expect(deps.contextPorts.forWork).toHaveBeenCalledWith(
-      WORK_ID,
+      expect.objectContaining({ workId: WORK_ID, workSlug: "work-1" }),
       "project-1",
       "user-1",
       new Map([
-        ["work-1", WORK_ID],
-        ["work-2", OTHER_WORK_ID],
+        ["work-1", expect.objectContaining({ workId: WORK_ID })],
+        ["work-2", expect.objectContaining({ workId: OTHER_WORK_ID })],
       ]),
     );
     expect(deps.port.commitWriterLocation).toHaveBeenCalledWith(
@@ -248,12 +268,22 @@ describe("handleContextMoveRequest", () => {
       ok: false,
       error: { code: "conflict", uri: "scratch://@work-1/Dest/Source.md" },
     });
-    await expect(request(deps, body({ sourceWorkId: WORK_ID }), "scratch")).resolves.toEqual({
+    await expect(
+      request(
+        deps,
+        body({
+          sourceWorkId: WORK_ID,
+          destinationScheme: "scratch",
+          destinationWorkId: WORK_ID,
+        }),
+        "scratch",
+      ),
+    ).resolves.toEqual({
       status: "conflict",
       collision: {
         scheme: "scratch",
         path: "Dest/Source.md",
-        authority: { kind: "work", workId: WORK_ID },
+        authority: { kind: "work", workId: WORK_ID, workSlug: testWorkSlug("work-1") },
       },
     });
   });
@@ -264,6 +294,6 @@ describe("handleContextMoveRequest", () => {
       ok: false,
       error: { code: "conflict", uri: "scratch://@missing-work/Dest/Source.md" },
     });
-    await expect(request(deps)).rejects.toMatchObject({ statusCode: 409 });
+    await expect(request(deps)).rejects.toMatchObject({ statusCode: 500 });
   });
 });

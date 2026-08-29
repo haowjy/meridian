@@ -4,6 +4,7 @@
  * bracketing/id contracts at the WS projection boundary, not durable read-model
  * persistence.
  */
+
 import { EventType } from "@meridian/contracts/protocol";
 import type { OrchestratorEvent } from "@meridian/contracts/threads";
 import {
@@ -15,6 +16,7 @@ import {
 } from "@meridian/contracts/threads";
 import { WORK_CONTEXT_PROJECTION_EVENT } from "@meridian/contracts/works";
 import { describe, expect, it } from "vitest";
+import { testWorkSlug } from "../../../test-support/work-slug.js";
 
 import { projectOrchestratorEvents } from "./orchestrator-event-projector.js";
 
@@ -42,7 +44,7 @@ describe("orchestrator event projector tool calls", () => {
           scope: {
             kind: "work",
             workId: "00000000-0000-4000-8000-000000000002",
-            workSlug: "test-work",
+            workSlug: testWorkSlug("test-work"),
           },
         },
       ]),
@@ -56,7 +58,7 @@ describe("orchestrator event projector tool calls", () => {
           scope: {
             kind: "work",
             workId: "00000000-0000-4000-8000-000000000002",
-            workSlug: "test-work",
+            workSlug: testWorkSlug("test-work"),
           },
         },
       },

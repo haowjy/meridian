@@ -9,7 +9,11 @@ import {
   createContextPortRouter,
 } from "../domains/context/index.js";
 import { createInMemoryEventSink } from "../domains/observability/index.js";
-import { createInMemoryWorkRepository } from "../domains/projects/index.js";
+import {
+  createInMemoryWorkRepository,
+  resolvedWorkAuthority,
+  type WorkRepository,
+} from "../domains/projects/index.js";
 import type { ToolHandlerContext } from "../domains/runtime/index.js";
 import { Ok } from "../shared/result.js";
 import {
@@ -18,6 +22,44 @@ import {
 } from "./wired-core-tools.js";
 
 type TestWriteHandler = (input: unknown, ctx: ToolHandlerContext) => Promise<unknown>;
+function workAuthorityResolver(works: WorkRepository) {
+  const resolve = async (
+    projectId: Parameters<WorkRepository["listByProject"]>[0],
+    workId: string,
+  ) => {
+    const work = await works.findById(workId);
+    return work && work.projectId === projectId
+      ? resolvedWorkAuthority({ kind: "work", workId: work.id, workSlug: work.slug })
+      : null;
+  };
+  return {
+    byId: resolve,
+    async bySlug(
+      projectId: Parameters<WorkRepository["listByProject"]>[0],
+      workSlug: import("@meridian/contracts/works").WorkSlug,
+    ) {
+      const work = (await works.listByProject(projectId)).find(
+        (candidate) => candidate.slug === workSlug,
+      );
+      return work
+        ? resolvedWorkAuthority({ kind: "work", workId: work.id, workSlug: work.slug })
+        : null;
+    },
+    lockById: resolve,
+  };
+}
+
+const noWorkAuthorityResolver = {
+  async byId() {
+    return null;
+  },
+  async bySlug() {
+    return null;
+  },
+  async lockById() {
+    return null;
+  },
+};
 function noopResponseFinalizer() {
   return {
     finalizeResponseCommit: async () => ({
@@ -85,7 +127,10 @@ describe("wired write tool", () => {
       stat: async () => Ok(null),
       ensureTrackedDocument,
     } as unknown as ContextSchemeAdapter;
-    const port = createContextPortRouter({ adapters: new Map([["scratch", adapter]]) });
+    const port = createContextPortRouter({
+      adapters: new Map([["scratch", adapter]]),
+      workAuthorities: new Map(),
+    });
     const write = wiredWriteHandler({
       documentId: "00000000-0000-4000-8000-000000000031",
       filePath: "scratch://notes/@evil.md",
@@ -181,6 +226,7 @@ describe("wired write tool", () => {
         rebindPrimary: async () => ({ previousWorkId: currentId, changed: false }),
       },
       works,
+      workAuthorityResolver: workAuthorityResolver(works),
       workContextDelivery: {
         projectChanged: async () => {},
       },
@@ -406,6 +452,7 @@ function wiredWriteHandler(input: {
       rebindPrimary: async () => ({ previousWorkId: null, changed: true }),
     },
     works: { listByProject: async () => [] } as never,
+    workAuthorityResolver: noWorkAuthorityResolver,
     workContextDelivery: {
       projectChanged: async () => {},
     },

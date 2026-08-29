@@ -37,6 +37,7 @@ const expectedSuites = [
   "apps/server/server/domains/context/adapters/drizzle-document-link-resolver.db.test.ts",
   "apps/server/server/domains/context/adapters/thread-uploads/__conformance__/drizzle-internal-upload-document-store.db.test.ts",
   "apps/server/server/domains/context/figures/figure-assets.db.test.ts",
+  "apps/server/server/domains/context/promotion/adapters/drizzle-result-repository.db.test.ts",
   "apps/server/server/domains/notices/adapters/drizzle-notice-port.db.test.ts",
   "apps/server/server/domains/projects/project-bootstrap.db.test.ts",
   "apps/server/server/domains/projects/project-bootstrap-readiness.db.test.ts",

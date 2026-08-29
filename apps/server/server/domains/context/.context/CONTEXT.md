@@ -16,7 +16,7 @@ with a single unified `ContextPort` that resolves durable project schemes
   normalize the five registered schemes: `manuscript`, `kb`, `user`, `scratch`,
   `uploads`. Bare paths default to `manuscript://`. Work-scoped schemes
 (`scratch://`, `uploads://`) carry an `@<work-slug>` wire qualifier that the
-router resolves to a stable Work ID before dispatch.
+router resolves to exact project-scoped Work authority before dispatch.
 - **Unified context port factory** (`unified-context-port-factory.ts`) — two deep
   modules: `context-source-provisioning.ts` (race-safe `context_sources`
   provisioning + lazy promise-cached resolution) and the factory composition root.
@@ -62,6 +62,10 @@ router resolves to a stable Work ID before dispatch.
   `corpus-import-service.ts` keeps slugging/dedupe/normalization helpers).
 - **Browse layer scheme** (`browse-layer-scheme.ts`) — HTTP browse scheme
   vocabulary, routing, and work-scope membership gating for work-scoped schemes.
+- **Result promotion** prepares exact resolved/no-Work URI identity before an
+  object put. The result repository owns same-ID terminal reconciliation;
+  compensation occurs only for `definitely_not_committed`, while unknown
+  outcomes retain bytes and emit diagnostics.
 
 ## Contracts
 
@@ -77,7 +81,9 @@ router resolves to a stable Work ID before dispatch.
 ## URI and router invariants
 
 - Wire context URIs are `scheme://[@slug]/path`; a scheme root is `scheme://`.
-  Canonical server results retain the stable Work slug from the wire; explicit `@/` is no-Work authority.
+  Parsing validates syntax and returns `normalized`; it does not authorize a
+  Work. Stable server results use the persisted slug carried by opaque,
+  same-project resolved authority; explicit `@/` is no-Work authority.
 - Bare paths default to `manuscript://` (project-scoped).
 - Leading/trailing slashes and repeated slashes are normalized away; `.` segments
   are dropped; `..` is rejected.

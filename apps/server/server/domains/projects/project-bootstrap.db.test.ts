@@ -18,7 +18,8 @@ else
       "../../test-support/rollback-test-database.js"
     );
     const { truncateDrizzleTables } = await import("../../test-support/drizzle-reset.js");
-    const { createDrizzleProjectBootstrapRepository } = await import("./index.js");
+    const { createDrizzleProjectBootstrapRepository, createDrizzleProjectWorkAuthorityResolver } =
+      await import("./index.js");
     const { createProjectContextDocumentStore } = await import(
       "../context/context-source-provisioning.js"
     );
@@ -33,7 +34,11 @@ else
       await db.insert(schema.users).values(conformanceUserValues(USER_ID, "no-work-bootstrap"));
     });
     function collab() {
-      const domain = createCollabDomain({ db, documentAccess: createDrizzleDocumentAccess(db) });
+      const domain = createCollabDomain({
+        db,
+        workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
+        documentAccess: createDrizzleDocumentAccess(db),
+      });
       domain.bindHocuspocus(
         new Hocuspocus({
           yDocOptions: { gc: false, gcFilter: () => true },
@@ -46,6 +51,7 @@ else
     function boundCollab() {
       const domain = createCollabDomain({
         db,
+        workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
         documentAccess: createDrizzleDocumentAccess(db),
       });
       const hocuspocus = new Hocuspocus({

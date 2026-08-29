@@ -1,5 +1,7 @@
 /** PostgreSQL coverage for runtime Work-context claims and model-visible delivery. */
+
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { testWorkSlug } from "../../../test-support/work-slug.js";
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS === "1" || process.env.RUN_DB_TESTS === "true";
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -89,7 +91,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
                   scope: {
                     kind: "work",
                     workId: "00000000-0000-0000-0000-000000000002",
-                    workSlug: "test-work",
+                    workSlug: testWorkSlug("test-work"),
                   },
                   aiWriteMode: "direct",
                   draftOwner: null,

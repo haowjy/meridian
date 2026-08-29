@@ -17,7 +17,8 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     );
     const { createCollabDomain } = await import("../collab/composition.js");
     const { createDrizzleDocumentAccess } = await import("../../lib/document-access.js");
-    const { createDrizzleProjectBootstrapRepository } = await import("./index.js");
+    const { createDrizzleProjectBootstrapRepository, createDrizzleProjectWorkAuthorityResolver } =
+      await import("./index.js");
     const { truncateDrizzleTables } = await import("../../test-support/drizzle-reset.js");
     const { eq } = await import("drizzle-orm");
     const { default: postgres } = await import("postgres");
@@ -39,6 +40,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     function createBoundCollab() {
       const collab = createCollabDomain({
         db,
+        workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
         documentAccess: createDrizzleDocumentAccess(db),
       });
       const hocuspocus = new Hocuspocus({

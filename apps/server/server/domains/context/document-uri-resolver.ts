@@ -10,6 +10,7 @@ import {
   works,
 } from "@meridian/database/schema";
 import { and, eq, isNull } from "drizzle-orm";
+import type { ProjectWorkAuthorityResolver } from "../projects/index.js";
 import { toCanonical } from "./context/uri.js";
 import type { ContextScheme } from "./ports/context-port.js";
 
@@ -21,12 +22,16 @@ function asContextScheme(slug: string): ContextScheme | null {
   return isContextUriScheme(slug) ? slug : null;
 }
 
-export function createDocumentUriResolver(db: DocumentUriDb): DocumentUriResolver {
-  return async (documentId) => resolveDocumentUri(db, documentId);
+export function createDocumentUriResolver(
+  db: DocumentUriDb,
+  workAuthorityResolver: ProjectWorkAuthorityResolver,
+): DocumentUriResolver {
+  return async (documentId) => resolveDocumentUri(db, workAuthorityResolver, documentId);
 }
 
 export async function resolveDocumentUri(
   db: DocumentUriDb,
+  workAuthorityResolver: ProjectWorkAuthorityResolver,
   documentId: string,
 ): Promise<string | null> {
   const [document] = await db
@@ -35,7 +40,8 @@ export async function resolveDocumentUri(
       extension: documents.extension,
       folderId: documents.folderId,
       sourceSlug: contextSources.slug,
-      workSlug: works.slug,
+      workId: works.id,
+      workProjectId: works.projectId,
     })
     .from(documents)
     .innerJoin(contextSources, eq(documents.contextSourceId, contextSources.id))
@@ -59,10 +65,11 @@ export async function resolveDocumentUri(
   const path = [...folderPath, filename].join("/");
   const workAuthority =
     scheme === "scratch" || scheme === "uploads"
-      ? document.workSlug
-        ? { kind: "work" as const, workSlug: document.workSlug }
+      ? document.workId && document.workProjectId
+        ? await workAuthorityResolver.byId(document.workProjectId, document.workId)
         : { kind: "none" as const }
       : { kind: "contextual" as const };
+  if (!workAuthority) return null;
   return toCanonical(scheme, path, workAuthority);
 }
 

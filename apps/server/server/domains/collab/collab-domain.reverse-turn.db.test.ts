@@ -46,6 +46,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     );
     const { createCollabDomain } = await import("./composition.js");
     const { createDrizzleDocumentAccess } = await import("../../lib/document-access.js");
+    const { createDrizzleProjectWorkAuthorityResolver } = await import("../projects/index.js");
     const { ContextFS } = await import("../context/adapters/context-fs/context-fs.js");
     const { DrizzleContextDocumentStore, DrizzleContextTreeMutationStore } = await import(
       "../context/adapters/context-fs/drizzle-store.js"
@@ -73,6 +74,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     const createTestCollab = () =>
       createCollabDomain({
         db,
+        workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
         documentAccess: createDrizzleDocumentAccess(db),
       });
 
