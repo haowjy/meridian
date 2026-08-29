@@ -125,7 +125,7 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "canonical-constructor",
       symbol: "DocumentSession",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 518,
+      line: 527,
     },
     {
       kind: "concrete-exposure",
@@ -731,7 +731,7 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "temporaryAttachDetached",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 720,
+      line: 729,
     },
     {
       kind: "transitional",
@@ -743,7 +743,7 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "temporaryGet",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 709,
+      line: 718,
     },
     {
       kind: "transitional",
@@ -761,13 +761,13 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "temporaryGetDetached",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 716,
+      line: 725,
     },
     {
       kind: "transitional",
       symbol: "temporaryGetDetached",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 721,
+      line: 730,
     },
     {
       kind: "transitional",
@@ -779,31 +779,31 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "temporaryGetLive",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 674,
+      line: 683,
     },
     {
       kind: "transitional",
       symbol: "temporaryGetLive",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 713,
+      line: 722,
     },
     {
       kind: "transitional",
       symbol: "temporaryGetLive",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 717,
+      line: 726,
     },
     {
       kind: "transitional",
       symbol: "temporaryGetLive",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 796,
+      line: 805,
     },
     {
       kind: "transitional",
       symbol: "temporaryObserve",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 789,
+      line: 798,
     },
     {
       kind: "transitional",
@@ -815,13 +815,13 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "temporaryPeek",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 727,
+      line: 736,
     },
     {
       kind: "transitional",
       symbol: "temporaryPeek",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 766,
+      line: 775,
     },
     {
       kind: "transitional",
@@ -839,7 +839,7 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "temporaryRelease",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 785,
+      line: 794,
     },
     {
       kind: "transitional",
@@ -851,7 +851,7 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "temporaryRestartUnavailableRoom",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 726,
+      line: 735,
     },
     {
       kind: "transitional",
@@ -863,7 +863,7 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "temporaryRetain",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 743,
+      line: 752,
     },
     {
       kind: "transitional",
@@ -875,7 +875,7 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "temporaryRevokeRoom",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 774,
+      line: 783,
     },
     {
       kind: "transitional",

@@ -438,7 +438,7 @@ describe("F1-I document-session deletion inventory", () => {
         kind: "canonical-constructor",
         symbol: "DocumentSession",
         file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-        line: 518,
+        line: 527,
       },
     ]);
     expect(
