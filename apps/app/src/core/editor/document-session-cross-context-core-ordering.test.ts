@@ -72,6 +72,66 @@ describe("document session cross-context coordination", () => {
     expect(local.leases.size).toBe(0);
   });
 
+  it("preserves readiness and close diagnostics when automatic teardown also fails", async () => {
+    const locks = new FifoWebLocks();
+    const local = new LocalAuthority();
+    const teardownDiagnostic = new Error("readiness teardown failed");
+    let rejectTeardown!: (error: Error) => void;
+    local.invalidationBarrier = new Promise<void>((_resolve, reject) => {
+      rejectTeardown = reject;
+    });
+    const value = createDocumentSessionCrossContextCoordination({
+      accountId: "account-readiness-teardown-failure",
+      idb: {
+        open: () => {
+          throw new Error("authority open failed");
+        },
+      } as unknown as IDBFactory,
+      locks,
+      local,
+      secureContext: true,
+      createWakeChannel: null,
+    });
+    coordinators.push(value);
+    const unhandled: unknown[] = [];
+    const observeUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", observeUnhandled);
+    try {
+      const admission = value.admit("project", "doc", "1").catch((error: unknown) => error);
+      await vi.waitFor(() => expect(local.invalidated).toBe(1));
+      const close1 = value.close();
+      const close2 = value.close();
+      expect(close1).toBe(close2);
+      rejectTeardown(teardownDiagnostic);
+
+      await expect(admission).resolves.toMatchObject({
+        name: "DocumentSessionCoordinationError",
+        kind: "authority-unavailable",
+        message: expect.stringContaining("authority open failed"),
+      });
+      await expect(close1).rejects.toBe(teardownDiagnostic);
+      await expect(close2).rejects.toBe(teardownDiagnostic);
+      expect(local.leases.size).toBe(0);
+
+      const recovered = createDocumentSessionCrossContextCoordination({
+        accountId: "account-readiness-teardown-recovered",
+        idb: indexedDB,
+        locks,
+        local: new LocalAuthority(),
+        secureContext: true,
+        createWakeChannel: null,
+      });
+      coordinators.push(recovered);
+      await expect(recovered.admit("project", "doc", "1")).resolves.toMatchObject({
+        accountId: "account-readiness-teardown-recovered",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", observeUnhandled);
+    }
+  });
+
   it.each([
     "error",
     "blocked",

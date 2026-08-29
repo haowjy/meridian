@@ -154,6 +154,7 @@ function navigatorExpression(
   expression: ts.Expression,
   seen = new Set<ts.Symbol>(),
 ): boolean {
+  expression = unwrapTransparentExpression(expression);
   if (ts.isIdentifier(expression) && expression.text === "navigator") return true;
   if (
     ts.isPropertyAccessExpression(expression) &&
@@ -174,6 +175,16 @@ function navigatorExpression(
   if (!symbol || seen.has(symbol)) return false;
   seen.add(symbol);
   const declaration = symbol.valueDeclaration ?? symbol.declarations?.[0];
+  if (declaration && ts.isBindingElement(declaration)) {
+    const variable = declaration.parent.parent;
+    const member = (declaration.propertyName ?? declaration.name).getText();
+    return (
+      member === "navigator" &&
+      ts.isVariableDeclaration(variable) &&
+      !!variable.initializer &&
+      globalThisExpression(checker, variable.initializer, seen)
+    );
+  }
   return !!(
     declaration &&
     ts.isVariableDeclaration(declaration) &&
@@ -182,11 +193,44 @@ function navigatorExpression(
   );
 }
 
+function unwrapTransparentExpression(expression: ts.Expression): ts.Expression {
+  while (
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression) ||
+    ts.isNonNullExpression(expression) ||
+    ts.isSatisfiesExpression(expression)
+  ) {
+    expression = expression.expression;
+  }
+  return expression;
+}
+
+function globalThisExpression(
+  checker: ts.TypeChecker,
+  expression: ts.Expression,
+  seen: Set<ts.Symbol>,
+): boolean {
+  expression = unwrapTransparentExpression(expression);
+  if (ts.isIdentifier(expression) && expression.text === "globalThis") return true;
+  const symbol = unalias(checker, checker.getSymbolAtLocation(expression));
+  if (!symbol || seen.has(symbol)) return false;
+  seen.add(symbol);
+  const declaration = symbol.valueDeclaration ?? symbol.declarations?.[0];
+  return !!(
+    declaration &&
+    ts.isVariableDeclaration(declaration) &&
+    declaration.initializer &&
+    globalThisExpression(checker, declaration.initializer, seen)
+  );
+}
+
 function navigatorLocksExpression(
   checker: ts.TypeChecker,
   expression: ts.Expression,
   seen = new Set<ts.Symbol>(),
 ): boolean {
+  expression = unwrapTransparentExpression(expression);
   if (
     ts.isPropertyAccessExpression(expression) &&
     expression.name.text === "locks" &&
@@ -400,5 +444,31 @@ describe("F1-I document-session deletion inventory", () => {
     expect(
       new Set(records.filter(({ kind }) => kind === "raw-authority").map(({ file }) => file)),
     ).toEqual(new Set(["apps/app/src/core/editor/document-session-cross-context-coordination.ts"]));
+  });
+
+  it("finds parenthesized, asserted, and global-destructured navigator aliases", () => {
+    const records = fixtureInventory(`
+      const paren = (globalThis.navigator);
+      const parenLocks = paren.locks;
+      const asserted = globalThis.navigator as Navigator;
+      const assertedLocks = asserted["locks"];
+      const { navigator: destructuredNavigator } = globalThis;
+      const destructuredLocks = destructuredNavigator.locks;
+      const typeAsserted = <Navigator>globalThis.navigator;
+      const typeAssertedLocks = typeAsserted.locks;
+      const nonNull = globalThis.navigator!;
+      const nonNullLocks = nonNull.locks;
+      const satisfied = globalThis.navigator satisfies Navigator;
+      const satisfiedLocks = satisfied.locks;
+      const globalAlias = globalThis;
+      const recursiveGlobalAlias = globalAlias;
+      const { navigator: recursivelyDestructuredNavigator } = recursiveGlobalAlias;
+      const recursivelyDestructuredLocks = recursivelyDestructuredNavigator.locks;
+    `);
+    expect(
+      records.filter(
+        ({ kind, symbol }) => kind === "raw-authority" && symbol === "navigator.locks",
+      ),
+    ).toHaveLength(7);
   });
 });

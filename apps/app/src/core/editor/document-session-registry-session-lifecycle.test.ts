@@ -54,7 +54,11 @@ describe("DocumentSessionRegistry session lifecycle", () => {
     const lease = await admit(registry, "project", "doc-live-grace", "1");
     registry.retain("owner", [lease]);
     const session = registry.get(lease);
-    providers.at(-1)?.destroy.mockRejectedValue(new Error("live grace destroy failed"));
+    await session.whenLocalPersistenceSynced();
+    await vi.waitFor(() => expect(providers).toHaveLength(1));
+    const provider = providers[0];
+    const diagnostic = new Error("live grace destroy failed");
+    provider.destroy.mockRejectedValue(diagnostic);
     const unhandled: unknown[] = [];
     const observeUnhandled = (reason: unknown) => unhandled.push(reason);
     process.on("unhandledRejection", observeUnhandled);
@@ -62,6 +66,8 @@ describe("DocumentSessionRegistry session lifecycle", () => {
       registry.release("owner");
       await vi.waitFor(() => expect(registry.hasLive(lease)).toBe(false));
       expect(session.getSnapshot().status).toBe("destroyed");
+      expect(provider.destroy).toHaveBeenCalledOnce();
+      await expect(session.destroy()).rejects.toBe(diagnostic);
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(unhandled).toEqual([]);
     } finally {

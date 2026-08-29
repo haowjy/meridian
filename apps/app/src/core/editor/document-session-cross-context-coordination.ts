@@ -419,7 +419,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     }
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
     if (this.closePromise) return this.closePromise;
     this.closed = true;
     this.abort.abort(new Error("Document authority closed"));
@@ -462,7 +462,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     try {
       await this.readiness;
     } catch (error) {
-      await this.close();
+      await this.close().catch(() => undefined);
       throw error;
     }
     this.assertOpen();
