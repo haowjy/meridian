@@ -37,6 +37,26 @@ async function eventually(assertion: () => Promise<void>): Promise<void> {
   throw lastError;
 }
 
+async function proveDocumentPurge(
+  store: DocumentSessionAuthorityStore,
+  documentId: string,
+  generation: string,
+  commandId: string,
+): Promise<void> {
+  await store.startDocumentDrain({ documentId, generation, commandId });
+  await store.finishDocumentDrain({ documentId, generation, commandId });
+}
+
+async function runCapturedPurge(
+  store: DocumentSessionAuthorityStore,
+  documentId: string,
+): Promise<boolean> {
+  const purge = await store.snapshotPurge(documentId);
+  if (!purge) return true;
+  if (!(await store.deletePersistenceThrough(purge))) return false;
+  return store.compareClearPurge(purge);
+}
+
 afterEach(() => {
   for (const database of opened.splice(0)) database.close();
 });
@@ -186,34 +206,16 @@ describe("DocumentSessionAuthorityStore", () => {
   it("compare-clears only the captured ready bound and never snapshots pending newer work", async () => {
     const accountId = "account-purge-cas";
     const store = new DocumentSessionAuthorityStore(accountId);
-    await store.advanceFence({
-      key: documentFenceKey(accountId, "doc"),
-      documentId: "doc",
-      revokedThrough: "5",
-      commandId: "terminal-5",
-      purge: true,
-    });
+    await proveDocumentPurge(store, "doc", "5", "terminal-5");
     const old = await store.snapshotPurge("doc");
     expect(old?.revokedThrough).toBe("5");
     if (!old) throw new Error("Expected the old purge snapshot");
-    await store.advanceFence({
-      key: documentFenceKey(accountId, "doc"),
-      documentId: "doc",
-      revokedThrough: "7",
-      commandId: "terminal-7",
-      purge: true,
-    });
+    await proveDocumentPurge(store, "doc", "7", "terminal-7");
     await expect(store.compareClearPurge(old)).resolves.toBe(false);
     await expect(store.pendingPurges()).resolves.toMatchObject([{ revokedThrough: "7" }]);
 
     await store.admit({ documentId: "other", projectId: "project", generation: "10" });
-    await store.advanceFence({
-      key: documentFenceKey(accountId, "other"),
-      documentId: "other",
-      revokedThrough: "5",
-      commandId: "terminal-other-5",
-      purge: true,
-    });
+    await proveDocumentPurge(store, "other", "11", "terminal-other-11");
     await store.startDocumentDrain({
       documentId: "other",
       generation: "12",
@@ -222,7 +224,7 @@ describe("DocumentSessionAuthorityStore", () => {
     await expect(store.snapshotPurge("other")).resolves.toBeNull();
     await expect(store.pendingPurges()).resolves.toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ documentId: "other", revokedThrough: "5" }),
+        expect.objectContaining({ documentId: "other", revokedThrough: "11" }),
       ]),
     );
     await store.close();
@@ -244,63 +246,32 @@ describe("DocumentSessionAuthorityStore", () => {
 
   it("orders older, idempotent, colliding, and newer fence commands", async () => {
     const store = new DocumentSessionAuthorityStore("account-order");
-    const key = documentFenceKey("account-order", "doc");
     await expect(
-      store.advanceFence({
-        key,
-        documentId: "doc",
-        revokedThrough: "10",
-        commandId: "c10",
-        purge: false,
-      }),
-    ).resolves.toMatchObject({ kind: "advanced" });
+      store.startDocumentDrain({ documentId: "doc", generation: "10", commandId: "c10" }),
+    ).resolves.toMatchObject({ kind: "started" });
+    await store.finishDocumentDrain({ documentId: "doc", generation: "10", commandId: "c10" });
     await expect(
-      store.advanceFence({
-        key,
-        documentId: "doc",
-        revokedThrough: "9",
-        commandId: "c9",
-        purge: false,
-      }),
+      store.startDocumentDrain({ documentId: "doc", generation: "9", commandId: "c9" }),
     ).resolves.toMatchObject({ kind: "older" });
     await expect(
-      store.advanceFence({
-        key,
-        documentId: "doc",
-        revokedThrough: "10",
-        commandId: "c10",
-        purge: false,
-      }),
-    ).resolves.toMatchObject({ kind: "idempotent" });
+      store.startDocumentDrain({ documentId: "doc", generation: "10", commandId: "c10" }),
+    ).resolves.toMatchObject({ kind: "replay" });
     await expect(
-      store.advanceFence({
-        key,
-        documentId: "doc",
-        revokedThrough: "10",
-        commandId: "other",
-        purge: false,
-      }),
+      store.startDocumentDrain({ documentId: "doc", generation: "10", commandId: "other" }),
     ).resolves.toMatchObject({ kind: "collision" });
     await expect(
-      store.advanceFence({
-        key,
-        documentId: "doc",
-        revokedThrough: "11",
-        commandId: "c11",
-        purge: false,
-      }),
-    ).resolves.toMatchObject({ kind: "advanced" });
+      store.startDocumentDrain({ documentId: "doc", generation: "11", commandId: "c11" }),
+    ).resolves.toMatchObject({ kind: "started" });
     await store.close();
   });
 
   it("keeps document and project access fences separate", async () => {
     const store = new DocumentSessionAuthorityStore("account-fences");
-    await store.advanceFence({
-      key: accessFenceKey("account-fences", "project-b", "doc"),
+    await store.startAccessDrain({
       documentId: "doc",
-      revokedThrough: "4",
+      projectId: "project-b",
+      generation: "4",
       commandId: "b4",
-      purge: false,
     });
     expect(await store.readFence(documentFenceKey("account-fences", "doc"))).toBeNull();
     expect(await store.readFence(accessFenceKey("account-fences", "project-b", "doc"))).toEqual({
@@ -335,14 +306,8 @@ describe("DocumentSessionAuthorityStore", () => {
     opened.pop();
 
     const first = new DocumentSessionAuthorityStore(accountId);
-    await first.advanceFence({
-      key: documentFenceKey(accountId, documentId),
-      documentId,
-      revokedThrough: "5",
-      commandId: "terminal-5",
-      purge: true,
-    });
-    await expect(first.retryPendingPurges()).resolves.toBe(false);
+    await proveDocumentPurge(first, documentId, "5", "terminal-5");
+    await expect(runCapturedPurge(first, documentId)).resolves.toBe(false);
     expect(await first.pendingPurges()).toHaveLength(1);
     await first.close();
 
@@ -351,7 +316,7 @@ describe("DocumentSessionAuthorityStore", () => {
     blocker.close();
     opened.splice(opened.indexOf(blocker), 1);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    await expect(reloaded.retryPendingPurges()).resolves.toBe(true);
+    await expect(runCapturedPurge(reloaded, documentId)).resolves.toBe(true);
     expect(await reloaded.pendingPurges()).toEqual([]);
     expect((await indexedDB.databases()).map(({ name }) => name)).toContain(newerName);
     expect((await indexedDB.databases()).map(({ name }) => name)).not.toContain(oldName);
@@ -370,15 +335,9 @@ describe("DocumentSessionAuthorityStore", () => {
       cmp: indexedDB.cmp.bind(indexedDB),
     } as IDBFactory;
     const store = new DocumentSessionAuthorityStore(accountId, idbWithoutEnumeration);
-    await store.advanceFence({
-      key: documentFenceKey(accountId, documentId),
-      documentId,
-      revokedThrough: "2",
-      commandId: "terminal-2",
-      purge: true,
-    });
+    await proveDocumentPurge(store, documentId, "2", "terminal-2");
 
-    await expect(store.retryPendingPurges()).resolves.toBe(false);
+    await expect(runCapturedPurge(store, documentId)).resolves.toBe(false);
     expect(await store.pendingPurges()).toHaveLength(1);
     expect((await indexedDB.databases()).map(({ name: databaseName }) => databaseName)).toContain(
       name,
@@ -400,20 +359,14 @@ describe("DocumentSessionAuthorityStore", () => {
     await openDatabase(secondName).then((database) => database.close());
     opened.pop();
     const store = new DocumentSessionAuthorityStore(accountId);
-    await store.advanceFence({
-      key: documentFenceKey(accountId, documentId),
-      documentId,
-      revokedThrough: "4",
-      commandId: "terminal-4",
-      purge: true,
-    });
+    await proveDocumentPurge(store, documentId, "4", "terminal-4");
 
-    await expect(store.retryPendingPurges()).resolves.toBe(false);
+    await expect(runCapturedPurge(store, documentId)).resolves.toBe(false);
     firstBlocker.close();
     opened.splice(opened.indexOf(firstBlocker), 1);
 
     await eventually(async () => {
-      await store.retryPendingPurges();
+      await runCapturedPurge(store, documentId);
       expect(await store.pendingPurges()).toEqual([]);
       const names = (await indexedDB.databases()).map(({ name }) => name);
       expect(names).not.toContain(firstName);

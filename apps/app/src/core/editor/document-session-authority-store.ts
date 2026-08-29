@@ -62,12 +62,6 @@ export type PendingDocumentPurge = {
   revokedThrough: AvailabilityGeneration;
 };
 
-export type FenceAdvance =
-  | { kind: "advanced"; fence: RevocationFence }
-  | { kind: "idempotent"; fence: RevocationFence }
-  | { kind: "older"; fence: RevocationFence }
-  | { kind: "collision"; fence: RevocationFence };
-
 export type AdmissionDecision =
   | { kind: "admitted"; persistenceGeneration: AvailabilityGeneration }
   | { kind: "generation-revoked" }
@@ -193,8 +187,6 @@ function transactionDone(transaction: IDBTransaction): Promise<void> {
 export class DocumentSessionAuthorityStore {
   private readonly databasePromise: Promise<IDBDatabase>;
   private readonly blockedDeleteRequests = new Set<string>();
-  private retryPromise: Promise<boolean> | null = null;
-  private retryRequested = false;
   private closed = false;
 
   constructor(
@@ -246,10 +238,9 @@ export class DocumentSessionAuthorityStore {
           return;
         }
         settled = true;
-        request.result.onversionchange = () => {
-          this.onVersionChange();
-          request.result.close();
-        };
+        // Coordination owns the ordered close barrier. Keeping this connection open
+        // keeps the upgrader blocked until local sessions and lifecycle holds are gone.
+        request.result.onversionchange = this.onVersionChange;
         resolve(request.result);
       };
     });
@@ -262,8 +253,13 @@ export class DocumentSessionAuthorityStore {
   }
 
   async close(): Promise<void> {
+    if (this.closed) return;
     this.closed = true;
-    (await this.databasePromise).close();
+    try {
+      (await this.databasePromise).close();
+    } catch {
+      // A store that never became available has no connection to close.
+    }
   }
 
   async readFence(key: DocumentFenceKey | AccessFenceKey): Promise<RevocationFence | null> {
@@ -616,54 +612,6 @@ export class DocumentSessionAuthorityStore {
     return true;
   }
 
-  /** Compatibility helper retained for focused store tests; coordination uses start/finish. */
-  async advanceFence(input: {
-    key: DocumentFenceKey | AccessFenceKey;
-    documentId: DocumentId;
-    revokedThrough: AvailabilityGeneration;
-    commandId: AvailabilityCommandId;
-    purge: boolean;
-  }): Promise<FenceAdvance> {
-    assertAvailabilityGeneration(input.revokedThrough);
-    const database = await this.databasePromise;
-    const transaction = database.transaction([FENCES, PURGES], "readwrite");
-    const fences = transaction.objectStore(FENCES);
-    const current = (await requestResult(fences.get(input.key))) as FenceRecord | undefined;
-    if (current) {
-      const ordering = compareAvailabilityGeneration(input.revokedThrough, current.revokedThrough);
-      if (ordering < 0) {
-        transaction.abort();
-        return { kind: "older", fence: current };
-      }
-      if (ordering === 0) {
-        transaction.abort();
-        return {
-          kind: current.commandId === input.commandId ? "idempotent" : "collision",
-          fence: current,
-        };
-      }
-    }
-    const fence: FenceRecord = {
-      key: input.key,
-      revokedThrough: input.revokedThrough,
-      commandId: input.commandId,
-    };
-    fences.put(fence);
-    if (input.purge) {
-      const purges = transaction.objectStore(PURGES);
-      const key = purgeRecordKey(this.accountId, input.documentId);
-      const pending = (await requestResult(purges.get(key))) as PendingDocumentPurge | undefined;
-      purges.put({
-        key,
-        accountId: this.accountId,
-        documentId: input.documentId,
-        revokedThrough: maximumGeneration(pending?.revokedThrough ?? null, input.revokedThrough),
-      });
-    }
-    await transactionDone(transaction);
-    return { kind: "advanced", fence };
-  }
-
   async pendingPurges(): Promise<readonly PendingDocumentPurge[]> {
     const database = await this.databasePromise;
     const transaction = database.transaction(PURGES, "readonly");
@@ -723,33 +671,6 @@ export class DocumentSessionAuthorityStore {
       if (!(await this.deleteDatabase(name))) return false;
     }
     return true;
-  }
-
-  async retryPendingPurges(): Promise<boolean> {
-    this.retryRequested = true;
-    if (this.retryPromise) return this.retryPromise;
-    const retry = this.runRequestedPurges();
-    this.retryPromise = retry;
-    try {
-      return await retry;
-    } finally {
-      if (this.retryPromise === retry) this.retryPromise = null;
-    }
-  }
-
-  private async runRequestedPurges(): Promise<boolean> {
-    let cleared = true;
-    do {
-      this.retryRequested = false;
-      for (const pending of await this.pendingPurges()) {
-        if (!(await this.deletePersistenceThrough(pending))) {
-          cleared = false;
-          continue;
-        }
-        if (!(await this.compareClearPurge(pending))) cleared = false;
-      }
-    } while (this.retryRequested);
-    return cleared;
   }
 
   private deleteDatabase(name: string): Promise<boolean> {

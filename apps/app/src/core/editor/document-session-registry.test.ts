@@ -42,6 +42,9 @@ vi.mock("@/core/transport/hocuspocus-document-transport", () => ({
 const { DocumentSessionAuthorityError, DocumentSessionRegistry } = await import(
   "./document-session-registry-implementation"
 );
+const { createDocumentSessionCrossContextCoordination } = await import(
+  "./document-session-cross-context-coordination"
+);
 const { memoryStorage } = await import("@/test-support/memory-storage");
 
 type Registry = InstanceType<typeof DocumentSessionRegistry>;
@@ -323,9 +326,9 @@ describe("DocumentSessionRegistry live authority", () => {
     await first.whenLocalPersistenceSynced();
 
     registry.setOwnUserId("account-b");
-    expect(first.getSnapshot().status).toBe("destroyed");
     expect(() => registry.get(firstLease)).toThrow(expectAuthorityError("account-mismatch"));
     const secondLease = await admit(registry, "project", "doc", "1");
+    expect(first.getSnapshot().status).toBe("destroyed");
     const second = registry.get(secondLease);
     await second.whenLocalPersistenceSynced();
 
@@ -337,6 +340,88 @@ describe("DocumentSessionRegistry live authority", () => {
       ]),
     );
     registry.destroyAll();
+  });
+
+  it("does not enable the new account before asynchronous old-session teardown", async () => {
+    let closeBarrier: Promise<void> = Promise.resolve();
+    const created: string[] = [];
+    const registry = new DocumentSessionRegistry((accountId, local) => {
+      created.push(accountId);
+      return {
+        admit: async (projectId, documentId, generation) => {
+          local.installSynchronously({
+            documentId,
+            projectId,
+            generation,
+            persistenceGeneration: generation,
+          });
+          return {
+            accountId,
+            projectId,
+            documentId,
+            generation,
+            persistenceGeneration: generation,
+          };
+        },
+        revokeDocument: async (_projectId, _documentId, generation) => ({
+          revokedThrough: generation,
+          persistence: "cleared" as const,
+        }),
+        revokeAccess: async (_projectId, _documentId, generation) => ({
+          revokedThrough: generation,
+          persistence: "cleared" as const,
+        }),
+        reconcilePending: async () => undefined,
+        close: async () => {
+          await closeBarrier;
+          await local.invalidateAll();
+        },
+      };
+    });
+    registry.setOwnUserId("account-barrier-a");
+    await admit(registry, "project", "doc-barrier", "1");
+    let releaseOld!: () => void;
+    const oldBarrier = new Promise<void>((resolve) => {
+      releaseOld = resolve;
+    });
+    closeBarrier = oldBarrier;
+
+    registry.setOwnUserId("account-barrier-b");
+    const next = admit(registry, "project", "doc-barrier", "1");
+    await Promise.resolve();
+    expect(created).toEqual(["account-barrier-a"]);
+    releaseOld();
+    await expect(next).resolves.toMatchObject({ accountId: "account-barrier-b" });
+    expect(created).toEqual(["account-barrier-a", "account-barrier-b"]);
+  });
+
+  it("recovers on a later account after asynchronous authority readiness failure", async () => {
+    const locks = new TestLocks();
+    const registry = new DocumentSessionRegistry((accountId, local) =>
+      createDocumentSessionCrossContextCoordination({
+        accountId,
+        local,
+        locks,
+        secureContext: true,
+        createWakeChannel: null,
+        idb:
+          accountId === "account-failed"
+            ? ({
+                open: () => {
+                  throw new Error("authority failed");
+                },
+              } as unknown as IDBFactory)
+            : indexedDB,
+      }),
+    );
+    registry.setOwnUserId("account-failed");
+    await expect(admit(registry, "project", "doc", "1")).rejects.toEqual(
+      expectAuthorityError("authority-unavailable"),
+    );
+    registry.setOwnUserId("account-recovered");
+    await expect(admit(registry, "project", "doc", "1")).resolves.toMatchObject({
+      accountId: "account-recovered",
+    });
   });
 
   it("keeps branch generations separate from live authority and IndexedDB", async () => {
@@ -493,7 +578,7 @@ describe("DocumentSessionRegistry live authority", () => {
     unobserve();
   });
 
-  it("uses the authenticated internal id for marker self-suppression", () => {
+  it("uses the authenticated internal id for marker self-suppression", async () => {
     const authMe = {
       user: {
         userId: "internal-user",
@@ -504,8 +589,9 @@ describe("DocumentSessionRegistry live authority", () => {
       },
     } satisfies AuthMeResponse;
     const registry = new DocumentSessionRegistry();
-    const session = registry.temporaryGetDetached("document-before-auth");
     registry.setOwnUserId(authMe.user.userId);
+    const lease = await admit(registry, "project", "document-before-auth", "1");
+    const session = registry.getDetached(lease);
     const event = (admittedByUserId: string, trailId: string): ChangeEventWsMessage => ({
       type: "change_event",
       documentId: "document-before-auth",

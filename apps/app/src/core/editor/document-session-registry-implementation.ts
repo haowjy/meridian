@@ -64,6 +64,7 @@ export class DocumentSessionRegistry
   private accountId: AccountId | null = null;
   private coordination: DocumentSessionCrossContextCoordination | null = null;
   private accountTransition: Promise<void> = Promise.resolve();
+  private accountTransitionVersion = 0;
   private authorityFailure: unknown = null;
   private readonly liveRooms = new Map<DocumentId, LiveRoomState>();
   private readonly unleasedRooms = new Map<string, UnleasedRoomState>();
@@ -251,22 +252,18 @@ export class DocumentSessionRegistry
 
   setOwnUserId(userId: UserId): void {
     if (this.accountId === userId) return;
+    const transitionVersion = ++this.accountTransitionVersion;
     const previous = this.coordination;
-    if (this.accountId === null) {
-      for (const { session } of this.unleasedRooms.values())
-        session.markerStore.setOwnUserId(userId);
-    } else {
-      void this.invalidateAll();
-    }
     this.accountId = userId;
     this.coordination = null;
     this.authorityFailure = null;
-    const closePrevious = previous?.close() ?? Promise.resolve();
+    const closePrevious = previous?.close() ?? this.invalidateAll();
     const transition = this.accountTransition
       .catch(() => undefined)
       .then(async () => {
         await closePrevious;
-        if (this.accountId !== userId) return;
+        if (this.accountId !== userId || this.accountTransitionVersion !== transitionVersion)
+          return;
         try {
           this.coordination = this.createCoordination(userId, this);
         } catch (error) {
@@ -277,10 +274,21 @@ export class DocumentSessionRegistry
   }
 
   destroyAll(): void {
-    const coordination = this.coordination;
+    this.accountTransitionVersion += 1;
+    const captured = this.coordination;
     this.coordination = null;
-    void coordination?.close();
-    void this.invalidateAll();
+    const capturedClose = captured?.close();
+    this.accountTransition = this.accountTransition
+      .catch(() => undefined)
+      .then(async () => {
+        const current = this.coordination;
+        this.coordination = null;
+        if (current && current !== captured) {
+          await current.close();
+          return;
+        }
+        await (capturedClose ?? this.invalidateAll());
+      });
   }
 
   async invalidateAll(): Promise<void> {

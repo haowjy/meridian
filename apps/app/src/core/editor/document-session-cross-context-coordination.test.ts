@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 
 import type { AccountId } from "@meridian/contracts/protocol";
 import type { DocumentId, ProjectId } from "@meridian/contracts/runtime";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type CrossContextLockManager,
   createDocumentSessionCrossContextCoordination,
@@ -10,6 +10,8 @@ import {
 } from "./document-session-cross-context-coordination";
 
 class FifoWebLocks implements CrossContextLockManager {
+  readonly history: Array<{ event: "request" | "grant" | "release"; name: string; mode: string }> =
+    [];
   private readonly active = new Map<string, { shared: number; exclusive: boolean }>();
   private readonly queues = new Map<
     string,
@@ -25,6 +27,7 @@ class FifoWebLocks implements CrossContextLockManager {
     callback: (lock: unknown | null) => T | PromiseLike<T>,
   ): Promise<T> {
     const mode = options.mode ?? "exclusive";
+    this.history.push({ event: "request", name, mode });
     return new Promise<T>((resolve, reject) => {
       if (options.signal?.aborted) {
         reject(options.signal.reason);
@@ -37,6 +40,7 @@ class FifoWebLocks implements CrossContextLockManager {
         return;
       }
       const run = () => {
+        this.history.push({ event: "grant", name, mode });
         const state = this.active.get(name) ?? { shared: 0, exclusive: false };
         if (mode === "shared") state.shared += 1;
         else state.exclusive = true;
@@ -44,6 +48,7 @@ class FifoWebLocks implements CrossContextLockManager {
         void Promise.resolve(callback({ name, mode }))
           .then(resolve, reject)
           .finally(() => {
+            this.history.push({ event: "release", name, mode });
             const current = this.active.get(name);
             if (current) {
               if (mode === "shared") current.shared -= 1;
@@ -82,6 +87,8 @@ class LocalAuthority implements LocalSessionAuthority {
     { projectId: ProjectId; generation: string; incarnation: string }
   >();
   destroyed = 0;
+  invalidated = 0;
+  invalidationBarrier: Promise<void> | null = null;
   documentDrainBarrier: Promise<void> | null = null;
   readonly documentDrainEntered: Promise<void>;
   private enterDocumentDrain!: () => void;
@@ -130,9 +137,10 @@ class LocalAuthority implements LocalSessionAuthority {
       ? ("other-local-project-remains" as const)
       : ("locally-empty" as const);
   }
-  invalidateAll(): Promise<void> {
+  async invalidateAll(): Promise<void> {
+    this.invalidated += 1;
     this.leases.clear();
-    return Promise.resolve();
+    await this.invalidationBarrier;
   }
 }
 
@@ -140,6 +148,7 @@ class WakeBus {
   private readonly listeners = new Set<() => void>();
   readonly posted: Promise<void>;
   private markPosted!: () => void;
+  posts = 0;
 
   constructor(private readonly deliver = true) {
     this.posted = new Promise<void>((resolve) => {
@@ -151,6 +160,7 @@ class WakeBus {
     this.listeners.add(wake);
     return {
       post: () => {
+        this.posts += 1;
         this.markPosted();
         if (this.deliver) for (const listener of this.listeners) queueMicrotask(listener);
       },
@@ -269,6 +279,138 @@ describe("document session cross-context coordination", () => {
     );
   });
 
+  it("normalizes a synchronous authority open failure and tears down once", async () => {
+    const local = new LocalAuthority();
+    const idb = {
+      open: () => {
+        throw new Error("open exploded");
+      },
+    } as unknown as IDBFactory;
+    const value = createDocumentSessionCrossContextCoordination({
+      accountId: "account-open-failure",
+      idb,
+      locks: new FifoWebLocks(),
+      local,
+      secureContext: true,
+      createWakeChannel: null,
+    });
+    coordinators.push(value);
+
+    await expect(value.admit("project", "doc", "1")).rejects.toMatchObject({
+      kind: "authority-unavailable",
+    });
+    expect(local.invalidated).toBe(1);
+    expect(local.leases.size).toBe(0);
+  });
+
+  it.each([
+    "error",
+    "blocked",
+  ] as const)("normalizes an asynchronous authority open %s", async (failure) => {
+    const local = new LocalAuthority();
+    const request: Record<string, unknown> = {
+      error: new Error(`open ${failure}`),
+    };
+    const idb = {
+      open: () => {
+        queueMicrotask(() => {
+          const handler = request[failure === "error" ? "onerror" : "onblocked"];
+          if (typeof handler === "function") handler();
+        });
+        return request;
+      },
+    } as unknown as IDBFactory;
+    const value = createDocumentSessionCrossContextCoordination({
+      accountId: `account-open-${failure}`,
+      idb,
+      locks: new FifoWebLocks(),
+      local,
+      secureContext: true,
+      createWakeChannel: null,
+    });
+    coordinators.push(value);
+    await expect(value.admit("project", "doc", "1")).rejects.toMatchObject({
+      kind: "authority-unavailable",
+    });
+    expect(local.invalidated).toBe(1);
+  });
+
+  it("normalizes a failed read/write authority transaction", async () => {
+    const local = new LocalAuthority();
+    const database = {
+      close: () => undefined,
+      transaction: () => {
+        throw new Error("readwrite denied");
+      },
+    };
+    const request: Record<string, unknown> = { result: database, error: null };
+    const idb = {
+      open: () => {
+        queueMicrotask(() => {
+          const handler = request.onsuccess;
+          if (typeof handler === "function") handler();
+        });
+        return request;
+      },
+    } as unknown as IDBFactory;
+    const value = createDocumentSessionCrossContextCoordination({
+      accountId: "account-transaction-failure",
+      idb,
+      locks: new FifoWebLocks(),
+      local,
+      secureContext: true,
+      createWakeChannel: null,
+    });
+    coordinators.push(value);
+    await expect(value.admit("project", "doc", "1")).rejects.toMatchObject({
+      kind: "authority-unavailable",
+    });
+    expect(local.leases.size).toBe(0);
+  });
+
+  it("ignores an optional wake-channel construction failure", async () => {
+    const { value } = coordinator("account-channel-failure", new FifoWebLocks());
+    const isolated = createDocumentSessionCrossContextCoordination({
+      accountId: "account-channel-failure-2",
+      idb: indexedDB,
+      locks: new FifoWebLocks(),
+      local: new LocalAuthority(),
+      secureContext: true,
+      createWakeChannel: () => {
+        throw new Error("channel denied");
+      },
+    });
+    coordinators.push(isolated);
+    await expect(value.admit("project", "doc", "1")).resolves.toMatchObject({ generation: "1" });
+    await expect(isolated.admit("project", "doc", "1")).resolves.toMatchObject({
+      generation: "1",
+    });
+  });
+
+  it("keeps an authority upgrade blocked until local teardown releases lifecycle holds", async () => {
+    const locks = new FifoWebLocks();
+    const local = new LocalAuthority();
+    let releaseInvalidation!: () => void;
+    local.invalidationBarrier = new Promise<void>((resolve) => {
+      releaseInvalidation = resolve;
+    });
+    const accountId = "account-versionchange-order";
+    const { value } = coordinator(accountId, locks, local);
+    await value.admit("project", "doc", "1");
+
+    const upgrade = indexedDB.open(`meridian:document-session-authority:${accountId}`, 3);
+    let upgraded = false;
+    upgrade.onsuccess = () => {
+      upgraded = true;
+      upgrade.result.close();
+    };
+    await vi.waitFor(() => expect(local.invalidated).toBe(1));
+    await Promise.resolve();
+    expect(upgraded).toBe(false);
+    releaseInvalidation();
+    await vi.waitFor(() => expect(upgraded).toBe(true));
+  });
+
   it("returns admission while shared lifecycle requests remain held", async () => {
     const locks = new FifoWebLocks();
     const { value } = coordinator("account-lifetime", locks);
@@ -277,6 +419,62 @@ describe("document session cross-context coordination", () => {
       revokedThrough: "1",
       persistence: "cleared",
     });
+  });
+
+  it("queues operation authority before any lifecycle-exclusive proof", async () => {
+    const locks = new FifoWebLocks();
+    const { value } = coordinator("account-lock-order", locks);
+    await value.admit("project", "doc", "1");
+    await value.revokeDocument("project", "doc", "1", "terminal-1");
+    const exclusiveRequests = locks.history.filter(
+      ({ event, mode }) => event === "request" && mode === "exclusive",
+    );
+    expect(exclusiveRequests.map(({ name }) => name)).toEqual([
+      "meridian:f1d:v1:operation/account-lock-order/doc",
+      "meridian:f1d:v1:operation/account-lock-order/doc",
+      "meridian:f1d:v1:document-lifecycle/account-lock-order/doc",
+      "meridian:f1d:v1:operation/account-lock-order/doc",
+    ]);
+  });
+
+  it.each([
+    "document",
+    "access",
+  ] as const)("rejects an old %s command without drain, wake, or lifecycle exclusion", async (kind) => {
+    const locks = new FifoWebLocks();
+    const wake = new WakeBus(false);
+    const { value, local } = coordinator(`account-old-${kind}`, locks, new LocalAuthority(), wake);
+    await value.admit("project", "doc", "10");
+    const operation =
+      kind === "document"
+        ? value.revokeDocument("project", "doc", "9", "terminal-9")
+        : value.revokeAccess("project", "doc", "9", "access-9");
+    await expect(operation).rejects.toMatchObject({ kind: "older-command" });
+    expect(local.destroyed).toBe(0);
+    expect(wake.posts).toBe(0);
+    expect(
+      locks.history.some(
+        ({ event, mode, name }) =>
+          event === "request" && mode === "exclusive" && name.includes("lifecycle"),
+      ),
+    ).toBe(false);
+  });
+
+  it("releases a sole project's document hold before its access hold", async () => {
+    const locks = new FifoWebLocks();
+    const { value } = coordinator("account-sole-access", locks);
+    await value.admit("project-b", "doc", "5");
+    await expect(value.revokeAccess("project-b", "doc", "5", "access-b-5")).resolves.toEqual({
+      revokedThrough: "5",
+      persistence: "cleared",
+    });
+    const releases = locks.history
+      .filter(({ event, mode }) => event === "release" && mode === "shared")
+      .map(({ name }) => name);
+    expect(releases).toEqual([
+      "meridian:f1d:v1:document-lifecycle/account-sole-access/doc",
+      "meridian:f1d:v1:access-lifecycle/account-sole-access/project-b/doc",
+    ]);
   });
 
   it("unwinds a partial HD acquisition so later lifecycle exclusion grants", async () => {

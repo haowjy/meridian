@@ -158,7 +158,12 @@ function nativeLocks(): CrossContextLockManager | null {
 
 function nativeWakeChannel(accountId: AccountId, wake: () => void): WakeChannel | null {
   if (typeof BroadcastChannel !== "function") return null;
-  const channel = new BroadcastChannel(`${LOCK_PREFIX}wake/${encoded(accountId)}`);
+  let channel: BroadcastChannel;
+  try {
+    channel = new BroadcastChannel(`${LOCK_PREFIX}wake/${encoded(accountId)}`);
+  } catch {
+    return null;
+  }
   channel.onmessage = wake;
   return {
     post: () => channel.postMessage({ wake: true }),
@@ -173,6 +178,8 @@ class Coordination implements DocumentSessionCrossContextCoordination {
   private readonly admissions = new Map<DocumentId, Map<ProjectId, LocalAdmission>>();
   private readonly wakeChannel: WakeChannel | null;
   private reconcilePromise: Promise<void> | null = null;
+  private readonly readiness: Promise<void>;
+  private closePromise: Promise<void> | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
   private versionChanged = false;
@@ -197,10 +204,24 @@ class Coordination implements DocumentSessionCrossContextCoordination {
         void this.reconcilePending("operation").catch(() => undefined);
       },
     );
-    this.wakeChannel =
-      createWakeChannel?.(accountId, () => {
-        void this.reconcilePending("broadcast").catch(() => undefined);
-      }) ?? null;
+    this.readiness = this.store.ensureAvailable().catch((error) => {
+      throw new DocumentSessionCoordinationError(
+        "authority-unavailable",
+        error instanceof Error
+          ? `Live document authority is unavailable: ${error.message}`
+          : "Live document authority is unavailable",
+      );
+    });
+    let wakeChannel: WakeChannel | null = null;
+    try {
+      wakeChannel =
+        createWakeChannel?.(accountId, () => {
+          void this.reconcilePending("broadcast").catch(() => undefined);
+        }) ?? null;
+    } catch {
+      // Wake delivery is advisory; durable reconciliation remains authoritative.
+    }
+    this.wakeChannel = wakeChannel;
     this.removeLifecycleListeners = this.installLifecycleListeners();
   }
 
@@ -209,6 +230,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     documentId: DocumentId,
     generation: AvailabilityGeneration,
   ): Promise<LiveDocumentSessionLease & { persistenceGeneration: AvailabilityGeneration }> {
+    await this.requireReady();
     this.assertOpen();
     for (;;) {
       let barrier: AvailabilityGeneration | null = null;
@@ -280,6 +302,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     generation: AvailabilityGeneration,
     commandId: AvailabilityCommandId,
   ): Promise<{ revokedThrough: AvailabilityGeneration; persistence: "cleared" }> {
+    await this.requireReady();
     this.assertOpen();
     await this.withOperation(documentId, async () => {
       await this.helpPendingUnderOperation(documentId);
@@ -314,6 +337,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     revokedThrough: AvailabilityGeneration;
     persistence: "cleared" | "retained-by-other-lease";
   }> {
+    await this.requireReady();
     this.assertOpen();
     let persistence: "cleared" | "retained-by-other-lease" = "cleared";
     await this.withOperation(documentId, async () => {
@@ -381,6 +405,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       | "operation"
       | "account-close",
   ): Promise<void> {
+    if (_reason !== "account-close") await this.requireReady();
     if (this.closed && _reason !== "account-close") return;
     if (this.reconcilePromise) return this.reconcilePromise;
     const reconciliation = this.runReconciliation();
@@ -394,21 +419,46 @@ class Coordination implements DocumentSessionCrossContextCoordination {
   }
 
   async close(): Promise<void> {
-    if (this.closed) return;
+    if (this.closePromise) return this.closePromise;
     this.closed = true;
     this.abort.abort(new Error("Document authority closed"));
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     this.removeLifecycleListeners();
     this.wakeChannel?.close();
+    const close = this.finishClose();
+    this.closePromise = close;
+    return close;
+  }
+
+  private async finishClose(): Promise<void> {
+    let available = false;
     try {
-      await this.reconcilePending("account-close");
+      await this.readiness;
+      available = true;
     } catch {
-      // Account teardown still invalidates every local room and releases its proof holds.
+      // Failed readiness still owns the same local teardown barrier.
+    }
+    if (available && !this.versionChanged) {
+      try {
+        await this.reconcilePending("account-close");
+      } catch {
+        // Account teardown still invalidates every local room and releases its proof holds.
+      }
     }
     await this.local.invalidateAll();
     await this.releaseAllHolds();
     await this.store.close();
+  }
+
+  private async requireReady(): Promise<void> {
+    try {
+      await this.readiness;
+    } catch (error) {
+      await this.close();
+      throw error;
+    }
+    this.assertOpen();
   }
 
   private async runReconciliation(): Promise<void> {

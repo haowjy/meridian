@@ -1,9 +1,26 @@
-/** Keeps the deferred F1-I caller inventory exact without banning the private bridge early. */
+/** Executable, line-exact inventory for deleting the temporary F1-I session ingress. */
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { F1_I_DOCUMENT_SESSION_INVENTORY } from "./document-session-registry.f1-i-inventory.test-data";
+
+type InventoryRecord = { kind: string; symbol: string; file: string; line: number };
+
+const TRANSITIONAL = [
+  "TemporaryUnfencedDocumentSessionRegistry",
+  "getDocumentSessionRegistry",
+  "temporaryGet",
+  "temporaryGetDetached",
+  "temporaryAttachDetached",
+  "temporaryRestartUnavailableRoom",
+  "temporaryRetain",
+  "temporaryRelease",
+  "temporaryPeek",
+  "temporaryRevokeRoom",
+  "temporaryObserve",
+  "temporaryGetLive",
+] as const;
 
 function sourceFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -14,83 +31,109 @@ function sourceFiles(directory: string): string[] {
   });
 }
 
-function productionMatches(
-  appRoot: string,
+function addMatches(
+  records: InventoryRecord[],
+  file: string,
+  lines: readonly string[],
+  kind: string,
+  symbol: string,
   pattern: RegExp,
-): Array<{ file: string; count: number }> {
-  return sourceFiles(join(appRoot, "src"))
-    .filter((path) => !path.endsWith(".typecheck.ts"))
-    .flatMap((path) => {
-      const count = [...readFileSync(path, "utf8").matchAll(pattern)].length;
-      return count
-        ? [{ file: `apps/app/${relative(appRoot, path).split(sep).join("/")}`, count }]
-        : [];
-    })
-    .sort((left, right) => left.file.localeCompare(right.file));
+): void {
+  for (const [index, line] of lines.entries()) {
+    pattern.lastIndex = 0;
+    const matches = [...line.matchAll(pattern)];
+    for (let occurrence = 0; occurrence < matches.length; occurrence += 1)
+      records.push({ kind, symbol, file, line: index + 1 });
+  }
+}
+
+function productionInventory(appRoot: string): InventoryRecord[] {
+  const records: InventoryRecord[] = [];
+  for (const path of sourceFiles(join(appRoot, "src")).filter(
+    (candidate) => !candidate.endsWith(".typecheck.ts"),
+  )) {
+    const file = `apps/app/${relative(appRoot, path).split(sep).join("/")}`;
+    const lines = readFileSync(path, "utf8").split(/\r?\n/);
+    for (const symbol of TRANSITIONAL)
+      addMatches(records, file, lines, "transitional", symbol, new RegExp(`\\b${symbol}\\b`, "g"));
+    for (const [index, line] of lines.entries()) {
+      if (!/\bgetDocumentSessionRegistry\b/.test(line)) continue;
+      const kind = /^\s*import\b/.test(line)
+        ? "facade-import"
+        : /^\s*export\s+(?:async\s+)?function\b/.test(line)
+          ? "facade-definition"
+          : /^\s*export\b.*\bfrom\b/.test(line)
+            ? "facade-re-export"
+            : "facade-reference";
+      records.push({ kind, symbol: "getDocumentSessionRegistry", file, line: index + 1 });
+    }
+    addMatches(records, file, lines, "legacy-owner", "revokeRoom", /\.revokeRoom\b/g);
+    addMatches(records, file, lines, "legacy-owner", "destroyRoom", /\.destroyRoom\b/g);
+    addMatches(
+      records,
+      file,
+      lines,
+      "unqualified-owner",
+      "roomSessionPersistenceKey",
+      /\broomSessionPersistenceKey\b/g,
+    );
+    addMatches(
+      records,
+      file,
+      lines,
+      "unqualified-owner",
+      "useCatalogWorkingSetReconciler",
+      /\buseCatalogWorkingSetReconciler\b/g,
+    );
+    addMatches(
+      records,
+      file,
+      lines,
+      "canonical-constructor",
+      "DocumentSession",
+      /new\s+DocumentSession\b/g,
+    );
+    addMatches(records, file, lines, "raw-authority", "navigator.locks", /navigator\.locks\b/g);
+    addMatches(records, file, lines, "raw-authority", "BroadcastChannel", /\bBroadcastChannel\b/g);
+    addMatches(
+      records,
+      file,
+      lines,
+      "raw-authority",
+      "CrossContextLockManager",
+      /\bCrossContextLockManager\b/g,
+    );
+    addMatches(records, file, lines, "raw-authority", "meridian:f1d:v1:", /meridian:f1d:v1:/g);
+    addMatches(
+      records,
+      file,
+      lines,
+      "concrete-exposure",
+      "document-session-registry-implementation",
+      /document-session-registry-implementation/g,
+    );
+    addMatches(
+      records,
+      file,
+      lines,
+      "bare-lease-less-call",
+      "legacy-registry-call",
+      /\b(?:registry|sessionRegistry|documentSessionRegistry)\.(?:get|getDetached|attachDetached|restartUnavailableRoom|retain)\s*\(/g,
+    );
+  }
+  const compare = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
+  return records.sort(
+    (left, right) =>
+      compare(left.kind, right.kind) ||
+      compare(left.symbol, right.symbol) ||
+      compare(left.file, right.file) ||
+      left.line - right.line,
+  );
 }
 
 describe("F1-I document-session deletion inventory", () => {
-  it("lists every production facade importer exactly", () => {
+  it("matches the complete line-exact production inventory", () => {
     const appRoot = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
-    const callers = sourceFiles(join(appRoot, "src"))
-      .filter((path) =>
-        /import\s+\{[^}]*getDocumentSessionRegistry[^}]*\}\s+from/.test(readFileSync(path, "utf8")),
-      )
-      .map((path) => `apps/app/${relative(appRoot, path).split(sep).join("/")}`)
-      .sort();
-
-    expect(callers).toEqual([...F1_I_DOCUMENT_SESSION_INVENTORY.productionCallers].sort());
-  });
-
-  it("freezes every transitional definition/reference and authority bypass", () => {
-    const appRoot = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
-    expect(productionMatches(appRoot, /\btemporary[A-Z][A-Za-z0-9_]*/g)).toEqual([
-      { file: "apps/app/src/core/editor/document-session-registry-implementation.ts", count: 15 },
-      { file: "apps/app/src/core/editor/document-session-registry.ts", count: 17 },
-    ]);
-    expect(productionMatches(appRoot, /\.(?:revokeRoom|destroyRoom)\s*\(/g)).toEqual([
-      {
-        file: "apps/app/src/features/project/context/untitled-reconciler.ts",
-        count: 1,
-      },
-      {
-        file: "apps/app/src/features/project/context/useCatalogWorkingSetReconciler.ts",
-        count: 2,
-      },
-      { file: "apps/app/src/features/project/ContextPaneController.tsx", count: 1 },
-    ]);
-    expect(
-      productionMatches(
-        appRoot,
-        /\broomSessionPersistenceKey\b|\buseCatalogWorkingSetReconciler\b/g,
-      ),
-    ).toEqual([
-      { file: "apps/app/src/core/editor/document-session.ts", count: 2 },
-      {
-        file: "apps/app/src/features/project/context/useCatalogWorkingSetReconciler.ts",
-        count: 1,
-      },
-      { file: "apps/app/src/features/project/ProjectView.tsx", count: 3 },
-    ]);
-    expect(productionMatches(appRoot, /new\s+DocumentSession\s*\(/g)).toEqual([
-      {
-        file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-        count: 1,
-      },
-    ]);
-    expect(
-      productionMatches(
-        appRoot,
-        /navigator\.locks|new\s+BroadcastChannel|LockManager|meridian:f1d:v1:/g,
-      ),
-    ).toEqual([
-      {
-        file: "apps/app/src/core/editor/document-session-cross-context-coordination.ts",
-        count: 7,
-      },
-    ]);
-    expect(
-      productionMatches(appRoot, /from\s+["'][^"']*document-session-registry-implementation["']/g),
-    ).toEqual([{ file: "apps/app/src/core/editor/document-session-registry.ts", count: 1 }]);
+    expect(productionInventory(appRoot)).toEqual(F1_I_DOCUMENT_SESSION_INVENTORY.expectedRecords);
   });
 });
