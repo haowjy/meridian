@@ -215,7 +215,7 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "facade-import",
       symbol: "getDocumentSessionRegistry",
       file: "apps/app/src/features/project/context/useCatalogWorkingSetReconciler.ts",
-      line: 8,
+      line: 9,
     },
     {
       kind: "facade-import",
@@ -341,13 +341,13 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "facade-reference",
       symbol: "getDocumentSessionRegistry",
       file: "apps/app/src/features/project/context/untitled-reconciler-browser.ts",
-      line: 20,
+      line: 19,
     },
     {
       kind: "facade-reference",
       symbol: "getDocumentSessionRegistry",
       file: "apps/app/src/features/project/context/useCatalogWorkingSetReconciler.ts",
-      line: 72,
+      line: 74,
     },
     {
       kind: "facade-reference",
@@ -431,13 +431,13 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "legacy-owner",
       symbol: "revokeRoom",
       file: "apps/app/src/features/project/context/useCatalogWorkingSetReconciler.ts",
-      line: 74,
+      line: 76,
     },
     {
       kind: "legacy-owner",
       symbol: "revokeRoom",
       file: "apps/app/src/features/project/context/useCatalogWorkingSetReconciler.ts",
-      line: 95,
+      line: 97,
     },
     {
       kind: "raw-authority",
@@ -701,19 +701,19 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "getDocumentSessionRegistry",
       file: "apps/app/src/features/project/context/untitled-reconciler-browser.ts",
-      line: 20,
+      line: 19,
     },
     {
       kind: "transitional",
       symbol: "getDocumentSessionRegistry",
       file: "apps/app/src/features/project/context/useCatalogWorkingSetReconciler.ts",
-      line: 8,
+      line: 9,
     },
     {
       kind: "transitional",
       symbol: "getDocumentSessionRegistry",
       file: "apps/app/src/features/project/context/useCatalogWorkingSetReconciler.ts",
-      line: 72,
+      line: 74,
     },
     {
       kind: "transitional",
@@ -941,7 +941,7 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "unqualified-owner",
       symbol: "useCatalogWorkingSetReconciler",
       file: "apps/app/src/features/project/context/useCatalogWorkingSetReconciler.ts",
-      line: 48,
+      line: 49,
     },
   ],
 } as const;
