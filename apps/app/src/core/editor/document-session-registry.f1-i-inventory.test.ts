@@ -39,7 +39,7 @@ function sourceFiles(directory: string): string[] {
     if (entry.isDirectory()) return entry.name === "generated" ? [] : sourceFiles(path);
     if (
       !/\.tsx?$/.test(entry.name) ||
-      /(?:\.test(?:-data)?|\.typecheck|\.generated|\.gen)\.tsx?$/.test(entry.name)
+      /(?:\.test(?:-data|-support)?|\.typecheck|\.generated|\.gen)\.tsx?$/.test(entry.name)
     )
       return [];
     return [path];
@@ -69,6 +69,43 @@ function isExported(node: ts.Node): boolean {
   );
 }
 
+function unalias(checker: ts.TypeChecker, symbol: ts.Symbol | undefined): ts.Symbol | undefined {
+  if (!symbol) return undefined;
+  return symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
+}
+
+function valueSymbol(
+  checker: ts.TypeChecker,
+  expression: ts.Expression,
+  seen = new Set<ts.Symbol>(),
+): ts.Symbol | undefined {
+  const symbol = unalias(checker, checker.getSymbolAtLocation(expression));
+  if (!symbol || seen.has(symbol)) return symbol;
+  seen.add(symbol);
+  const declaration = symbol.valueDeclaration ?? symbol.declarations?.[0];
+  if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer) {
+    return valueSymbol(checker, declaration.initializer, seen);
+  }
+  if (declaration && ts.isBindingElement(declaration)) {
+    const variable = declaration.parent.parent;
+    if (ts.isVariableDeclaration(variable) && variable.initializer) {
+      const propertyName = declaration.propertyName ?? declaration.name;
+      const property = checker
+        .getTypeAtLocation(variable.initializer)
+        .getProperty(propertyName.getText());
+      return unalias(checker, property);
+    }
+  }
+  return symbol;
+}
+
+function symbolNamed(checker: ts.TypeChecker, expression: ts.Expression, name: string): boolean {
+  return (
+    valueSymbol(checker, expression)?.getName() === name ||
+    checker.getTypeAtLocation(expression).getSymbol()?.getName() === name
+  );
+}
+
 function isRegistryMember(symbol: ts.Symbol | undefined): boolean {
   return !!symbol?.declarations?.some((declaration) => {
     let current: ts.Node | undefined = declaration;
@@ -84,6 +121,74 @@ function isRegistryMember(symbol: ts.Symbol | undefined): boolean {
   });
 }
 
+function registryMemberAtCall(checker: ts.TypeChecker, expression: ts.Expression): string | null {
+  if (ts.isPropertyAccessExpression(expression)) {
+    const symbol = unalias(checker, checker.getSymbolAtLocation(expression.name));
+    return symbol && isRegistryMember(symbol) ? expression.name.text : null;
+  }
+  if (
+    ts.isElementAccessExpression(expression) &&
+    ts.isStringLiteralLike(expression.argumentExpression)
+  ) {
+    const symbol = unalias(checker, checker.getSymbolAtLocation(expression.argumentExpression));
+    return symbol && isRegistryMember(symbol) ? expression.argumentExpression.text : null;
+  }
+  const symbol = unalias(checker, checker.getSymbolAtLocation(expression));
+  const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+  if (declaration && ts.isBindingElement(declaration)) {
+    const variable = declaration.parent.parent;
+    if (ts.isVariableDeclaration(variable) && variable.initializer) {
+      const member = (declaration.propertyName ?? declaration.name).getText();
+      const memberSymbol = checker.getTypeAtLocation(variable.initializer).getProperty(member);
+      return memberSymbol && isRegistryMember(memberSymbol) ? member : null;
+    }
+  }
+  if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer) {
+    return registryMemberAtCall(checker, declaration.initializer);
+  }
+  return null;
+}
+
+function navigatorLocksExpression(
+  checker: ts.TypeChecker,
+  expression: ts.Expression,
+  seen = new Set<ts.Symbol>(),
+): boolean {
+  if (
+    ts.isPropertyAccessExpression(expression) &&
+    expression.name.text === "locks" &&
+    ts.isIdentifier(expression.expression) &&
+    expression.expression.text === "navigator"
+  )
+    return true;
+  if (
+    ts.isElementAccessExpression(expression) &&
+    ts.isStringLiteralLike(expression.argumentExpression) &&
+    expression.argumentExpression.text === "locks" &&
+    ts.isIdentifier(expression.expression) &&
+    expression.expression.text === "navigator"
+  )
+    return true;
+  const symbol = unalias(checker, checker.getSymbolAtLocation(expression));
+  if (!symbol || seen.has(symbol)) return false;
+  seen.add(symbol);
+  const declaration = symbol.valueDeclaration ?? symbol.declarations?.[0];
+  if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer) {
+    return navigatorLocksExpression(checker, declaration.initializer, seen);
+  }
+  if (declaration && ts.isBindingElement(declaration)) {
+    const variable = declaration.parent.parent;
+    const member = (declaration.propertyName ?? declaration.name).getText();
+    return (
+      member === "locks" &&
+      ts.isVariableDeclaration(variable) &&
+      !!variable.initializer &&
+      ts.isIdentifier(variable.initializer) &&
+      variable.initializer.text === "navigator"
+    );
+  }
+  return false;
+}
 function scanProgram(program: ts.Program, appRoot: string): InventoryRecord[] {
   const checker = program.getTypeChecker();
   const records: InventoryRecord[] = [];
@@ -114,17 +219,17 @@ function scanProgram(program: ts.Program, appRoot: string): InventoryRecord[] {
         )
           add(sourceFile, node, "concrete-exposure", name);
       }
-      if (
-        ts.isNewExpression(node) &&
-        ts.isIdentifier(node.expression) &&
-        node.expression.text === "DocumentSession"
-      )
+      if (ts.isNewExpression(node) && symbolNamed(checker, node.expression, "DocumentSession"))
         add(sourceFile, node.expression, "canonical-constructor", "DocumentSession");
       if (
-        ts.isPropertyAccessExpression(node) &&
-        ts.isIdentifier(node.expression) &&
-        node.expression.text === "navigator" &&
-        node.name.text === "locks"
+        (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
+        navigatorLocksExpression(checker, node)
+      )
+        add(sourceFile, node, "raw-authority", "navigator.locks");
+      if (
+        ts.isBindingElement(node) &&
+        ts.isIdentifier(node.name) &&
+        navigatorLocksExpression(checker, node.name)
       )
         add(sourceFile, node, "raw-authority", "navigator.locks");
       if (ts.isStringLiteralLike(node) && node.text.includes("meridian:f1d:v1:"))
@@ -134,13 +239,16 @@ function scanProgram(program: ts.Program, appRoot: string): InventoryRecord[] {
         node.text.includes("document-session-registry-implementation")
       )
         add(sourceFile, node, "concrete-exposure", "document-session-registry-implementation");
-      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
-        const member = node.expression.name;
-        if (
-          LEASELESS_MEMBERS.has(member.text) &&
-          isRegistryMember(checker.getSymbolAtLocation(member))
-        )
-          add(sourceFile, member, "bare-lease-less-call", "legacy-registry-call");
+      if (
+        ts.isExportAssignment(node) &&
+        (symbolNamed(checker, node.expression, "DocumentSessionRegistry") ||
+          (ts.isIdentifier(node.expression) && node.expression.text === "DocumentSessionRegistry"))
+      )
+        add(sourceFile, node.expression, "concrete-exposure", "DocumentSessionRegistry");
+      if (ts.isCallExpression(node)) {
+        const member = registryMemberAtCall(checker, node.expression);
+        if (member && LEASELESS_MEMBERS.has(member))
+          add(sourceFile, node.expression, "bare-lease-less-call", "legacy-registry-call");
       }
       ts.forEachChild(node, visit);
     };
@@ -212,6 +320,16 @@ describe("F1-I document-session deletion inventory", () => {
       };
       const locks: LockManager | null = navigator.locks;
       export { DocumentSessionRegistry };
+      class DocumentSession {}
+      const SessionAlias = DocumentSession;
+      new SessionAlias();
+      const { get: acquire } = registry;
+      acquire("doc");
+      const { locks: lockAlias } = navigator;
+      lockAlias.request("name", () => undefined);
+      const elementLocks = navigator["locks"];
+      elementLocks.request("name", () => undefined);
+      export default DocumentSessionRegistry;
     `);
     expect(records).toEqual(
       expect.arrayContaining([
@@ -222,17 +340,25 @@ describe("F1-I document-session deletion inventory", () => {
         expect.objectContaining({ kind: "raw-authority", symbol: "LockManager", line: 13 }),
         expect.objectContaining({ kind: "raw-authority", symbol: "navigator.locks", line: 13 }),
         expect.objectContaining({ kind: "concrete-exposure", line: 14 }),
+        expect.objectContaining({ kind: "canonical-constructor", line: 17 }),
+        expect.objectContaining({ kind: "bare-lease-less-call", line: 19 }),
+        expect.objectContaining({ kind: "raw-authority", symbol: "navigator.locks", line: 20 }),
+        expect.objectContaining({ kind: "raw-authority", symbol: "navigator.locks", line: 22 }),
+        expect.objectContaining({ kind: "concrete-exposure", line: 24 }),
       ]),
     );
   });
 
   it("keeps the constructor and raw primitive owners singular", () => {
     const records = currentProductionInventory();
-    expect(
-      new Set(
-        records.filter(({ kind }) => kind === "canonical-constructor").map(({ file }) => file),
-      ),
-    ).toEqual(new Set(["apps/app/src/core/editor/document-session-registry-implementation.ts"]));
+    expect(records.filter(({ kind }) => kind === "canonical-constructor")).toEqual([
+      {
+        kind: "canonical-constructor",
+        symbol: "DocumentSession",
+        file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
+        line: 494,
+      },
+    ]);
     expect(
       new Set(records.filter(({ kind }) => kind === "raw-authority").map(({ file }) => file)),
     ).toEqual(new Set(["apps/app/src/core/editor/document-session-cross-context-coordination.ts"]));

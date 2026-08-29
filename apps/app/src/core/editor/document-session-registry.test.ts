@@ -472,6 +472,116 @@ describe("DocumentSessionRegistry live authority", () => {
     registry.destroyAll();
   });
 
+  it("owns a rejecting destroyAll transition while later joiners retain its diagnostic", async () => {
+    const locks = new TestLocks();
+    vi.stubGlobal("navigator", { ...navigator, locks });
+    const accountId = "account-destroy-all-rejection";
+    const registry = await registryFor(accountId);
+    const lease = await admit(registry, "project", "doc", "1");
+    const session = registry.get(lease);
+    await session.whenSynced();
+    const diagnostic = new Error("provider destroy failed on destroyAll");
+    providers[0]?.destroy.mockRejectedValue(diagnostic);
+    const unhandled: unknown[] = [];
+    const observeUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", observeUnhandled);
+    try {
+      registry.destroyAll();
+      const firstJoiner = admit(registry, "project", "doc", "2").catch((error: unknown) => error);
+      const secondJoiner = admit(registry, "project", "doc", "3").catch((error: unknown) => error);
+      expect(await firstJoiner).toBe(diagnostic);
+      expect(await secondJoiner).toBe(diagnostic);
+      expect(session.getSnapshot().status).toBe("destroyed");
+      expect(providers[0]?.destroy).toHaveBeenCalledOnce();
+      expect(locks.activeFor(accountId)).toEqual([]);
+
+      const upgrade = indexedDB.open(`meridian:document-session-authority:${accountId}`, 3);
+      await new Promise<void>((resolve, reject) => {
+        upgrade.onsuccess = () => {
+          upgrade.result.close();
+          resolve();
+        };
+        upgrade.onerror = () => reject(upgrade.error);
+      });
+      registry.setOwnUserId("account-destroy-all-recovery");
+      await expect(admit(registry, "project", "doc", "1")).resolves.toMatchObject({
+        accountId: "account-destroy-all-recovery",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", observeUnhandled);
+      registry.destroyAll();
+    }
+  });
+
+  it("owns rejecting provider teardown during versionchange while close joiners retain it", async () => {
+    const locks = new TestLocks();
+    vi.stubGlobal("navigator", { ...navigator, locks });
+    const accountId = "account-versionchange-provider-rejection";
+    let captureCoordination!: (
+      value: ReturnType<typeof createDocumentSessionCrossContextCoordination>,
+    ) => void;
+    const capturedCoordination = new Promise<
+      ReturnType<typeof createDocumentSessionCrossContextCoordination>
+    >((resolve) => {
+      captureCoordination = resolve;
+    });
+    const registry = new DocumentSessionRegistry((createdAccountId, local) => {
+      const coordination = createDocumentSessionCrossContextCoordination({
+        accountId: createdAccountId,
+        local,
+        locks,
+        idb: indexedDB,
+        secureContext: true,
+        createWakeChannel: null,
+      });
+      captureCoordination(coordination);
+      return coordination;
+    }, 0);
+    registry.setOwnUserId(accountId);
+    const lease = await admit(registry, "project", "doc", "1");
+    const session = registry.get(lease);
+    await session.whenSynced();
+    const diagnostic = new Error("provider destroy failed on versionchange");
+    providers[0]?.destroy.mockRejectedValue(diagnostic);
+    const unhandled: unknown[] = [];
+    const observeUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", observeUnhandled);
+    try {
+      const upgrade = indexedDB.open(`meridian:document-session-authority:${accountId}`, 3);
+      const upgraded = new Promise<void>((resolve, reject) => {
+        upgrade.onsuccess = () => {
+          upgrade.result.close();
+          resolve();
+        };
+        upgrade.onerror = () => reject(upgrade.error);
+      });
+      await vi.waitFor(() => expect(providers[0]?.destroy).toHaveBeenCalledOnce());
+      const coordination = await capturedCoordination;
+      const joinedDiagnostic = await coordination.close().catch((error: unknown) => error);
+      expect(joinedDiagnostic).toBe(diagnostic);
+      await upgraded;
+      expect(session.getSnapshot().status).toBe("destroyed");
+      expect(locks.activeFor(accountId)).toEqual([]);
+
+      registry.setOwnUserId("account-versionchange-provider-joiner");
+      const registryDiagnostic = await admit(registry, "project", "doc", "1").catch(
+        (error: unknown) => error,
+      );
+      expect(registryDiagnostic).toBe(diagnostic);
+      registry.setOwnUserId("account-versionchange-provider-recovery");
+      await expect(admit(registry, "project", "doc", "1")).resolves.toMatchObject({
+        accountId: "account-versionchange-provider-recovery",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", observeUnhandled);
+      registry.destroyAll();
+    }
+  });
+
   it("keeps branch generations separate from live authority and IndexedDB", async () => {
     const before = await databaseNames();
     const registry = new DocumentSessionRegistry();

@@ -286,7 +286,7 @@ export class DocumentSessionRegistry
       () => ({ ok: true as const }),
       (error: unknown) => ({ ok: false as const, error }),
     );
-    this.accountTransition = this.accountTransition
+    const transition = this.accountTransition
       .catch(() => undefined)
       .then(async () => {
         const current = this.coordination;
@@ -302,6 +302,8 @@ export class DocumentSessionRegistry
           await this.invalidateAll();
         }
       });
+    this.accountTransition = transition;
+    void transition.catch(() => undefined);
   }
 
   invalidateAll(): Promise<void> {
