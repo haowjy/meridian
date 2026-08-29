@@ -20,7 +20,7 @@ import {
   type DocumentSessionSnapshot,
   type DocumentSessionTransportProvider,
   deleteStaleVersionedIndexedDb,
-  documentSessionPersistenceKey,
+  roomSessionPersistenceKey,
 } from "./document-session";
 import { clientSchemaReloadGuardKey } from "./schema-fence";
 import type { SchemaRepairEvent } from "./schema-repair-witness";
@@ -404,10 +404,10 @@ describe("DocumentSession status derivation", () => {
   });
 
   it("builds a major.minor-versioned IndexedDB persistence key", () => {
-    expect(documentSessionPersistenceKey("doc-abc")).toBe(
+    expect(roomSessionPersistenceKey("doc-abc")).toBe(
       `meridian:document:${collabSchemaKeyTag()}:doc-abc`,
     );
-    expect(documentSessionPersistenceKey("branch:branch-abc:gen:1")).toBe(
+    expect(roomSessionPersistenceKey("branch:branch-abc:gen:1")).toBe(
       `meridian:document:${collabSchemaKeyTag()}:branch:branch-abc:gen:1`,
     );
   });
@@ -715,6 +715,37 @@ describe("DocumentSession status derivation", () => {
     // Further transport emissions must not resurrect status from destroyed.
     before.emit({ kind: "connected" });
     expect(session.getSnapshot().status).toBe("destroyed");
+  });
+
+  it("retains one destroy barrier and completes later teardown after transport rejection", async () => {
+    let rejectTransport!: (error: Error) => void;
+    const transportDestroy = new Promise<void>((_resolve, reject) => {
+      rejectTransport = reject;
+    });
+    const session = new DocumentSession({
+      roomKey: "doc-destroy-rejection",
+      enableIndexedDb: false,
+      transportFactory: () => ({
+        synced: false,
+        subscribeStatus: () => () => undefined,
+        destroy: () => transportDestroy,
+      }),
+    });
+    const awarenessDestroy = vi.spyOn(session.awareness, "destroy");
+    const documentDestroy = vi.spyOn(session.document, "destroy");
+
+    const first = session.destroy();
+    const joined = session.destroy();
+    expect(joined).toBe(first);
+    expect(session.getSnapshot().status).toBe("destroyed");
+    expect(awarenessDestroy).not.toHaveBeenCalled();
+
+    const failure = new Error("provider destroy failed");
+    rejectTransport(failure);
+    await expect(first).rejects.toBe(failure);
+    expect(awarenessDestroy).toHaveBeenCalled();
+    expect(documentDestroy).toHaveBeenCalledOnce();
+    expect(session.destroy()).toBe(first);
   });
 
   it("without a transport, remains detached after local persistence loads", () => {

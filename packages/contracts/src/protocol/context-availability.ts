@@ -5,6 +5,61 @@ import type { CatalogFileEntry } from "./context-catalog.js";
 
 export type AvailabilityGeneration = string;
 
+const CANONICAL_AVAILABILITY_GENERATION = /^(0|[1-9]\d*)$/;
+
+/** Validate the one wire/storage spelling accepted for availability generations. */
+export function assertAvailabilityGeneration(
+  value: string,
+): asserts value is AvailabilityGeneration {
+  if (!CANONICAL_AVAILABILITY_GENERATION.test(value)) {
+    throw new TypeError(`Invalid availability generation: ${JSON.stringify(value)}`);
+  }
+}
+
+/** Stable identifier derived by the availability coordinator for one revocation command. */
+export type AvailabilityCommandId = string;
+
+/** The authenticated user is the account boundary for browser session authority. */
+export type AccountId = UserId;
+
+export type LiveDocumentSessionLease = {
+  accountId: AccountId;
+  projectId: ProjectId;
+  documentId: DocumentId;
+  generation: AvailabilityGeneration;
+};
+
+export type DocumentFenceKey = `document/${AccountId}/${DocumentId}`;
+export type AccessFenceKey = `access/${AccountId}/${ProjectId}/${DocumentId}`;
+
+export type RevocationFence = {
+  revokedThrough: AvailabilityGeneration;
+  commandId: AvailabilityCommandId;
+};
+
+export interface LiveDocumentSessionAuthority {
+  admit(
+    projectId: ProjectId,
+    documentId: DocumentId,
+    generation: AvailabilityGeneration,
+  ): Promise<LiveDocumentSessionLease>;
+  revokeDocument(
+    projectId: ProjectId,
+    documentId: DocumentId,
+    generation: AvailabilityGeneration,
+    commandId: AvailabilityCommandId,
+  ): Promise<{ revokedThrough: AvailabilityGeneration; persistence: "cleared" }>;
+  revokeAccess(
+    projectId: ProjectId,
+    documentId: DocumentId,
+    generation: AvailabilityGeneration,
+    commandId: AvailabilityCommandId,
+  ): Promise<{
+    revokedThrough: AvailabilityGeneration;
+    persistence: "cleared" | "retained-by-other-lease";
+  }>;
+}
+
 export type ProjectContextIdentityLookupRequest = {
   projectId: ProjectId;
   documentIds: readonly DocumentId[];
