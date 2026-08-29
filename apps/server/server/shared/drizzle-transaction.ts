@@ -48,6 +48,7 @@ export async function runInDrizzleTransaction<T>(
 export async function runInRootDrizzleTransaction<T>(
   db: DrizzleDatabase,
   operation: () => Promise<T>,
+  options?: { isolationLevel?: "repeatable read"; accessMode?: "read only" },
 ): Promise<T> {
   return transactionStorage.exit(async () => {
     const context: DrizzleTransactionContext = {
@@ -61,7 +62,7 @@ export async function runInRootDrizzleTransaction<T>(
       result = await db.transaction((tx) => {
         context.db = tx;
         return transactionStorage.run(context, operation);
-      });
+      }, options);
     } catch (cause) {
       await dispatchAfterRollback(context.afterRollback, cause);
       throw cause;

@@ -547,6 +547,13 @@
       "when": 1787986542619,
       "tag": "0077_supreme_darkstar",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1788004496587,
+      "tag": "0078_tricky_sharon_carter",
+      "breakpoints": true
     }
   ]
 }

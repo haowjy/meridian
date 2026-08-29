@@ -5,6 +5,7 @@ import {
   bigint,
   index,
   jsonb,
+  pgSequence,
   pgTable,
   primaryKey,
   text,
@@ -63,3 +64,12 @@ export const contextCatalogCommits = pgTable(
     index("context_catalog_commits_commit_idx").on(table.commitId),
   ],
 );
+
+/** Global ordering source; heads contain watermarks only, never identity state. */
+export const contextAvailabilityGeneration = pgSequence("context_availability_generation_seq");
+
+export const contextAvailabilityHeads = pgTable("context_availability_heads", {
+  authorityKey: text("authority_key").primaryKey(),
+  generation: bigint("generation", { mode: "bigint" }).notNull(),
+  updatedAt: updatedAt(),
+});

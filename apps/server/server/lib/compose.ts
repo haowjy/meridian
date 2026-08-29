@@ -29,6 +29,7 @@ import {
   createDrizzleContextCatalog,
   createDrizzleDocumentLinkResolver,
   createDrizzleFigureDocumentRepository,
+  createDrizzleProjectContextAvailability,
   createDrizzleResultRepository,
   createDrizzleThreadUploadDocumentStore,
   createFigureAssetService,
@@ -41,6 +42,7 @@ import {
   type FigureAssetService,
   InMemoryContextCatalog,
   InMemoryDocumentLinkResolver,
+  type ProjectContextAvailabilityPort,
   type PromotionService,
   type ResultRepository,
   type ThreadUploadDocumentStore,
@@ -170,6 +172,7 @@ export type AppServices = {
   documentSync: CollabDomain;
   contextPorts: UnifiedContextPortFactory;
   contextCatalog: ContextCatalog;
+  projectContextAvailability: ProjectContextAvailabilityPort;
   contextCatalogWakeHub: ContextCatalogWakeHub;
   documentLinks: DocumentLinkResolver;
   projects: ProjectBootstrapRepository;
@@ -224,6 +227,7 @@ export type ProductionAppPorts = {
   documentSync: CollabDomain;
   contextPorts: UnifiedContextPortFactory;
   contextCatalog: ContextCatalog;
+  projectContextAvailability: ProjectContextAvailabilityPort;
   contextCatalogWakeHub: ContextCatalogWakeHub;
   documentLinks: DocumentLinkResolver;
   projects: ProjectBootstrapRepository;
@@ -325,7 +329,10 @@ export async function createProductionAppPorts(input: {
   const documentAccess = createDrizzleDocumentAccess(db);
   const notices = createDrizzleNoticePort(db);
   const contextCatalogWakeHub = createContextCatalogWakeHub();
-  const contextCatalog = createDrizzleContextCatalog(db, contextCatalogWakeHub);
+  const projectContextAvailability = createDrizzleProjectContextAvailability(db);
+  const contextCatalog = createDrizzleContextCatalog(db, contextCatalogWakeHub, {
+    availabilityMutations: projectContextAvailability,
+  });
   const projectRepo = createDrizzleProjectRepository({ db, catalogLifecycle: contextCatalog });
   const workAuthorityResolver = createDrizzleProjectWorkAuthorityResolver(db);
   let contextPorts: UnifiedContextPortFactory;
@@ -442,6 +449,7 @@ export async function createProductionAppPorts(input: {
     documentSync,
     contextPorts,
     contextCatalog,
+    projectContextAvailability,
     contextCatalogWakeHub,
     documentLinks: createDrizzleDocumentLinkResolver(input.db),
     projects,
@@ -653,6 +661,7 @@ export function composeAppServices(ports: ProductionAppPorts): AppServices {
     documentSync: ports.documentSync,
     contextPorts: ports.contextPorts,
     contextCatalog: ports.contextCatalog,
+    projectContextAvailability: ports.projectContextAvailability,
     contextCatalogWakeHub: ports.contextCatalogWakeHub,
     documentLinks: ports.documentLinks,
     projects: ports.projects,
@@ -828,6 +837,19 @@ export function createInMemoryAppServices(): AppServices {
     documentSync,
     contextPorts: createInMemoryUnifiedContextPortFactory({ documentSync }),
     contextCatalog: new InMemoryContextCatalog(),
+    projectContextAvailability: {
+      async lookup(input) {
+        return {
+          projectId: input.projectId,
+          resolutionId: crypto.randomUUID(),
+          resolutions: [...new Set(input.documentIds)].map((documentId) => ({
+            kind: "not-visible" as const,
+            documentId,
+            checkedGeneration: "0",
+          })),
+        };
+      },
+    },
     contextCatalogWakeHub: createContextCatalogWakeHub(),
     documentLinks: new InMemoryDocumentLinkResolver(),
     projects: {

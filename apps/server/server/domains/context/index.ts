@@ -12,6 +12,7 @@ export { InMemoryContextDocumentStore } from "./adapters/context-fs/in-memory-st
 export { createDrizzleDocumentLinkResolver } from "./adapters/drizzle-document-link-resolver.js";
 export { InMemoryContextCatalog } from "./adapters/in-memory-context-catalog.js";
 export { InMemoryDocumentLinkResolver } from "./adapters/in-memory-document-link-resolver.js";
+export { createDrizzleProjectContextAvailability } from "./adapters/project-context-availability.js";
 export { joinPath, parseFilename, renderFilename, splitPath } from "./context/paths.js";
 export { createContextPortRouter } from "./context/router.js";
 export {
@@ -87,6 +88,10 @@ export type {
   ResolveDocumentLinkInput,
   ResolvedDocumentLink,
 } from "./ports/document-link-resolver.js";
+export type {
+  ProjectContextAvailabilityMutationPort,
+  ProjectContextAvailabilityPort,
+} from "./ports/project-context-availability.js";
 export { createDrizzleResultRepository } from "./promotion/adapters/drizzle-result-repository.js";
 export { createInMemoryResultRepository } from "./promotion/adapters/in-memory-result-repository.js";
 export { createInterruptArtifactFlush } from "./promotion/interrupt-artifact-flush.js";

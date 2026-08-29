@@ -1,10 +1,6 @@
 /** Drizzle adapter for authoritative catalog snapshots, replay, and mutation reconciliation. */
 import { randomUUID } from "node:crypto";
-import {
-  type CanonicalContextAuthority,
-  type ContextUriScheme,
-  canonicalContextUri,
-} from "@meridian/contracts/context-uri";
+import { type ContextUriScheme, canonicalContextUri } from "@meridian/contracts/context-uri";
 import type {
   CatalogChange,
   CatalogChanges,
@@ -16,10 +12,9 @@ import type {
   CatalogLookupResult,
   CatalogScope,
   CatalogSnapshot,
-  Filetype,
 } from "@meridian/contracts/protocol";
-import { catalogScopeKey, classifyFiletype } from "@meridian/contracts/protocol";
-import { decodeWorkSlug, type ResolvedWorkAuthority } from "@meridian/contracts/works";
+import { catalogScopeKey } from "@meridian/contracts/protocol";
+import { decodeWorkSlug } from "@meridian/contracts/works";
 import type { Database } from "@meridian/database";
 import {
   contextCatalogCommits,
@@ -37,17 +32,17 @@ import {
   runAfterDrizzleCommit,
   runInDrizzleTransaction,
 } from "../../../shared/drizzle-transaction.js";
-import { documentAliases } from "../document-metadata.js";
 import type {
   ContextCatalog,
   ContextCatalogMutationPort,
   ContextCatalogWakePort,
 } from "../ports/context-catalog.js";
+import type { ProjectContextAvailabilityMutationPort } from "../ports/project-context-availability.js";
+import { catalogSourceAuthority, mapAuthoritativeFile } from "./catalog-file-mapper.js";
 
 const DEFAULT_DELTA_LIMIT = 100;
 const MAX_DELTA_LIMIT = 500;
 const DEFAULT_RETAINED_COMMITS_PER_SCOPE = 1_000;
-const BINARY_FILE_TYPES = new Set(["docx", "image", "pdf", "binary"]);
 
 type CatalogDb = Pick<Database, "delete" | "insert" | "select" | "update">;
 
@@ -85,21 +80,6 @@ function stableJson(value: unknown): string {
       .join(",")}}`;
   }
   return JSON.stringify(value);
-}
-
-function sourceAuthority(
-  scheme: ContextUriScheme,
-  workId: string | null,
-  workSlug: string | null,
-): CanonicalContextAuthority {
-  if (scheme !== "scratch" && scheme !== "uploads") return { kind: "contextual" };
-  if (!workSlug) return { kind: "none" };
-  const decoded = decodeWorkSlug(workSlug);
-  if (!decoded) throw new Error(`Persisted Work slug is invalid: ${workSlug}`);
-  // Only serialization fields are observed here; the opaque constructor keeps
-  // internal IDs out of URI authority while the source query proves ownership.
-  if (!workId) throw new Error(`Work source is missing its Work id: ${workSlug}`);
-  return { kind: "work", workId, workSlug: decoded } as ResolvedWorkAuthority;
 }
 
 function scopeForSource(row: {
@@ -252,7 +232,7 @@ async function buildScopeEntries(db: CatalogDb, scope: CatalogScope): Promise<Ca
   const entries: CatalogEntry[] = [];
   for (const source of sourceRows) {
     const scheme = source.slug as ContextUriScheme;
-    const authority = sourceAuthority(scheme, source.workId, source.workSlug);
+    const authority = catalogSourceAuthority(scheme, source.workId, source.workSlug);
     entries.push({
       kind: "source",
       entryId: source.id,
@@ -279,55 +259,16 @@ async function buildScopeEntries(db: CatalogDb, scope: CatalogScope): Promise<Ca
     for (const document of documentRows.filter((item) => item.contextSourceId === source.id)) {
       const parentPath = pathForFolder(document.folderId, source.id);
       if (!parentPath) continue;
-      const filename = document.extension
-        ? `${document.name}.${document.extension}`
-        : document.name;
-      const path = [...parentPath, filename];
-      const classification = classifyFiletype(document.fileType);
-      const storageBacked =
-        document.storageUrl !== null || BINARY_FILE_TYPES.has(document.fileType);
-      const persistedClassification =
-        !storageBacked && classification.kind === "tracked"
-          ? {
-              editable: true as const,
-              filetype: document.fileType as Filetype,
-              schemaType: classification.schemaType,
-            }
-          : classification.kind === "custom"
-            ? {
-                editable: false as const,
-                disposition: "custom" as const,
-                fileType: classification.fileType,
-                mimeType: document.mimeType,
-                filetype: document.fileType as Filetype,
-              }
-            : {
-                editable: false as const,
-                disposition: "binary" as const,
-                fileType:
-                  document.fileType === "docx" ||
-                  document.fileType === "image" ||
-                  document.fileType === "pdf" ||
-                  document.fileType === "binary"
-                    ? document.fileType
-                    : classification.kind === "binary"
-                      ? classification.fileType
-                      : ("binary" as const),
-                mimeType: document.mimeType,
-              };
-      entries.push({
-        kind: "file",
-        entryId: document.id,
-        scope,
-        sourceId: source.id,
-        parentId: document.folderId ?? source.id,
-        name: filename,
-        aliases: documentAliases(document.metadata),
-        path,
-        uri: canonicalContextUri(scheme, path.join("/"), authority),
-        ...persistedClassification,
-        provisionalName: document.provisionalName,
-      });
+      entries.push(
+        mapAuthoritativeFile({
+          document,
+          scope,
+          scheme,
+          workId: source.workId,
+          workSlug: source.workSlug,
+          parentPath,
+        }),
+      );
     }
   }
   if (scope.kind === "project") {
@@ -390,7 +331,10 @@ function mapCommit(row: typeof contextCatalogCommits.$inferSelect): CatalogCommi
 export function createDrizzleContextCatalog(
   db: Database,
   wakePort?: ContextCatalogWakePort,
-  options: { retainedCommitsPerScope?: number } = {},
+  options: {
+    retainedCommitsPerScope?: number;
+    availabilityMutations?: ProjectContextAvailabilityMutationPort;
+  } = {},
 ): ContextCatalog & ContextCatalogMutationPort {
   const retainedCommitsPerScope = Math.max(
     1,
@@ -604,6 +548,39 @@ export function createDrizzleContextCatalog(
         const scope = await sourceScope(tx, sourceId);
         if (scope) scopes.set(catalogScopeKey(scope), scope);
       }
+      const ownershipRows =
+        sourceIds.length === 0
+          ? []
+          : await tx
+              .select({
+                projectId: contextSources.projectId,
+                sourceSlug: contextSources.slug,
+                projectUserId: projects.userId,
+                projectIsPersonal: projects.isPersonal,
+                workProjectId: works.projectId,
+              })
+              .from(contextSources)
+              .leftJoin(projects, eq(contextSources.projectId, projects.id))
+              .leftJoin(works, eq(contextSources.workId, works.id))
+              .where(inArray(contextSources.id, [...new Set(sourceIds)] as never));
+      await options.availabilityMutations?.advance({
+        projectIds: [
+          ...new Set(
+            ownershipRows.flatMap(
+              (row) => [row.projectId ?? row.workProjectId].filter(Boolean) as string[],
+            ),
+          ),
+        ],
+        userIds: [
+          ...new Set(
+            ownershipRows.flatMap((row) =>
+              row.sourceSlug === "user" && row.projectIsPersonal && row.projectUserId
+                ? [row.projectUserId]
+                : [],
+            ),
+          ),
+        ],
+      });
       for (const scope of [...scopes.values()].sort((a, b) =>
         catalogScopeKey(a).localeCompare(catalogScopeKey(b)),
       )) {
@@ -621,6 +598,10 @@ export function createDrizzleContextCatalog(
         .select({ id: works.id })
         .from(works)
         .where(eq(works.projectId, projectId));
+      await options.availabilityMutations?.advance({
+        projectIds: [projectId],
+        userIds: project?.isPersonal ? [project.userId] : [],
+      });
       const scopes: CatalogScope[] = [
         { kind: "project", projectId },
         { kind: "none", projectId },
