@@ -86,6 +86,16 @@ function admit(
 describe("ContextRemovalCoordinator exact removal and lifetime", () => {
   beforeEach(() => setDesk([], null));
 
+  it("redirects an unavailable Work route even when it owns no open document", () => {
+    const rig = scenario({ screen: "context", work: "work-1" });
+    rig.setRoutes([{ scheme: "scratch", path: "/old.md", workId: "work-1" }]);
+
+    rig.coordinator.workUnavailable(projectId, "work-1", []);
+
+    expect(rig.search()).toEqual({ screen: "work" });
+    expect(rig.routes()).toEqual([]);
+  });
+
   it("persists exact phone cleanup so reload cannot resurrect it", () => {
     const values = new Map<string, string>();
     const storage = {

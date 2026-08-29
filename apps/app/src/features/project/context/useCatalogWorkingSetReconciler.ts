@@ -67,32 +67,33 @@ export function useCatalogWorkingSetReconciler(projectId: string): void {
       if (!previous || previous === next) return;
 
       const transition = catalogWorkingSetTransition(previous, next);
-      const vanished = [...transition.vanishedDocumentIds];
-      const unavailableWorks = transition.unavailableWorkIds;
-      if (unavailableWorks.length > 0) {
-        const unavailable = new Set(unavailableWorks);
+      const documentIds = [...transition.vanishedDocumentIds];
+      if (documentIds.length > 0) removal.catalogUnavailable(projectId, documentIds);
+      const sessions = getDocumentSessionRegistry();
+      for (const documentId of documentIds) {
+        void sessions.revokeRoom(documentId, { clearPersistence: true });
+      }
+      for (const unavailableWorkId of transition.unavailableWorkIds) {
+        const unavailableDocumentIds: string[] = [];
         const slice = useContextTabsStore.getState().byProject[projectId];
         for (const tab of slice?.tabs ?? []) {
-          if (tab.kind !== "new" && tab.workId && unavailable.has(tab.workId)) {
-            vanished.push(tab.documentId);
+          if (tab.kind !== "new" && tab.workId === unavailableWorkId) {
+            unavailableDocumentIds.push(tab.documentId);
           }
         }
         const selection = removal.getProjectSnapshot(projectId).selection;
         if (
           selection.status === "bound" &&
           selection.identity.kind === "server" &&
-          selection.locator.workId &&
-          unavailable.has(selection.locator.workId)
+          selection.locator.workId === unavailableWorkId
         ) {
-          vanished.push(selection.identity.documentId);
+          unavailableDocumentIds.push(selection.identity.documentId);
         }
-      }
-      const documentIds = [...new Set(vanished)];
-      if (documentIds.length === 0) return;
-      removal.catalogUnavailable(projectId, documentIds);
-      const sessions = getDocumentSessionRegistry();
-      for (const documentId of documentIds) {
-        void sessions.revokeRoom(documentId, { clearPersistence: true });
+        const uniqueDocumentIds = [...new Set(unavailableDocumentIds)];
+        removal.workUnavailable(projectId, unavailableWorkId, uniqueDocumentIds);
+        for (const documentId of uniqueDocumentIds) {
+          void sessions.revokeRoom(documentId, { clearPersistence: true });
+        }
       }
     });
   }, [projectId, queryClient, removal]);
