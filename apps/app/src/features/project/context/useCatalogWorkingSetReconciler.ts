@@ -6,7 +6,7 @@ import { useEffect } from "react";
 import type { CatalogCacheView } from "@/client/query/context-catalog-cache";
 import { isProjectContextCatalogKey } from "@/client/query/project-query-keys";
 import { observeWorksAvailability } from "@/client/query/works-availability-observer";
-import { type ServerContextTab, useContextTabsStore } from "@/client/stores";
+import { useContextTabsStore } from "@/client/stores";
 import { readRecentRoutes } from "@/client/working-set";
 import {
   useContextRemovalCoordinator,
@@ -21,19 +21,8 @@ function visibleFileIds(view: CatalogCacheView): Set<string> {
   );
 }
 
-export function recentWatchedDocumentIds(
-  recentRoutes: readonly WorkingSetRoute[],
-  tabs: readonly ServerContextTab[],
-): string[] {
-  const identitiesByLocator = new Map(
-    tabs.map((tab) => [`${tab.scheme}/${tab.workId ?? ""}/${tab.path}`, tab.documentId]),
-  );
-  return recentRoutes
-    .slice(0, 64)
-    .flatMap(
-      (route) =>
-        identitiesByLocator.get(`${route.scheme}/${route.workId ?? ""}/${route.path}`) ?? [],
-    );
+export function recentWatchedDocumentIds(recentRoutes: readonly WorkingSetRoute[]): string[] {
+  return recentRoutes.slice(0, 64).map((route) => route.documentId);
 }
 
 export function catalogWorkingSetTransition(
@@ -106,7 +95,7 @@ export function useCatalogWorkingSetReconciler(projectId: string): void {
             : {}),
         },
       );
-      lease.watch("recent-routes", recentWatchedDocumentIds(readRecentRoutes(projectId), tabs));
+      lease.watch("recent-routes", recentWatchedDocumentIds(readRecentRoutes(projectId)));
     };
     reportWatches();
     const stopTabs = useContextTabsStore.subscribe(reportWatches);

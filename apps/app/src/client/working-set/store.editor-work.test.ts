@@ -1,6 +1,14 @@
 import type { WorkingSetRoute } from "@meridian/contracts/protocol";
 import { describe, expect, it } from "vitest";
-import { recentRouteForEditorWork } from "./store";
+import { buildWorkingSetRoute, recentRouteForEditorWork } from "./store";
+
+describe("buildWorkingSetRoute", () => {
+  it("rejects unresolved authority instead of dropping a Work-capable route", () => {
+    expect(() =>
+      buildWorkingSetRoute("document-route", "scratch", "/shared.md", undefined),
+    ).toThrow("require resolved authority");
+  });
+});
 
 describe("recentRouteForEditorWork", () => {
   const mixedRoutes: WorkingSetRoute[] = [

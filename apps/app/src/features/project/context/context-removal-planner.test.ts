@@ -44,6 +44,26 @@ describe("context removal planner", () => {
     ).toBeNull();
   });
 
+  it("persists explicit no-Work authority for Work-capable tabs", () => {
+    expect(
+      workingSetRouteForTab({
+        kind: "tracked",
+        documentId: "unscoped",
+        scheme: "scratch",
+        path: "/unscoped.md",
+        name: "unscoped.md",
+        editable: true,
+        filetype: "markdown",
+        schemaType: "document",
+      }),
+    ).toEqual({
+      documentId: "unscoped",
+      scheme: "scratch",
+      path: "/unscoped.md",
+      workId: null,
+    });
+  });
+
   it("retains local origin for Work pruning but not explicit close", () => {
     const localOrigin = {
       ...tracked("local", "/Untitled.md"),

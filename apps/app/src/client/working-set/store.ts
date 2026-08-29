@@ -44,8 +44,9 @@ const EMPTY_SNAPSHOT: WorkingSetSnapshot = { recentRoutes: [], lastThreadId: nul
 
 /**
  * Canonical WorkingSetRoute builder from tab/route coordinates. Returns null
- * for empty paths or when a work-scoped scheme lacks its required Work. Empty
- * Scratch belongs only to the device desk and coordinator, never recency.
+ * for empty paths. Callers must resolve Work/no-Work authority before building
+ * a Work-capable route. Empty Scratch belongs only to the device desk and
+ * coordinator, never recency.
  */
 export function buildWorkingSetRoute(
   documentId: DocumentId,
@@ -55,7 +56,9 @@ export function buildWorkingSetRoute(
 ): WorkingSetRoute | null {
   if (path.length === 0) return null;
   if (isWorkScopedProjectContextScheme(scheme)) {
-    if (workId === undefined) return null;
+    if (workId === undefined) {
+      throw new TypeError("Work-capable working-set routes require resolved authority");
+    }
     return { documentId, scheme, path, workId: workId as string | null };
   }
   return { documentId, scheme, path };

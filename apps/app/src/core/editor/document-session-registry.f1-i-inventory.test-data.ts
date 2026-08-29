@@ -917,7 +917,7 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "unqualified-owner",
       symbol: "useCatalogWorkingSetReconciler",
       file: "apps/app/src/features/project/context/useCatalogWorkingSetReconciler.ts",
-      line: 67,
+      line: 56,
     },
   ],
 } as const;

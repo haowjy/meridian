@@ -97,15 +97,15 @@ describe("catalog working-set transition", () => {
       scheme: "manuscript" as const,
       path: `Chapter-${index}.md`,
     }));
-    const tabs = routes.map((route) => ({
-      kind: "tracked" as const,
-      ...route,
-      name: route.path,
-      editable: true as const,
-      filetype: "markdown" as const,
-      schemaType: "document" as const,
-    }));
-    expect(recentWatchedDocumentIds(routes, tabs)).toHaveLength(64);
-    expect(recentWatchedDocumentIds(routes, tabs)).not.toContain("document-64");
+    expect(recentWatchedDocumentIds(routes)).toHaveLength(64);
+    expect(recentWatchedDocumentIds(routes)).not.toContain("document-64");
+  });
+
+  it("reports a closed durable route directly by stable identity", () => {
+    expect(
+      recentWatchedDocumentIds([
+        { documentId: "document-1", scheme: "manuscript", path: "/Old.md" },
+      ]),
+    ).toEqual(["document-1"]);
   });
 });

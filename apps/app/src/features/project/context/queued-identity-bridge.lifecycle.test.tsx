@@ -214,8 +214,12 @@ it.each([
         <Harness />
       </QueryClientProvider>,
       async () => {
-        const openingRoute = { scheme: "manuscript", path: "/Act 1/Opening.md" };
-        const chapterRoute = { scheme: "manuscript", path: "/a.md" };
+        const openingRoute = {
+          documentId: "doc-1",
+          scheme: "manuscript",
+          path: "/Act 1/Opening.md",
+        };
+        const chapterRoute = { documentId: "chapter-b", scheme: "manuscript", path: "/a.md" };
         const checkpoint = async (expectedRoutes: (typeof openingRoute)[]) => {
           expect(readRecentRoutes("project-1")).toEqual(expectedRoutes);
           const reportCount = transportState.reports.length;

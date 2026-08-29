@@ -10,13 +10,18 @@ import {
   validateContextDeskTabs,
 } from "./working-set-tab-seeding";
 
-const mocks = vi.hoisted(() => ({ readTree: vi.fn() }));
-vi.mock("@/client/query/useContextCatalog", () => ({
+const mocks = vi.hoisted(() => ({ availability: vi.fn(), readTree: vi.fn() }));
+vi.mock("@/client/query/useContextCatalog", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/client/query/useContextCatalog")>()),
   fetchContextCatalogView: mocks.readTree,
+}));
+vi.mock("@/client/query/project-context-availability", () => ({
+  lookupProjectContextAvailability: mocks.availability,
 }));
 
 beforeEach(() => {
   mocks.readTree.mockReset();
+  mocks.availability.mockReset();
   useContextTabsStore.setState({ byProject: {}, _deskHydrated: true });
 });
 
@@ -106,6 +111,65 @@ describe("server hydration route settlement", () => {
       { tab: refreshed, removedRoute: null },
       { tab: null, removedRoute: { documentId: "missing", scheme: "kb", path: "/missing.md" } },
     ]);
+  });
+
+  it("repairs an ordinary restored tab by exact availability without acquiring a catalog", async () => {
+    useContextTabsStore.setState({
+      byProject: { project: { tabs: [restored], selectedTabIdByWork: {} } },
+    });
+    mocks.availability.mockResolvedValue({
+      projectId: "project",
+      resolutionId: "lookup-1",
+      resolutions: [
+        {
+          kind: "available",
+          documentId: "a",
+          generation: "1",
+          authority: { kind: "project", projectId: "project" },
+          entry: {
+            kind: "file",
+            entryId: "a",
+            scope: { kind: "project", projectId: "project" },
+            sourceId: "source",
+            parentId: "source",
+            name: "renamed.md",
+            aliases: [],
+            path: ["renamed.md"],
+            uri: "manuscript://renamed.md",
+            provisionalName: false,
+            editable: true,
+            filetype: "markdown",
+            schemaType: "document",
+          },
+        },
+      ],
+    });
+
+    await validateContextDeskTabs({
+      queryClient: new QueryClient(),
+      scope: { projectId: "project", editorWorkId: null, generation: 1 },
+      isLiveScope: () => true,
+    });
+
+    expect(mocks.availability).toHaveBeenCalledWith("project", ["a"]);
+    expect(mocks.readTree).not.toHaveBeenCalled();
+    expect(useContextTabsStore.getState().byProject.project?.tabs).toEqual([
+      expect.objectContaining({ documentId: "a", path: "/renamed.md", name: "renamed.md" }),
+    ]);
+  });
+
+  it("preserves an ordinary restored tab when exact availability is unresolved", async () => {
+    useContextTabsStore.setState({
+      byProject: { project: { tabs: [restored], selectedTabIdByWork: {} } },
+    });
+    mocks.availability.mockRejectedValue(new Error("offline"));
+    await validateContextDeskTabs({
+      queryClient: new QueryClient(),
+      scope: { projectId: "project", editorWorkId: null, generation: 1 },
+      isLiveScope: () => true,
+    });
+    expect(useContextTabsStore.getState().byProject.project?.tabs).toEqual([restored]);
+    expect(mocks.readTree).not.toHaveBeenCalled();
   });
 });
 

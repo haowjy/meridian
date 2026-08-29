@@ -180,7 +180,12 @@ export function contextTabEligibleForRemoval(
 export function workingSetRouteForTab(tab: ContextTab) {
   return tab.kind === "new"
     ? null
-    : buildWorkingSetRoute(tab.documentId, tab.scheme, tab.path, tab.workId);
+    : buildWorkingSetRoute(
+        tab.documentId,
+        tab.scheme,
+        tab.path,
+        isWorkScopedProjectContextScheme(tab.scheme) ? (tab.workId ?? null) : undefined,
+      );
 }
 
 export function routeTargetForTab(
