@@ -212,6 +212,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
           : "Live document authority is unavailable",
       );
     });
+    void this.readiness.catch(() => this.close()).catch(() => undefined);
     let wakeChannel: WakeChannel | null = null;
     try {
       wakeChannel =

@@ -149,6 +149,39 @@ function registryMemberAtCall(checker: ts.TypeChecker, expression: ts.Expression
   return null;
 }
 
+function navigatorExpression(
+  checker: ts.TypeChecker,
+  expression: ts.Expression,
+  seen = new Set<ts.Symbol>(),
+): boolean {
+  if (ts.isIdentifier(expression) && expression.text === "navigator") return true;
+  if (
+    ts.isPropertyAccessExpression(expression) &&
+    expression.name.text === "navigator" &&
+    ts.isIdentifier(expression.expression) &&
+    expression.expression.text === "globalThis"
+  )
+    return true;
+  if (
+    ts.isElementAccessExpression(expression) &&
+    ts.isStringLiteralLike(expression.argumentExpression) &&
+    expression.argumentExpression.text === "navigator" &&
+    ts.isIdentifier(expression.expression) &&
+    expression.expression.text === "globalThis"
+  )
+    return true;
+  const symbol = unalias(checker, checker.getSymbolAtLocation(expression));
+  if (!symbol || seen.has(symbol)) return false;
+  seen.add(symbol);
+  const declaration = symbol.valueDeclaration ?? symbol.declarations?.[0];
+  return !!(
+    declaration &&
+    ts.isVariableDeclaration(declaration) &&
+    declaration.initializer &&
+    navigatorExpression(checker, declaration.initializer, seen)
+  );
+}
+
 function navigatorLocksExpression(
   checker: ts.TypeChecker,
   expression: ts.Expression,
@@ -157,16 +190,14 @@ function navigatorLocksExpression(
   if (
     ts.isPropertyAccessExpression(expression) &&
     expression.name.text === "locks" &&
-    ts.isIdentifier(expression.expression) &&
-    expression.expression.text === "navigator"
+    navigatorExpression(checker, expression.expression)
   )
     return true;
   if (
     ts.isElementAccessExpression(expression) &&
     ts.isStringLiteralLike(expression.argumentExpression) &&
     expression.argumentExpression.text === "locks" &&
-    ts.isIdentifier(expression.expression) &&
-    expression.expression.text === "navigator"
+    navigatorExpression(checker, expression.expression)
   )
     return true;
   const symbol = unalias(checker, checker.getSymbolAtLocation(expression));
@@ -183,8 +214,7 @@ function navigatorLocksExpression(
       member === "locks" &&
       ts.isVariableDeclaration(variable) &&
       !!variable.initializer &&
-      ts.isIdentifier(variable.initializer) &&
-      variable.initializer.text === "navigator"
+      navigatorExpression(checker, variable.initializer)
     );
   }
   return false;
@@ -329,6 +359,11 @@ describe("F1-I document-session deletion inventory", () => {
       lockAlias.request("name", () => undefined);
       const elementLocks = navigator["locks"];
       elementLocks.request("name", () => undefined);
+      const nav = navigator;
+      const directAlias = nav.locks;
+      const { locks: destructuredAlias } = nav;
+      const globalNav = globalThis.navigator;
+      const elementAlias = globalNav["locks"];
       export default DocumentSessionRegistry;
     `);
     expect(records).toEqual(
@@ -344,7 +379,10 @@ describe("F1-I document-session deletion inventory", () => {
         expect.objectContaining({ kind: "bare-lease-less-call", line: 19 }),
         expect.objectContaining({ kind: "raw-authority", symbol: "navigator.locks", line: 20 }),
         expect.objectContaining({ kind: "raw-authority", symbol: "navigator.locks", line: 22 }),
-        expect.objectContaining({ kind: "concrete-exposure", line: 24 }),
+        expect.objectContaining({ kind: "raw-authority", symbol: "navigator.locks", line: 25 }),
+        expect.objectContaining({ kind: "raw-authority", symbol: "navigator.locks", line: 26 }),
+        expect.objectContaining({ kind: "raw-authority", symbol: "navigator.locks", line: 28 }),
+        expect.objectContaining({ kind: "concrete-exposure", line: 29 }),
       ]),
     );
   });
@@ -356,7 +394,7 @@ describe("F1-I document-session deletion inventory", () => {
         kind: "canonical-constructor",
         symbol: "DocumentSession",
         file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-        line: 494,
+        line: 497,
       },
     ]);
     expect(

@@ -226,10 +226,13 @@ export class DocumentSessionRegistry
     this.attachSessionTransport(session);
     session.subscribe((snapshot) => {
       if (snapshot.connectionState?.kind !== "reset") return;
-      void session.destroy().finally(() => {
-        if (this.unleasedRooms.get(roomKey)?.session === session)
-          this.unleasedRooms.delete(roomKey);
-      });
+      void session
+        .destroy()
+        .finally(() => {
+          if (this.unleasedRooms.get(roomKey)?.session === session)
+            this.unleasedRooms.delete(roomKey);
+        })
+        .catch(() => undefined);
     });
     this.unleasedRooms.set(roomKey, { session, detached: false });
     return session;
@@ -542,13 +545,13 @@ export class DocumentSessionRegistry
         if (this.isRetained(roomKey)) return;
         const session = state.session;
         state.session = null;
-        void session.destroy();
+        void session.destroy().catch(() => undefined);
         return;
       }
       const unleased = this.unleasedRooms.get(roomKey);
       if (!unleased || this.isUnleasedRetained(roomKey)) return;
       this.unleasedRooms.delete(roomKey);
-      void unleased.session.destroy();
+      void unleased.session.destroy().catch(() => undefined);
     }, this.teardownGraceMs);
     this.pendingTeardownTimers.set(roomKey, timer);
   }
