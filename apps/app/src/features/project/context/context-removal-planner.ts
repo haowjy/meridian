@@ -9,7 +9,12 @@ import { buildWorkingSetRoute, type ReconcileContextRoutesInput } from "@/client
 import type { ContextRouteRepair, ContextRouteTarget } from "../routing/project-route";
 
 export type ContextRemovalIntent = {
-  cause: "writer-close" | "acknowledged-delete" | "work-prune" | "draft-discard";
+  cause:
+    | "writer-close"
+    | "acknowledged-delete"
+    | "catalog-unavailable"
+    | "work-prune"
+    | "draft-discard";
   documentIds: readonly string[];
 };
 
@@ -155,6 +160,7 @@ export function contextTabEligibleForRemoval(
     case "writer-close":
       return true;
     case "acknowledged-delete":
+    case "catalog-unavailable":
       return tab.kind !== "new" && !tab.draftOnly;
     case "work-prune":
       return (

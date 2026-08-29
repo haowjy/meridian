@@ -13,6 +13,7 @@ import {
 } from "@meridian/contracts/context-uri";
 import type { ResolvedWorkAuthority, WorkSlug } from "@meridian/contracts/works";
 import type { Database } from "@meridian/database";
+import { runInDrizzleTransaction } from "../../shared/drizzle-transaction.js";
 import type { DocumentCreationAggregate, MarkdownDocumentStore } from "../collab/index.js";
 import { createInMemoryCollabDomain } from "../collab/index.js";
 import { ContextFS } from "./adapters/context-fs/context-fs.js";
@@ -28,6 +29,7 @@ import {
 } from "./context-source-provisioning.js";
 import type { ContextSchemeAdapter } from "./ports/context-adapter.js";
 import type { ContextCatalogMutationPort } from "./ports/context-catalog.js";
+import type { ContextCommandTransaction } from "./ports/context-command-transaction.js";
 import type { ContextDocumentStore } from "./ports/context-document-store.js";
 import type {
   ContextPort,
@@ -105,6 +107,7 @@ function contextFsAdapter(deps: {
   mutationStore: import("./ports/context-tree-mutation-store.js").ContextTreeMutationStore;
   documentSync: MarkdownDocumentStore;
   documentCreation?: DocumentCreationAggregate;
+  commandTransaction?: ContextCommandTransaction;
   scheme: ContextScheme;
   manifestView?: ManifestView;
 }): ContextSchemeAdapter {
@@ -118,6 +121,7 @@ function buildProjectContextFsAdapters(
   documentSync: MarkdownDocumentStore,
   manifestView?: ManifestView,
   documentCreation?: DocumentCreationAggregate,
+  commandTransaction?: ContextCommandTransaction,
 ): Map<ContextScheme, ContextSchemeAdapter> {
   const adapters = new Map<ContextScheme, ContextSchemeAdapter>();
   for (const scheme of PROJECT_CONTEXTFS_SCHEMES) {
@@ -128,6 +132,7 @@ function buildProjectContextFsAdapters(
         mutationStore: storeResolvers.resolveMutationStore(manifestView),
         documentSync,
         documentCreation,
+        commandTransaction,
         scheme,
         ...(scheme === "manuscript" && manifestView ? { manifestView } : {}),
       }),
@@ -142,6 +147,7 @@ function buildWorkScopedContextFsAdapters(
   storeResolvers: ContextStoreResolvers,
   documentSync: MarkdownDocumentStore,
   documentCreation?: DocumentCreationAggregate,
+  commandTransaction?: ContextCommandTransaction,
 ): Map<ContextScheme, ContextSchemeAdapter> {
   // Scratch/uploads are canonical live documents even though their storage is
   // Work-scoped. The live-room gate reads the project manifest, so membership
@@ -157,6 +163,7 @@ function buildWorkScopedContextFsAdapters(
         mutationStore,
         documentSync,
         documentCreation,
+        commandTransaction,
         scheme,
       }),
     );
@@ -170,6 +177,7 @@ function buildUnassignedContextFsAdapters(
   storeResolvers: ContextStoreResolvers,
   documentSync: MarkdownDocumentStore,
   documentCreation?: DocumentCreationAggregate,
+  commandTransaction?: ContextCommandTransaction,
 ): Map<ContextScheme, ContextSchemeAdapter> {
   const manifestView = { projectId };
   const mutationStore = storeResolvers.resolveMutationStore(manifestView);
@@ -182,6 +190,7 @@ function buildUnassignedContextFsAdapters(
         mutationStore,
         documentSync,
         documentCreation,
+        commandTransaction,
         scheme,
       }),
     );
@@ -211,6 +220,7 @@ function buildUnifiedContextPort(input: {
   storeResolvers: ContextStoreResolvers;
   documentSync: MarkdownDocumentStore;
   documentCreation?: DocumentCreationAggregate;
+  commandTransaction?: ContextCommandTransaction;
 }): ContextPort {
   const { scope, storeResolvers, documentSync } = input;
   const adapters = buildProjectContextFsAdapters(
@@ -227,6 +237,7 @@ function buildUnifiedContextPort(input: {
         }
       : { projectId: scope.projectId },
     input.documentCreation,
+    input.commandTransaction,
   );
 
   const unassignedAdapters = buildUnassignedContextFsAdapters(
@@ -235,6 +246,7 @@ function buildUnifiedContextPort(input: {
     storeResolvers,
     documentSync,
     input.documentCreation,
+    input.commandTransaction,
   );
   const workAuthorities = scope.workAuthorities;
   if (scope.kind === "work") {
@@ -244,6 +256,7 @@ function buildUnifiedContextPort(input: {
       storeResolvers,
       documentSync,
       input.documentCreation,
+      input.commandTransaction,
     )) {
       adapters.set(scheme, adapter);
     }
@@ -268,9 +281,11 @@ function buildUnifiedContextPort(input: {
         storeResolvers,
         documentSync,
         input.documentCreation,
+        input.commandTransaction,
       ),
     resolveNoWorkAdapters: () => unassignedAdapters,
     parseOptions: { barePathDefault: "manuscript", schemes: UNIFIED_CONTEXT_SCHEMES },
+    commandTransaction: input.commandTransaction,
   });
 }
 
@@ -394,6 +409,9 @@ export function createProductionUnifiedContextPortFactory(options: {
         storeResolvers,
         documentSync: options.documentSync,
         documentCreation: options.documentSync,
+        commandTransaction: {
+          run: (operation) => runInDrizzleTransaction(options.db, operation),
+        },
       });
     },
     forWork(authority, projectId, userId, workAuthorities, threadId, responseId) {
@@ -410,6 +428,9 @@ export function createProductionUnifiedContextPortFactory(options: {
         storeResolvers,
         documentSync: options.documentSync,
         documentCreation: options.documentSync,
+        commandTransaction: {
+          run: (operation) => runInDrizzleTransaction(options.db, operation),
+        },
       });
     },
   };

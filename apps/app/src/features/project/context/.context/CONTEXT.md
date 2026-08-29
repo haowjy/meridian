@@ -29,14 +29,22 @@ ContextPaneController
 ```
 
 React Query acquires compact catalog snapshots and whole-commit deltas into one
-normalized stable-ID cache. Tree and picker are projections over those same
-entry objects; focus, bounded polling, and wake hints all pull the cursor.
+normalized stable-ID cache. One QueryClient-scoped high-water coordinator makes
+focus, polling, reconnect, hints, and multiple consumers join the same cursor
+drain. Applied revision advances only through contiguous whole commits; observed
+head can lead it while a bounded replay has more pages. Tree and picker are
+projections over those same entry objects.
 Mutations invalidate the affected catalog scope on success. Delete admits its
 exact evidence to live removal authority first; cache absence never supplies
 deletion evidence. Foreground identity saves and
 background untitled create/move reconciliation share
 `context-identity-mutation.ts`; every successful receipt invalidates its
 materialized tree or both move endpoints, even when no tab is open.
+
+The project-lifetime catalog reconciler diffs complete installed views by stable
+file ID. Authoritative deletion, reset omission, or Work unavailability reuses
+the removal coordinator for tab/route continuity and revokes the corresponding
+Yjs sessions; same-ID move upserts and local-new tabs survive.
 
 `useFileSuggestions` projects directly from the normalized scope views. It
 never walks or caches a second recursive tree and never adds a server-search path; hosts constrain

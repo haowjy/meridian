@@ -15,6 +15,7 @@ import { Ok } from "../../../shared/result.js";
 import { truncateDrizzleTables } from "../../../test-support/drizzle-reset.js";
 import { useRollbackTestDatabase } from "../../../test-support/rollback-test-database.js";
 import { createDrizzleProjectRepository } from "../../projects/adapters/project-repository/drizzle.js";
+import { createDrizzleWorkRepository } from "../../projects/adapters/work-repository/drizzle.js";
 import { createProjectContextDocumentStore } from "../context-source-provisioning.js";
 import { createDrizzleContextCatalog } from "./context-catalog.js";
 import { ContextFS } from "./context-fs/context-fs.js";
@@ -145,7 +146,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       });
     });
 
-    it("preserves persisted tracked, DOCX, image, PDF, and generic-binary classification", async () => {
+    it("preserves persisted tracked, binary, and custom classification", async () => {
       const db = database.current;
       await db.insert(users).values(conformanceUserValues(USER_ID, "catalog-classification"));
       await db.insert(projects).values({
@@ -199,6 +200,13 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
           mimeType: "application/octet-stream",
           storageUrl: "s3://archive",
         },
+        {
+          contextSourceId: SOURCE_ID,
+          name: "research",
+          extension: "note",
+          fileType: "notebook",
+          storageUrl: "s3://research",
+        },
       ]);
       const catalog = createDrizzleContextCatalog(db);
       const snapshot = await catalog.snapshot({ kind: "project", projectId: PROJECT_ID });
@@ -214,6 +222,13 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
           expect.objectContaining({ name: "cover.blob", editable: false, fileType: "image" }),
           expect.objectContaining({ name: "proof.blob", editable: false, fileType: "pdf" }),
           expect.objectContaining({ name: "archive.txt", editable: false, fileType: "binary" }),
+          expect.objectContaining({
+            name: "research.note",
+            editable: false,
+            disposition: "custom",
+            fileType: "binary",
+            filetype: "notebook",
+          }),
         ]),
       );
     });
@@ -266,7 +281,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       ).resolves.toMatchObject({ kind: "delta", commits: [] });
     });
 
-    it("publishes source provisioning atomically and clears a rolled-back cached source", async () => {
+    it("rolls back first-touch source publication with the real ContextFS command", async () => {
       const db = database.current;
       await db.insert(users).values(conformanceUserValues(USER_ID, "catalog-source-rollback"));
       await db.insert(projects).values({
@@ -276,11 +291,14 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         slug: "catalog-project",
       });
       const catalog = createDrizzleContextCatalog(db);
+      let refreshCalls = 0;
+      let failMutationRefresh = true;
       const failingCatalog = {
         refreshProject: (projectId: string) => catalog.refreshProject(projectId),
         async refreshSources(sourceIds: readonly string[]) {
+          refreshCalls += 1;
           await catalog.refreshSources(sourceIds);
-          throw new Error("catalog failure");
+          if (failMutationRefresh && refreshCalls === 2) throw new Error("catalog failure");
         },
       };
       const store = createProjectContextDocumentStore(
@@ -291,7 +309,17 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         undefined,
         failingCatalog,
       );
-      await expect(store.createFolder(null, "Rolled Back")).rejects.toThrow("catalog failure");
+      const context = new ContextFS({
+        store,
+        mutationStore: new DrizzleContextTreeMutationStore(db, undefined, failingCatalog),
+        scheme: "scratch",
+        documentSync: {
+          ensureDocument: async () => {},
+          readAsMarkdown: async () => Ok(""),
+          seedFromMarkdown: async () => Ok({ updateSeq: 1 }),
+        } as never,
+      });
+      await expect(context.mkdir("Rolled Back")).rejects.toThrow("catalog failure");
       await expect(
         db
           .select()
@@ -304,6 +332,17 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
             ),
           ),
       ).resolves.toEqual([]);
+      await expect(db.select().from(folders)).resolves.toEqual([]);
+
+      failMutationRefresh = false;
+      refreshCalls = 0;
+      await expect(context.mkdir("Retry")).resolves.toMatchObject({ ok: true });
+      await expect(
+        db
+          .select()
+          .from(contextSources)
+          .where(and(eq(contextSources.projectId, PROJECT_ID), eq(contextSources.slug, "scratch"))),
+      ).resolves.toHaveLength(1);
     });
 
     it("rolls project lifecycle and catalog revocation back at the repository seam", async () => {
@@ -327,6 +366,56 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       });
       await expect(repository.softDelete(PROJECT_ID)).rejects.toThrow("catalog failure");
       await expect(repository.findById(PROJECT_ID)).resolves.toMatchObject({ deletedAt: null });
+    });
+
+    it("projects successful Work lifecycle transitions and rolls refresh failure back", async () => {
+      const db = database.current;
+      await db.insert(users).values(conformanceUserValues(USER_ID, "catalog-work-lifecycle"));
+      await db.insert(projects).values({
+        id: PROJECT_ID,
+        userId: USER_ID,
+        name: "Catalog Project",
+        slug: "catalog-project",
+      });
+      const catalog = createDrizzleContextCatalog(db);
+      const repository = createDrizzleWorkRepository({
+        db,
+        hasUnreviewedDraft: async () => false,
+        catalogLifecycle: catalog,
+      });
+      const workId = "00000000-0000-4000-8000-000000000807" as never;
+      const scope = { kind: "project", projectId: PROJECT_ID } as const;
+      await repository.create({
+        id: workId,
+        projectId: PROJECT_ID as never,
+        createdByUserId: USER_ID as never,
+        name: "Lifecycle Work",
+      });
+      const authority = async () =>
+        (await catalog.snapshot(scope)).entries.find((entry) => entry.entryId === workId);
+      await expect(authority()).resolves.toMatchObject({ kind: "authority", available: true });
+      await repository.archive(workId);
+      await expect(authority()).resolves.toMatchObject({ available: false });
+      await repository.unarchive(workId);
+      await expect(authority()).resolves.toMatchObject({ available: true });
+      await repository.softDelete(workId);
+      await expect(authority()).resolves.toMatchObject({ available: false });
+      await repository.restore(workId);
+      await expect(authority()).resolves.toMatchObject({ available: true });
+
+      const failingRepository = createDrizzleWorkRepository({
+        db,
+        hasUnreviewedDraft: async () => false,
+        catalogLifecycle: {
+          async refreshProject(projectId) {
+            await catalog.refreshProject(projectId);
+            throw new Error("catalog failure");
+          },
+        },
+      });
+      await expect(failingRepository.archive(workId)).rejects.toThrow("catalog failure");
+      await expect(repository.findById(workId)).resolves.toMatchObject({ status: "active" });
+      await expect(authority()).resolves.toMatchObject({ available: true });
     });
 
     it("publishes provisional graduation and keeps canonical URI lookup scheme-qualified", async () => {

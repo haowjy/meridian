@@ -31,7 +31,7 @@ import {
   projects,
   works,
 } from "@meridian/database/schema";
-import { and, asc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import {
   currentDrizzleDb,
   runAfterDrizzleCommit,
@@ -293,19 +293,28 @@ async function buildScopeEntries(db: CatalogDb, scope: CatalogScope): Promise<Ca
               filetype: document.fileType as Filetype,
               schemaType: classification.schemaType,
             }
-          : {
-              editable: false as const,
-              fileType:
-                document.fileType === "docx" ||
-                document.fileType === "image" ||
-                document.fileType === "pdf" ||
-                document.fileType === "binary"
-                  ? document.fileType
-                  : classification.kind === "binary" || classification.kind === "custom"
-                    ? classification.fileType
-                    : ("binary" as const),
-              mimeType: document.mimeType,
-            };
+          : classification.kind === "custom"
+            ? {
+                editable: false as const,
+                disposition: "custom" as const,
+                fileType: classification.fileType,
+                mimeType: document.mimeType,
+                filetype: document.fileType as Filetype,
+              }
+            : {
+                editable: false as const,
+                disposition: "binary" as const,
+                fileType:
+                  document.fileType === "docx" ||
+                  document.fileType === "image" ||
+                  document.fileType === "pdf" ||
+                  document.fileType === "binary"
+                    ? document.fileType
+                    : classification.kind === "binary"
+                      ? classification.fileType
+                      : ("binary" as const),
+                mimeType: document.mimeType,
+              };
       entries.push({
         kind: "file",
         entryId: document.id,
@@ -503,55 +512,68 @@ export function createDrizzleContextCatalog(
       );
     },
     async changes(scope, cursor, requestedLimit = DEFAULT_DELTA_LIMIT): Promise<CatalogChanges> {
-      const head = await ensureHead(db, scope);
-      const parsed = decodeCursor(cursor);
-      if (!parsed || parsed.scopeKey !== head.scopeKey) {
-        return { kind: "reset-required", scope, reason: "scope_changed" };
-      }
-      if (parsed.generation !== head.generation) {
-        return { kind: "reset-required", scope, reason: "scope_changed" };
-      }
-      if (parsed.revision < head.oldestRevision - 1) {
-        return { kind: "reset-required", scope, reason: "expired" };
-      }
-      if (parsed.revision > head.headRevision) {
-        return { kind: "reset-required", scope, reason: "gap" };
-      }
+      await ensureHead(db, scope);
       const limit = Math.max(1, Math.min(MAX_DELTA_LIMIT, Math.floor(requestedLimit)));
-      const rows = await db
-        .select()
-        .from(contextCatalogCommits)
-        .where(
-          and(
-            eq(contextCatalogCommits.scopeKey, head.scopeKey),
-            gt(contextCatalogCommits.firstRevision, parsed.revision),
-          ),
-        )
-        .orderBy(asc(contextCatalogCommits.firstRevision))
-        .limit(limit + 1);
-      const selected = rows.slice(0, limit);
-      const nextRevision = selected.at(-1)?.lastRevision ?? parsed.revision;
-      let expectedRevision = parsed.revision + 1;
-      const hasGap = selected.some((row) => {
-        if (row.firstRevision !== expectedRevision) return true;
-        expectedRevision = row.lastRevision + 1;
-        return false;
-      });
-      if (hasGap || (selected.length === 0 && parsed.revision < head.headRevision)) {
-        return { kind: "reset-required", scope, reason: "gap" };
-      }
-      return {
-        kind: "delta",
-        scope,
-        commits: selected.map(mapCommit),
-        nextCursor: encodeCursor({
-          scopeKey: head.scopeKey,
-          generation: head.generation,
-          revision: nextRevision,
-        }),
-        headRevision: String(head.headRevision),
-        hasMore: rows.length > limit,
-      };
+      return db.transaction(
+        async (tx) => {
+          const [head] = await tx
+            .select()
+            .from(contextCatalogScopeHeads)
+            .where(eq(contextCatalogScopeHeads.scopeKey, catalogScopeKey(scope)))
+            .limit(1);
+          if (!head) throw new Error(`Catalog head disappeared: ${catalogScopeKey(scope)}`);
+          const parsed = decodeCursor(cursor);
+          if (
+            !parsed ||
+            parsed.scopeKey !== head.scopeKey ||
+            parsed.generation !== head.generation
+          ) {
+            return { kind: "reset-required", scope, reason: "scope_changed" } as const;
+          }
+          if (parsed.revision < head.oldestRevision - 1) {
+            return { kind: "reset-required", scope, reason: "expired" } as const;
+          }
+          if (parsed.revision > head.headRevision) {
+            return { kind: "reset-required", scope, reason: "gap" } as const;
+          }
+          const rows = await tx
+            .select()
+            .from(contextCatalogCommits)
+            .where(
+              and(
+                eq(contextCatalogCommits.scopeKey, head.scopeKey),
+                gt(contextCatalogCommits.firstRevision, parsed.revision),
+                lte(contextCatalogCommits.lastRevision, head.headRevision),
+              ),
+            )
+            .orderBy(asc(contextCatalogCommits.firstRevision))
+            .limit(limit + 1);
+          const selected = rows.slice(0, limit);
+          const nextRevision = selected.at(-1)?.lastRevision ?? parsed.revision;
+          let expectedRevision = parsed.revision + 1;
+          const hasGap = selected.some((row) => {
+            if (row.firstRevision !== expectedRevision) return true;
+            expectedRevision = row.lastRevision + 1;
+            return false;
+          });
+          if (hasGap || (selected.length === 0 && parsed.revision < head.headRevision)) {
+            return { kind: "reset-required", scope, reason: "gap" } as const;
+          }
+          return {
+            kind: "delta",
+            scope,
+            commits: selected.map(mapCommit),
+            nextCursor: encodeCursor({
+              scopeKey: head.scopeKey,
+              generation: head.generation,
+              revision: nextRevision,
+            }),
+            headRevision: String(head.headRevision),
+            hasMore: rows.length > limit,
+          } as const;
+        },
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      );
     },
     async children(input: CatalogChildrenRequest): Promise<CatalogChildrenResult> {
       const snapshot = await this.snapshot(input.scope);

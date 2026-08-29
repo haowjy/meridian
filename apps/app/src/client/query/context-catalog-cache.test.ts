@@ -88,6 +88,63 @@ describe("catalog cache reducer", () => {
     expect(duplicate?.cursor).toBe("cursor-2");
   });
 
+  it("applies bounded pages without advancing applied revision to the observed head", () => {
+    const initial = catalogViewFromSnapshot({
+      scope,
+      generation: "generation-1",
+      headRevision: "0",
+      cursor: "cursor-0",
+      entries: [source],
+    });
+    const page1 = applyCatalogChanges(initial, {
+      kind: "delta",
+      scope,
+      commits: [
+        { eventId: "e1", commitId: "c1", firstRevision: "1", lastRevision: "1", changes: [] },
+      ],
+      nextCursor: "cursor-1",
+      headRevision: "2",
+      hasMore: true,
+    });
+    expect(page1?.appliedRevision).toBe("1");
+    expect(page1?.observedHeadRevision).toBe("2");
+    const page2 =
+      page1 &&
+      applyCatalogChanges(page1, {
+        kind: "delta",
+        scope,
+        commits: [
+          { eventId: "e2", commitId: "c2", firstRevision: "2", lastRevision: "2", changes: [] },
+        ],
+        nextCursor: "cursor-2",
+        headRevision: "2",
+        hasMore: false,
+      });
+    expect(page2?.appliedRevision).toBe("2");
+  });
+
+  it("rejects a commit newer than the reported head without mutating the live view", () => {
+    const initial = catalogViewFromSnapshot({
+      scope,
+      generation: "generation-1",
+      headRevision: "1",
+      cursor: "cursor-1",
+      entries: [source],
+    });
+    const result = applyCatalogChanges(initial, {
+      kind: "delta",
+      scope,
+      commits: [
+        { eventId: "e2", commitId: "c2", firstRevision: "2", lastRevision: "2", changes: [] },
+      ],
+      nextCursor: "cursor-2",
+      headRevision: "1",
+      hasMore: false,
+    });
+    expect(result).toBeNull();
+    expect(initial.appliedRevision).toBe("1");
+  });
+
   it("requests snapshot replacement on reset without mutating live state", () => {
     const before = catalogViewFromSnapshot({
       scope,

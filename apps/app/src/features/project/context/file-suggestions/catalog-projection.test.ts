@@ -40,6 +40,7 @@ const entries: CatalogEntry[] = [
     path: ["archive.txt"],
     uri: "manuscript://archive.txt",
     editable: false,
+    disposition: "binary",
     fileType: "binary",
     mimeType: "application/octet-stream",
     provisionalName: false,

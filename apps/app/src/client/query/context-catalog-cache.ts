@@ -10,7 +10,8 @@ import type {
 export type CatalogCacheView = {
   scope: CatalogScope;
   generation: string;
-  headRevision: string;
+  appliedRevision: string;
+  observedHeadRevision: string;
   cursor: string;
   entries: ReadonlyMap<string, CatalogEntry>;
   invalidatedEntryIds: ReadonlySet<string>;
@@ -22,7 +23,8 @@ export function emptyCatalogView(scope: CatalogScope): CatalogCacheView {
   return {
     scope,
     generation: "",
-    headRevision: "0",
+    appliedRevision: "0",
+    observedHeadRevision: "0",
     cursor: "",
     entries: new Map(),
     invalidatedEntryIds: new Set(),
@@ -73,6 +75,15 @@ function applyCommit(
   return { entries, invalidatedEntryIds: invalidated };
 }
 
+function revision(value: string): bigint | null {
+  try {
+    const parsed = BigInt(value);
+    return parsed >= 0n ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function withIndexes(
   view: Omit<CatalogCacheView, "childIdsByParentId" | "sourceIdsByScheme">,
 ): CatalogCacheView {
@@ -101,7 +112,8 @@ export function catalogViewFromSnapshot(snapshot: CatalogSnapshot): CatalogCache
   return withIndexes({
     scope: snapshot.scope,
     generation: snapshot.generation,
-    headRevision: snapshot.headRevision,
+    appliedRevision: snapshot.headRevision,
+    observedHeadRevision: snapshot.headRevision,
     cursor: snapshot.cursor,
     entries: new Map(snapshot.entries.map((entry) => [entry.entryId, entry])),
     invalidatedEntryIds: new Set(),
@@ -114,22 +126,42 @@ export function applyCatalogChanges(
   changes: CatalogChanges,
 ): CatalogCacheView | null {
   if (changes.kind === "reset-required") return null;
+  if (JSON.stringify(changes.scope) !== JSON.stringify(current.scope)) return null;
   let next = current;
   for (const commit of changes.commits) {
-    if (BigInt(commit.lastRevision) <= BigInt(next.headRevision)) continue;
+    const firstRevision = revision(commit.firstRevision);
+    const lastRevision = revision(commit.lastRevision);
+    const appliedRevision = revision(next.appliedRevision);
+    if (firstRevision === null || lastRevision === null || appliedRevision === null) return null;
+    if (lastRevision <= appliedRevision) continue;
+    if (firstRevision !== appliedRevision + 1n || lastRevision < firstRevision) return null;
     const applied = applyCommit(next, commit);
     next = {
       ...next,
       entries: applied.entries,
       invalidatedEntryIds: applied.invalidatedEntryIds,
-      headRevision: commit.lastRevision,
+      appliedRevision: commit.lastRevision,
     };
+  }
+  const returnedHead = revision(changes.headRevision);
+  const appliedRevision = revision(next.appliedRevision);
+  const priorObservedHead = revision(current.observedHeadRevision);
+  if (
+    returnedHead === null ||
+    appliedRevision === null ||
+    priorObservedHead === null ||
+    returnedHead < appliedRevision ||
+    returnedHead < priorObservedHead ||
+    (!changes.hasMore && returnedHead !== appliedRevision)
+  ) {
+    return null;
   }
   return withIndexes({
     scope: next.scope,
     generation: next.generation,
     cursor: changes.nextCursor,
-    headRevision: changes.headRevision,
+    appliedRevision: next.appliedRevision,
+    observedHeadRevision: changes.headRevision,
     entries: next.entries,
     invalidatedEntryIds: next.invalidatedEntryIds,
   });

@@ -131,6 +131,7 @@ export function IdentityPlacementField({
   const rootRows: AnnotatedFileSuggestion[] = useMemo(
     () =>
       WRITABLE_IDENTITY_DESTINATIONS.map((scheme) => ({
+        entryId: `root:${scheme}`,
         scheme,
         path: "/",
         name: schemeLabel(scheme),

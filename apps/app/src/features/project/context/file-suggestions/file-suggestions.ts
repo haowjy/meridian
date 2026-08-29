@@ -5,6 +5,7 @@ import type { CatalogCacheView } from "@/client/query/context-catalog-cache";
 export type FileSuggestionKind = "file" | "dir";
 
 export type FileSuggestion = {
+  entryId: string;
   scheme: ProjectContextTreeScheme;
   path: string;
   name: string;
@@ -28,6 +29,7 @@ export function catalogFileSuggestions(views: readonly CatalogCacheView[]): File
         if (!seen.has(key)) {
           seen.add(key);
           suggestions.push({
+            entryId: entry.entryId,
             scheme: entry.scheme,
             path: "/",
             name: entry.name,
@@ -44,6 +46,7 @@ export function catalogFileSuggestions(views: readonly CatalogCacheView[]): File
       if (seen.has(key)) continue;
       seen.add(key);
       suggestions.push({
+        entryId: entry.entryId,
         scheme: source.scheme,
         path: `/${entry.path.join("/")}`,
         name: entry.name,

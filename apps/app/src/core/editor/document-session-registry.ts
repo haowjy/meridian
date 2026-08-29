@@ -259,6 +259,18 @@ export class DocumentSessionRegistry {
     await session.destroy(options);
   }
 
+  /**
+   * Revoke an authoritatively vanished live room from every opener before
+   * destroying it, so a stale desktop/mobile retained set cannot recreate it.
+   */
+  async revokeRoom(roomKey: string, options: { clearPersistence?: boolean } = {}): Promise<void> {
+    for (const retained of this.retainedByOwner.values()) {
+      retained.roomKeys.delete(roomKey);
+      retained.detachedRoomKeys.delete(roomKey);
+    }
+    await this.destroyRoom(roomKey, options);
+  }
+
   private maybeWarnLiveDocCap(): void {
     if (this.liveDocCapWarningEmitted || this.sessions.size <= LIVE_DOC_SOFT_CAP) return;
     this.liveDocCapWarningEmitted = true;

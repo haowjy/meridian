@@ -10,6 +10,7 @@ type DrizzleTransactionContext = {
   db: DrizzleDb;
   afterCommit: Array<() => void | Promise<void>>;
   afterRollback: Array<() => void | Promise<void>>;
+  locals: Map<object, unknown>;
 };
 
 const transactionStorage = new AsyncLocalStorage<DrizzleTransactionContext>();
@@ -24,7 +25,12 @@ export async function runInDrizzleTransaction<T>(
 ): Promise<T> {
   const active = transactionStorage.getStore();
   if (active) return operation();
-  const context: DrizzleTransactionContext = { db, afterCommit: [], afterRollback: [] };
+  const context: DrizzleTransactionContext = {
+    db,
+    afterCommit: [],
+    afterRollback: [],
+    locals: new Map(),
+  };
   let result: T;
   try {
     result = await db.transaction((tx) => {
@@ -44,7 +50,12 @@ export async function runInRootDrizzleTransaction<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
   return transactionStorage.exit(async () => {
-    const context: DrizzleTransactionContext = { db, afterCommit: [], afterRollback: [] };
+    const context: DrizzleTransactionContext = {
+      db,
+      afterCommit: [],
+      afterRollback: [],
+      locals: new Map(),
+    };
     let result: T;
     try {
       result = await db.transaction((tx) => {
@@ -58,6 +69,49 @@ export async function runInRootDrizzleTransaction<T>(
     await dispatchAfterCommit(context.afterCommit);
     return result;
   });
+}
+
+/**
+ * Run an adapter-atomic unit. Inside an ambient command transaction this is a
+ * real nested Drizzle transaction/savepoint; its commit callbacks remain
+ * subordinate to the outer commit.
+ */
+export async function runInDrizzleSavepoint<T>(
+  db: DrizzleDatabase,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const parent = transactionStorage.getStore();
+  if (!parent) return runInDrizzleTransaction(db, operation);
+  const transactional = parent.db as DrizzleTransaction;
+  const child: DrizzleTransactionContext = {
+    db: transactional,
+    afterCommit: [],
+    afterRollback: [],
+    locals: new Map(parent.locals),
+  };
+  try {
+    const result = await transactional.transaction((tx) => {
+      child.db = tx;
+      return transactionStorage.run(child, operation);
+    });
+    parent.afterCommit.push(...child.afterCommit);
+    parent.afterRollback.push(...child.afterRollback);
+    return result;
+  } catch (cause) {
+    await dispatchAfterRollback(child.afterRollback, cause);
+    throw cause;
+  }
+}
+
+export function getDrizzleTransactionLocal<T>(key: object): T | undefined {
+  return transactionStorage.getStore()?.locals.get(key) as T | undefined;
+}
+
+export function setDrizzleTransactionLocal<T>(key: object, value: T): boolean {
+  const active = transactionStorage.getStore();
+  if (!active) return false;
+  active.locals.set(key, value);
+  return true;
 }
 
 export function runAfterDrizzleCommit(callback: () => void | Promise<void>): boolean {

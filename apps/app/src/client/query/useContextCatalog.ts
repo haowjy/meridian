@@ -6,11 +6,7 @@ import type {
 } from "@meridian/contracts/protocol";
 import { type QueryClient, queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
-import {
-  getContextCatalogChanges,
-  getContextCatalogLookup,
-  getContextCatalogSnapshot,
-} from "@/client/api/projects-api";
+import { getContextCatalogLookup } from "@/client/api/projects-api";
 import { useOptionalThreadTransport } from "@/client/providers/TransportProvider";
 import type {
   CatalogContextView,
@@ -18,12 +14,8 @@ import type {
   CatalogFile,
   CatalogNode,
 } from "@/client/query/context-catalog-projection";
-import {
-  applyCatalogChanges,
-  type CatalogCacheView,
-  type catalogChildren,
-  catalogViewFromSnapshot,
-} from "./context-catalog-cache";
+import { acquireContextCatalog, hintContextCatalog } from "./context-catalog-acquisition";
+import type { CatalogCacheView, catalogChildren } from "./context-catalog-cache";
 import { projectQueryKeys } from "./project-query-keys";
 
 export function contextCatalogScope(
@@ -38,29 +30,6 @@ export function contextCatalogScope(
   return { kind: "project", projectId };
 }
 
-async function acquire(
-  queryClient: QueryClient,
-  projectId: string,
-  requestedScope: CatalogScope,
-): Promise<CatalogCacheView> {
-  const queryKey = projectQueryKeys.contextCatalog(projectId, requestedScope);
-  let view = queryClient.getQueryData<CatalogCacheView>(queryKey);
-  if (!view?.generation) {
-    view = catalogViewFromSnapshot(await getContextCatalogSnapshot(projectId, requestedScope));
-    return view;
-  }
-  for (let page = 0; page < 10; page += 1) {
-    const changes = await getContextCatalogChanges(projectId, requestedScope, view.cursor);
-    if (changes.kind === "reset-required") {
-      view = catalogViewFromSnapshot(await getContextCatalogSnapshot(projectId, requestedScope));
-      return view;
-    }
-    view = applyCatalogChanges(view, changes) ?? view;
-    if (!changes.hasMore) return view;
-  }
-  return view;
-}
-
 export function contextCatalogQueryOptions(
   queryClient: QueryClient,
   projectId: string,
@@ -68,7 +37,13 @@ export function contextCatalogQueryOptions(
 ) {
   return queryOptions({
     queryKey: projectQueryKeys.contextCatalog(projectId, scope),
-    queryFn: () => acquire(queryClient, projectId, scope),
+    queryFn: () =>
+      acquireContextCatalog(
+        queryClient,
+        projectQueryKeys.contextCatalog(projectId, scope),
+        projectId,
+        scope,
+      ),
     staleTime: 5_000,
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,
@@ -107,7 +82,9 @@ export function projectCatalogFile(
   return {
     ...base,
     editable: false,
+    disposition: entry.disposition,
     fileType: entry.fileType,
+    ...(entry.disposition === "custom" ? { filetype: entry.filetype } : {}),
     ...(entry.mimeType ? { mimeType: entry.mimeType } : {}),
   };
 }
@@ -265,8 +242,12 @@ export function pullContextCatalogOnHint(
   const view = queryClient.getQueryData<CatalogCacheView>(
     projectQueryKeys.contextCatalog(projectId, requestedScope),
   );
-  if (view?.headRevision === hint.headRevision) return;
-  void queryClient.invalidateQueries({
-    queryKey: projectQueryKeys.contextCatalog(projectId, requestedScope),
-  });
+  if (view?.appliedRevision === hint.headRevision) return;
+  void hintContextCatalog(
+    queryClient,
+    projectQueryKeys.contextCatalog(projectId, requestedScope),
+    projectId,
+    requestedScope,
+    hint.headRevision,
+  );
 }

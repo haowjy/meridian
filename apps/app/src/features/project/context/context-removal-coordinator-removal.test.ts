@@ -60,6 +60,7 @@ function scenario(initialSearch: ProjectSearch = { screen: "context" }) {
   const coordinator = new ContextRemovalCoordinator("account-1", { workingSet, route });
   return {
     coordinator,
+    route,
     search: () => search,
     routes: () => routes,
     setRoutes: (next: WorkingSetRoute[]) => {
@@ -199,6 +200,44 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
     });
     expect(rig.routes()[0]).toEqual({ scheme: "manuscript", path });
     expect(rig.search().path).toBe(path);
+  });
+
+  it("evicts active and background server tabs while preserving local-new state", () => {
+    const local: ContextTab = {
+      kind: "new",
+      documentId: "local-new",
+      name: "Untitled",
+      workId: "work-1",
+    };
+    setDesk(
+      [tracked("active", "/active.md"), tracked("background", "/background.md"), local],
+      "active",
+    );
+    const rig = scenario({
+      screen: "context",
+      work: "work-1",
+      scheme: "manuscript",
+      path: "/active.md",
+    });
+    rig.setRoutes([
+      { scheme: "manuscript", path: "/active.md" },
+      { scheme: "manuscript", path: "/background.md" },
+    ]);
+    rig.coordinator.registerRoutePort(projectId, rig.route, "work-1");
+    const revision = rig.coordinator.beginRouteSelection(projectId, {
+      scheme: "manuscript",
+      path: "/active.md",
+      workId: "work-1",
+    });
+    rig.coordinator.bindRouteSelection(projectId, revision, identityFor("active"));
+
+    rig.coordinator.catalogUnavailable(projectId, ["active", "background", "local-new"]);
+
+    expect(useContextTabsStore.getState().byProject[projectId]?.tabs).toEqual([local]);
+    expect(rig.routes()).toEqual([]);
+    expect(rig.coordinator.getProjectSnapshot(projectId).removalFence).toMatchObject({
+      removedDocumentIds: ["active", "background", "local-new"],
+    });
   });
 
   it.each([

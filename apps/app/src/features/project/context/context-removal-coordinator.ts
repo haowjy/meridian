@@ -453,6 +453,15 @@ export class ContextRemovalCoordinator {
     });
   }
 
+  /** Authoritative catalog convergence for remote deletion, reset omission, or Work loss. */
+  catalogUnavailable(projectId: string, documentIds: readonly string[]): ContextRemovalOutcome {
+    if (this.unavailable()) return { kind: "noop" };
+    return this.executeRepresented(projectId, {
+      cause: "catalog-unavailable",
+      documentIds: [...new Set(documentIds)],
+    });
+  }
+
   /** Owns the synchronous old-Work prune and next-Work route transition. */
   changeWorkSelection(
     projectId: string,
@@ -721,7 +730,12 @@ export class ContextRemovalCoordinator {
         current.kind === "none" || !plan.outcome.routedDocumentRemoved ? null : current.locator,
       removedDocumentIds: [...intent.documentIds],
     };
-    if (cleanup && (intent.cause === "acknowledged-delete" || intent.cause === "draft-discard")) {
+    if (
+      cleanup &&
+      (intent.cause === "acknowledged-delete" ||
+        intent.cause === "catalog-unavailable" ||
+        intent.cause === "draft-discard")
+    ) {
       state.terminalRemovals.set(locatorKey(cleanup.locator), { cleanup, intent });
     }
     this.publish(state);

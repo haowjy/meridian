@@ -39,6 +39,7 @@ import { useResolvedChatThread } from "./chat/chat-thread-resolution";
 import type { ContextRemovalRoutePort } from "./context/context-removal-coordinator";
 import { ProjectContextRemovalController } from "./context/ProjectContextRemovalController";
 import { TreeCreationProvider } from "./context/TreeCreationProvider";
+import { useCatalogWorkingSetReconciler } from "./context/useCatalogWorkingSetReconciler";
 import { useDockViewStore } from "./dock/dock-view-store";
 import {
   EditorReviewHandoffProvider,
@@ -115,6 +116,7 @@ export type ProjectViewProps = {
 
 export function ProjectView(props: ProjectViewProps) {
   useContextCatalogWake(props.projectId);
+  useCatalogWorkingSetReconciler(props.projectId);
   // The route keys ProjectView by projectId. This initializer therefore runs
   // before any gated child for each project entry; the driver makes a strict-
   // mode replay of the same loader revision an adoption no-op.

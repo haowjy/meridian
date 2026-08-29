@@ -67,9 +67,18 @@ export type CatalogFileEntry = CatalogFileEntryBase &
       }
     | {
         editable: false;
+        disposition: "binary";
         fileType: DocumentFileType;
         mimeType: string | null;
         filetype?: never;
+        schemaType?: never;
+      }
+    | {
+        editable: false;
+        disposition: "custom";
+        fileType: DocumentFileType;
+        mimeType: string | null;
+        filetype: Filetype;
         schemaType?: never;
       }
   );

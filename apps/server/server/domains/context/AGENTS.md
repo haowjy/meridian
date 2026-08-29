@@ -53,8 +53,10 @@ Routes: `read.get.ts`, `create.post.ts`, `create-untitled.post.ts`,
 
 Metadata browsing uses the sibling catalog routes: complete compact snapshot,
 whole-commit changes, direct children, and stable-ID/canonical-URI lookup. Every
-metadata command and lazy source provision publishes catalog state in the same
-ambient Drizzle transaction; content-only Yjs/projection changes do not publish.
+single-source command is owned by `ContextFS`; whole-tree commands are owned by
+`ContextTreeMover`. Lazy source resolution and stores only join that ambient
+Drizzle transaction, and typed failures roll it back; content-only
+Yjs/projection changes do not publish.
 Catalog files preserve persisted tracked or binary classification. The context
 domain emits best-effort truth-free wake hints after commit through the existing
 authenticated thread socket; focus and bounded polling repair dropped hints.

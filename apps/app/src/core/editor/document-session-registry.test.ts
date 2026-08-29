@@ -44,6 +44,16 @@ afterEach(() => {
 });
 
 describe("DocumentSessionRegistry.restartUnavailableRoom", () => {
+  it("authoritatively revokes a room from retained owners before destroying it", async () => {
+    const registry = new DocumentSessionRegistry();
+    registry.retain("desktop", ["remote-deleted"]);
+    expect(registry.peek("remote-deleted")).toBeDefined();
+
+    await registry.revokeRoom("remote-deleted", { clearPersistence: true });
+
+    expect(registry.peek("remote-deleted")).toBeUndefined();
+  });
+
   it("uses the bootstrap's internal identity for self-suppression, never its external id", () => {
     const authMe = {
       user: {

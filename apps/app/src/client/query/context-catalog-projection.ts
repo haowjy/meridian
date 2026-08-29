@@ -27,8 +27,10 @@ export type CatalogFile =
     })
   | (CatalogFileBase & {
       editable: false;
+      disposition: "binary" | "custom";
       fileType: DocumentFileType;
       mimeType?: string;
+      filetype?: Filetype;
     });
 
 export type CatalogDirectory = {

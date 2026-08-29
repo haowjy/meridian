@@ -13,8 +13,8 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   currentDrizzleDb,
   runAfterDrizzleCommit,
+  runInDrizzleSavepoint,
   runInDrizzleTransaction,
-  runInRootDrizzleTransaction,
   runOutsideDrizzleTransaction,
 } from "../../../../shared/drizzle-transaction.js";
 import { Err, Ok, type Result } from "../../../../shared/result.js";
@@ -474,7 +474,7 @@ export class DrizzleContextTreeMutationStore implements ContextTreeMutationStore
     const events: ContextDocumentMembershipEvent[] = [];
     let result: Result<T, ContextTreeMutationError>;
     try {
-      result = await runInRootDrizzleTransaction(this.db, async () => {
+      result = await runInDrizzleSavepoint(this.db, async () => {
         const mutationResult = await operation(events);
         if (mutationResult.ok && events.length > 0) {
           runAfterDrizzleCommit(() => dispatchMembershipEvents(this.membershipObserver, events));
@@ -858,6 +858,8 @@ export class DrizzleContextTreeMutationStore implements ContextTreeMutationStore
   ): Promise<Result<void, ContextTreeMutationError>> {
     return this.withMutationTransaction(async () => {
       await this.lockSources([source.sourceId]);
+      const current = await this.inspect(source.sourceId, source.path);
+      if (!sameLocation(current, source)) return Err({ code: "stale_source" });
       const graduated = await currentDrizzleDb(this.db)
         .update(documents)
         .set({ provisionalName: false })

@@ -3,10 +3,7 @@ import { conformanceUserValues } from "@meridian/database/__test-support__/db-fi
 import { contextSources, documents, folders, projects, users } from "@meridian/database/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  currentDrizzleDb,
-  runInDrizzleTransaction,
-} from "../../../../shared/drizzle-transaction.js";
+import { runInDrizzleTransaction } from "../../../../shared/drizzle-transaction.js";
 import { Ok } from "../../../../shared/result.js";
 import { truncateDrizzleTables } from "../../../../test-support/drizzle-reset.js";
 import { useRollbackTestDatabase } from "../../../../test-support/rollback-test-database.js";
@@ -537,27 +534,47 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       expect(events).toEqual([`created:${DOC_AMBIENT_CREATE_ID}`]);
     });
 
-    it("dispatches tree-mutation observers from a root connection instead of joining ambient transactions", async () => {
+    it("joins the ambient command transaction and dispatches observers only after its commit", async () => {
       await insertDocument(DOC_AMBIENT_DELETE_ID, "ambient-delete");
-      let observerSawRootConnection = false;
+      const events: string[] = [];
       const observer: ContextDocumentMembershipObserver = {
         documentCreated: () => undefined,
         documentDeleted: () => {
-          observerSawRootConnection = currentDrizzleDb(db) === db;
+          events.push("deleted");
         },
       };
       const tree = new DrizzleContextTreeMutationStore(db, observer);
       const token = await tree.inspect(SOURCE_ID, "ambient-delete.md");
       expect(token?.kind).toBe("file");
 
+      await expect(
+        runInDrizzleTransaction(db, async () => {
+          await expect(tree.commitDelete(token as NonNullable<typeof token>)).resolves.toEqual({
+            ok: true,
+            value: { deletedDocumentIds: [DOC_AMBIENT_DELETE_ID] },
+          });
+          expect(events).toEqual([]);
+          throw new Error("outer rollback");
+        }),
+      ).rejects.toThrow("outer rollback");
+      expect(events).toEqual([]);
+      const [rolledBack] = await db
+        .select({ deletedAt: documents.deletedAt })
+        .from(documents)
+        .where(eq(documents.id, DOC_AMBIENT_DELETE_ID));
+      expect(rolledBack?.deletedAt).toBeNull();
+
+      const retryToken = await tree.inspect(SOURCE_ID, "ambient-delete.md");
       await runInDrizzleTransaction(db, async () => {
-        await expect(tree.commitDelete(token as NonNullable<typeof token>)).resolves.toEqual({
+        await expect(
+          tree.commitDelete(retryToken as NonNullable<typeof retryToken>),
+        ).resolves.toEqual({
           ok: true,
           value: { deletedDocumentIds: [DOC_AMBIENT_DELETE_ID] },
         });
+        expect(events).toEqual([]);
       });
-
-      expect(observerSawRootConnection).toBe(true);
+      expect(events).toEqual(["deleted"]);
     });
   });
 }

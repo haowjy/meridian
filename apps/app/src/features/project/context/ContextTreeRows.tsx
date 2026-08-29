@@ -79,9 +79,9 @@ export function TreeChildren({
       ) : null}
       {children.map((child) =>
         child.kind === "dir" ? (
-          <DirRow key={child.path} dir={child} depth={depth} siblingNames={siblingNames} />
+          <DirRow key={child.entryId} dir={child} depth={depth} siblingNames={siblingNames} />
         ) : (
-          <FileRow key={child.path} file={child} depth={depth} siblingNames={siblingNames} />
+          <FileRow key={child.entryId} file={child} depth={depth} siblingNames={siblingNames} />
         ),
       )}
     </>

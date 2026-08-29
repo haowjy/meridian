@@ -36,6 +36,7 @@ import type {
   SchemeCapabilities,
 } from "../../ports/context-adapter.js";
 import { schemeCapabilities } from "../../ports/context-adapter.js";
+import type { ContextCommandTransaction } from "../../ports/context-command-transaction.js";
 import type { ContextDocument, ContextDocumentStore } from "../../ports/context-document-store.js";
 import type {
   ContextCreateUntitledDocumentOptions,
@@ -56,6 +57,7 @@ export interface ContextFSDeps {
   mutationStore: ContextTreeMutationStore;
   documentSync: MarkdownDocumentStore;
   documentCreation?: DocumentCreationAggregate;
+  commandTransaction?: ContextCommandTransaction;
   /** Scheme name used by the router for this filesystem instance. */
   scheme: ContextScheme;
   manifestView?: {
@@ -69,6 +71,12 @@ export interface ContextFSDeps {
 class DocumentCreationFault extends Error {
   constructor(readonly fault: AdapterFault) {
     super("message" in fault ? fault.message : fault.code);
+  }
+}
+
+class ContextCommandRollback<TError> extends Error {
+  constructor(readonly error: TError) {
+    super("Context command returned an error");
   }
 }
 
@@ -161,6 +169,10 @@ export class ContextFS implements ContextSchemeAdapter {
   private readonly mutationStore: ContextTreeMutationStore;
   private readonly documentSync: MarkdownDocumentStore;
   private readonly documentCreation: DocumentCreationAggregate;
+  private readonly commandTransaction: ContextCommandTransaction;
+  // A command includes its awaited post-commit live publication. Do not let a
+  // same-adapter contender observe durable identity before that publication settles.
+  private mutationTail: Promise<void> = Promise.resolve();
   private readonly manifestView?: ContextFSDeps["manifestView"];
 
   readonly tree: ContextTreeAdapter = {
@@ -181,8 +193,34 @@ export class ContextFS implements ContextSchemeAdapter {
         atomic: (operation) => deps.store.transaction(operation),
         ensureDocument: (documentId) => deps.documentSync.ensureDocument(documentId),
       });
+    this.commandTransaction = deps.commandTransaction ?? {
+      run: (operation) => deps.store.transaction(operation),
+    };
     this.manifestView = deps.manifestView;
     this.name = deps.scheme;
+  }
+
+  private async mutationCommand<T>(
+    operation: () => Promise<Result<T, AdapterFault>>,
+  ): Promise<Result<T, AdapterFault>> {
+    const preceding = this.mutationTail;
+    let release!: () => void;
+    this.mutationTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await preceding;
+    try {
+      return await this.commandTransaction.run(async () => {
+        const result = await operation();
+        if (!result.ok) throw new ContextCommandRollback(result.error);
+        return result;
+      });
+    } catch (error) {
+      if (error instanceof ContextCommandRollback) return Err(error.error as AdapterFault);
+      throw error;
+    } finally {
+      release();
+    }
   }
 
   private syncFault(error: SyncError): AdapterFault {
@@ -394,7 +432,7 @@ export class ContextFS implements ContextSchemeAdapter {
     content: string,
     options?: ContextWriteOptions,
   ): Promise<Result<{ documentId?: string }, AdapterFault>> {
-    return this.store.transaction(() => this.writeInTransaction(path, content, options));
+    return this.mutationCommand(() => this.writeInTransaction(path, content, options));
   }
 
   private async writeInTransaction(
@@ -451,7 +489,7 @@ export class ContextFS implements ContextSchemeAdapter {
     content: string,
     options?: ContextWriteOptions,
   ): Promise<Result<{ documentId: string }, AdapterFault>> {
-    return this.store.transaction(() =>
+    return this.mutationCommand(() =>
       this.createTrackedDocumentInTransaction(path, content, options),
     );
   }
@@ -509,7 +547,7 @@ export class ContextFS implements ContextSchemeAdapter {
       AdapterFault
     >
   > {
-    return this.store.transaction(() => this.createUntitledDocumentInTransaction(path, options));
+    return this.mutationCommand(() => this.createUntitledDocumentInTransaction(path, options));
   }
 
   private async createUntitledDocumentInTransaction(
@@ -599,6 +637,13 @@ export class ContextFS implements ContextSchemeAdapter {
     path: string,
     options?: ContextWriteOptions,
   ): Promise<Result<{ documentId: string; created: boolean }, AdapterFault>> {
+    return this.mutationCommand(() => this.ensureTrackedDocumentInTransaction(path, options));
+  }
+
+  private async ensureTrackedDocumentInTransaction(
+    path: string,
+    options?: ContextWriteOptions,
+  ): Promise<Result<{ documentId: string; created: boolean }, AdapterFault>> {
     const { dir, filename } = splitPath(path);
     if (!filename) {
       return { ok: false, error: { code: "io_error", message: "Cannot create source root" } };
@@ -634,6 +679,14 @@ export class ContextFS implements ContextSchemeAdapter {
   }
 
   async edit(
+    path: string,
+    command: import("../../ports/context-port.js").ContextEditCommand,
+    options?: ContextWriteOptions,
+  ): Promise<Result<{ documentId?: string; markdown?: string; updateSeq?: number }, AdapterFault>> {
+    return this.mutationCommand(() => this.editInTransaction(path, command, options));
+  }
+
+  private async editInTransaction(
     path: string,
     command: import("../../ports/context-port.js").ContextEditCommand,
     options?: ContextWriteOptions,
@@ -688,7 +741,7 @@ export class ContextFS implements ContextSchemeAdapter {
     if (!filename) {
       return { ok: false, error: { code: "io_error", message: "Cannot write to source root" } };
     }
-    return this.store.transaction(async () => {
+    return this.mutationCommand(async () => {
       const folderId = await this.ensureFolderId(dir);
       const { name, extension } = parseFilename(filename);
       const doc = await this.store.createBinaryDocument({
@@ -708,7 +761,7 @@ export class ContextFS implements ContextSchemeAdapter {
     const segments = path.split("/").filter(Boolean);
     // The source root always exists — empty `mkdir` is a no-op.
     if (segments.length === 0) return Ok(undefined);
-    return this.store.transaction(async () => {
+    return this.mutationCommand(async () => {
       await this.ensureFolderId(segments);
       return Ok(undefined);
     });
