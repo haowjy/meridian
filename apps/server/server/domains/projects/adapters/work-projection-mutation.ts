@@ -5,9 +5,9 @@ import { branchWriteJournal, documentBranches, works } from "@meridian/database/
 import { and, countDistinct, eq, inArray, sql } from "drizzle-orm";
 import {
   currentDrizzleDb,
-  getDrizzleTransactionLocal,
+  type DrizzleTransactionParticipant,
+  enlistDrizzleTransactionParticipant,
   runInDrizzleTransaction,
-  setDrizzleTransactionLocal,
 } from "../../../shared/drizzle-transaction.js";
 import type { ProjectContextAvailabilityMutationPort } from "../../context/ports/project-context-availability.js";
 import type { ContextCatalogLifecyclePort } from "../ports/context-catalog-lifecycle.js";
@@ -19,38 +19,64 @@ export type WorkProjectionMutation = {
 };
 
 const PUBLICATION_STATE = {};
-type PublicationState = { publishedWorkIds: Set<WorkId> };
+type PublicationState = {
+  touchedWorkIds: Set<WorkId>;
+  pendingWorkIdsByProject: Map<string, Set<WorkId>>;
+};
 
 export function createWorkProjectionMutation(input: {
   db: Database;
   availability: ProjectContextAvailabilityMutationPort;
   catalog: ContextCatalogLifecyclePort;
 }): WorkProjectionMutation {
+  const publicationParticipant: DrizzleTransactionParticipant<PublicationState> = {
+    key: PUBLICATION_STATE,
+    create: () => ({ touchedWorkIds: new Set(), pendingWorkIdsByProject: new Map() }),
+    fork: (parent) => ({
+      touchedWorkIds: new Set(parent.touchedWorkIds),
+      pendingWorkIdsByProject: new Map(
+        [...parent.pendingWorkIdsByProject].map(([projectId, workIds]) => [
+          projectId,
+          new Set(workIds),
+        ]),
+      ),
+    }),
+    merge(parent, child) {
+      for (const workId of child.touchedWorkIds) parent.touchedWorkIds.add(workId);
+      for (const [projectId, childWorkIds] of child.pendingWorkIdsByProject) {
+        const parentWorkIds = parent.pendingWorkIdsByProject.get(projectId) ?? new Set<WorkId>();
+        for (const workId of childWorkIds) parentWorkIds.add(workId);
+        parent.pendingWorkIdsByProject.set(projectId, parentWorkIds);
+      }
+      return parent;
+    },
+    async beforeCommit(state) {
+      if (state.pendingWorkIdsByProject.size === 0) return;
+      const projectIds = [...state.pendingWorkIdsByProject.keys()].sort();
+      const workIds = projectIds.flatMap((projectId) => [
+        ...(state.pendingWorkIdsByProject.get(projectId) ?? []),
+      ]);
+      await input.availability.advance({ projectIds, userIds: [] });
+      await input.catalog.upsertWorkAuthorities(workIds);
+    },
+  };
+
   function publicationState(): PublicationState {
-    let state = getDrizzleTransactionLocal<PublicationState>(PUBLICATION_STATE);
-    if (!state) {
-      state = { publishedWorkIds: new Set() };
-      setDrizzleTransactionLocal(PUBLICATION_STATE, state);
-    }
-    return state;
+    return enlistDrizzleTransactionParticipant(publicationParticipant);
   }
 
-  async function publish(workIds: readonly WorkId[]): Promise<void> {
+  async function enrollPublication(workIds: readonly WorkId[]): Promise<void> {
     const state = publicationState();
     const unique = [...new Set(workIds)].sort() as WorkId[];
-    const unpublished = unique.filter((workId) => !state.publishedWorkIds.has(workId));
-    if (unpublished.length === 0) return;
     const rows = await currentDrizzleDb(input.db)
       .select({ id: works.id, projectId: works.projectId })
       .from(works)
-      .where(inArray(works.id, unpublished));
-    if (rows.length === 0) return;
-    await input.availability.advance({
-      projectIds: [...new Set(rows.map(({ projectId }) => projectId))].sort(),
-      userIds: [],
-    });
-    await input.catalog.upsertWorkAuthorities(rows.map(({ id }) => id));
-    for (const { id } of rows) state.publishedWorkIds.add(id as WorkId);
+      .where(inArray(works.id, unique));
+    for (const { id, projectId } of rows) {
+      const projectWorkIds = state.pendingWorkIdsByProject.get(projectId) ?? new Set<WorkId>();
+      projectWorkIds.add(id as WorkId);
+      state.pendingWorkIdsByProject.set(projectId, projectWorkIds);
+    }
   }
 
   async function pendingCounts(workIds: readonly WorkId[]): Promise<Map<WorkId, number>> {
@@ -85,13 +111,13 @@ export function createWorkProjectionMutation(input: {
 
   const mutation: WorkProjectionMutation = {
     async publishWorks(workIds) {
-      await runInDrizzleTransaction(input.db, () => publish(workIds));
+      await runInDrizzleTransaction(input.db, () => enrollPublication(workIds));
     },
     async touchWorks(workIds, activityAt) {
       await runInDrizzleTransaction(input.db, async () => {
         const state = publicationState();
         const unique = [...new Set(workIds)].sort() as WorkId[];
-        const untouched = unique.filter((workId) => !state.publishedWorkIds.has(workId));
+        const untouched = unique.filter((workId) => !state.touchedWorkIds.has(workId));
         if (untouched.length === 0) return;
         const rows = await currentDrizzleDb(input.db)
           .update(works)
@@ -101,7 +127,8 @@ export function createWorkProjectionMutation(input: {
           })
           .where(inArray(works.id, untouched))
           .returning({ id: works.id });
-        await publish(rows.map(({ id }) => id as WorkId));
+        for (const { id } of rows) state.touchedWorkIds.add(id as WorkId);
+        await enrollPublication(rows.map(({ id }) => id as WorkId));
       });
     },
     async mutatePendingBranches(branchIds, operation) {

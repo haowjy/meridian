@@ -15,7 +15,11 @@ import {
 } from "@meridian/database/schema";
 import { eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { currentDrizzleDb, runInDrizzleTransaction } from "../../../shared/drizzle-transaction.js";
+import {
+  currentDrizzleDb,
+  runInDrizzleSavepoint,
+  runInDrizzleTransaction,
+} from "../../../shared/drizzle-transaction.js";
 import { truncateDrizzleTables } from "../../../test-support/drizzle-reset.js";
 import { useRollbackTestDatabase } from "../../../test-support/rollback-test-database.js";
 import { createInMemoryEventSink } from "../../observability/index.js";
@@ -150,6 +154,127 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       expect(await db.select().from(contextAvailabilityHeads)).toEqual(before);
       const next = await availability.advance({ projectIds: [PROJECT], userIds: [] });
       expect(BigInt(next)).toBeGreaterThan(BigInt(first));
+    });
+
+    it("reuses one generation for overlapping and newly introduced authority keys", async () => {
+      const db = await seed();
+      const availability = createDrizzleProjectContextAvailability(db);
+      const generations = await runInDrizzleTransaction(db, async () => [
+        await availability.advance({ projectIds: [PROJECT], userIds: [USER] }),
+        await availability.advance({ projectIds: [FOREIGN_PROJECT, PROJECT], userIds: [] }),
+        await availability.advance({ projectIds: [FOREIGN_PROJECT], userIds: [OTHER, USER] }),
+      ]);
+      expect(new Set(generations)).toHaveLength(1);
+      const heads = await db.select().from(contextAvailabilityHeads);
+      expect(heads.map(({ authorityKey }) => authorityKey).sort()).toEqual(
+        [
+          `project:${FOREIGN_PROJECT}`,
+          `project:${PROJECT}`,
+          `user:${OTHER}`,
+          `user:${USER}`,
+        ].sort(),
+      );
+      expect(new Set(heads.map(({ generation }) => generation))).toEqual(
+        new Set([BigInt(generations[0] ?? "0")]),
+      );
+    });
+
+    it("merges successful savepoint keys and discards failed savepoint keys", async () => {
+      const db = await seed();
+      const availability = createDrizzleProjectContextAvailability(db);
+      const generation = await runInDrizzleTransaction(db, async () => {
+        const child = await runInDrizzleSavepoint(db, () =>
+          availability.advance({ projectIds: [PROJECT], userIds: [] }),
+        );
+        const parent = await availability.advance({ projectIds: [FOREIGN_PROJECT], userIds: [] });
+        expect(parent).toBe(child);
+        return parent;
+      });
+      await runInDrizzleTransaction(db, async () => {
+        await availability.advance({ projectIds: [PROJECT], userIds: [] });
+        await expect(
+          runInDrizzleSavepoint(db, async () => {
+            await availability.advance({ projectIds: [], userIds: [OTHER] });
+            throw new Error("child rollback");
+          }),
+        ).rejects.toThrow("child rollback");
+        await availability.advance({ projectIds: [], userIds: [OTHER] });
+      });
+      const heads = new Map(
+        (await db.select().from(contextAvailabilityHeads)).map((row) => [
+          row.authorityKey,
+          row.generation,
+        ]),
+      );
+      expect(heads.get(`project:${PROJECT}`)).toBeGreaterThanOrEqual(BigInt(generation));
+      expect(heads.get(`project:${FOREIGN_PROJECT}`)).toBe(BigInt(generation));
+      expect(heads.get(`user:${OTHER}`)).toBe(heads.get(`project:${PROJECT}`));
+    });
+
+    it("serializes same-head publishers before allocating their generations", async () => {
+      assertThrowawayDatabaseForRunDbTests(DATABASE_URL);
+      const firstDb = createDb(DATABASE_URL, { max: 1 });
+      const secondDb = createDb(DATABASE_URL, { max: 1 });
+      const controlDb = createDb(DATABASE_URL, { max: 1 });
+      let releaseFirst: (() => void) | undefined;
+      const firstMayCommit = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      try {
+        await truncateDrizzleTables(controlDb, [users]);
+        await seed(controlDb);
+        await createDrizzleProjectContextAvailability(controlDb).advance({
+          projectIds: [PROJECT],
+          userIds: [],
+        });
+        let announceFirst: ((generation: string) => void) | undefined;
+        const firstAllocated = new Promise<string>((resolve) => {
+          announceFirst = resolve;
+        });
+        const first = runInDrizzleTransaction(firstDb, async () => {
+          const generation = await createDrizzleProjectContextAvailability(firstDb).advance({
+            projectIds: [PROJECT],
+            userIds: [],
+          });
+          announceFirst?.(generation);
+          await firstMayCommit;
+          return generation;
+        });
+        const firstGeneration = await firstAllocated;
+        const second = createDrizzleProjectContextAvailability(secondDb).advance({
+          projectIds: [PROJECT],
+          userIds: [],
+        });
+        for (let attempt = 0; attempt < 200; attempt += 1) {
+          const waiting = await controlDb.execute<{ waiting: boolean }>(sql`
+            select exists (
+              select 1 from pg_stat_activity
+              where datname = current_database()
+                and wait_event_type = 'Lock'
+                and (query like '%context_availability_heads%' or query like '%1296387666%')
+            ) as waiting
+          `);
+          if (waiting[0]?.waiting) break;
+          if (attempt === 199) throw new Error("Second availability publisher did not block");
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        const whileBlocked = await controlDb.execute<{ lastValue: string }>(
+          sql`select last_value::text as "lastValue" from context_availability_generation_seq`,
+        );
+        expect(whileBlocked[0]?.lastValue).toBe(firstGeneration);
+        releaseFirst?.();
+        const [settledFirst, settledSecond] = await Promise.all([first, second]);
+        expect(BigInt(settledSecond)).toBeGreaterThan(BigInt(settledFirst));
+        const [head] = await controlDb
+          .select()
+          .from(contextAvailabilityHeads)
+          .where(eq(contextAvailabilityHeads.authorityKey, `project:${PROJECT}`));
+        expect(head?.generation).toBe(BigInt(settledSecond));
+      } finally {
+        releaseFirst?.();
+        await truncateDrizzleTables(controlDb, [users]);
+        await Promise.all([firstDb.close(), secondDb.close(), controlDb.close()]);
+      }
     });
 
     it("reads heads and identities from one repeatable-read snapshot across a committed move", async () => {
