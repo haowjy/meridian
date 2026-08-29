@@ -164,6 +164,7 @@ export class UntitledLifecycleRig {
   readonly sessions = new Map<string, LifecycleSession>();
   readonly clearedRooms: string[] = [];
   readonly restartedRooms: string[] = [];
+  readonly lifecycleEvents: string[] = [];
   readonly materialized: CreateUntitledContextDocumentResponse[] = [];
   readonly identities: MoveContextEntrySuccess[] = [];
   readonly reminted: string[] = [];
@@ -233,16 +234,31 @@ export class UntitledLifecycleRig {
         create: this.create.run,
         serverDocumentExists: this.exists.run,
         move: this.move.run,
+        lookupGeneration: async (_projectId, documentId) => {
+          this.lifecycleEvents.push(`lookup:${documentId}`);
+          return "1";
+        },
       },
       sessions: {
         getDetached: (documentId) => this.session(documentId),
-        attachDetached: (documentId) => {
+        admit: async (projectId, documentId, generation) => {
+          this.lifecycleEvents.push(`admit:${documentId}`);
+          return {
+            accountId: "account-1" as never,
+            projectId: projectId as never,
+            documentId: documentId as never,
+            generation,
+          };
+        },
+        attachDetached: ({ documentId }) => {
+          this.lifecycleEvents.push(`attach:${documentId}`);
           const session = this.sessions.get(documentId);
           if (!session) throw new Error(`missing session ${documentId}`);
           if (session.getSnapshot().status === "detached") session.setStatus("synced");
           return session;
         },
-        restartUnavailableRoom: async (documentId) => {
+        restartUnavailableRoom: async ({ documentId }) => {
+          this.lifecycleEvents.push(`restart:${documentId}`);
           this.restartedRooms.push(documentId);
           const session = this.sessions.get(documentId);
           if (session?.getSnapshot().status !== "access-lost") return false;
@@ -250,6 +266,8 @@ export class UntitledLifecycleRig {
           return true;
         },
         retain: () => {},
+        retainAdmitted: () => {},
+        releaseAdmitted: () => {},
         release: () => {},
         destroyRoom: async (documentId, options) => {
           if (this.destroyRoomError) throw this.destroyRoomError;
@@ -339,7 +357,7 @@ export class UntitledLifecycleRig {
 
   async advance(): Promise<void> {
     this.queued.shift()?.();
-    for (let index = 0; index < 20; index += 1) await Promise.resolve();
+    for (let index = 0; index < 40; index += 1) await Promise.resolve();
   }
 
   async retry(): Promise<void> {

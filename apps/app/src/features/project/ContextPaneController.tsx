@@ -302,27 +302,6 @@ export function ContextViewerSurfaceController({
     wantsDefaultOpen,
   ]);
 
-  // A cached tree refetch refreshes metadata on an already-open route too.
-  // This is how cross-device renames clear provisional chrome without a new
-  // metadata channel.
-  useEffect(() => {
-    if (!activeTab || activeTab.kind === "new" || !routeCatalog || activeContextScheme === null)
-      return;
-    const file = routeCatalog.findDocument(activeTab.documentId);
-    if (!file) return;
-    openTab(projectId, contextTabFromFile(activeContextScheme, file, routeWorkId));
-    if (file.path !== activeTab.path)
-      onSelectContextPath(file.path, activeContextScheme, { replace: true });
-  }, [
-    activeContextScheme,
-    activeTab?.documentId,
-    onSelectContextPath,
-    openTab,
-    projectId,
-    routeCatalog,
-    routeWorkId,
-  ]);
-
   useEffect(() => {
     if (!needsRouteTab || routeMaterializationFenced) return;
     if (activeContextScheme === null || activeContextPath === null || !routeCatalog) return;

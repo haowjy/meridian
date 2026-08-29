@@ -31,6 +31,8 @@ const mocks = vi.hoisted(() => ({
     retain: vi.fn(),
     release: vi.fn(),
     get: vi.fn(() => ({ suspendPresence: vi.fn(), resumePresence: vi.fn() })),
+    revokeDocument: vi.fn(),
+    revokeAccess: vi.fn(),
   },
   desk: {
     byProject: {
@@ -53,6 +55,7 @@ vi.mock("@/client/stores", () => ({
 }));
 vi.mock("@/core/editor/document-session-registry", () => ({
   getDocumentSessionRegistry: () => mocks.registry,
+  getLiveDocumentSessionRegistry: () => mocks.registry,
 }));
 vi.mock("@/features/editor/EditorView", () => ({
   EditorView: (props: Record<string, unknown>) => {

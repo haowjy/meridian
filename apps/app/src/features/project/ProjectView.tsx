@@ -36,6 +36,7 @@ import { ContextViewerSurfaceController } from "./ContextPaneController";
 import { resolveCatalogWork } from "./catalog-work-resolution";
 import { type ChatPlacement, ChatSurface } from "./chat/ChatSurface";
 import { useResolvedChatThread } from "./chat/chat-thread-resolution";
+import { useProjectContextAvailabilityCoordinator } from "./context/ContextRemovalAccountProvider";
 import type { ContextRemovalRoutePort } from "./context/context-removal-coordinator";
 import { ProjectContextRemovalController } from "./context/ProjectContextRemovalController";
 import { TreeCreationProvider } from "./context/TreeCreationProvider";
@@ -115,7 +116,14 @@ export type ProjectViewProps = {
 };
 
 export function ProjectView(props: ProjectViewProps) {
-  useContextCatalogWake(props.projectId);
+  const availability = useProjectContextAvailabilityCoordinator();
+  const repairColdWork = useCallback(
+    (workId: string) => {
+      void availability.coldScopeHint(props.projectId, workId);
+    },
+    [availability, props.projectId],
+  );
+  useContextCatalogWake(props.projectId, repairColdWork);
   useCatalogWorkingSetReconciler(props.projectId);
   // The route keys ProjectView by projectId. This initializer therefore runs
   // before any gated child for each project entry; the driver makes a strict-

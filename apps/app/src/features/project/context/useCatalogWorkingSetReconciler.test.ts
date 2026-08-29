@@ -3,7 +3,10 @@ import type { CatalogEntry, CatalogScope } from "@meridian/contracts/protocol";
 import { describe, expect, it } from "vitest";
 import { catalogViewFromSnapshot } from "@/client/query/context-catalog-cache";
 import { catalogWorkAuthorityChanged } from "@/client/query/works-availability-observer";
-import { catalogWorkingSetTransition } from "./useCatalogWorkingSetReconciler";
+import {
+  catalogWorkingSetTransition,
+  recentWatchedDocumentIds,
+} from "./useCatalogWorkingSetReconciler";
 
 const scope = { kind: "project", projectId: "project-1" } as const satisfies CatalogScope;
 const file = (entryId: string, path: string): CatalogEntry => ({
@@ -43,6 +46,7 @@ describe("catalog working-set transition", () => {
   it("treats reset omission as authoritative disappearance", () => {
     expect(catalogWorkingSetTransition(view([file("document-1", "Old.md")]), view([]))).toEqual({
       vanishedDocumentIds: ["document-1"],
+      changedWatchedDocumentIds: [],
       unavailableWorkIds: [],
     });
   });
@@ -52,17 +56,24 @@ describe("catalog working-set transition", () => {
       catalogWorkingSetTransition(
         view([file("document-1", "Old.md")]),
         view([file("document-1", "New.md")]),
-      ).vanishedDocumentIds,
-    ).toEqual([]);
+        new Set(["document-1"]),
+      ),
+    ).toEqual({
+      vanishedDocumentIds: [],
+      changedWatchedDocumentIds: ["document-1"],
+      unavailableWorkIds: [],
+    });
   });
 
   it("reports an available Work becoming unavailable without treating restore as removal", () => {
     expect(catalogWorkingSetTransition(view([work(true)]), view([work(false)]))).toEqual({
       vanishedDocumentIds: [],
+      changedWatchedDocumentIds: [],
       unavailableWorkIds: ["work-1"],
     });
     expect(catalogWorkingSetTransition(view([work(false)]), view([work(true)]))).toEqual({
       vanishedDocumentIds: [],
+      changedWatchedDocumentIds: [],
       unavailableWorkIds: [],
     });
   });
@@ -78,5 +89,23 @@ describe("catalog working-set transition", () => {
     expect(catalogWorkAuthorityChanged(view([work(true, "4")]), view([work(true, "4")]))).toBe(
       false,
     );
+  });
+
+  it("caps only the recent-route identity contribution at 64", () => {
+    const routes = Array.from({ length: 65 }, (_, index) => ({
+      scheme: "manuscript" as const,
+      path: `Chapter-${index}.md`,
+    }));
+    const tabs = routes.map((route, index) => ({
+      kind: "tracked" as const,
+      documentId: `document-${index}`,
+      ...route,
+      name: route.path,
+      editable: true as const,
+      filetype: "markdown" as const,
+      schemaType: "document" as const,
+    }));
+    expect(recentWatchedDocumentIds(routes, tabs)).toHaveLength(64);
+    expect(recentWatchedDocumentIds(routes, tabs)).not.toContain("document-64");
   });
 });

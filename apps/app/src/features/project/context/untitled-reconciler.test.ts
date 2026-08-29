@@ -207,6 +207,12 @@ describe("empty and denied room recovery", () => {
 
     expect(session.durableSyncCount).toBe(1);
     expect(rig.records()).toEqual([]);
+    expect(rig.lifecycleEvents).toEqual([
+      "lookup:doc-1",
+      "admit:doc-1",
+      "restart:doc-1",
+      "attach:doc-1",
+    ]);
   });
 
   it("restarts an access-lost room and continues draining healthy entries", async () => {

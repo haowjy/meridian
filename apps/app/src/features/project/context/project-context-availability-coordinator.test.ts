@@ -139,6 +139,17 @@ describe("ProjectContextAvailabilityCoordinator", () => {
         },
       ]),
     );
+    for (let index = 0; index < 5 && pending.length < 4; index += 1) await Promise.resolve();
+    pending[3]?.(
+      result("project-1", [
+        {
+          kind: "indeterminate",
+          documentId: id(1),
+          checkedGeneration: "10",
+          reason: "identity_inconsistent",
+        },
+      ]),
+    );
     await indeterminate;
     expect(batches.flat()).toHaveLength(1);
   });

@@ -7,8 +7,10 @@
  */
 
 import type {
+  AvailabilityGeneration,
   CreateUntitledContextDocumentResponse,
   CreateUntitledContextDocumentResult,
+  LiveDocumentSessionLease,
   MoveContextEntryResult,
   MoveContextEntrySuccess,
   ProjectContextTreeScheme,
@@ -81,9 +83,16 @@ type ReconcilerSession = Pick<
 
 type SessionRegistryPort = {
   getDetached(documentId: string): ReconcilerSession;
-  attachDetached(documentId: string): ReconcilerSession;
-  restartUnavailableRoom(documentId: string): Promise<boolean>;
+  admit(
+    projectId: string,
+    documentId: string,
+    generation: AvailabilityGeneration,
+  ): Promise<LiveDocumentSessionLease>;
+  attachDetached(lease: LiveDocumentSessionLease): ReconcilerSession;
+  restartUnavailableRoom(lease: LiveDocumentSessionLease): Promise<boolean>;
   retain(owner: string, ids: Iterable<string>): void;
+  retainAdmitted(owner: string, leases: Iterable<LiveDocumentSessionLease>): void;
+  releaseAdmitted(owner: string): void;
   release(owner: string): void;
   destroyRoom(documentId: string, options?: { clearPersistence?: boolean }): Promise<void>;
 };
@@ -111,6 +120,7 @@ type ApiPort = {
     source: CreateUntitledContextDocumentResponse,
     desired: DesiredIdentity,
   ): Promise<MoveContextEntryResult>;
+  lookupGeneration(projectId: string, documentId: string): Promise<AvailabilityGeneration>;
 };
 
 export type UntitledReconcilerDeps = {
@@ -369,16 +379,20 @@ export class UntitledReconciler {
 
       record = this.pendingRecord(documentId);
       if (!record) return;
-      await this.deps.sessions.restartUnavailableRoom(documentId);
+      const generation = await this.deps.api.lookupGeneration(entry.projectId, documentId);
+      const lease = await this.deps.sessions.admit(entry.projectId, documentId, generation);
+      this.deps.sessions.retainAdmitted(owner, [lease]);
+      await this.deps.sessions.restartUnavailableRoom(lease);
       record = this.pendingRecord(documentId);
       if (!record) return;
-      const attached = this.deps.sessions.attachDetached(documentId);
+      const attached = this.deps.sessions.attachDetached(lease);
       await attached.waitForDurableSync();
       const snapshot = attached.getSnapshot();
       if (snapshot.status !== "synced") throw syncFailure(snapshot);
       this.drain(documentId, processedRevision);
     } finally {
       this.deps.sessions.release(owner);
+      this.deps.sessions.releaseAdmitted(owner);
     }
   }
 

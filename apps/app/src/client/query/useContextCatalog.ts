@@ -217,17 +217,29 @@ export function useContextCatalogScope(projectId: string, scope: CatalogScope, e
 }
 
 /** Own the project's single live wake subscription above every catalog consumer. */
-export function useContextCatalogWake(projectId: string): void {
+export function useContextCatalogWake(
+  projectId: string,
+  onColdWorkHint?: (workId: string) => void,
+): void {
   const queryClient = useQueryClient();
   const transport = useOptionalThreadTransport();
   useEffect(
     () =>
       projectId
-        ? transport?.subscribeCatalog(projectId, (hint) =>
-            pullContextCatalogOnHint(queryClient, projectId, hint),
-          )
+        ? transport?.subscribeCatalog(projectId, (hint) => {
+            const requestedScope: CatalogScope =
+              hint.scope.kind === "user" ? { kind: "user", userId: "self" } : hint.scope;
+            const installed = queryClient.getQueryData(
+              projectQueryKeys.contextCatalog(projectId, requestedScope),
+            );
+            if (!installed && requestedScope.kind === "work") {
+              onColdWorkHint?.(requestedScope.workId);
+              return;
+            }
+            pullContextCatalogOnHint(queryClient, projectId, hint);
+          })
         : undefined,
-    [projectId, queryClient, transport],
+    [onColdWorkHint, projectId, queryClient, transport],
   );
 }
 
@@ -242,6 +254,7 @@ export function pullContextCatalogOnHint(
   const view = queryClient.getQueryData<CatalogCacheView>(
     projectQueryKeys.contextCatalog(projectId, requestedScope),
   );
+  if (!view && requestedScope.kind !== "project") return;
   if (view?.appliedRevision === hint.headRevision) return;
   void hintContextCatalog(
     queryClient,

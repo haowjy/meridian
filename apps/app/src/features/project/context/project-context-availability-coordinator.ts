@@ -52,6 +52,9 @@ type ProjectState = {
   requestGeneration: Map<string, number>;
   highestAuthorityGeneration: Map<string, bigint>;
   admittedAuthority: Map<string, ProjectContextAuthority>;
+  inFlight: number;
+  slotWaiters: Array<() => void>;
+  indeterminateHandlers: Map<string, () => void | Promise<void>>;
 };
 
 export type ProjectAvailabilityLease = {
@@ -90,10 +93,14 @@ export class ProjectContextAvailabilityCoordinator {
     },
   ) {}
 
-  attachProject(projectId: string): ProjectAvailabilityLease {
+  attachProject(
+    projectId: string,
+    options: { onIndeterminate?: () => void | Promise<void> } = {},
+  ): ProjectAvailabilityLease {
     const state = this.project(projectId);
     state.leases += 1;
     const prefix = `lease:${++this.nextLeaseId}:`;
+    if (options.onIndeterminate) state.indeterminateHandlers.set(prefix, options.onIndeterminate);
     let held = true;
     return {
       watch: (producer, documentIds, options) => {
@@ -113,6 +120,7 @@ export class ProjectContextAvailabilityCoordinator {
         held = false;
         for (const key of state.watches.keys())
           if (key.startsWith(prefix)) state.watches.delete(key);
+        state.indeterminateHandlers.delete(prefix);
         state.leases -= 1;
         if (state.leases === 0) this.projects.delete(projectId);
       },
@@ -159,6 +167,7 @@ export class ProjectContextAvailabilityCoordinator {
       chunks.push(ids.slice(index, index + MAX_IDS));
     const commands: ProjectDocumentAvailabilityCommand[] = [];
     let unresolved = false;
+    let nonsupersededCount = 0;
     let cursor = 0;
     const worker = async () => {
       while (cursor < chunks.length) {
@@ -167,7 +176,9 @@ export class ProjectContextAvailabilityCoordinator {
         let response: ProjectContextIdentityLookupResult | null = null;
         for (let attempt = 0; attempt < MAX_ATTEMPTS && !response; attempt += 1) {
           try {
-            response = await this.dependencies.lookup(projectId, chunk);
+            response = await this.withLookupSlot(state, () =>
+              this.dependencies.lookup(projectId, chunk),
+            );
           } catch {
             if (attempt + 1 < MAX_ATTEMPTS && this.dependencies.retryDelayMs) {
               await new Promise((resolve) => setTimeout(resolve, this.dependencies.retryDelayMs));
@@ -188,21 +199,28 @@ export class ProjectContextAvailabilityCoordinator {
         for (const documentId of chunk) {
           if (state.requestGeneration.get(documentId) !== localGenerations.get(documentId))
             continue;
+          nonsupersededCount += 1;
           const resolution = byId.get(documentId) as ProjectContextIdentityResolution;
-          const generation = BigInt(authorityGeneration(resolution));
+          const settled =
+            resolution.kind === "indeterminate"
+              ? await this.retryIndeterminate(projectId, documentId, state)
+              : resolution;
+          if (!settled) continue;
+          const generation = BigInt(authorityGeneration(settled));
           if (generation < (state.highestAuthorityGeneration.get(documentId) ?? -1n)) continue;
-          const command = this.classify(projectId, resolution, state);
-          if (resolution.kind === "indeterminate") {
-            this.dependencies.onIndeterminate?.(projectId, documentId);
-            continue;
-          }
+          const command = this.classify(projectId, settled, state);
           state.highestAuthorityGeneration.set(documentId, generation);
           if (command) commands.push(command);
         }
       }
     };
     await Promise.all([worker(), worker()]);
-    if (!unresolved) {
+    if (
+      !unresolved &&
+      nonsupersededCount > 0 &&
+      this.projects.get(projectId) === state &&
+      state.leases > 0
+    ) {
       commands.sort((left, right) => left.commandId.localeCompare(right.commandId));
       await this.dependencies.apply(commands);
     }
@@ -273,6 +291,39 @@ export class ProjectContextAvailabilityCoordinator {
     return [...records.values()];
   }
 
+  private async withLookupSlot<T>(state: ProjectState, run: () => Promise<T>): Promise<T> {
+    if (state.inFlight >= 2) await new Promise<void>((resolve) => state.slotWaiters.push(resolve));
+    state.inFlight += 1;
+    try {
+      return await run();
+    } finally {
+      state.inFlight -= 1;
+      state.slotWaiters.shift()?.();
+    }
+  }
+
+  private async retryIndeterminate(
+    projectId: string,
+    documentId: string,
+    state: ProjectState,
+  ): Promise<ProjectContextIdentityResolution | null> {
+    this.dependencies.onIndeterminate?.(projectId, documentId);
+    await Promise.all([...state.indeterminateHandlers.values()].map((handler) => handler()));
+    try {
+      const retry = await this.withLookupSlot(state, () =>
+        this.dependencies.lookup(projectId, [documentId]),
+      );
+      const resolution = retry.resolutions[0];
+      return resolution &&
+        resolution.documentId === documentId &&
+        resolution.kind !== "indeterminate"
+        ? resolution
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
   private project(projectId: string): ProjectState {
     let state = this.projects.get(projectId);
     if (!state) {
@@ -282,6 +333,9 @@ export class ProjectContextAvailabilityCoordinator {
         requestGeneration: new Map(),
         highestAuthorityGeneration: new Map(),
         admittedAuthority: new Map(),
+        inFlight: 0,
+        slotWaiters: [],
+        indeterminateHandlers: new Map(),
       };
       this.projects.set(projectId, state);
     }

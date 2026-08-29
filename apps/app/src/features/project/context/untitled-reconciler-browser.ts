@@ -2,9 +2,13 @@
 
 import { useSyncExternalStore } from "react";
 import { createUntitledContextDocument } from "@/client/api/projects-api";
+import { lookupProjectContextAvailability } from "@/client/query/project-context-availability";
 import { lookupContextCatalogFile } from "@/client/query/useContextCatalog";
 import { useContextTabsStore } from "@/client/stores";
-import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
+import {
+  getDocumentSessionRegistry,
+  getLiveDocumentSessionRegistry,
+} from "@/core/editor/document-session-registry";
 import type { ContextIdentityMutationService } from "./context-identity-mutation";
 import type { DesiredIdentity } from "./identity-location";
 import {
@@ -17,6 +21,7 @@ import {
 
 function browserDeps(identityMutations: ContextIdentityMutationService): UntitledReconcilerDeps {
   const registry = getDocumentSessionRegistry();
+  const liveRegistry = getLiveDocumentSessionRegistry();
   return {
     storage: localStorage,
     scheduler: {
@@ -28,7 +33,18 @@ function browserDeps(identityMutations: ContextIdentityMutationService): Untitle
         return () => window.removeEventListener("online", task);
       },
     },
-    sessions: registry,
+    sessions: {
+      getDetached: registry.getDetached,
+      retain: registry.retain,
+      release: registry.release,
+      destroyRoom: registry.destroyRoom,
+      admit: (projectId, documentId, generation) =>
+        liveRegistry.admit(projectId, documentId, generation),
+      attachDetached: (lease) => liveRegistry.attachDetached(lease),
+      restartUnavailableRoom: (lease) => liveRegistry.restartUnavailableRoom(lease),
+      retainAdmitted: (owner, leases) => liveRegistry.retain(owner, leases),
+      releaseAdmitted: (owner) => liveRegistry.release(owner),
+    },
     newDocumentId: () => crypto.randomUUID(),
     api: {
       resolveHome: resolveUntitledCatalogHome,
@@ -66,6 +82,14 @@ function browserDeps(identityMutations: ContextIdentityMutationService): Untitle
           desired,
         );
         return result;
+      },
+      async lookupGeneration(projectId, documentId) {
+        const result = await lookupProjectContextAvailability(projectId, [documentId]);
+        const resolution = result.resolutions[0];
+        if (resolution?.kind !== "available") {
+          throw new Error("Materialized Untitled is not authoritatively available");
+        }
+        return resolution.generation;
       },
     },
   };

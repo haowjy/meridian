@@ -2,6 +2,8 @@
 
 import {
   isWorkScopedProjectContextScheme,
+  type LiveDocumentSessionAuthority,
+  type ProjectContextTreeScheme,
   type WorkingSetRoute,
 } from "@meridian/contracts/protocol";
 import {
@@ -24,6 +26,7 @@ import {
   applyContextRepairIfCurrent,
   type ContextRouteRepair,
   type ContextRouteTarget,
+  openContextRouteSearch,
   type ProjectSearch,
   transitionProjectSearch,
 } from "../routing/project-route";
@@ -58,6 +61,7 @@ import {
   supersedeSelectionForWorkChange,
   type TerminalRouteRemoval,
 } from "./context-removal-protocol";
+import type { ProjectDocumentAvailabilityCommand } from "./project-context-availability-coordinator";
 
 type ContextRemovalWorkingSetPort = {
   readRecentRoutes(projectId: string): WorkingSetRoute[];
@@ -79,6 +83,7 @@ type DeskPort = {
     },
   ): ContextTab[];
   resolveDraftApply(projectId: string, reviewWorkId: string, documentId: string): void;
+  replace?(projectId: string, tabs: readonly ContextTab[]): void;
 };
 
 type RemovalFence = {
@@ -133,6 +138,7 @@ const productionDesk: DeskPort = {
   read: (projectId) => useContextTabsStore.getState().byProject[projectId] ?? EMPTY_SLICE,
   commit: commitPlannedContextRemoval,
   resolveDraftApply: commitDraftApplyMetadata,
+  replace: (projectId, tabs) => useContextTabsStore.getState().replaceTabs(projectId, [...tabs]),
 };
 
 const productionWorkingSet: ContextRemovalWorkingSetPort = {
@@ -151,6 +157,8 @@ export class ContextRemovalCoordinator {
   private readonly fallbackRoute: ContextRemovalRoutePort | null;
   private readonly desk: DeskPort;
   private readonly workingSet: ContextRemovalWorkingSetPort;
+  private readonly sessions: LiveDocumentSessionAuthority | null;
+  private readonly availabilityGenerations = new Map<string, bigint>();
   private disposed = false;
   private suspended = false;
 
@@ -163,12 +171,14 @@ export class ContextRemovalCoordinator {
           desk?: DeskPort;
           workingSet?: ContextRemovalWorkingSetPort;
           route?: ContextRemovalRoutePort;
+          sessions?: LiveDocumentSessionAuthority;
         }
       | null = null,
     explicitDependencies: {
       desk?: DeskPort;
       workingSet?: ContextRemovalWorkingSetPort;
       route?: ContextRemovalRoutePort;
+      sessions?: LiveDocumentSessionAuthority;
     } = {},
   ) {
     const dependencies =
@@ -179,6 +189,7 @@ export class ContextRemovalCoordinator {
     this.desk = dependencies.desk ?? productionDesk;
     this.workingSet = dependencies.workingSet ?? productionWorkingSet;
     this.fallbackRoute = dependencies.route ?? null;
+    this.sessions = dependencies.sessions ?? null;
   }
 
   /** A reversible provider lifetime: cleanup revokes now; replay may reacquire before disposal. */
@@ -444,6 +455,107 @@ export class ContextRemovalCoordinator {
   applyDraftMetadata(projectId: string, reviewWorkId: string, documentId: string): void {
     if (this.unavailable()) return;
     this.desk.resolveDraftApply(projectId, reviewWorkId, documentId);
+  }
+
+  /** One logical project-final batch across desk, route, recent-route, selection, and sessions. */
+  async reconcileDocumentAvailability(
+    commands: readonly ProjectDocumentAvailabilityCommand[],
+  ): Promise<{ appliedCommandIds: readonly string[] }> {
+    if (this.unavailable()) return { appliedCommandIds: [] };
+    const appliedCommandIds: string[] = [];
+    for (const command of commands) {
+      const documentId =
+        command.kind === "available" ? command.document.entryId : command.documentId;
+      const generation = BigInt(command.generation);
+      const generationKey = `${command.projectId}/${documentId}`;
+      if (generation < (this.availabilityGenerations.get(generationKey) ?? -1n)) continue;
+      this.availabilityGenerations.set(generationKey, generation);
+
+      if (command.kind === "available") {
+        this.applyAvailable(command);
+      } else if (command.kind === "terminal-remove") {
+        this.catalogUnavailable(command.projectId, [documentId]);
+        await this.sessions?.revokeDocument(
+          command.projectId,
+          documentId,
+          command.generation,
+          command.commandId,
+        );
+      } else {
+        if (command.authority.kind === "work") {
+          this.workUnavailable(command.projectId, command.authority.workId, [documentId]);
+        } else {
+          this.catalogUnavailable(command.projectId, [documentId]);
+        }
+        await this.sessions?.revokeAccess(
+          command.projectId,
+          documentId,
+          command.generation,
+          command.commandId,
+        );
+      }
+      appliedCommandIds.push(command.commandId);
+    }
+    return { appliedCommandIds };
+  }
+
+  private applyAvailable(
+    command: Extract<ProjectDocumentAvailabilityCommand, { kind: "available" }>,
+  ): void {
+    const entry = command.document;
+    const documentId = entry.entryId;
+    const scheme = entry.uri.slice(0, entry.uri.indexOf(":")) as ProjectContextTreeScheme;
+    const path = entry.path.join("/");
+    const workId = entry.scope.kind === "work" ? entry.scope.workId : undefined;
+    const slice = this.desk.read(command.projectId);
+    const priorTabs = slice.tabs.filter(
+      (tab): tab is ServerContextTab => tab.kind !== "new" && tab.documentId === documentId,
+    );
+    if (priorTabs.length > 0 && this.desk.replace) {
+      this.desk.replace(
+        command.projectId,
+        slice.tabs.map((tab) => {
+          if (tab.kind === "new" || tab.documentId !== documentId) return tab;
+          const common = {
+            ...tab,
+            scheme,
+            path,
+            name: entry.name,
+            provisionalName: entry.provisionalName,
+          };
+          if (workId) return { ...common, workId };
+          const { workId: _oldWorkId, ...withoutWork } = common;
+          return withoutWork;
+        }),
+      );
+    }
+
+    const target: ContextRouteTarget = { scheme, path, workId: workId ?? null };
+    const state = this.project(command.projectId);
+    if (
+      state.selection.status === "bound" &&
+      state.selection.identity.kind === "server" &&
+      state.selection.identity.documentId === documentId
+    ) {
+      state.selection = { ...state.selection, locator: target };
+      state.admitted = target;
+      const route = this.routePorts.get(command.projectId)?.port ?? this.fallbackRoute;
+      route?.updateSearch(command.projectId, (latest) =>
+        latest.screen === "context" ? openContextRouteSearch(latest, target) : latest,
+      );
+      this.publish(state);
+    }
+
+    const oldRoutes = priorTabs.flatMap((tab) => workingSetRouteForTab(tab) ?? []);
+    if (oldRoutes.length > 0) {
+      const tabs = this.desk.read(command.projectId).tabs;
+      this.workingSet.reconcileContextRoutes(command.projectId, {
+        removedLocators: oldRoutes,
+        survivingOwnedLocators: tabs.flatMap((tab) => workingSetRouteForTab(tab) ?? []),
+        promote: workingSetRouteForTarget(target),
+        clearAll: false,
+      });
+    }
   }
 
   writerClose(projectId: string, documentId: string): ContextRemovalOutcome {

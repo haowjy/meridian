@@ -4,6 +4,7 @@ import { getContextCatalogChanges } from "@/client/api/projects-api";
 import { hintContextCatalog } from "./context-catalog-acquisition";
 import { catalogViewFromSnapshot } from "./context-catalog-cache";
 import { projectQueryKeys } from "./project-query-keys";
+import { pullContextCatalogOnHint } from "./useContextCatalog";
 
 vi.mock("@/client/api/projects-api", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/client/api/projects-api")>();
@@ -32,6 +33,24 @@ const delta = (revision: number) => ({
 afterEach(() => vi.clearAllMocks());
 
 describe("catalog acquisition coordinator", () => {
+  it("does not materialize a cold Work query from a truth-free hint", () => {
+    const queryClient = new QueryClient();
+    const workScope = {
+      kind: "work" as const,
+      projectId: "project-1",
+      workId: "work-cold",
+    };
+    pullContextCatalogOnHint(queryClient, "project-1", {
+      type: "context-catalog-hint",
+      scope: workScope,
+      headRevision: "1",
+    });
+    expect(
+      queryClient.getQueryState(projectQueryKeys.contextCatalog("project-1", workScope)),
+    ).toBeUndefined();
+    expect(getContextCatalogChanges).not.toHaveBeenCalled();
+  });
+
   it("coalesces duplicate and successive hints into one drain from each cursor", async () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(
