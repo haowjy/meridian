@@ -1,16 +1,27 @@
-/** Real cross-domain Work projection participant for isolated PostgreSQL adapter tests. */
+/** Projection stub for isolated PostgreSQL adapters whose contract excludes cross-domain effects. */
+import type { WorkId } from "@meridian/contracts/runtime";
 import type { Database } from "@meridian/database";
-import { createDrizzleContextCatalog } from "../domains/context/adapters/context-catalog.js";
-import { createDrizzleProjectContextAvailability } from "../domains/context/adapters/project-context-availability.js";
-import { createWorkProjectionMutation } from "../domains/projects/adapters/work-projection-mutation.js";
+import { works } from "@meridian/database/schema";
+import { inArray, sql } from "drizzle-orm";
+import type { WorkProjectionMutation } from "../domains/projects/adapters/work-projection-mutation.js";
+import { currentDrizzleDb } from "../shared/drizzle-transaction.js";
 
-export function createTestWorkProjectionMutation(db: Database) {
-  const availability = createDrizzleProjectContextAvailability(db);
-  return createWorkProjectionMutation({
-    db,
-    availability,
-    catalog: createDrizzleContextCatalog(db, undefined, {
-      availabilityMutations: availability,
-    }),
-  });
+export function createTestWorkProjectionMutation(db: Database): WorkProjectionMutation {
+  return {
+    async publishWorks() {},
+    async touchWorks(workIds, activityAt) {
+      const unique = [...new Set(workIds)] as WorkId[];
+      if (unique.length === 0) return;
+      await currentDrizzleDb(db)
+        .update(works)
+        .set({
+          entityRevision: sql`${works.entityRevision} + 1`,
+          ...(activityAt ? { updatedAt: activityAt } : {}),
+        })
+        .where(inArray(works.id, unique));
+    },
+    async mutatePendingBranches(_branchIds, operation) {
+      return operation();
+    },
+  };
 }
