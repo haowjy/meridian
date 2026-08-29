@@ -61,7 +61,7 @@ export type { SchemaFence } from "./schema-fence";
 
 import { SessionMarkerStore } from "./session-marker-store";
 
-export function documentSessionPersistenceKey(roomKey: string): string {
+export function roomSessionPersistenceKey(roomKey: string): string {
   return `meridian:document:${collabSchemaKeyTag()}:${roomKey}`;
 }
 
@@ -228,7 +228,7 @@ export class DocumentSession {
 
   constructor({
     roomKey,
-    persistenceKey = documentSessionPersistenceKey(roomKey),
+    persistenceKey = roomSessionPersistenceKey(roomKey),
     enableIndexedDb = canUseIndexedDb(),
     transportFactory,
     persistSchemaFence,

@@ -20,7 +20,7 @@ import {
   type DocumentSessionSnapshot,
   type DocumentSessionTransportProvider,
   deleteStaleVersionedIndexedDb,
-  documentSessionPersistenceKey,
+  roomSessionPersistenceKey,
 } from "./document-session";
 import { clientSchemaReloadGuardKey } from "./schema-fence";
 import type { SchemaRepairEvent } from "./schema-repair-witness";
@@ -404,10 +404,10 @@ describe("DocumentSession status derivation", () => {
   });
 
   it("builds a major.minor-versioned IndexedDB persistence key", () => {
-    expect(documentSessionPersistenceKey("doc-abc")).toBe(
+    expect(roomSessionPersistenceKey("doc-abc")).toBe(
       `meridian:document:${collabSchemaKeyTag()}:doc-abc`,
     );
-    expect(documentSessionPersistenceKey("branch:branch-abc:gen:1")).toBe(
+    expect(roomSessionPersistenceKey("branch:branch-abc:gen:1")).toBe(
       `meridian:document:${collabSchemaKeyTag()}:branch:branch-abc:gen:1`,
     );
   });

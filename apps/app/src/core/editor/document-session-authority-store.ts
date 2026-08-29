@@ -103,6 +103,7 @@ function transactionDone(transaction: IDBTransaction): Promise<void> {
 /** One durable authority database per authenticated account. */
 export class DocumentSessionAuthorityStore {
   private readonly databasePromise: Promise<IDBDatabase>;
+  private readonly blockedDeleteRequests = new Set<string>();
 
   constructor(
     readonly accountId: AccountId,
@@ -224,16 +225,21 @@ export class DocumentSessionAuthorityStore {
   }
 
   private deleteDatabase(name: string): Promise<boolean> {
+    if (this.blockedDeleteRequests.has(name)) return Promise.resolve(false);
     return new Promise((resolve, reject) => {
       const request = this.idb.deleteDatabase(name);
       let settled = false;
       request.onblocked = () => {
         settled = true;
+        this.blockedDeleteRequests.add(name);
         resolve(false);
       };
-      request.onerror = () =>
+      request.onerror = () => {
+        this.blockedDeleteRequests.delete(name);
         reject(request.error ?? new Error(`Failed to delete IndexedDB ${name}`));
+      };
       request.onsuccess = () => {
+        this.blockedDeleteRequests.delete(name);
         if (!settled) resolve(true);
       };
     });
