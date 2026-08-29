@@ -13,6 +13,7 @@ export type ContextRemovalIntent = {
     | "writer-close"
     | "acknowledged-delete"
     | "catalog-unavailable"
+    | "authority-unavailable"
     | "work-prune"
     | "draft-discard";
   documentIds: readonly string[];
@@ -161,6 +162,7 @@ export function contextTabEligibleForRemoval(
       return true;
     case "acknowledged-delete":
     case "catalog-unavailable":
+    case "authority-unavailable":
       return tab.kind !== "new" && !tab.draftOnly;
     case "work-prune":
       return (

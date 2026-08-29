@@ -153,4 +153,30 @@ describe("ContextRemovalCoordinator availability batches", () => {
     expect(sessions.revokeDocument).toHaveBeenCalledOnce();
     expect(useContextTabsStore.getState().byProject[projectId]?.tabs).toEqual([]);
   });
+
+  it("does not install terminal reentry evidence for an authority revoke", async () => {
+    const sessions = {
+      revokeDocument: vi.fn(),
+      revokeAccess: vi.fn(async () => ({ revokedThrough: "8", persistence: "cleared" })),
+    } as unknown as LiveDocumentSessionAuthority;
+    const coordinator = new ContextRemovalCoordinator("account-1", { sessions });
+    const locator = { scheme: "scratch" as const, path: "Old.md", workId: "work-1" };
+    const revision = coordinator.beginRouteSelection(projectId, locator);
+    coordinator.bindRouteSelection(projectId, revision, { kind: "server", documentId });
+    await coordinator.reconcileDocumentAvailability([
+      {
+        kind: "authority-revoke",
+        commandId: `availability/v1/authority-revoke/${projectId}/${documentId}/8`,
+        projectId,
+        documentId,
+        generation: "8",
+        authority: { kind: "project", projectId },
+        cause: "authority-unavailable",
+      },
+    ]);
+    coordinator.beginRouteSelection(projectId, locator);
+    expect(coordinator.getProjectSnapshot(projectId).selection).toEqual(
+      expect.objectContaining({ status: "candidate", reentryGuard: null }),
+    );
+  });
 });

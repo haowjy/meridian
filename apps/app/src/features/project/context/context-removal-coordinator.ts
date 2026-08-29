@@ -3,6 +3,7 @@
 import {
   isWorkScopedProjectContextScheme,
   type LiveDocumentSessionAuthority,
+  type ProjectContextAuthority,
   type ProjectContextTreeScheme,
   type WorkingSetRoute,
 } from "@meridian/contracts/protocol";
@@ -482,11 +483,7 @@ export class ContextRemovalCoordinator {
           command.commandId,
         );
       } else {
-        if (command.authority.kind === "work") {
-          this.workUnavailable(command.projectId, command.authority.workId, [documentId]);
-        } else {
-          this.catalogUnavailable(command.projectId, [documentId]);
-        }
+        this.authorityUnavailable(command.projectId, command.authority, [documentId]);
         await this.sessions?.revokeAccess(
           command.projectId,
           documentId,
@@ -590,6 +587,38 @@ export class ContextRemovalCoordinator {
       { cause: "catalog-unavailable", documentIds: [...new Set(documentIds)] },
       obsoleteRoutes,
     );
+    const state = this.project(projectId);
+    if (state.selection.status === "bound" && state.selection.locator.workId === workId) {
+      this.leaveSelection(projectId);
+    }
+    const route = this.routePorts.get(projectId)?.port ?? this.fallbackRoute;
+    if (route?.readSearch(projectId).work === workId) {
+      route.updateSearch(projectId, (latest) =>
+        latest.work === workId
+          ? transitionProjectSearch(latest, { kind: "work-collection" })
+          : latest,
+      );
+    }
+    return outcome;
+  }
+
+  private authorityUnavailable(
+    projectId: string,
+    authority: ProjectContextAuthority,
+    documentIds: readonly string[],
+  ): ContextRemovalOutcome {
+    const workId = authority.kind === "work" ? authority.workId : undefined;
+    const obsoleteRoutes = workId
+      ? this.workingSet
+          .readRecentRoutes(projectId)
+          .filter((candidate) => candidate.workId === workId)
+      : [];
+    const outcome = this.executeRepresented(
+      projectId,
+      { cause: "authority-unavailable", documentIds: [...new Set(documentIds)] },
+      obsoleteRoutes,
+    );
+    if (!workId) return outcome;
     const state = this.project(projectId);
     if (state.selection.status === "bound" && state.selection.locator.workId === workId) {
       this.leaveSelection(projectId);
