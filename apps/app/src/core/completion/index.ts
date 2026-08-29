@@ -1,8 +1,8 @@
 /**
  * Completion: the headless half of every menu a writer types underneath.
  *
- * Two things live here, and neither knows what is rendering it: the open-menu
- * store (`/`, `[[`, and whatever trigger comes next all publish through it) and
+ * Two things live here, and neither knows what is rendering it: the suggestion
+ * lifecycle (`/`, `[[`, and whatever trigger comes next all publish through it) and
  * the catalog that ranks the documents a `[[…]]` may name. Nothing in this
  * module imports ProseMirror, the DOM, or React. The one piece of geometry a
  * menu carries is `anchorRect`, and that is a callback its host supplies.
@@ -11,8 +11,7 @@
  * dependency graph: both files here import nothing at all, and their consumers
  * are the editor's TipTap lanes (`core/editor/extensions/{slash,wikilink}`),
  * the editor's React surfaces (`features/editor/surfaces/{slash,link}`), and —
- * next — the chat composer, which is a plain `<textarea>` in
- * `features/chat/`. Imports run `core/*` → `features/*`, and one feature never
+ * next — the shared Composer. Imports run `core/*` → `features/*`, and one feature never
  * reaches into another's internals, so `core/` is the shallowest node covering
  * every consumer. Left under `core/editor`, the composer would have to import
  * the editor to rank a document title in a textarea, which is a layering smell
@@ -32,11 +31,16 @@
 
 export {
   closedSuggestionMenu,
-  createSuggestionMenu,
+  createSuggestionLifecycle,
+  type KeyArbiter,
+  type SuggestionGeneration,
+  type SuggestionLifecycle,
+  type SuggestionLifecycleCallbacks,
   type SuggestionMenu,
-  type SuggestionMenuController,
-  type SuggestionMenuSession,
   type SuggestionMenuSnapshot,
+  type SuggestionSelectionPolicy,
+  type SuggestionSession,
+  type SuggestionSessionId,
 } from "./suggestion-menu-store";
 export {
   filterWikilinkItems,

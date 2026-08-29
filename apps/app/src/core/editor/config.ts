@@ -8,7 +8,7 @@
  */
 
 import type { YjsTrackedSchemaType } from "@meridian/contracts/protocol";
-import { type EditorOptions, type Extensions, Node } from "@tiptap/core";
+import { type Editor, type EditorOptions, type Extensions, Node } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -16,9 +16,10 @@ import type { EditorView } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 import { common, createLowlight } from "lowlight";
 import type * as Y from "yjs";
+import type { KeyArbiter } from "@/core/completion";
 import type { AgentNameStore } from "./agent-name-store";
 import { BlockDragExtension } from "./blocks";
-import { ChromeKernelExtension } from "./chrome";
+import { ChromeKernelExtension, getEditorChrome } from "./chrome";
 import { COLLABORATION_CURSOR_COLORS, resolveCollaborationColor } from "./collaboration-colors";
 import { AutoPairExtension } from "./extensions/auto-pair";
 import { DropLandingExtension } from "./extensions/DropLandingExtension";
@@ -66,6 +67,23 @@ export type EditorUser = {
   name: string;
   color: string;
 };
+
+/** Editor-host adapter for the shared suggestion lane's narrow key port. */
+function suggestionKeyArbiter(editor: Editor): KeyArbiter | null {
+  const chrome = getEditorChrome(editor);
+  if (!chrome) return null;
+  return {
+    register: ({ id, bindings }) =>
+      chrome.registerKeymap({
+        id,
+        scope: "layer",
+        // Registration precedes the React layer by one frame so the first key
+        // cannot outrun its menu. The chrome kernel retains that host policy.
+        layer: null,
+        bindings,
+      }),
+  };
+}
 
 /** Project whose asset namespace resolves `asset:<documentId>` image sources. */
 export type AssetRenderContext = {
@@ -356,8 +374,12 @@ export function createStandaloneEditorExtensions({
     MeridianFigure.configure({
       projectId: assetRenderContext?.projectId,
     }),
-    ...(slashCommands ? [SlashCommandExtension.configure(slashCommands)] : []),
-    ...(wikilinks ? [WikilinkSuggestionExtension.configure(wikilinks)] : []),
+    ...(slashCommands
+      ? [SlashCommandExtension.configure({ ...slashCommands, keyArbiter: suggestionKeyArbiter })]
+      : []),
+    ...(wikilinks
+      ? [WikilinkSuggestionExtension.configure({ ...wikilinks, keyArbiter: suggestionKeyArbiter })]
+      : []),
     MarkdownAutoformatExtension,
     // Below the autoformat, which owns the delimiters this deliberately does
     // not pair (`**`, `__`, `~~`, and the backtick outside a fence).

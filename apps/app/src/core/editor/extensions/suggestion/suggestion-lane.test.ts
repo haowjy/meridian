@@ -10,9 +10,9 @@
  * are bound from the plugin's own lifetime rather than a React effect.
  */
 import { Editor } from "@tiptap/core";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { KeyArbiter } from "@/core/completion";
 
-import { getEditorChrome } from "../../chrome";
 import { createStandaloneEditorExtensions } from "../../config";
 import { createSuggestionLane } from "./suggestion-lane";
 
@@ -32,6 +32,7 @@ const wordLane = createSuggestionLane<WordCatalog, WordItem, WordEntry, { title:
   keymapId: "test-word-lane",
   label: (catalog) => catalog.title,
   allows: () => true,
+  rowId: (entry) => entry.word,
   items: (catalog, query) =>
     catalog.words.filter((word) => word.startsWith(query)).map((word) => ({ word })),
   // Reads the document a pick would act on, which is the whole reason this
@@ -49,8 +50,11 @@ const wordLane = createSuggestionLane<WordCatalog, WordItem, WordEntry, { title:
 });
 
 let editor: Editor | null = null;
+const releaseKeymap = vi.fn();
+const registerKeymap = vi.fn<KeyArbiter["register"]>(() => releaseKeymap);
 
 afterEach(() => {
+  vi.clearAllMocks();
   editor?.destroy();
   editor = null;
 });
@@ -59,7 +63,14 @@ function mount({ withLane = true } = {}) {
   const instance = new Editor({
     extensions: [
       ...createStandaloneEditorExtensions(),
-      ...(withLane ? [wordLane.extension.configure({ catalog: () => CATALOG })] : []),
+      ...(withLane
+        ? [
+            wordLane.extension.configure({
+              catalog: () => CATALOG,
+              keyArbiter: () => ({ register: registerKeymap }),
+            }),
+          ]
+        : []),
     ],
     content: { type: "doc", content: [{ type: "paragraph" }] },
   });
@@ -92,12 +103,21 @@ describe("a lane declared as a spec", () => {
 
   it("binds the arrow keys from the plugin's lifetime, before any surface renders", async () => {
     const instance = mount();
-    await type(instance, "%");
+    await type(instance, "%emb");
 
-    const bound = (getEditorChrome(instance)?.keymapContributions() ?? []).some(
-      (contribution) => contribution.id === "test-word-lane",
+    expect(registerKeymap).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "test-word-lane",
+        bindings: expect.objectContaining({
+          ArrowDown: expect.any(Function),
+          ArrowUp: expect.any(Function),
+          Enter: expect.any(Function),
+        }),
+      }),
     );
-    expect(bound).toBe(true);
+    const registration = registerKeymap.mock.calls.at(-1)?.[0];
+    expect(registration?.bindings.ArrowDown()).toBe(true);
+    expect(wordLane.getMenu(instance)?.snapshot().activeIndex).toBe(0);
   });
 
   it("writes what the lane's choice writes, over the trigger's own range", async () => {

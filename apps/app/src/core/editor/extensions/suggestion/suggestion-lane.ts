@@ -39,12 +39,13 @@ import { Plugin, PluginKey } from "@tiptap/pm/state";
 import Suggestion, { exitSuggestion, type SuggestionProps } from "@tiptap/suggestion";
 
 import {
-  createSuggestionMenu,
+  createSuggestionLifecycle,
+  type KeyArbiter,
+  type SuggestionGeneration,
+  type SuggestionLifecycle,
   type SuggestionMenu,
-  type SuggestionMenuController,
-  type SuggestionMenuSession,
+  type SuggestionSession,
 } from "@/core/completion";
-import { getEditorChrome } from "../../chrome";
 
 /**
  * What the host offers a lane.
@@ -57,6 +58,8 @@ import { getEditorChrome } from "../../chrome";
  */
 export type SuggestionLaneOptions<TCatalog> = {
   catalog: () => TCatalog | null;
+  /** Host composition seam: the adapter never imports editor chrome. */
+  keyArbiter: (editor: Editor) => KeyArbiter | null;
 };
 
 /**
@@ -87,6 +90,8 @@ export type SuggestionLaneSpec<TCatalog, TItem, TEntry extends TItem = TItem, TM
   allows: (doc: PMNode, from: number) => boolean;
   /** What matched what the writer has typed after the trigger. */
   items: (catalog: TCatalog, query: string) => readonly TItem[];
+  /** Stable identity across reorder and same-session catalog refreshes. */
+  rowId: (entry: TEntry) => string;
   /**
    * How the visible list reads where the caret is — per-row state that depends
    * on the document rather than the query. Asked once per update, so every row
@@ -124,29 +129,28 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
 
   type LaneStorage = {
     menu: SuggestionMenu<TEntry, TMeta>;
-    /** @internal driven by this lane's plugin only. */
-    controller: SuggestionMenuController<TEntry, TMeta>;
+    lifecycle: SuggestionLifecycle<TEntry, TMeta>;
   };
 
   const extension = Extension.create<SuggestionLaneOptions<TCatalog>, LaneStorage>({
     name: spec.name,
 
     addOptions() {
-      return { catalog: () => null };
+      return { catalog: () => null, keyArbiter: () => null };
     },
 
     addStorage(): LaneStorage {
-      return createSuggestionMenu<TEntry, TMeta>();
+      return createSuggestionLifecycle<TEntry, TMeta>();
     },
 
     addProseMirrorPlugins() {
       const editor = this.editor;
       const options = this.options;
-      const { menu, controller } = this.storage;
+      const { menu, lifecycle } = this.storage;
 
       const sessionFrom = (
         props: SuggestionProps<TItem, TEntry>,
-      ): SuggestionMenuSession<TEntry, TMeta> | null => {
+      ): SuggestionSession<TEntry, TMeta> | null => {
         const catalog = options.catalog();
         if (!catalog) return null;
         const entries = spec.entries
@@ -158,6 +162,7 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
             (props.items as unknown as readonly TEntry[]);
         return {
           items: entries,
+          rowId: spec.rowId,
           query: props.query,
           anchorRect: props.clientRect ?? (() => null),
           label: spec.label(catalog),
@@ -198,27 +203,21 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
           },
           render: () => {
             let releaseKeymap: (() => void) | null = null;
+            let identity: SuggestionGeneration | null = null;
 
             return {
               onStart(props) {
                 const session = sessionFrom(props);
                 if (!session) return;
-                controller.open(session);
+                identity = lifecycle.open(session);
 
                 // Registered here rather than from the surface's effect: the
                 // menu is on screen the instant the trigger text lands, and a
                 // writer who types it and ArrowDown in one motion must not
                 // out-run React.
                 releaseKeymap =
-                  getEditorChrome(editor)?.registerKeymap({
+                  options.keyArbiter(editor)?.register({
                     id: spec.keymapId,
-                    scope: "layer",
-                    // No token to name: this runs a beat before React opens the
-                    // popover that becomes this menu's layer, which is the
-                    // point of registering here. The keys are then the
-                    // shallowest rung of layer scope, and an open layer that
-                    // claims the same chord answers it instead.
-                    layer: null,
                     bindings: {
                       ArrowDown: () => menu.move(1),
                       ArrowUp: () => menu.move(-1),
@@ -229,13 +228,18 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
 
               onUpdate(props) {
                 const session = sessionFrom(props);
-                if (session) controller.update(session);
+                if (!session || !identity) return;
+                const generation = lifecycle.nextGeneration(identity.sessionId);
+                if (!generation) return;
+                identity = generation;
+                lifecycle.update(generation, session, "reset");
               },
 
               onExit() {
                 releaseKeymap?.();
                 releaseKeymap = null;
-                controller.close();
+                if (identity) lifecycle.close(identity.sessionId);
+                identity = null;
               },
             };
           },
