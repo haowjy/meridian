@@ -35,9 +35,9 @@ function parseBody(raw: unknown): DeleteContextEntryRequest {
 }
 
 export default defineEventHandler(async (event) => {
-  const { userId, scheme, workId, port } = await resolveContextRoute(event);
+  const { userId, scheme, authority, port } = await resolveContextRoute(event);
   const body = parseBody(await readBody(event));
-  const uri = toUri(scheme, body.path, workId);
+  const uri = toUri(scheme, body.path, authority);
   const result = await port.delete(uri, {
     origin: { type: "human", userId },
     expected: body.expected,

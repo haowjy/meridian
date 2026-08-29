@@ -1,6 +1,11 @@
 /** Working-set route parsing protects the scheme/work authority wire invariant. */
 import { describe, expect, expectTypeOf, it } from "vitest";
-import type { DeleteContextEntryRequest, DeleteContextEntryResult } from "./http-types.js";
+import type { WorkId } from "../ids.js";
+import type {
+  CreateThreadRequest,
+  DeleteContextEntryRequest,
+  DeleteContextEntryResult,
+} from "./http-types.js";
 import { parseWorkingSetRoute, parseWorkingSetRouteList } from "./http-types.js";
 
 describe("context deletion result", () => {
@@ -15,6 +20,12 @@ describe("context deletion result", () => {
       status: "deleted";
       deletedDocumentIds: string[];
     }>();
+  });
+});
+
+describe("root thread creation", () => {
+  it("preserves omitted, explicit null, and real Work identity", () => {
+    expectTypeOf<CreateThreadRequest["workId"]>().toEqualTypeOf<WorkId | null | undefined>();
   });
 });
 

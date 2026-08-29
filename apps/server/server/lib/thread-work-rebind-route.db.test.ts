@@ -29,9 +29,6 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     const { createDrizzleProjectRepository, createDrizzleProjectWorkRepository } = await import(
       "../domains/projects/index.js"
     );
-    const { createDrizzleProjectPreferencesRepository } = await import(
-      "../domains/preferences/index.js"
-    );
     const { createDrizzleNoticePort } = await import("../domains/notices/index.js");
     const { handleRebindThreadWorkRequest } = await import("./thread-work-rebind-route.js");
     const { default: interruptErrorHandler } = await import("./interrupt-error-handler.js");
@@ -51,7 +48,10 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     });
     const notices = createDrizzleNoticePort(db);
 
-    beforeEach(() => resetThreadWorkRaceFixture(db));
+    beforeEach(async () => {
+      await resetThreadWorkRaceFixture(db);
+      await works.unarchive(TARGET_WORK_ID);
+    });
 
     afterAll(async () => {
       await db.close();
@@ -80,7 +80,11 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
               transaction: threads.transaction,
               runOwnership: writerInstance,
             },
-            { threadId: THREAD_ID, userId: USER_ID, body: { workId: TARGET_WORK_ID } },
+            {
+              threadId: THREAD_ID,
+              userId: USER_ID,
+              body: { target: { kind: "work", workId: TARGET_WORK_ID } },
+            },
           );
         } catch (cause) {
           thrown = cause;
@@ -108,7 +112,11 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
           transaction: threads.transaction,
           runOwnership: writerInstance,
         },
-        { threadId: THREAD_ID, userId: USER_ID, body: { workId: TARGET_WORK_ID } },
+        {
+          threadId: THREAD_ID,
+          userId: USER_ID,
+          body: { target: { kind: "work", workId: TARGET_WORK_ID } },
+        },
       );
 
       await expect(threads.threadWorks.findPrimary(THREAD_ID)).resolves.toEqual({
@@ -147,7 +155,11 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
               tryAcquire: async () => ({ release: async () => {} }),
             },
           },
-          { threadId: THREAD_ID, userId: USER_ID, body: { workId: TARGET_WORK_ID } },
+          {
+            threadId: THREAD_ID,
+            userId: USER_ID,
+            body: { target: { kind: "work", workId: TARGET_WORK_ID } },
+          },
         );
       } catch (cause) {
         thrown = cause;
@@ -188,7 +200,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         locked = resolve;
       });
       const holdLock = blocker.begin(async (sql) => {
-        await sql`SELECT id FROM works WHERE id = ${WORK_ID} FOR UPDATE`;
+        await sql`SELECT id FROM works WHERE id = ${TARGET_WORK_ID} FOR UPDATE`;
         locked();
         await keepLocked;
       });
@@ -211,7 +223,11 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
                 tryAcquire: async () => ({ release: async () => {} }),
               },
             },
-            { threadId: THREAD_ID, userId: USER_ID, body: { workId: TARGET_WORK_ID } },
+            {
+              threadId: THREAD_ID,
+              userId: USER_ID,
+              body: { target: { kind: "work", workId: TARGET_WORK_ID } },
+            },
           ),
         );
 
@@ -228,9 +244,8 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       }
     });
 
-    it("commits the writer binding and one durable Notice without changing the fallback in the same transaction", async () => {
+    it("commits the writer binding and one durable Notice in the same transaction", async () => {
       await threads.threadWorks.addMembership(THREAD_ID, WORK_ID, true);
-      const preferences = createDrizzleProjectPreferencesRepository({ db });
       const projects = createDrizzleProjectRepository({ db });
 
       await handleRebindThreadWorkRequest(
@@ -247,15 +262,16 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
             tryAcquire: async () => ({ release: async () => {} }),
           },
         },
-        { threadId: THREAD_ID, userId: USER_ID, body: { workId: TARGET_WORK_ID } },
+        {
+          threadId: THREAD_ID,
+          userId: USER_ID,
+          body: { target: { kind: "work", workId: TARGET_WORK_ID } },
+        },
       );
 
       await expect(threads.threadWorks.findPrimary(THREAD_ID)).resolves.toEqual({
         workId: TARGET_WORK_ID,
       });
-      await expect(
-        preferences.getNewChatFallbackWorkId(USER_ID, THREAD_WORK_RACE.projectId),
-      ).resolves.toBeNull();
       await expect(threads.workContextDeliveries.isPending(THREAD_ID)).resolves.toBe(true);
 
       const recreatedPort = createDrizzleNoticePort(db);
@@ -277,7 +293,6 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
 
     it("rolls back binding, context obligation, and Notice on Notice failure", async () => {
       await threads.threadWorks.addMembership(THREAD_ID, WORK_ID, true);
-      const preferences = createDrizzleProjectPreferencesRepository({ db });
       const projects = createDrizzleProjectRepository({ db });
 
       await expect(
@@ -299,16 +314,17 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
               tryAcquire: async () => ({ release: async () => {} }),
             },
           },
-          { threadId: THREAD_ID, userId: USER_ID, body: { workId: TARGET_WORK_ID } },
+          {
+            threadId: THREAD_ID,
+            userId: USER_ID,
+            body: { target: { kind: "work", workId: TARGET_WORK_ID } },
+          },
         ),
       ).rejects.toThrow("injected Notice failure");
 
       await expect(threads.threadWorks.findPrimary(THREAD_ID)).resolves.toEqual({
         workId: WORK_ID,
       });
-      await expect(
-        preferences.getNewChatFallbackWorkId(USER_ID, THREAD_WORK_RACE.projectId),
-      ).resolves.toBeNull();
       await expect(threads.workContextDeliveries.isPending(THREAD_ID)).resolves.toBe(false);
       await expect(notices.drainForModelContext(THREAD_ID)).resolves.toEqual([]);
     });

@@ -173,6 +173,7 @@ function renderActiveView(
             projectId={props.projectId}
             threadId={props.activeThreadId}
             activeWork={props.chatWork}
+            availableWorks={props.availableWorks}
             onSelectThread={props.onSelectThread}
             onOpenContextTarget={props.onOpenContextTarget}
           />

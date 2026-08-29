@@ -21,6 +21,7 @@ import { projectQueryKeys } from "@/client/query/project-query-keys";
 import { useWorks } from "@/client/query/useWorks";
 import { ThreadStoreProvider } from "@/client/stores";
 import { withReactRoot } from "@/test-support/react-dom-harness";
+import { testWorkSlug } from "@/test-support/work-slug";
 import { Route as ProductionProjectRoute } from "./$projectId";
 
 const api = vi.hoisted(() => ({ listWorks: vi.fn() }));
@@ -49,7 +50,7 @@ const WORK: Work = {
   projectId: "project-b",
   createdByUserId: "user-1",
   name: "Work B",
-  slug: "work-b",
+  slug: testWorkSlug("work-b"),
   goal: null,
   description: null,
   status: "active",

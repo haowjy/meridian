@@ -99,7 +99,7 @@ Two interfaces are the only paths between the visual layer and the substrate:
   `useWorks` exposes only the owned-project Work catalog. Home derives its
   initial prospective choice from the first active (then first available) catalog
   Work and sends that explicit ID; omitted root-chat creation remains the sole
-  server boundary that resolves or repairs the internal new-chat fallback.
+  server boundary where omission and explicit null both mean no primary Work.
   Direct `/project/*` and `/chat/*` authenticated routes mount the project
   provider stack and seed the project list + `now`; the project route loader
   seeds per-project threads and works before the workspace renders, and carries
@@ -222,9 +222,8 @@ same provider stack.
 The dedicated Work screen presents Active Work first and keeps Archived Work in a
 default-collapsed disclosure. Work management has no project-wide selection state;
 collection reads and actions never read, resolve, repair, or change the internal
-new-chat fallback, and never implicitly change a thread binding. The Work-list
-payload is catalog-only; fallback resolution belongs solely to omitted root-chat
-creation.
+thread creation, and never implicitly change a thread binding. The Work-list
+payload is catalog-only; omitted or null root creation remains explicitly no-Work.
 Home and Work each own exactly one screen-level `app-scroll`; neither screen
 adds a nested scroll owner. Their bodies share `project-screen-column`, whose
 named inline-size container controls collection columns independently of the

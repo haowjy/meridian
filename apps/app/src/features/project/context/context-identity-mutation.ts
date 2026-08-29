@@ -61,7 +61,9 @@ export function createContextIdentityMutationService(
 
   const service: ContextIdentityMutationService = {
     materialized(projectId: string, result: CreateUntitledContextDocumentResponse) {
-      return invalidate(projectId, [result]);
+      return invalidate(projectId, [
+        { scheme: result.scheme, path: result.path, workId: result.workId ?? undefined },
+      ]);
     },
 
     async move(

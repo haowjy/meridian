@@ -1,5 +1,7 @@
 /** PostgreSQL coverage for runtime Work-context claims and model-visible delivery. */
+
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { testWorkSlug } from "../../../test-support/work-slug.js";
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS === "1" || process.env.RUN_DB_TESTS === "true";
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -85,7 +87,15 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
               text: "<work_context>current state</work_context>",
               current: {
                 projectId: "00000000-0000-0000-0000-000000000001",
-                workId: "00000000-0000-0000-0000-000000000002",
+                execution: {
+                  scope: {
+                    kind: "work",
+                    workId: "00000000-0000-0000-0000-000000000002",
+                    workSlug: testWorkSlug("test-work"),
+                  },
+                  aiWriteMode: "direct",
+                  draftOwner: null,
+                },
               },
             };
           },
@@ -307,7 +317,11 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         .update(schema.threads)
         .set({ bakedSkillSlugs: null, composedSystemPrompt: null })
         .where(eq(schema.threads.id, THREAD_ID));
-      const workContext = createWorkContextReader({ works, threadWorks: repos.threadWorks });
+      const workContext = createWorkContextReader({
+        threads: repos.threads,
+        works,
+        threadWorks: repos.threadWorks,
+      });
 
       const staleRenderedContext = await workContext.renderForThread(THREAD_ID);
       expect(staleRenderedContext.text).toContain("Old Work Name");

@@ -112,11 +112,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       };
     }
 
-    it("returns both active Works without reading or repairing fallback preference", async () => {
-      await expect(
-        preferences.repairNewChatFallbackWorkId(OWNER_ID, PROJECT_ID, null, OLDER_WORK_ID),
-      ).resolves.toBe(true);
-
+    it("returns both active Works", async () => {
       const response = await handler(event("all") as never);
 
       expect(response).toMatchObject({
@@ -128,9 +124,6 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         },
       });
       expect(Object.keys(response.value)).toEqual(["works"]);
-      await expect(preferences.getNewChatFallbackWorkId(OWNER_ID, PROJECT_ID)).resolves.toBe(
-        OLDER_WORK_ID,
-      );
     });
 
     it("groups pending branches for multiple Works and projects missing counts as zero", async () => {
@@ -282,7 +275,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       expect(renderedPlan).toMatch(/Index Cond[^}]*work_id/);
     });
 
-    it("honors archived collection filtering without touching fallback preference", async () => {
+    it("honors archived collection filtering", async () => {
       const archived = await routeApp.workRepo.archive(OLDER_WORK_ID);
       expect(archived.status).toBe("archived");
 
@@ -291,7 +284,6 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       expect(response).toMatchObject({
         value: { works: [{ id: OLDER_WORK_ID, status: "archived" }] },
       });
-      await expect(preferences.getNewChatFallbackWorkId(OWNER_ID, PROJECT_ID)).resolves.toBeNull();
     });
 
     it("conceals a project owned by another writer", async () => {
@@ -301,9 +293,6 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         statusCode: 404,
         message: "Project not found",
       });
-      await expect(
-        preferences.getNewChatFallbackWorkId(OTHER_USER_ID, PROJECT_ID),
-      ).resolves.toBeNull();
     });
   });
 }

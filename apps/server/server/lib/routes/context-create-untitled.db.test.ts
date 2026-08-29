@@ -20,12 +20,8 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     const { createProductionUnifiedContextPortFactory } = await import(
       "../../domains/context/unified-context-port-factory.js"
     );
-    const { createDrizzleProjectBootstrapRepository } = await import(
-      "../../domains/projects/index.js"
-    );
-    const { createDrizzleRepositories } = await import(
-      "../../domains/threads/adapters/drizzle/index.js"
-    );
+    const { createDrizzleProjectBootstrapRepository, createDrizzleProjectWorkAuthorityResolver } =
+      await import("../../domains/projects/index.js");
     const { useRollbackTestDatabase } = await import(
       "../../test-support/rollback-test-database.js"
     );
@@ -53,17 +49,25 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     });
 
     async function provisionProject() {
-      return createDrizzleProjectBootstrapRepository({
+      const bootstrap = await createDrizzleProjectBootstrapRepository({
         db,
-        threads: createDrizzleRepositories(db).threads,
-        threadWorks: createDrizzleRepositories(db).threadWorks,
         documents: createBoundCollab(),
       }).ensureDefaultBootstrap(USER_ID as never);
+      const workId = crypto.randomUUID();
+      await db.insert(schema.works).values({
+        id: workId,
+        projectId: bootstrap.projectId,
+        createdByUserId: USER_ID,
+        name: "Current Work",
+        slug: "current-work",
+      });
+      return { ...bootstrap, workId };
     }
 
     function createBoundCollab() {
       const collab = createCollabDomain({
         db,
+        workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
         documentAccess: createDrizzleDocumentAccess(db),
       });
       collab.bindHocuspocus(
@@ -84,11 +88,13 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         documentSync: collab,
         manifestMembership: collab,
       });
+      const authority = await createDrizzleProjectWorkAuthorityResolver(db).byId(projectId, workId);
+      if (!authority) throw new Error("missing Work authority");
       const port = contextPorts.forWork(
-        workId,
+        authority,
         projectId,
         USER_ID,
-        new Map([["current-work", workId]]),
+        new Map([[authority.workSlug, authority]]),
       );
 
       await expect(
@@ -108,7 +114,12 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       });
 
       const treeResponse = () =>
-        buildProjectContextTree({ projectId, scheme: "scratch", workId, port });
+        buildProjectContextTree({
+          projectId,
+          scheme: "scratch",
+          authority,
+          port,
+        });
       await expect(treeResponse()).resolves.toMatchObject({
         projectId,
         scheme: "scratch",
@@ -172,11 +183,13 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
             collab.recordManifestDocumentDeleted(documentId, view),
         },
       });
+      const authority = await createDrizzleProjectWorkAuthorityResolver(db).byId(projectId, workId);
+      if (!authority) throw new Error("missing Work authority");
       const port = contextPorts.forWork(
-        workId,
+        authority,
         projectId,
         USER_ID,
-        new Map([["current-work", workId]]),
+        new Map([[authority.workSlug, authority]]),
       );
       const create = () =>
         createUntitledContextDocument({
@@ -210,11 +223,13 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         documentSync: collab,
         manifestMembership: collab,
       });
+      const authority = await createDrizzleProjectWorkAuthorityResolver(db).byId(projectId, workId);
+      if (!authority) throw new Error("missing Work authority");
       const port = contextPorts.forWork(
-        workId,
+        authority,
         projectId,
         USER_ID,
-        new Map([["current-work", workId]]),
+        new Map([[authority.workSlug, authority]]),
       );
 
       await expect(
@@ -241,9 +256,16 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         documentId: CROSS_SCHEME_DOCUMENT_ID,
       });
 
-      await expect(db.select().from(schema.contextSources)).resolves.toEqual([
-        expect.objectContaining({ projectId, slug: "manuscript", scope: "project" }),
-      ]);
+      await expect(db.select().from(schema.contextSources)).resolves.toEqual(
+        expect.arrayContaining(
+          ["manuscript", "scratch", "uploads"].map((slug) =>
+            expect.objectContaining({ projectId, slug, scope: "project", workId: null }),
+          ),
+        ),
+      );
+      await expect(
+        db.select().from(schema.contextSources).where(eq(schema.contextSources.workId, workId)),
+      ).resolves.toEqual([]);
     });
   });
 }

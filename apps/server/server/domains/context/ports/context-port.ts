@@ -32,11 +32,15 @@ export type ProjectContextFsScheme = ProjectScopedContextUriScheme;
 export type WorkScopedContextFsScheme = WorkScopedContextUriScheme;
 
 export interface ContextReadResult {
+  /** Stable identity resolved by the router for this successful operation. */
+  uri: string;
   content: string;
   documentId?: string;
 }
 
 export interface ContextWriteResult {
+  /** Stable identity resolved by the router for this successful operation. */
+  uri: string;
   documentId?: string;
   markdown?: string;
   updateSeq?: number;

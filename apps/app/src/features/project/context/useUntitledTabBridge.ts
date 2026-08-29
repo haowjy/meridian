@@ -36,7 +36,7 @@ export function useUntitledTabBridge({
               scheme: result.scheme,
               path: result.path,
               name: result.name,
-              workId: result.workId,
+              workId: result.workId ?? undefined,
               editable: true,
               filetype: "markdown",
               schemaType: "document",

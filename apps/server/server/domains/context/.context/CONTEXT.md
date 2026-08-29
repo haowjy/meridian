@@ -4,7 +4,7 @@ Agent-readable/writable project workspace content addressed by context URIs.
 The context-URI cleanse (A0–A3) deleted the legacy dual-port and replaced it
 with a single unified `ContextPort` that resolves durable project schemes
 (`manuscript://`, `kb://`, `user://`) and work-item-scoped schemes
-(`scratch://<workId>/…`, `uploads://<workId>/…`).
+(`scratch://@slug/…`, `uploads://@slug/…`) plus explicit no-Work `@/` authority.
 
 ## What it owns
 
@@ -16,13 +16,13 @@ with a single unified `ContextPort` that resolves durable project schemes
   normalize the five registered schemes: `manuscript`, `kb`, `user`, `scratch`,
   `uploads`. Bare paths default to `manuscript://`. Work-scoped schemes
 (`scratch://`, `uploads://`) carry an `@<work-slug>` wire qualifier that the
-router resolves to a stable Work ID before dispatch.
+router resolves to exact project-scoped Work authority before dispatch.
 - **Unified context port factory** (`unified-context-port-factory.ts`) — two deep
   modules: `context-source-provisioning.ts` (race-safe `context_sources`
   provisioning + lazy promise-cached resolution) and the factory composition root.
 - **ContextPort router** (`context/router.ts`) — dispatches scheme-relative paths
-  to the correct scheme adapter; converts faults into `ContextError` results with
-  the canonical URI attached. Router and tree-move boundaries share the canonical
+  to the correct scheme adapter; attaches its resolved canonical URI to successful
+  reads/writes and to `ContextError` results. Router and tree-move boundaries share the canonical
   mapper in `context/adapter-fault.ts`, including actionable invalid-operation messages.
 - **Scheme/storage ports** — `ContextPort`, `ContextSchemeAdapter`,
   `ContextDocumentStore`, and `ContextTreeMutationStore` (for `move`/`delete`
@@ -62,6 +62,10 @@ router resolves to a stable Work ID before dispatch.
   `corpus-import-service.ts` keeps slugging/dedupe/normalization helpers).
 - **Browse layer scheme** (`browse-layer-scheme.ts`) — HTTP browse scheme
   vocabulary, routing, and work-scope membership gating for work-scoped schemes.
+- **Result promotion** prepares exact resolved/no-Work URI identity before an
+  object put. The result repository owns same-ID terminal reconciliation;
+  compensation occurs only for `definitely_not_committed`, while unknown
+  outcomes retain bytes and emit diagnostics.
 
 ## Contracts
 
@@ -77,8 +81,9 @@ router resolves to a stable Work ID before dispatch.
 ## URI and router invariants
 
 - Wire context URIs are `scheme://[@slug]/path`; a scheme root is `scheme://`.
-  Canonical server results use the resolved Work ID so persisted references do
-  not rebind if a deleted Work's slug is reused.
+  Parsing validates syntax and returns `normalized`; it does not authorize a
+  Work. Stable server results use the persisted slug carried by opaque,
+  same-project resolved authority; explicit `@/` is no-Work authority.
 - Bare paths default to `manuscript://` (project-scoped).
 - Leading/trailing slashes and repeated slashes are normalized away; `.` segments
   are dropped; `..` is rejected.
@@ -86,7 +91,7 @@ router resolves to a stable Work ID before dispatch.
   The prefix is reserved for Work authority qualifiers; interior `@` characters
   remain valid.
 - Work-scoped schemes (`scratch://`, `uploads://`) accept one `@<work-slug>`
-  qualifier. Omitted authority resolves to the thread's primary Work. Every
+  qualifier. Omitted authority resolves contextually to the thread's real or absent scope; absent scope uses writable project-owned Scratch and Uploads sources. Every
   non-deleted Work in the same project is addressable regardless of thread
   membership; cross-project Works are refused. `manuscript://`,
   `kb://`, `user://` carry no work authority.
@@ -96,8 +101,11 @@ router resolves to a stable Work ID before dispatch.
   relative traversal cannot escape its scheme root. `work://` maps to the
   selected Work's `scratch` source and serializes with its Work ID authority.
   Zero or multiple matches both resolve to `null`; resolution never guesses.
-- Router methods attach the canonical URI to every `ContextError`.
-- `uploads://` is intake, not an authoring workspace: tracked creation, untitled
+- Router methods attach the resolved canonical URI to every `ContextError` and
+  successful read/write result. Transport and collab callers publish that value;
+  they never echo syntax-only request URIs as document identity.
+- `uploads://` is intake, not an authoring workspace. F0 owns its authority,
+  provisioning, and resolution; F4 owns the actual `UploadIntake` lifecycle. Tracked creation, untitled
   allocation, directory creation, and cross-scheme move-in are rejected with an
   actionable `invalid_operation`. Same-scheme moves and flat binary upload intake
   stay available; nested intake paths are rejected because they would implicitly
@@ -204,7 +212,7 @@ router resolves to a stable Work ID before dispatch.
 
 - **Legacy `ContextPortFactory`** (dual-port with `forThread`/`forProject`) — deleted.
 - **`fs1://`** scheme — sandbox-era vestige, removed.
-- **`scratch://.results`** — promotion cruft, removed. Results → `scratch://<workId>/results/…`.
+- **`scratch://.results`** — promotion cruft, removed. Results use canonical Scratch paths.
 - **`LegacyThreadContextPort`** / `manuscriptContextPort` / `REQUIRED_MANUSCRIPT_URI` — deleted.
 - **Corpus-import domain ceremony** — folded into `kb://imports/…` ingest.
 

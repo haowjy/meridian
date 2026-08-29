@@ -27,7 +27,7 @@ import type {
   TurnStatus,
   TurnUsage,
 } from "../threads/index.js";
-import type { AiWriteMode, Work } from "../works/index.js";
+import type { AiWriteMode, Work, WorkSlug } from "../works/index.js";
 import type { Filetype, YjsTrackedSchemaType } from "./filetype.js";
 
 export type { JsonValue } from "../threads/index.js";
@@ -99,7 +99,7 @@ export type CreateUntitledContextDocumentResponse = {
   path: string;
   name: string;
   /** Present only when the canonical location is Work-scoped. */
-  workId?: string;
+  workId?: string | null;
 };
 
 export type CreateUntitledContextDocumentResult =
@@ -131,8 +131,10 @@ export type MoveContextEntryRequest = {
   /** Scheme-relative parent folder; the empty string means the scheme root. */
   destinationFolderPath: string;
   newName?: string;
-  sourceWorkId?: string;
-  destinationWorkId?: string;
+  /** Omitted or null selects explicit no-Work authority for Work-capable schemes. */
+  sourceWorkId?: WorkId | null;
+  /** Omitted or null selects explicit no-Work authority for Work-capable schemes. */
+  destinationWorkId?: WorkId | null;
 };
 
 export type MoveContextEntrySuccess = {
@@ -142,12 +144,17 @@ export type MoveContextEntrySuccess = {
   name: string;
 };
 /** Canonical, server-normalized location used by Open-existing recovery. */
-export type MoveContextEntryLocator = {
-  scheme: ProjectContextTreeScheme;
-  path: string;
-  /** Present only for scratch/uploads locations. */
-  workId?: string;
-};
+export type MoveContextEntryLocator =
+  | {
+      scheme: Exclude<ProjectContextTreeScheme, WorkAuthorityScheme>;
+      path: string;
+      authority: { kind: "project" };
+    }
+  | {
+      scheme: WorkAuthorityScheme;
+      path: string;
+      authority: { kind: "none" } | { kind: "work"; workId: WorkId; workSlug: WorkSlug };
+    };
 export type MoveContextEntryConflict = {
   status: "conflict";
   collision: MoveContextEntryLocator;
@@ -167,7 +174,7 @@ export function isProjectContextTreeScheme(value: unknown): value is ProjectCont
   );
 }
 
-/** Context tree schemes addressed as `scheme://<workId>/…` on the browse API. */
+/** Context tree schemes supporting contextual, `@slug`, and explicit `@/` authority. */
 export const WORK_SCOPED_PROJECT_CONTEXT_TREE_SCHEMES = new Set<ProjectContextTreeScheme>([
   ...WORK_SCOPED_CONTEXT_URI_SCHEMES,
 ]);
@@ -379,7 +386,8 @@ export type CreateThreadRequest = {
   systemPrompt?: string;
   /** Mars agent slug — when set, agent body becomes the thread system prompt. */
   currentAgent?: string;
-  workId?: string;
+  /** Omission and explicit null both create an executable no-Work root thread. */
+  workId?: WorkId | null;
 };
 
 export type CreateThreadResponse = Thread;

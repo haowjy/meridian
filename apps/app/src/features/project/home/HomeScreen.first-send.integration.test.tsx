@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 /** Rendered Home first-send contracts across the shared Composer and destination claimant. */
+
 import { I18nProvider } from "@lingui/react";
 import type { ProjectAgentSummary } from "@meridian/contracts/agents";
 import { meridianErrorFromSystem, type Thread } from "@meridian/contracts/protocol";
@@ -14,6 +15,7 @@ import { setTestToolbarInlineIds } from "@/components/app/composer-toolbar/compo
 import { useThreadHandoff } from "@/features/chat/useThreadHandoff";
 import { i18n } from "@/lib/i18n";
 import { withReactRoot } from "@/test-support/react-dom-harness";
+import { testWorkSlug } from "@/test-support/work-slug";
 import { HomeScreen } from "./HomeScreen";
 
 vi.mock("@lingui/react/macro", () => ({
@@ -45,7 +47,7 @@ const work = (id: string, name: string): Work => ({
   projectId,
   createdByUserId: "user-1",
   name,
-  slug: name.toLowerCase().replaceAll(" ", "-"),
+  slug: testWorkSlug(name.toLowerCase().replaceAll(" ", "-")),
   description: null,
   goal: null,
   status: "active",
@@ -56,18 +58,18 @@ const work = (id: string, name: string): Work => ({
   createdAt: "2026-08-14T00:00:00.000Z",
   updatedAt: "2026-08-14T00:00:00.000Z",
 });
-const firstWork = work("work-1", "Book 1");
+const firstWork = work("work-1", "Arc One");
 const secondWork = work("work-2", "Expedition");
 const agents: ProjectAgentSummary[] = [
   {
-    slug: "general",
+    slug: testWorkSlug("general"),
     name: "General",
     description: "General fiction support",
     source: "builtin",
     packageName: null,
   },
   {
-    slug: "prose",
+    slug: testWorkSlug("prose"),
     name: "Prose",
     description: "Line-level prose",
     source: "user",
@@ -358,9 +360,9 @@ describe("Home first send", () => {
         />
       </Providers>,
       async () => {
-        await waitFor(() => Boolean(document.querySelector('[aria-label*="currently Book 1"]')));
+        await waitFor(() => Boolean(document.querySelector('[aria-label*="currently Arc One"]')));
         await act(async () =>
-          document.querySelector<HTMLButtonElement>('[aria-label*="currently Book 1"]')?.click(),
+          document.querySelector<HTMLButtonElement>('[aria-label*="currently Arc One"]')?.click(),
         );
         await waitFor(() => document.body.textContent?.includes("Expedition") === true);
         await act(async () =>
@@ -385,10 +387,10 @@ describe("Home first send", () => {
         await act(async () =>
           document.querySelector<HTMLButtonElement>('[aria-label*="choice unavailable"]')?.click(),
         );
-        await waitFor(() => document.body.textContent?.includes("Book 1") === true);
+        await waitFor(() => document.body.textContent?.includes("Arc One") === true);
         await act(async () =>
           [...document.querySelectorAll("button")]
-            .find(({ textContent }) => textContent?.trim() === "Book 1")
+            .find(({ textContent }) => textContent?.trim() === "Arc One")
             ?.click(),
         );
         await act(async () =>
@@ -461,7 +463,7 @@ describe("Home first send", () => {
         <HomeScreen projectId={projectId} onOpenThread={vi.fn()} onSelectThread={vi.fn()} />
       </Providers>,
       async () => {
-        await waitFor(() => Boolean(document.querySelector('[aria-label*="currently Book 1"]')));
+        await waitFor(() => Boolean(document.querySelector('[aria-label*="currently Arc One"]')));
         const textarea = await setTextarea("Archived opening");
         await act(async () =>
           textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),

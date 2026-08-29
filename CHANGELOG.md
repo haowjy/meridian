@@ -10,6 +10,18 @@
   selection, ordinary key actions, and a semantic host retreat lease that maps
   hierarchical backtracking and root dismissal into each host's own Escape
   precedence while preserving the `/` and `[[` editor lanes.
+- `contracts`, `apps/server`: separate grammar-only Work slugs from opaque,
+  project-resolved URI authority; preserve exact move and historical restore
+  identity; return resolved canonical identity from successful context and
+  reversal operations; and reconcile promoted result rows before compensating
+  stored bytes.
+
+- `contracts`, `apps/server`, `apps/app`: make absent Work scope executable for thread
+  creation, inheritance, direct live model edits, response settlement, canonical URI
+  authority, rebinds, and project-owned Scratch/Uploads; Work-only writes return typed
+  `work_required`; canonical no-Work/slug-qualified moves and promoted-result identities
+  never expose Work IDs; thread deletion and rebind serialize under one lifecycle lock; and
+  implicit Work/thread bootstrap and fallback preference state are gone.
 
 - `apps/app`: separate ordinary Editor screen continuity from atomic Work
   supersession, keep guarded deleted routes out of obligation settlement and
@@ -63,8 +75,6 @@
 - `apps/app`: normalized thread user state serializes optimistic Favorite
   commands and prevents stale feed responses from overwriting newer truth.
 
-- `database`, `contracts`, `apps/server`, `apps/app`: cut over the former project-wide current Work to a narrowly named new-chat fallback with CAS repair; delete its GET/PUT selection API and all creation/rebind/receipt side effects; preserve fallback-only omitted root creation; canonicalize human/model Work metadata (including blank-field clearing); converge Work catalogs and associated chats from writer, model, reconciliation, and reversal paths; and prove fallback precedence and contention against PostgreSQL.
-
 - `apps/app`: give persistent Chat and Editor separate sibling draft-review
   controllers on desktop and phone, with a route-owned latest-wins handoff that
   carries Chat or prospective Work review commands into the matching Editor
@@ -91,7 +101,7 @@
   projection semantics.
 
 - `apps/server`: protect multi-Work project listing with a real-Postgres route
-  regression covering two active Works, truthful fallback persistence, and
+  regression covering two active Works, historical primary association, and
   cross-owner concealment.
 
 - `apps/app`: compact active and archived Work cards onto the shared shadcn card
@@ -174,10 +184,9 @@
   disclosure once, while a deliberate close remains closed across rerenders of
   that same selection and names it in the collapsed summary.
 
-- `apps/app`: New Chat now creates immediately in the server-resolved
-  current/default Work from Home and the thread switcher, with inline failure
-  alerts and retry at each entry surface; writers can rebind afterward from the
-  composer.
+- `apps/app`: New Chat now preserves the caller's explicit no-Work or selected
+  Work scope from Home and the thread switcher, with inline failure alerts and
+  retry at each entry surface; writers can rebind afterward from the composer.
 - `apps/app`: the desktop workspace selection now begins flush with the shared
   40px pane-header boundary while phone navigation spacing remains unchanged.
 - `apps/app`: composer Agent, write-mode, and Work controls now share one
@@ -944,10 +953,9 @@
   unique per-run database without touching the worktree database; `dev:gc-dbs`
   preserves active runs and the reserved manual-test namespace while reclaiming
   stopped managed runs.
-- `apps/server`, `apps/app`: work-scoped Scratch/Uploads documents now resolve
-  project ownership and register in the live project manifest, so their Yjs
-  editors can connect; the works bootstrap response also exposes the project's
-  single default Work for chat-independent Scratch surfaces.
+- `apps/server`, `apps/app`: work-scoped and explicit no-Work Scratch/Uploads
+  documents now resolve project ownership and register in the live project
+  manifest, so their Yjs editors can connect without a fallback Work.
 - `apps/server`: opening or reconnecting to a Review now catches its chapter
   draft up with the live manuscript first, instead of leaving an inactive draft stale.
 - `apps/server`, `packages/agent-edit`: writer-approved Apply text is now

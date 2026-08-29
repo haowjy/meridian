@@ -23,7 +23,8 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       "../../domains/context/unified-context-port-factory.js"
     );
     const { createNoopEventSink } = await import("../../domains/observability/index.js");
-    const { createDrizzleProjectRepository } = await import("../../domains/projects/index.js");
+    const { createDrizzleProjectRepository, createDrizzleProjectWorkAuthorityResolver } =
+      await import("../../domains/projects/index.js");
     const { createInMemoryObjectStore } = await import("../../domains/storage/index.js");
     const { handleContextReadRequest } = await import("../context-read-route.js");
     const { createDrizzleDocumentAccess } = await import("../document-access.js");
@@ -59,6 +60,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       it(`creates and reads ${path} with the ${schemaType} schema`, async () => {
         const collab = createCollabDomain({
           db,
+          workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
           documentAccess: createDrizzleDocumentAccess(db),
         });
         const hocuspocus = new Hocuspocus({
@@ -76,7 +78,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
           documentSync: collab,
           manifestMembership: collab,
         });
-        const port = contextPorts.forProject(PROJECT_ID, USER_ID);
+        const port = contextPorts.forProject(PROJECT_ID, USER_ID, new Map());
         const content =
           schemaType === "code" ? "print('hello')\n" : `Initial content for ${path}.\n`;
 
@@ -124,6 +126,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
               contextPorts,
               objectStore: createInMemoryObjectStore(),
               eventSink: createNoopEventSink(),
+              workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
             },
             {
               projectId: PROJECT_ID,
@@ -142,6 +145,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     ])("rejects binary-suffixed tracked create for %s without persisting a document", async (path) => {
       const collab = createCollabDomain({
         db,
+        workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
         documentAccess: createDrizzleDocumentAccess(db),
       });
       collab.bindHocuspocus(
@@ -159,7 +163,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
 
       await expect(
         createContextEntry({
-          port: contextPorts.forProject(PROJECT_ID, USER_ID),
+          port: contextPorts.forProject(PROJECT_ID, USER_ID, new Map()),
           userId: USER_ID,
           scheme: "manuscript",
           workId: null,
@@ -179,6 +183,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     it("allows exactly one concurrent create and preserves the winner's content", async () => {
       const collab = createCollabDomain({
         db,
+        workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
         documentAccess: createDrizzleDocumentAccess(db),
       });
       const hocuspocus = new Hocuspocus({
@@ -196,7 +201,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         documentSync: collab,
         manifestMembership: collab,
       });
-      const port = contextPorts.forProject(PROJECT_ID, USER_ID);
+      const port = contextPorts.forProject(PROJECT_ID, USER_ID, new Map());
       const create = (content: string) =>
         createContextEntry({
           port,
@@ -215,6 +220,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         value: {
           content: winner === results[0] ? "alpha\n" : "beta\n",
           documentId: winner?.documentId,
+          uri: "manuscript://race.md",
         },
       });
     });
@@ -222,6 +228,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     it("registers kb and user documents and unregisters deleted documents", async () => {
       const collab = createCollabDomain({
         db,
+        workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
         documentAccess: createDrizzleDocumentAccess(db),
       });
       const hocuspocus = new Hocuspocus({
@@ -239,7 +246,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         documentSync: collab,
         manifestMembership: collab,
       });
-      const port = contextPorts.forProject(PROJECT_ID, USER_ID);
+      const port = contextPorts.forProject(PROJECT_ID, USER_ID, new Map());
 
       const create = async (targetPort: typeof port, scheme: "kb" | "user", path: string) => {
         const result = await createContextEntry({
@@ -304,6 +311,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       });
       const collab = createCollabDomain({
         db,
+        workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
         documentAccess: createDrizzleDocumentAccess(db),
       });
       const hocuspocus = new Hocuspocus({
@@ -317,11 +325,16 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         documentSync: collab,
         manifestMembership: collab,
       });
-      const port = contextPorts.forWork(
+      const authority = await createDrizzleProjectWorkAuthorityResolver(db).byId(
+        PROJECT_ID,
         WORK_ID,
+      );
+      if (!authority) throw new Error("missing Work authority");
+      const port = contextPorts.forWork(
+        authority,
         PROJECT_ID,
         USER_ID,
-        new Map([["current-work", WORK_ID]]),
+        new Map([[authority.workSlug, authority]]),
       );
 
       const created = await createContextEntry({
@@ -349,7 +362,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       ).resolves.toBe(PROJECT_ID);
 
       await expect(
-        port.delete(`scratch://@current-work/notes.md`, {
+        port.delete(`scratch://@${authority.workSlug}/notes.md`, {
           expected: { kind: "file", documentId: created.documentId },
         }),
       ).resolves.toEqual({
@@ -384,6 +397,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       });
       const collab = createCollabDomain({
         db,
+        workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
         documentAccess: createDrizzleDocumentAccess(db),
       });
       collab.bindHocuspocus(new Hocuspocus({ yDocOptions: { gc: false, gcFilter: () => true } }));

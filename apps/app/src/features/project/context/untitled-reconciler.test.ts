@@ -6,6 +6,7 @@ import type {
 } from "@meridian/contracts/protocol";
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
+import { testWorkSlug } from "@/test-support/work-slug";
 import {
   documentWithText,
   LifecycleSession,
@@ -369,7 +370,15 @@ describe("queued identity outcomes", () => {
     const rig = new UntitledLifecycleRig();
     rig.move.enqueueResult({
       status: "conflict",
-      collision: { scheme: "scratch", path: "taken.md", workId: "work-1" },
+      collision: {
+        scheme: "scratch",
+        path: "taken.md",
+        authority: {
+          kind: "work",
+          workId: "work-1",
+          workSlug: testWorkSlug("work-1"),
+        },
+      },
     });
     rig.start();
     rig.append("doc-1");

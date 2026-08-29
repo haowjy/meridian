@@ -66,10 +66,12 @@ import { createDrizzleProjectPreferencesRepository } from "../domains/preference
 import {
   createDrizzleProjectBootstrapRepository,
   createDrizzleProjectRepository,
+  createDrizzleProjectWorkAuthorityResolver,
   createDrizzleProjectWorkRepository,
   createDrizzleUserRepository,
   type ProjectBootstrapRepository,
   type ProjectRepository,
+  type ProjectWorkAuthorityResolver,
   type WorkRepository as ProjectWorkRepository,
   type UserRepository,
 } from "../domains/projects/index.js";
@@ -168,6 +170,7 @@ export type AppServices = {
   projectRepo: ProjectRepository;
   users: UserRepository;
   workRepo: ProjectWorkRepository;
+  workAuthorityResolver: ProjectWorkAuthorityResolver;
   workContext: WorkContextReader;
   workContextDelivery: WorkContextDelivery;
   billing: BillingService;
@@ -219,6 +222,7 @@ export type ProductionAppPorts = {
   projectRepo: ProjectRepository;
   users: UserRepository;
   workRepo: ProjectWorkRepository;
+  workAuthorityResolver: ProjectWorkAuthorityResolver;
   billing: BillingService;
   billingUsage: BillingUsagePolicy;
   billingSpendReader: BillingSpendReader;
@@ -312,6 +316,7 @@ export async function createProductionAppPorts(input: {
   const documentAccess = createDrizzleDocumentAccess(db);
   const notices = createDrizzleNoticePort(db);
   const projectRepo = createDrizzleProjectRepository({ db });
+  const workAuthorityResolver = createDrizzleProjectWorkAuthorityResolver(db);
   let contextPorts: UnifiedContextPortFactory;
   let workRepo: ProjectWorkRepository;
   const preferences = createDrizzleProjectPreferencesRepository({ db });
@@ -323,6 +328,7 @@ export async function createProductionAppPorts(input: {
     documentAccess,
     eventSink,
     notices,
+    workAuthorityResolver,
     threadContext: {
       async requireThreadOwner(input) {
         const thread = await requireThreadOwner(
@@ -339,6 +345,7 @@ export async function createProductionAppPorts(input: {
             threads: threadRepos.threads,
             threadWorks: threadRepos.threadWorks,
             works: workRepo,
+            workAuthorityResolver,
           },
           input as never,
         ),
@@ -353,7 +360,12 @@ export async function createProductionAppPorts(input: {
     eventSink,
   });
   const results = createDrizzleResultRepository(db);
-  const promotionService = createPromotionService({ objectStore, results });
+  const promotionService = createPromotionService({
+    objectStore,
+    results,
+    workAuthorityResolver,
+    eventSink,
+  });
   contextPorts = createProductionUnifiedContextPortFactory({
     db,
     documentSync,
@@ -383,8 +395,6 @@ export async function createProductionAppPorts(input: {
   const projects = createDrizzleProjectBootstrapRepository({
     db,
     documents: documentSync,
-    threads: threadRepos.threads,
-    threadWorks: threadRepos.threadWorks,
   });
   workRepo = createDrizzleProjectWorkRepository({
     db,
@@ -423,6 +433,7 @@ export async function createProductionAppPorts(input: {
     projectRepo,
     users,
     workRepo,
+    workAuthorityResolver,
     billing: billingDomain.service,
     billingUsage: billingDomain.usagePolicy,
     billingSpendReader: billingDomain.spendReader,
@@ -463,6 +474,7 @@ export function composeAppServices(ports: ProductionAppPorts): AppServices {
   });
   const interruptRegistry = createInterruptRegistry();
   const workContext = createWorkContextReader({
+    threads: ports.threadRepos.threads,
     works: ports.workRepo,
     threadWorks: ports.threadRepos.threadWorks,
   });
@@ -489,6 +501,8 @@ export function composeAppServices(ports: ProductionAppPorts): AppServices {
   });
   const responseWrites = createAgentEditResponseWriteLifecycle({
     documentSync: ports.documentSync,
+    threadWorks: ports.threadRepos.threadWorks,
+    works: ports.workRepo,
   });
   for (const registration of createWiredCoreToolRegistrations({
     threads: ports.threadRepos.threads,
@@ -497,6 +511,7 @@ export function composeAppServices(ports: ProductionAppPorts): AppServices {
     responseWrites,
     threadWorks: ports.threadRepos.threadWorks,
     works: ports.workRepo,
+    workAuthorityResolver: ports.workAuthorityResolver,
     drafts: ports.documentSync,
     workContextDelivery,
     obligations: ports.threadRepos.workContextDeliveries,
@@ -561,7 +576,6 @@ export function composeAppServices(ports: ProductionAppPorts): AppServices {
       return resolveWorkMembership(
         {
           workRepo: ports.workRepo,
-          preferences: ports.preferences,
           threadWorks: ports.threadRepos.threadWorks,
         },
         input,
@@ -628,6 +642,7 @@ export function composeAppServices(ports: ProductionAppPorts): AppServices {
     projectRepo: ports.projectRepo,
     users: ports.users,
     workRepo: ports.workRepo,
+    workAuthorityResolver: ports.workAuthorityResolver,
     workContext,
     workContextDelivery,
     billing: ports.billing,
@@ -840,9 +855,6 @@ export function createInMemoryAppServices(): AppServices {
       async restore() {
         throw new Error("in-memory work repository is not implemented");
       },
-      async ensureDefaultForProject() {
-        throw new Error("in-memory work repository is not implemented");
-      },
       async touch() {},
     },
     projectRepo: {
@@ -918,10 +930,18 @@ export function createInMemoryAppServices(): AppServices {
       async restore() {
         throw new Error("in-memory work repository is not implemented");
       },
-      async ensureDefaultForProject() {
-        throw new Error("in-memory work repository is not implemented");
-      },
       async touch() {},
+    },
+    workAuthorityResolver: {
+      async byId() {
+        return null;
+      },
+      async bySlug() {
+        return null;
+      },
+      async lockById() {
+        return null;
+      },
     },
     workContext: unavailableWorkContext,
     workContextDelivery: noopWorkContextDelivery,
@@ -1043,7 +1063,7 @@ export function createInMemoryAppServices(): AppServices {
       },
     },
     results: {
-      async create() {
+      async createOrConverge() {
         throw new Error("in-memory results are not implemented");
       },
       async listByProject() {

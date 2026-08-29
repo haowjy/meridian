@@ -1,5 +1,10 @@
 import type { ProjectId, WorkId } from "@meridian/contracts/runtime";
-import type { AiWriteMode, Work, WorkStatus } from "@meridian/contracts/works";
+import {
+  type AiWriteMode,
+  decodeWorkSlug,
+  type Work,
+  type WorkStatus,
+} from "@meridian/contracts/works";
 import type { Database } from "@meridian/database";
 import {
   contextSources,
@@ -28,7 +33,7 @@ import {
   WorkNameConflictError,
   WorkRestoreConflictError,
 } from "../../ports/work-repository.js";
-import { DEFAULT_WORK_NAME, nextWorkSlug } from "./shared.js";
+import { nextWorkSlug } from "./shared.js";
 
 type WorkRow = typeof works.$inferSelect;
 function workUniqueConstraint(cause: unknown): string | null {
@@ -44,12 +49,14 @@ function workUniqueConstraint(cause: unknown): string | null {
 }
 
 function mapWork(row: WorkRow): Work {
+  const slug = decodeWorkSlug(row.slug);
+  if (!slug) throw new Error(`Persisted Work ${row.id} has an invalid slug`);
   return {
     id: row.id,
     projectId: row.projectId,
     createdByUserId: row.createdByUserId,
     name: row.name,
-    slug: row.slug,
+    slug,
     goal: row.goal,
     description: row.description,
     status: row.status as WorkStatus,
@@ -245,13 +252,16 @@ export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): Wo
       if (!existing) throw new Error(`Work not found: ${id}`);
       if (!existing.deletedAt) return existing;
       try {
-        const [row] = await currentDrizzleDb(db)
-          .update(works)
-          .set({ deletedAt: null, updatedAt: new Date() })
-          .where(eq(works.id, id))
-          .returning();
-        if (!row) throw new Error(`Work not found: ${id}`);
-        return mapWork(row);
+        return await runInDrizzleTransaction(db, async () => {
+          await lockWorkLifecycle(db, id);
+          const [row] = await currentDrizzleDb(db)
+            .update(works)
+            .set({ deletedAt: null, updatedAt: new Date() })
+            .where(eq(works.id, id))
+            .returning();
+          if (!row) throw new Error(`Work not found: ${id}`);
+          return mapWork(row);
+        });
       } catch (cause) {
         const constraint = workUniqueConstraint(cause);
         if (constraint === "works_project_name_active") {
@@ -262,35 +272,6 @@ export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): Wo
         }
         throw cause;
       }
-    },
-    async ensureDefaultForProject(projectId: ProjectId, name?: string): Promise<Work> {
-      return runInDrizzleTransaction(db, async () => {
-        const activeDb = currentDrizzleDb(db);
-        await lockProjectWorkCreation(projectId);
-        const existing = await activeDb
-          .select()
-          .from(works)
-          .where(and(eq(works.projectId, projectId), isNull(works.deletedAt)))
-          .orderBy(desc(works.updatedAt))
-          .limit(1);
-        if (existing[0]) return mapWork(existing[0]);
-        const [project] = await activeDb
-          .select()
-          .from(projects)
-          .where(eq(projects.id, projectId))
-          .limit(1);
-        const [created] = await activeDb
-          .insert(works)
-          .values({
-            projectId: projectId,
-            createdByUserId: project?.userId,
-            name: name?.trim() || DEFAULT_WORK_NAME,
-            slug: nextWorkSlug(name?.trim() || DEFAULT_WORK_NAME, []),
-          })
-          .returning();
-        if (!created) throw new Error(`Default work not found for project: ${projectId}`);
-        return mapWork(created);
-      });
     },
     async touch(id: WorkId): Promise<void> {
       const activeDb = currentDrizzleDb(db);

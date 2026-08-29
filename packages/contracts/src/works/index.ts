@@ -3,8 +3,9 @@ export type WorkStatus = "active" | "archived";
 
 export const AI_WRITE_MODE_VALUES: readonly AiWriteMode[] = ["direct", "draft"];
 
-import type { ProjectId, UserId, WorkId } from "../ids.js";
-import type { WorkReceipt } from "./receipts.js";
+import type { ProjectId, ThreadId, UserId, WorkId } from "../ids.js";
+import type { WorkBindingReceiptState } from "./receipts.js";
+import type { WorkSlug } from "./work-slug.js";
 
 export interface Work {
   id: WorkId;
@@ -12,7 +13,7 @@ export interface Work {
   createdByUserId: UserId;
   name: string;
   /** Stable project-unique handle. Renaming a Work does not change it. */
-  slug: string;
+  slug: WorkSlug;
   goal: string | null;
   description: string | null;
   status: WorkStatus;
@@ -46,20 +47,45 @@ export interface UpdateWorkRequest {
   description?: string;
 }
 
-/** Strict body for changing the Work bound to an existing thread. */
+export type ThreadWorkScope =
+  | { kind: "none" }
+  | { kind: "work"; workId: WorkId; workSlug: WorkSlug };
+
+export type ThreadExecutionContext =
+  | { scope: { kind: "none" }; aiWriteMode: "direct"; draftOwner: null }
+  | {
+      scope: Extract<ThreadWorkScope, { kind: "work" }>;
+      aiWriteMode: AiWriteMode;
+      draftOwner: { kind: "work"; workId: WorkId } | null;
+    };
+
+/** Canonical domain command shared by writer and agent adapters. */
 export interface RebindThreadWorkRequest {
-  workId: WorkId;
+  target: { kind: "none" } | { kind: "work"; workId: WorkId };
 }
+
+export type RebindThreadWorkError =
+  | { code: "thread_unavailable" }
+  | { code: "target_work_unavailable"; workId: WorkId }
+  | { code: "project_mismatch"; workId: WorkId };
+
+export type WorkRequiredError = { code: "work_required"; operation: string };
 
 export type WorkContextUpdateStatus = "delivered" | "pending" | "not_required";
 
 /** Authoritative result shared by writer and model Work-rebind adapters. */
 export interface RebindThreadWorkResult {
-  threadId: import("../ids.js").ThreadId;
-  previousWorkId: WorkId;
-  work: Work;
+  threadId: ThreadId;
+  before: WorkBindingReceiptState;
+  after: WorkBindingReceiptState;
   changed: boolean;
-  receipt: WorkReceipt;
+  receipt: {
+    operation: "switch";
+    category: "binding";
+    before: WorkBindingReceiptState;
+    after: WorkBindingReceiptState;
+    inverse: null;
+  };
 }
 
 export interface RebindThreadWorkResponse extends RebindThreadWorkResult {
@@ -72,7 +98,9 @@ export const WORK_CONTEXT_PROJECTION_EVENT = "meridian.work_context.changed" as 
 export interface WorkContextProjectionSignal {
   threadId: import("../ids.js").ThreadId;
   projectId: ProjectId;
-  workId: WorkId;
+  scope: ThreadWorkScope;
 }
 
 export * from "./receipts.js";
+export * from "./work-authority.js";
+export * from "./work-slug.js";
