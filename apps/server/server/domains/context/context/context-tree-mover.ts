@@ -25,6 +25,10 @@ import type {
   PreparedContextMove,
 } from "../ports/context-tree-mutation-store.js";
 import { adapterFaultToContextError } from "./adapter-fault.js";
+import {
+  createResultAwareCommandExecutor,
+  type ResultAwareCommandExecutor,
+} from "./result-aware-command-executor.js";
 
 async function callAdapter<T>(
   uri: string,
@@ -73,28 +77,13 @@ function joinPath(...parts: string[]): string {
 
 /** Coordinates ContextFS tree mutations without owning durable state. */
 export class ContextTreeMover {
-  constructor(
-    private readonly transaction: ContextCommandTransaction = directContextCommandTransaction,
-  ) {}
+  private readonly commandExecutor: ResultAwareCommandExecutor<ContextError>;
 
-  private async command<T>(
-    operation: () => Promise<Result<T, ContextError>>,
-  ): Promise<Result<T, ContextError>> {
-    class Rollback extends Error {
-      constructor(readonly result: Result<T, ContextError>) {
-        super("Context tree command returned an error");
-      }
-    }
-    try {
-      return await this.transaction.run(async () => {
-        const result = await operation();
-        if (!result.ok) throw new Rollback(result);
-        return result;
-      });
-    } catch (error) {
-      if (error instanceof Rollback) return error.result;
-      throw error;
-    }
+  constructor(transaction: ContextCommandTransaction = directContextCommandTransaction) {
+    this.commandExecutor = createResultAwareCommandExecutor({
+      transaction,
+      serializeThroughCallbacks: false,
+    });
   }
 
   async move(
@@ -102,7 +91,7 @@ export class ContextTreeMover {
     destination: ContextTreeDispatch,
     options?: ContextMoveOptions,
   ): Promise<Result<ContextMoveResult, ContextError>> {
-    return this.command(() => this.moveCommand(source, destination, options));
+    return this.commandExecutor.run(() => this.moveCommand(source, destination, options));
   }
 
   private async moveCommand(
@@ -142,7 +131,7 @@ export class ContextTreeMover {
     source: ContextTreeDispatch,
     destination: ContextTreeDispatch,
   ): Promise<Result<ContextMoveResult, ContextError>> {
-    return this.command(() => this.commitWriterLocationCommand(source, destination));
+    return this.commandExecutor.run(() => this.commitWriterLocationCommand(source, destination));
   }
 
   private async commitWriterLocationCommand(
@@ -203,7 +192,7 @@ export class ContextTreeMover {
     target: ContextTreeDispatch,
     options: ContextDeleteOptions,
   ): Promise<Result<DeleteContextEntryResult, ContextError>> {
-    return this.command(() => this.deleteCommand(target, options));
+    return this.commandExecutor.run(() => this.deleteCommand(target, options));
   }
 
   private async deleteCommand(
