@@ -2,6 +2,7 @@ export {
   createDrizzleAssetPathResolver,
   type MutableAssetPathResolver,
 } from "./adapters/asset-path-resolver.js";
+export { createDrizzleContextCatalog } from "./adapters/context-catalog.js";
 export { ContextFS } from "./adapters/context-fs/context-fs.js";
 export {
   DrizzleContextDocumentStore,
@@ -9,6 +10,7 @@ export {
 } from "./adapters/context-fs/drizzle-store.js";
 export { InMemoryContextDocumentStore } from "./adapters/context-fs/in-memory-store.js";
 export { createDrizzleDocumentLinkResolver } from "./adapters/drizzle-document-link-resolver.js";
+export { InMemoryContextCatalog } from "./adapters/in-memory-context-catalog.js";
 export { InMemoryDocumentLinkResolver } from "./adapters/in-memory-document-link-resolver.js";
 export { joinPath, parseFilename, renderFilename, splitPath } from "./context/paths.js";
 export { createContextPortRouter } from "./context/router.js";
@@ -39,6 +41,11 @@ export type {
   SchemeCapabilities,
 } from "./ports/context-adapter.js";
 export { schemeCapabilities } from "./ports/context-adapter.js";
+export type {
+  ContextCatalog,
+  ContextCatalogMutationPort,
+  ContextCatalogWakePort,
+} from "./ports/context-catalog.js";
 export type {
   ContextDocumentStore,
   ContextFolder,

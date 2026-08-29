@@ -16,6 +16,7 @@ import {
   type ContextDocumentMembershipObserver,
   DrizzleContextDocumentStore,
 } from "./adapters/context-fs/drizzle-store.js";
+import type { ContextCatalogMutationPort } from "./ports/context-catalog.js";
 import type {
   ContextDocumentStore,
   CreateBinaryDocumentInput,
@@ -178,6 +179,7 @@ class SourceResolvedContextDocumentStore implements ContextDocumentStore {
     private readonly findSourceId: () => Promise<string | null>,
     private readonly membershipObserver?: ContextDocumentMembershipObserver,
     private readonly workId?: string,
+    private readonly catalogMutations?: ContextCatalogMutationPort,
   ) {}
 
   private async mutate<T>(operation: (store: DrizzleContextDocumentStore) => Promise<T>) {
@@ -205,6 +207,7 @@ class SourceResolvedContextDocumentStore implements ContextDocumentStore {
       db: this.db,
       contextSourceId: await this.sourceId,
       membershipObserver: this.membershipObserver,
+      catalogMutations: this.catalogMutations,
     });
   }
 
@@ -289,12 +292,15 @@ export function createProjectContextDocumentStore(
   scheme: ProjectContextFsScheme | WorkScopedContextFsScheme,
   userId: string,
   membershipObserver?: ContextDocumentMembershipObserver,
+  catalogMutations?: ContextCatalogMutationPort,
 ): ContextDocumentStore {
   return new SourceResolvedContextDocumentStore(
     db,
     () => ensureProjectContextSource(db, projectId, scheme, userId),
     () => findProjectContextSource(db, projectId, scheme, userId),
     membershipObserver,
+    undefined,
+    catalogMutations,
   );
 }
 
@@ -303,6 +309,7 @@ export function createWorkContextDocumentStore(
   workId: string,
   scheme: WorkScopedContextFsScheme,
   membershipObserver?: ContextDocumentMembershipObserver,
+  catalogMutations?: ContextCatalogMutationPort,
 ): ContextDocumentStore {
   return new SourceResolvedContextDocumentStore(
     db,
@@ -310,5 +317,6 @@ export function createWorkContextDocumentStore(
     () => findWorkContextSource(db, workId, scheme),
     membershipObserver,
     workId,
+    catalogMutations,
   );
 }

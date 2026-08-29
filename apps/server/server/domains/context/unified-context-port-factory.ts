@@ -27,6 +27,7 @@ import {
   createWorkContextDocumentStore,
 } from "./context-source-provisioning.js";
 import type { ContextSchemeAdapter } from "./ports/context-adapter.js";
+import type { ContextCatalogMutationPort } from "./ports/context-catalog.js";
 import type { ContextDocumentStore } from "./ports/context-document-store.js";
 import type {
   ContextPort,
@@ -292,6 +293,7 @@ function createInMemoryStoreResolvers(
 function createProductionStoreResolvers(
   db: Database,
   manifestMembership: ManifestMembershipPort,
+  catalogMutations?: ContextCatalogMutationPort,
 ): ContextStoreResolvers {
   const membershipObserverFor = (
     manifestView: ManifestView,
@@ -315,6 +317,7 @@ function createProductionStoreResolvers(
         scheme,
         userId,
         membershipObserverFor(manifestView ?? { projectId }),
+        catalogMutations,
       );
     },
     resolveWorkStore(workId, scheme, projectId) {
@@ -323,12 +326,14 @@ function createProductionStoreResolvers(
         workId,
         scheme,
         projectId ? membershipObserverFor({ projectId }) : undefined,
+        catalogMutations,
       );
     },
     resolveMutationStore(manifestView) {
       return new DrizzleContextTreeMutationStore(
         db,
         manifestView ? membershipObserverFor(manifestView) : undefined,
+        catalogMutations,
       );
     },
   };
@@ -374,8 +379,13 @@ export function createProductionUnifiedContextPortFactory(options: {
   db: Database;
   documentSync: MarkdownDocumentStore & DocumentCreationAggregate;
   manifestMembership: ManifestMembershipPort;
+  catalogMutations?: ContextCatalogMutationPort;
 }): UnifiedContextPortFactory {
-  const storeResolvers = createProductionStoreResolvers(options.db, options.manifestMembership);
+  const storeResolvers = createProductionStoreResolvers(
+    options.db,
+    options.manifestMembership,
+    options.catalogMutations,
+  );
 
   return {
     forProject(projectId, userId, workAuthorities) {

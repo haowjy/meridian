@@ -22,6 +22,7 @@ import {
 } from "../../../../shared/drizzle-transaction.js";
 import { isUuid } from "../../../../shared/uuid.js";
 import { lockWorkLifecycle } from "../../../../shared/work-lifecycle-lock.js";
+import type { ContextCatalogLifecyclePort } from "../../ports/context-catalog-lifecycle.js";
 import type {
   CreateWorkInput,
   ListWorksOptions,
@@ -72,6 +73,7 @@ export interface DrizzleWorkRepositoryDeps {
   db: Database;
   /** Canonical collab-domain predicate for reviewable Work draft content. */
   hasUnreviewedDraft(workId: WorkId): Promise<boolean>;
+  catalogLifecycle?: ContextCatalogLifecyclePort;
 }
 export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): WorkRepository {
   const { db, hasUnreviewedDraft } = deps;
@@ -89,14 +91,17 @@ export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): Wo
   }
 
   async function updateWork(id: WorkId, patch: Partial<typeof works.$inferInsert>): Promise<Work> {
-    if (!isUuid(id)) throw new Error(`Work not found: ${id}`);
-    const [row] = await currentDrizzleDb(db)
-      .update(works)
-      .set({ ...patch, updatedAt: new Date() })
-      .where(and(eq(works.id, id), isNull(works.deletedAt)))
-      .returning();
-    if (!row) throw new Error(`Work not found: ${id}`);
-    return mapWork(row);
+    return runInDrizzleTransaction(db, async () => {
+      if (!isUuid(id)) throw new Error(`Work not found: ${id}`);
+      const [row] = await currentDrizzleDb(db)
+        .update(works)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(and(eq(works.id, id), isNull(works.deletedAt)))
+        .returning();
+      if (!row) throw new Error(`Work not found: ${id}`);
+      await deps.catalogLifecycle?.refreshProject(row.projectId);
+      return mapWork(row);
+    });
   }
 
   return {
@@ -147,6 +152,7 @@ export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): Wo
           throw cause;
         }
         if (!row) throw new Error("Failed to create work");
+        await deps.catalogLifecycle?.refreshProject(row.projectId);
         return mapWork(row);
       });
     },
@@ -245,6 +251,7 @@ export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): Wo
           .update(works)
           .set({ deletedAt: new Date(), updatedAt: new Date() })
           .where(and(eq(works.id, id), isNull(works.deletedAt)));
+        await deps.catalogLifecycle?.refreshProject(existing.projectId);
       });
     },
     async restore(id: WorkId): Promise<Work> {
@@ -260,6 +267,7 @@ export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): Wo
             .where(eq(works.id, id))
             .returning();
           if (!row) throw new Error(`Work not found: ${id}`);
+          await deps.catalogLifecycle?.refreshProject(row.projectId);
           return mapWork(row);
         });
       } catch (cause) {

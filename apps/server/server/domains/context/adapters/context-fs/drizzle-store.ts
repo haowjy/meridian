@@ -19,6 +19,7 @@ import {
 } from "../../../../shared/drizzle-transaction.js";
 import { Err, Ok, type Result } from "../../../../shared/result.js";
 import { parseFilename, renderFilename, splitPath } from "../../context/paths.js";
+import type { ContextCatalogMutationPort } from "../../ports/context-catalog.js";
 import type {
   ContextDocument,
   ContextDocumentStore,
@@ -76,6 +77,7 @@ export interface DrizzleContextDocumentStoreDeps {
   db: Database;
   contextSourceId: string;
   membershipObserver?: ContextDocumentMembershipObserver;
+  catalogMutations?: ContextCatalogMutationPort;
 }
 
 type ContextDocumentMembershipEvent = {
@@ -186,7 +188,10 @@ export class DrizzleContextDocumentStore implements ContextDocumentStore {
       .values({ contextSourceId: this.sourceId, parentId, name })
       .onConflictDoNothing()
       .returning();
-    if (row) return mapFolder(row);
+    if (row) {
+      await this.deps.catalogMutations?.refreshSources([this.sourceId]);
+      return mapFolder(row);
+    }
     const existing = await this.findFolder(parentId, name);
     if (!existing) throw new Error("Failed to create folder");
     return existing;
@@ -254,6 +259,7 @@ export class DrizzleContextDocumentStore implements ContextDocumentStore {
       })
       .returning();
     if (!row) throw new Error("Failed to insert document");
+    await this.deps.catalogMutations?.refreshSources([this.sourceId]);
     await notifyMembershipObserver(this.deps.membershipObserver, "documentCreated", row.id);
     return mapDocument(row);
   }
@@ -275,6 +281,7 @@ export class DrizzleContextDocumentStore implements ContextDocumentStore {
       .onConflictDoNothing()
       .returning();
     if (!row) return null;
+    await this.deps.catalogMutations?.refreshSources([this.sourceId]);
     return mapDocument(row);
   }
 
@@ -326,6 +333,7 @@ export class DrizzleContextDocumentStore implements ContextDocumentStore {
         .where(eq(documents.id, existing.id))
         .returning();
       if (!row) throw new Error(`Failed to update binary document: ${existing.id}`);
+      await this.deps.catalogMutations?.refreshSources([this.sourceId]);
       return mapDocument(row);
     }
     return this.createBinaryDocument(input);
@@ -348,6 +356,7 @@ export class DrizzleContextDocumentStore implements ContextDocumentStore {
       })
       .returning();
     if (!row) throw new Error("Failed to create binary document");
+    await this.deps.catalogMutations?.refreshSources([this.sourceId]);
     await notifyMembershipObserver(this.deps.membershipObserver, "documentCreated", row.id);
     return mapDocument(row);
   }
@@ -434,6 +443,7 @@ export class DrizzleContextTreeMutationStore implements ContextTreeMutationStore
   constructor(
     private readonly db: Database,
     private readonly membershipObserver?: ContextDocumentMembershipObserver,
+    private readonly catalogMutations?: ContextCatalogMutationPort,
   ) {}
 
   /** Test hook: runs after CAS rechecks, immediately before destructive writes. */
@@ -739,6 +749,10 @@ export class DrizzleContextTreeMutationStore implements ContextTreeMutationStore
           )
           .returning({ id: documents.id });
         if (moved.length !== 1) rollback("stale_source");
+        await this.catalogMutations?.refreshSources(
+          [input.source.sourceId, input.destinationSourceId],
+          [input.source.nodeId],
+        );
         return Ok({ movedNodeId: input.source.nodeId });
       }
 
@@ -760,6 +774,7 @@ export class DrizzleContextTreeMutationStore implements ContextTreeMutationStore
           )
           .returning({ id: folders.id });
         if (movedRoot.length !== 1) rollback("stale_source");
+        await this.catalogMutations?.refreshSources([input.source.sourceId], [input.source.nodeId]);
         return Ok({ movedNodeId: input.source.nodeId });
       }
 
@@ -818,6 +833,11 @@ export class DrizzleContextTreeMutationStore implements ContextTreeMutationStore
           AND folder_id IN (SELECT id FROM subtree)
       `);
 
+      await this.catalogMutations?.refreshSources(
+        [input.source.sourceId, input.destinationSourceId],
+        [input.source.nodeId],
+      );
+
       return Ok({ movedNodeId: input.source.nodeId });
     });
   }
@@ -870,6 +890,7 @@ export class DrizzleContextTreeMutationStore implements ContextTreeMutationStore
         const [deletedDocument] = deleted;
         if (!deletedDocument || deleted.length !== 1) rollback("stale_source");
         events.push({ method: "documentDeleted", documentId: token.nodeId });
+        await this.catalogMutations?.refreshSources([token.sourceId]);
         return Ok({ deletedDocumentIds: [deletedDocument.id] });
       }
 
@@ -930,6 +951,7 @@ export class DrizzleContextTreeMutationStore implements ContextTreeMutationStore
         if (!sameLocation(still, token)) rollback("stale_source");
         rollback("invalid_operation");
       }
+      await this.catalogMutations?.refreshSources([token.sourceId]);
       return Ok({ deletedDocumentIds: [] });
     });
   }

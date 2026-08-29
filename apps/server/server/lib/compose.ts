@@ -22,7 +22,9 @@ import {
   createInMemoryCollabDomain,
 } from "../domains/collab/index.js";
 import {
+  type ContextCatalog,
   createDrizzleAssetPathResolver,
+  createDrizzleContextCatalog,
   createDrizzleDocumentLinkResolver,
   createDrizzleFigureDocumentRepository,
   createDrizzleResultRepository,
@@ -35,6 +37,7 @@ import {
   createThreadUploadImportService,
   type DocumentLinkResolver,
   type FigureAssetService,
+  InMemoryContextCatalog,
   InMemoryDocumentLinkResolver,
   type PromotionService,
   type ResultRepository,
@@ -164,6 +167,7 @@ export type AppServices = {
   threadRuntime: ThreadRuntimeService;
   documentSync: CollabDomain;
   contextPorts: UnifiedContextPortFactory;
+  contextCatalog: ContextCatalog;
   documentLinks: DocumentLinkResolver;
   projects: ProjectBootstrapRepository;
   works: ProjectWorkRepository;
@@ -216,6 +220,7 @@ export type ProductionAppPorts = {
   eventQuery?: EventQuery;
   documentSync: CollabDomain;
   contextPorts: UnifiedContextPortFactory;
+  contextCatalog: ContextCatalog;
   documentLinks: DocumentLinkResolver;
   projects: ProjectBootstrapRepository;
   works: ProjectWorkRepository;
@@ -315,7 +320,8 @@ export async function createProductionAppPorts(input: {
   const { objectStore, localObjectStore } = createObjectStoreFromEnv();
   const documentAccess = createDrizzleDocumentAccess(db);
   const notices = createDrizzleNoticePort(db);
-  const projectRepo = createDrizzleProjectRepository({ db });
+  const contextCatalog = createDrizzleContextCatalog(db);
+  const projectRepo = createDrizzleProjectRepository({ db, catalogLifecycle: contextCatalog });
   const workAuthorityResolver = createDrizzleProjectWorkAuthorityResolver(db);
   let contextPorts: UnifiedContextPortFactory;
   let workRepo: ProjectWorkRepository;
@@ -370,6 +376,7 @@ export async function createProductionAppPorts(input: {
     db,
     documentSync,
     manifestMembership: documentSync,
+    catalogMutations: contextCatalog,
   });
   // Upload creates the asset as a context document, so the service needs the
   // context ports; it feeds each new path straight back into the resolver the
@@ -398,6 +405,7 @@ export async function createProductionAppPorts(input: {
   });
   workRepo = createDrizzleProjectWorkRepository({
     db,
+    catalogLifecycle: contextCatalog,
     hasUnreviewedDraft: async (workId) =>
       ((await documentSync.countPendingByWorkIds([workId])).get(workId) ?? 0) > 0,
   });
@@ -427,6 +435,7 @@ export async function createProductionAppPorts(input: {
     eventQuery: input.eventQuery,
     documentSync,
     contextPorts,
+    contextCatalog,
     documentLinks: createDrizzleDocumentLinkResolver(input.db),
     projects,
     works: workRepo,
@@ -636,6 +645,7 @@ export function composeAppServices(ports: ProductionAppPorts): AppServices {
     threadRuntime: createThreadRuntimeService({ db: ports.db }),
     documentSync: ports.documentSync,
     contextPorts: ports.contextPorts,
+    contextCatalog: ports.contextCatalog,
     documentLinks: ports.documentLinks,
     projects: ports.projects,
     works: ports.works,
@@ -809,6 +819,7 @@ export function createInMemoryAppServices(): AppServices {
     },
     documentSync,
     contextPorts: createInMemoryUnifiedContextPortFactory({ documentSync }),
+    contextCatalog: new InMemoryContextCatalog(),
     documentLinks: new InMemoryDocumentLinkResolver(),
     projects: {
       async findPersonalProjectId() {
