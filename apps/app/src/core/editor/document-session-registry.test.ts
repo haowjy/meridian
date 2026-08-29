@@ -305,10 +305,11 @@ describe("DocumentSessionRegistry live authority", () => {
     expect(await databaseNames()).toContain(documentSessionPersistenceKey(accountId, "doc", "6"));
 
     blocker.close();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await expect(registry.revokeDocument("project", "doc", "5", "terminal-5")).resolves.toEqual({
-      revokedThrough: "5",
-      persistence: "cleared",
+    await vi.waitFor(async () => {
+      await expect(registry.revokeDocument("project", "doc", "5", "terminal-5")).resolves.toEqual({
+        revokedThrough: "5",
+        persistence: "cleared",
+      });
     });
     expect(await databaseNames()).not.toContain(oldName);
     expect(await databaseNames()).toContain(documentSessionPersistenceKey(accountId, "doc", "6"));

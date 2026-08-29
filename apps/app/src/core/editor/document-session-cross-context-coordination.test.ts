@@ -11,7 +11,13 @@ import {
 
 class FifoWebLocks implements CrossContextLockManager {
   private readonly active = new Map<string, { shared: number; exclusive: boolean }>();
-  private readonly queues = new Map<string, Array<() => void>>();
+  private readonly queues = new Map<
+    string,
+    Array<{
+      mode: "shared" | "exclusive";
+      run: () => void;
+    }>
+  >();
 
   request<T>(
     name: string,
@@ -20,19 +26,18 @@ class FifoWebLocks implements CrossContextLockManager {
   ): Promise<T> {
     const mode = options.mode ?? "exclusive";
     return new Promise<T>((resolve, reject) => {
-      const attempt = () => {
-        if (options.signal?.aborted) {
-          reject(options.signal.reason);
-          return;
-        }
+      if (options.signal?.aborted) {
+        reject(options.signal.reason);
+        return;
+      }
+      const queue = this.queues.get(name) ?? [];
+      const availableNow = queue.length === 0 && this.available(name, mode);
+      if (options.ifAvailable && !availableNow) {
+        void Promise.resolve(callback(null)).then(resolve, reject);
+        return;
+      }
+      const run = () => {
         const state = this.active.get(name) ?? { shared: 0, exclusive: false };
-        const available =
-          mode === "shared" ? !state.exclusive : !state.exclusive && state.shared === 0;
-        if (!available) {
-          if (options.ifAvailable) void Promise.resolve(callback(null)).then(resolve, reject);
-          else this.queue(name).push(attempt);
-          return;
-        }
         if (mode === "shared") state.shared += 1;
         else state.exclusive = true;
         this.active.set(name, state);
@@ -48,24 +53,25 @@ class FifoWebLocks implements CrossContextLockManager {
             this.pump(name);
           });
       };
-      attempt();
+      queue.push({ mode, run });
+      this.queues.set(name, queue);
+      this.pump(name);
     });
   }
 
-  private queue(name: string): Array<() => void> {
-    let queue = this.queues.get(name);
-    if (!queue) {
-      queue = [];
-      this.queues.set(name, queue);
-    }
-    return queue;
+  private available(name: string, mode: "shared" | "exclusive"): boolean {
+    const state = this.active.get(name) ?? { shared: 0, exclusive: false };
+    return mode === "shared" ? !state.exclusive : !state.exclusive && state.shared === 0;
   }
 
   private pump(name: string): void {
     const queue = this.queues.get(name);
     if (!queue?.length) return;
-    const next = queue.shift();
-    next?.();
+    while (queue.length > 0 && this.available(name, queue[0]?.mode ?? "exclusive")) {
+      const next = queue.shift();
+      next?.run();
+      if (next?.mode === "exclusive") break;
+    }
     if (!queue.length) this.queues.delete(name);
   }
 }
@@ -77,6 +83,14 @@ class LocalAuthority implements LocalSessionAuthority {
   >();
   destroyed = 0;
   documentDrainBarrier: Promise<void> | null = null;
+  readonly documentDrainEntered: Promise<void>;
+  private enterDocumentDrain!: () => void;
+
+  constructor() {
+    this.documentDrainEntered = new Promise<void>((resolve) => {
+      this.enterDocumentDrain = resolve;
+    });
+  }
 
   validateAdmission() {}
   async retireLegacy(_documentId: DocumentId): Promise<void> {}
@@ -97,6 +111,7 @@ class LocalAuthority implements LocalSessionAuthority {
     generation: string;
     incarnation: string | null;
   }) {
+    this.enterDocumentDrain();
     for (const [key, lease] of this.leases) {
       if (key.endsWith(`/${input.documentId}`) && lease.incarnation === input.incarnation)
         this.leases.delete(key);
@@ -123,11 +138,21 @@ class LocalAuthority implements LocalSessionAuthority {
 
 class WakeBus {
   private readonly listeners = new Set<() => void>();
+  readonly posted: Promise<void>;
+  private markPosted!: () => void;
+
+  constructor(private readonly deliver = true) {
+    this.posted = new Promise<void>((resolve) => {
+      this.markPosted = resolve;
+    });
+  }
+
   create = (_accountId: AccountId, wake: () => void) => {
     this.listeners.add(wake);
     return {
       post: () => {
-        for (const listener of this.listeners) queueMicrotask(listener);
+        this.markPosted();
+        if (this.deliver) for (const listener of this.listeners) queueMicrotask(listener);
       },
       close: () => this.listeners.delete(wake),
     };
@@ -286,7 +311,7 @@ describe("document session cross-context coordination", () => {
     const b = coordinator("account-terminal-peer", locks, new LocalAuthority(), wakeBus);
     await a.value.admit("project-a", "doc", "5");
     const revoking = b.value.revokeDocument("project-a", "doc", "5", "terminal-5");
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await peer.documentDrainEntered;
     let settled = false;
     void revoking.then(() => {
       settled = true;
@@ -301,11 +326,12 @@ describe("document session cross-context coordination", () => {
 
   it("recovers a dropped wake through an explicit lifecycle scan", async () => {
     const locks = new FifoWebLocks();
-    const a = coordinator("account-dropped-wake", locks);
-    const b = coordinator("account-dropped-wake", locks);
+    const droppedWake = new WakeBus(false);
+    const a = coordinator("account-dropped-wake", locks, new LocalAuthority(), droppedWake);
+    const b = coordinator("account-dropped-wake", locks, new LocalAuthority(), droppedWake);
     await a.value.admit("project-a", "doc", "7");
     const revoking = b.value.revokeDocument("project-a", "doc", "7", "terminal-7");
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await droppedWake.posted;
     await a.value.reconcilePending("focus");
     await expect(revoking).resolves.toEqual({ revokedThrough: "7", persistence: "cleared" });
     expect(a.local.leases.size).toBe(0);

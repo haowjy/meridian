@@ -413,6 +413,7 @@ describe("DocumentSessionAuthorityStore", () => {
     opened.splice(opened.indexOf(firstBlocker), 1);
 
     await eventually(async () => {
+      await store.retryPendingPurges();
       expect(await store.pendingPurges()).toEqual([]);
       const names = (await indexedDB.databases()).map(({ name }) => name);
       expect(names).not.toContain(firstName);

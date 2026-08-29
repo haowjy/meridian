@@ -201,6 +201,7 @@ export class DocumentSessionAuthorityStore {
     readonly accountId: AccountId,
     private readonly idb: IDBFactory = indexedDB,
     private readonly onVersionChange: () => void = () => undefined,
+    private readonly onPurgeWake: () => void = () => undefined,
   ) {
     this.databasePromise = new Promise((resolve, reject) => {
       let settled = false;
@@ -771,8 +772,7 @@ export class DocumentSessionAuthorityStore {
           resolve(true);
           return;
         }
-        if (!this.closed)
-          queueMicrotask(() => void this.retryPendingPurges().catch(() => undefined));
+        if (!this.closed) queueMicrotask(this.onPurgeWake);
       };
     });
   }

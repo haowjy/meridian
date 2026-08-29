@@ -188,10 +188,17 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     private readonly intervalMs: number,
     createWakeChannel: ((accountId: AccountId, wake: () => void) => WakeChannel | null) | null,
   ) {
-    this.store = new DocumentSessionAuthorityStore(accountId, idb, () => {
-      this.versionChanged = true;
-      void this.close();
-    });
+    this.store = new DocumentSessionAuthorityStore(
+      accountId,
+      idb,
+      () => {
+        this.versionChanged = true;
+        void this.close();
+      },
+      () => {
+        void this.reconcilePending("operation").catch(() => undefined);
+      },
+    );
     this.wakeChannel =
       createWakeChannel?.(accountId, () => {
         void this.reconcilePending("broadcast").catch(() => undefined);
@@ -417,6 +424,9 @@ class Coordination implements DocumentSessionCrossContextCoordination {
         await this.helpPendingUnderOperation(room.documentId);
       });
       await this.runPurgeWorker(room.documentId);
+    }
+    for (const purge of await this.store.pendingPurges()) {
+      await this.runPurgeWorker(purge.documentId);
     }
   }
 
