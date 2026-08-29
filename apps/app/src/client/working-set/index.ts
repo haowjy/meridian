@@ -6,6 +6,7 @@ export {
   readRecentRoutes,
   readRememberedThread,
   reconcileContextRoutes,
+  replaceRecentRoutes,
   retryWorkingSetHydration,
   setThread,
 } from "./driver";

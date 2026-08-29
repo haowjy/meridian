@@ -305,3 +305,66 @@ describe("complete availability drain fences", () => {
     expect(batches.at(-1)).toEqual([]);
   });
 });
+
+describe("watch contribution ownership", () => {
+  it("retains a Work qualification when an unqualified producer reports later", async () => {
+    const lookup = vi.fn(async (projectId: string, documentIds: readonly string[]) =>
+      result(
+        projectId,
+        documentIds.map((documentId) => ({
+          kind: "not-visible" as const,
+          documentId,
+          checkedGeneration: "1",
+        })),
+      ),
+    );
+    const coordinator = new ProjectContextAvailabilityCoordinator({
+      lookup,
+      repairProjectCatalog: async () => undefined,
+      apply: () => undefined,
+    });
+    const lease = coordinator.attachProject("project-1");
+    lease.watch("qualified", [{ documentId: id(1), sourceWorkId: "work-a" }]);
+    lease.watch("retained", [{ documentId: id(1) }]);
+    await coordinator.coldScopeHint("project-1", "work-a");
+    expect(lookup).toHaveBeenCalledWith("project-1", [id(1)]);
+  });
+});
+
+describe("final watch fence", () => {
+  it("does not dispatch an old result after a newer lookup fails and the ID is unwatched", async () => {
+    const documentId = id(1);
+    let resolveOld!: (value: ProjectContextIdentityLookupResult) => void;
+    let call = 0;
+    const apply = vi.fn();
+    const coordinator = new ProjectContextAvailabilityCoordinator({
+      lookup: async (_projectId) => {
+        call += 1;
+        if (call === 1)
+          return new Promise((resolve) => {
+            resolveOld = resolve;
+          });
+        throw new Error("offline");
+      },
+      repairProjectCatalog: async () => undefined,
+      apply,
+    });
+    const lease = coordinator.attachProject("project-1");
+    lease.watch("tabs", [{ documentId }]);
+    const old = coordinator.recheck("project-1");
+    await coordinator.recheck("project-1");
+    lease.watch("tabs", []);
+    resolveOld(
+      result("project-1", [
+        {
+          kind: "deleted",
+          documentId,
+          generation: "7",
+          lastAuthority: { kind: "project", projectId: "project-1" },
+        },
+      ]),
+    );
+    await old;
+    expect(apply).not.toHaveBeenCalled();
+  });
+});

@@ -115,6 +115,30 @@ describe("ContextRemovalCoordinator availability batches", () => {
       }),
     );
     expect(sessions.revokeDocument).not.toHaveBeenCalled();
+
+    const noWork = {
+      ...file(),
+      scope: { kind: "project" as const, projectId },
+      uri: "scratch://@/Arc/Unscoped.md",
+      path: ["Arc", "Unscoped.md"],
+      name: "Unscoped.md",
+    };
+    coordinator.reconcileDocumentAvailability([
+      {
+        kind: "available",
+        commandId: `availability/v1/available/${projectId}/${documentId}/8`,
+        projectId,
+        document: noWork,
+        generation: "8",
+      },
+    ]);
+    expect(useContextTabsStore.getState().byProject[projectId]?.tabs).toEqual([
+      expect.not.objectContaining({ workId: expect.anything() }),
+    ]);
+    expect(coordinator.getProjectSnapshot(projectId).selection).toMatchObject({
+      locator: { workId: null, path: "Arc/Unscoped.md" },
+    });
+    expect(coordinator.getProjectSnapshot(projectId).activeWorkId).toBe("work-1");
   });
 
   it("keeps access revoke distinct from terminal deletion and rejects stale generations", async () => {
@@ -133,6 +157,8 @@ describe("ContextRemovalCoordinator availability batches", () => {
         authority: { kind: "project", projectId },
         cause: "authority-unavailable",
       },
+    ]).sessionSettlement;
+    await coordinator.reconcileDocumentAvailability([
       {
         kind: "terminal-remove",
         commandId: `availability/v1/terminal-remove/${projectId}/${documentId}/9`,
@@ -141,6 +167,8 @@ describe("ContextRemovalCoordinator availability batches", () => {
         generation: "9",
         cause: "document-deleted",
       },
+    ]).sessionSettlement;
+    coordinator.reconcileDocumentAvailability([
       {
         kind: "available",
         commandId: `availability/v1/available/${projectId}/${documentId}/7`,
@@ -178,5 +206,219 @@ describe("ContextRemovalCoordinator availability batches", () => {
     expect(coordinator.getProjectSnapshot(projectId).selection).toEqual(
       expect.objectContaining({ status: "candidate", reentryGuard: null }),
     );
+  });
+});
+
+describe("availability owner batch publication and settlement", () => {
+  it("publishes one final Zustand desk state for two commands", async () => {
+    const secondId = "00000000-0000-4000-8000-000000000002";
+    useContextTabsStore.setState({
+      byProject: {
+        [projectId]: {
+          tabs: [
+            {
+              ...file(),
+              kind: "tracked",
+              documentId,
+              scheme: "scratch",
+              path: "Old.md",
+              name: "Old.md",
+              workId: "work-1",
+            } as never,
+            {
+              ...file(),
+              kind: "tracked",
+              entryId: undefined,
+              documentId: secondId,
+              scheme: "scratch",
+              path: "Other.md",
+              name: "Other.md",
+              workId: "work-1",
+            } as never,
+          ],
+          selectedTabIdByWork: { "work-1": documentId },
+        },
+      },
+      _deskHydrated: true,
+    });
+    const publications: string[][] = [];
+    const stop = useContextTabsStore.subscribe((state) => {
+      publications.push(state.byProject[projectId]?.tabs.map((tab) => tab.documentId) ?? []);
+    });
+    const coordinator = new ContextRemovalCoordinator("account-1");
+    await coordinator.reconcileDocumentAvailability([
+      {
+        kind: "terminal-remove",
+        commandId: `availability/v1/terminal-remove/${projectId}/${documentId}/8`,
+        projectId,
+        documentId,
+        generation: "8",
+        cause: "document-deleted",
+      },
+      {
+        kind: "terminal-remove",
+        commandId: `availability/v1/terminal-remove/${projectId}/${secondId}/8`,
+        projectId,
+        documentId: secondId,
+        generation: "8",
+        cause: "document-deleted",
+      },
+    ]);
+    stop();
+    expect(publications).toEqual([[]]);
+  });
+
+  it("starts B before deferred A settles and independently retains A rejection", async () => {
+    const secondId = "00000000-0000-4000-8000-000000000002";
+    let rejectA!: (reason: unknown) => void;
+    const a = new Promise<never>((_resolve, reject) => {
+      rejectA = reject;
+    });
+    const sessions = {
+      revokeDocument: vi.fn(() => a),
+      revokeAccess: vi.fn(async () => ({ revokedThrough: "8", persistence: "cleared" as const })),
+    } as unknown as LiveDocumentSessionAuthority;
+    const coordinator = new ContextRemovalCoordinator("account-1", { sessions });
+    const receipt = coordinator.reconcileDocumentAvailability([
+      {
+        kind: "terminal-remove",
+        commandId: `availability/v1/terminal-remove/${projectId}/${documentId}/8`,
+        projectId,
+        documentId,
+        generation: "8",
+        cause: "document-deleted",
+      },
+      {
+        kind: "authority-revoke",
+        commandId: `availability/v1/authority-revoke/${projectId}/${secondId}/8`,
+        projectId,
+        documentId: secondId,
+        generation: "8",
+        authority: { kind: "project", projectId },
+        cause: "authority-unavailable",
+      },
+    ]);
+    expect(sessions.revokeDocument).toHaveBeenCalledOnce();
+    expect(sessions.revokeAccess).toHaveBeenCalledOnce();
+    rejectA(new Error("offline"));
+    const settled = await receipt.sessionSettlement;
+    expect(Object.fromEntries(settled.map((item) => [item.operation, item.status]))).toEqual({
+      "revoke-access": "fulfilled",
+      "revoke-document": "rejected",
+    });
+  });
+});
+
+describe("availability Work authority and retry", () => {
+  it("preserves Editor Work for project-scoped metadata while updating active and background tabs", () => {
+    let search: ProjectSearch = {
+      screen: "context",
+      scheme: "kb",
+      path: "Old.md",
+      work: "work-editor",
+    };
+    useContextTabsStore.setState({
+      byProject: {
+        [projectId]: {
+          tabs: [
+            {
+              kind: "tracked",
+              documentId,
+              scheme: "kb",
+              path: "Old.md",
+              name: "Old.md",
+              editable: true,
+              filetype: "markdown",
+              schemaType: "document",
+            },
+            {
+              kind: "tracked",
+              documentId,
+              scheme: "kb",
+              path: "Copy.md",
+              name: "Copy.md",
+              editable: true,
+              filetype: "markdown",
+              schemaType: "document",
+              draftOnly: true,
+            },
+          ],
+          selectedTabIdByWork: { "work-editor": documentId },
+        },
+      },
+      _deskHydrated: true,
+    });
+    const route = {
+      readSearch: () => search,
+      updateSearch: (_projectId: string, update: (latest: ProjectSearch) => ProjectSearch) => {
+        search = update(search);
+      },
+    };
+    const coordinator = new ContextRemovalCoordinator("account-1", { route });
+    coordinator.registerRoutePort(projectId, route, "work-editor");
+    const revision = coordinator.beginRouteSelection(projectId, {
+      scheme: "kb",
+      path: "Old.md",
+      workId: "work-editor",
+    });
+    coordinator.bindRouteSelection(projectId, revision, { kind: "server", documentId });
+    const entry = {
+      ...file(),
+      scope: { kind: "project" as const, projectId },
+      uri: "kb://Lore/Renamed.md",
+      path: ["Lore", "Renamed.md"],
+      name: "Renamed.md",
+    };
+    coordinator.reconcileDocumentAvailability([
+      {
+        kind: "available",
+        commandId: `availability/v1/available/${projectId}/${documentId}/10`,
+        projectId,
+        document: entry,
+        generation: "10",
+      },
+    ]);
+    expect(coordinator.getProjectSnapshot(projectId).activeWorkId).toBe("work-editor");
+    expect(coordinator.getProjectSnapshot(projectId).selection).toMatchObject({
+      locator: { workId: "work-editor", path: "Lore/Renamed.md" },
+    });
+    expect(search).toMatchObject({ work: "work-editor", path: "Lore/Renamed.md" });
+    expect(useContextTabsStore.getState().byProject[projectId]?.tabs).toEqual([
+      expect.objectContaining({ path: "Lore/Renamed.md" }),
+    ]);
+  });
+
+  it("equal replay retries only the rejected session effect without local publication", async () => {
+    let attempt = 0;
+    const sessions = {
+      revokeDocument: vi.fn(async () => {
+        attempt += 1;
+        if (attempt === 1) throw new Error("offline");
+        return { revokedThrough: "8", persistence: "cleared" as const };
+      }),
+      revokeAccess: vi.fn(),
+    } as unknown as LiveDocumentSessionAuthority;
+    const coordinator = new ContextRemovalCoordinator("account-1", { sessions });
+    const command = {
+      kind: "terminal-remove" as const,
+      commandId: `availability/v1/terminal-remove/${projectId}/${documentId}/8`,
+      projectId,
+      documentId,
+      generation: "8",
+      cause: "document-deleted" as const,
+    };
+    const publications: unknown[] = [];
+    const stop = useContextTabsStore.subscribe((state) =>
+      publications.push(state.byProject[projectId]),
+    );
+    const first = coordinator.reconcileDocumentAvailability([command]);
+    await first.sessionSettlement;
+    const afterLocal = publications.length;
+    const replay = coordinator.reconcileDocumentAvailability([command]);
+    expect(publications).toHaveLength(afterLocal);
+    await replay.sessionSettlement;
+    expect(sessions.revokeDocument).toHaveBeenCalledTimes(2);
+    expect(replay.replayedCommandIds).toEqual([command.commandId]);
+    stop();
   });
 });

@@ -4,6 +4,7 @@ import { useContextRemovalCoordinator } from "./ContextRemovalAccountProvider";
 import type { ContextRemovalProjectSnapshot } from "./context-removal-coordinator";
 
 const EMPTY_SNAPSHOT: ContextRemovalProjectSnapshot = {
+  activeWorkId: null,
   selection: { status: "none", revision: 0 },
   admitted: null,
   removalFence: null,

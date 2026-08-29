@@ -31,6 +31,10 @@ const mocks = vi.hoisted(() => ({
     retain: vi.fn(),
     release: vi.fn(),
     get: vi.fn(() => ({ suspendPresence: vi.fn(), resumePresence: vi.fn() })),
+    observeRetainedLiveDocuments: (observer: (snapshot: readonly unknown[]) => void) => {
+      observer([]);
+      return () => undefined;
+    },
     revokeDocument: vi.fn(),
     revokeAccess: vi.fn(),
   },

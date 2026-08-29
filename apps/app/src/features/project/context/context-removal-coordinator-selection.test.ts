@@ -45,6 +45,7 @@ function scenario(initialSearch: ProjectSearch = { screen: "context" }) {
   };
   const workingSet = {
     readRecentRoutes: () => routes,
+    replaceRecentRoutes: (_id: string, routes: readonly WorkingSetRoute[]) => [...routes],
     reconcileContextRoutes: (_projectId: string, input: ReconcileContextRoutesInput) => {
       routes = reconcileSnapshotContextRoutes(
         { recentRoutes: routes, lastThreadId: null },
@@ -87,6 +88,7 @@ describe("ContextRemovalCoordinator exact evidence protocol", () => {
     const coordinator = new ContextRemovalCoordinator("account-1", {
       workingSet: {
         readRecentRoutes: () => routes,
+        replaceRecentRoutes: (_id: string, routes: readonly WorkingSetRoute[]) => [...routes],
         reconcileContextRoutes: (_projectId, input) => {
           routes = reconcileSnapshotContextRoutes(
             { recentRoutes: routes, lastThreadId: null },
@@ -151,6 +153,7 @@ describe("ContextRemovalCoordinator exact evidence protocol", () => {
     const coordinator = new ContextRemovalCoordinator("account-1", {
       workingSet: {
         readRecentRoutes: () => routes,
+        replaceRecentRoutes: (_id: string, routes: readonly WorkingSetRoute[]) => [...routes],
         reconcileContextRoutes: (_projectId, input) => {
           routes = reconcileSnapshotContextRoutes(
             { recentRoutes: routes, lastThreadId: null },

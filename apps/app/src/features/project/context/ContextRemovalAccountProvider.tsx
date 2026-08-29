@@ -1,6 +1,5 @@
 /** Authenticated-account scope for the context removal coordinator. */
 
-import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useInsertionEffect, useMemo } from "react";
 import { lookupProjectContextAvailability } from "@/client/query/project-context-availability";
 import { getLiveDocumentSessionRegistry } from "@/core/editor/document-session-registry";
@@ -8,28 +7,30 @@ import { ContextRemovalCoordinator } from "./context-removal-coordinator";
 import { ProjectContextAvailabilityCoordinator } from "./project-context-availability-coordinator";
 
 const ContextRemovalAccountContext = createContext<ContextRemovalCoordinator | null>(null);
+const NOOP_CATALOG_REPAIR = async () => undefined;
+
 const ProjectAvailabilityAccountContext =
   createContext<ProjectContextAvailabilityCoordinator | null>(null);
 
 export function ContextRemovalAccountProvider({
   accountId,
+  repairProjectCatalog = NOOP_CATALOG_REPAIR,
   children,
 }: {
   accountId: string;
+  repairProjectCatalog?: (projectId: string) => Promise<void>;
   children: React.ReactNode;
 }) {
-  const queryClient = useQueryClient();
   const lifetime = useMemo(() => {
     const registry = getLiveDocumentSessionRegistry();
     const removal = new ContextRemovalCoordinator(accountId, { sessions: registry });
     const availability = new ProjectContextAvailabilityCoordinator({
       lookup: lookupProjectContextAvailability,
       apply: (commands) => removal.reconcileDocumentAvailability(commands),
-      repairProjectCatalog: (projectId) =>
-        queryClient.invalidateQueries({ queryKey: ["projects", projectId, "context-catalog"] }),
+      repairProjectCatalog,
     });
     return { registry, removal, availability, lease: removal.createLifetimeLease() };
-  }, [accountId, queryClient]);
+  }, [accountId, repairProjectCatalog]);
   useInsertionEffect(() => {
     lifetime.lease.resume();
     const retainedLeases = new Map<
@@ -61,7 +62,11 @@ export function ContextRemovalAccountProvider({
         );
       }
     });
-    const repair = () => void lifetime.availability.recheckWatchedProjects();
+    const repair = () =>
+      void Promise.all([
+        lifetime.availability.recheckWatchedProjects(),
+        lifetime.removal.retryPendingSessionEffects(),
+      ]);
     window.addEventListener("focus", repair);
     window.addEventListener("online", repair);
     const poll = window.setInterval(repair, 60_000);

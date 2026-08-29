@@ -96,6 +96,7 @@ type ContextTabsActions = {
   selectTab: (projectId: string, workId: string, documentId: string | null) => void;
   /** Replace a project's desk without selecting a tab. */
   replaceTabs: (projectId: string, tabs: ContextTab[]) => void;
+  commitAvailability: (projectId: string, next: ProjectTabsSlice) => void;
   /** Reconcile an async validation snapshot without clobbering tabs opened meanwhile. */
   reconcileTabs: (
     projectId: string,
@@ -397,6 +398,14 @@ export const useContextTabsStore = create<ContextTabsState & ContextTabsActions>
         });
       },
 
+      commitAvailability: (projectId, next) => {
+        set((state) => {
+          const canonicalTabs = canonicalizeTabs(next.tabs);
+          const selectedTabIdByWork = normalizeSelections(canonicalTabs, next.selectedTabIdByWork);
+          return patchSlice(state, projectId, { tabs: canonicalTabs, selectedTabIdByWork });
+        });
+      },
+
       reconcileTabs: (projectId, restoredDocumentIds, tabs) => {
         set((state) => {
           const current = sliceFor(state, projectId);
@@ -495,6 +504,7 @@ export function useContextTabsActions(): ContextTabsActions {
       reorderTabs: s.reorderTabs,
       selectTab: s.selectTab,
       replaceTabs: s.replaceTabs,
+      commitAvailability: s.commitAvailability,
       reconcileTabs: s.reconcileTabs,
     })),
   );

@@ -49,6 +49,7 @@ function scenario(initialSearch: ProjectSearch = { screen: "context" }) {
   };
   const workingSet = {
     readRecentRoutes: () => routes,
+    replaceRecentRoutes: (_id: string, routes: readonly WorkingSetRoute[]) => [...routes],
     reconcileContextRoutes: (_projectId: string, input: ReconcileContextRoutesInput) => {
       routes = reconcileSnapshotContextRoutes(
         { recentRoutes: routes, lastThreadId: null },
@@ -118,6 +119,7 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
     const coordinator = new ContextRemovalCoordinator("account-1", {
       workingSet: {
         readRecentRoutes: () => store.read(projectId)?.snapshot.recentRoutes ?? [],
+        replaceRecentRoutes: (_id: string, routes: readonly WorkingSetRoute[]) => [...routes],
         reconcileContextRoutes: (_id, input) => {
           const snapshot = reconcileSnapshotContextRoutes(
             store.read(projectId)?.snapshot ?? { recentRoutes: [], lastThreadId: null },
@@ -456,6 +458,7 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
     const coordinator = new ContextRemovalCoordinator("account-1", {
       workingSet: {
         readRecentRoutes: () => store.read(projectId)?.snapshot.recentRoutes ?? [],
+        replaceRecentRoutes: (_id: string, routes: readonly WorkingSetRoute[]) => [...routes],
         reconcileContextRoutes: (_id, input) => {
           const snapshot = reconcileSnapshotContextRoutes(
             store.read(projectId)?.snapshot ?? { recentRoutes: [], lastThreadId: null },
@@ -546,9 +549,11 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
           return [];
         },
         resolveDraftApply: () => deskCommits.push(["draft"]),
+        commitAvailability: () => undefined,
       },
       workingSet: {
         readRecentRoutes: () => [{ documentId: "a", scheme: "manuscript", path: "/a.md" }],
+        replaceRecentRoutes: (_id: string, routes: readonly WorkingSetRoute[]) => [...routes],
         reconcileContextRoutes: (_id, input) => {
           routeCommits.push(input);
           return [];

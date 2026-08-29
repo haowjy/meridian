@@ -3,8 +3,6 @@
 import {
   isWorkScopedProjectContextScheme,
   type LiveDocumentSessionAuthority,
-  type ProjectContextAuthority,
-  type ProjectContextTreeScheme,
   type WorkingSetRoute,
 } from "@meridian/contracts/protocol";
 import {
@@ -21,16 +19,20 @@ import {
   type ReconcileContextRoutesInput,
   readRecentRoutes,
   reconcileContextRoutes,
+  replaceRecentRoutes,
   workingSetRouteEquals,
 } from "@/client/working-set";
 import {
   applyContextRepairIfCurrent,
   type ContextRouteRepair,
   type ContextRouteTarget,
-  openContextRouteSearch,
   type ProjectSearch,
   transitionProjectSearch,
 } from "../routing/project-route";
+import {
+  type ContextAvailabilityLocalBatchPlan,
+  planContextAvailabilityBatch,
+} from "./context-availability-effect-planner";
 import {
   type ContextRemovalIntent,
   type ContextRemovalOutcome,
@@ -67,6 +69,7 @@ import type { ProjectDocumentAvailabilityCommand } from "./project-context-avail
 type ContextRemovalWorkingSetPort = {
   readRecentRoutes(projectId: string): WorkingSetRoute[];
   reconcileContextRoutes(projectId: string, input: ReconcileContextRoutesInput): WorkingSetRoute[];
+  replaceRecentRoutes(projectId: string, routes: readonly WorkingSetRoute[]): WorkingSetRoute[];
 };
 
 export type ContextRemovalRoutePort = {
@@ -85,6 +88,7 @@ type DeskPort = {
   ): ContextTab[];
   resolveDraftApply(projectId: string, reviewWorkId: string, documentId: string): void;
   replace?(projectId: string, tabs: readonly ContextTab[]): void;
+  commitAvailability(projectId: string, next: ProjectTabsSlice): void;
 };
 
 type RemovalFence = {
@@ -117,8 +121,36 @@ type CoordinatorProjectState = {
 
 export type ContextRemovalProjectSnapshot = Pick<
   CoordinatorProjectState,
-  "selection" | "admitted" | "removalFence" | "transitionRevision" | "live"
+  "activeWorkId" | "selection" | "admitted" | "removalFence" | "transitionRevision" | "live"
 >;
+
+export type AppliedAvailabilityCommand = Readonly<{
+  generation: string;
+  commandId: string;
+  kind: ProjectDocumentAvailabilityCommand["kind"];
+}>;
+
+export type ContextAvailabilitySessionEffectResult =
+  | Readonly<{
+      commandId: string;
+      operation: "revoke-document" | "revoke-access";
+      status: "fulfilled";
+    }>
+  | Readonly<{
+      commandId: string;
+      operation: "revoke-document" | "revoke-access";
+      status: "rejected";
+      reason: unknown;
+    }>;
+
+export type ContextAvailabilityEffectReceipt = Readonly<{
+  committedCommandIds: readonly string[];
+  replayedCommandIds: readonly string[];
+  staleCommandIds: readonly string[];
+  sessionSettlement: Promise<readonly ContextAvailabilitySessionEffectResult[]>;
+}>;
+
+type PendingSessionAvailabilityEffect = ContextAvailabilityLocalBatchPlan["sessionEffects"][number];
 
 export type ContextRemovalLifetimeLease = {
   suspend(): void;
@@ -128,6 +160,7 @@ export type ContextRemovalLifetimeLease = {
 
 const EMPTY_SLICE: ProjectTabsSlice = { tabs: [], selectedTabIdByWork: {} };
 const EMPTY_PROJECT_SNAPSHOT: ContextRemovalProjectSnapshot = {
+  activeWorkId: null,
   selection: { status: "none", revision: 0 },
   admitted: null,
   removalFence: null,
@@ -140,11 +173,14 @@ const productionDesk: DeskPort = {
   commit: commitPlannedContextRemoval,
   resolveDraftApply: commitDraftApplyMetadata,
   replace: (projectId, tabs) => useContextTabsStore.getState().replaceTabs(projectId, [...tabs]),
+  commitAvailability: (projectId, next) =>
+    useContextTabsStore.getState().commitAvailability(projectId, next),
 };
 
 const productionWorkingSet: ContextRemovalWorkingSetPort = {
   readRecentRoutes,
   reconcileContextRoutes,
+  replaceRecentRoutes,
 };
 
 function newCommandId(): string {
@@ -159,7 +195,12 @@ export class ContextRemovalCoordinator {
   private readonly desk: DeskPort;
   private readonly workingSet: ContextRemovalWorkingSetPort;
   private readonly sessions: LiveDocumentSessionAuthority | null;
-  private readonly availabilityGenerations = new Map<string, bigint>();
+  private readonly appliedAvailability = new Map<string, AppliedAvailabilityCommand>();
+  private readonly pendingSessionEffects = new Map<string, PendingSessionAvailabilityEffect>();
+  private readonly sessionEffectRuns = new Map<
+    string,
+    Promise<ContextAvailabilitySessionEffectResult>
+  >();
   private disposed = false;
   private suspended = false;
 
@@ -461,100 +502,167 @@ export class ContextRemovalCoordinator {
   }
 
   /** One logical project-final batch across desk, route, recent-route, selection, and sessions. */
-  async reconcileDocumentAvailability(
+  reconcileDocumentAvailability(
     commands: readonly ProjectDocumentAvailabilityCommand[],
-  ): Promise<{ appliedCommandIds: readonly string[] }> {
-    if (this.unavailable()) return { appliedCommandIds: [] };
-    const appliedCommandIds: string[] = [];
-    for (const command of commands) {
-      const documentId =
-        command.kind === "available" ? command.document.entryId : command.documentId;
-      const generation = BigInt(command.generation);
-      const generationKey = `${command.projectId}/${documentId}`;
-      if (generation < (this.availabilityGenerations.get(generationKey) ?? -1n)) continue;
-      this.availabilityGenerations.set(generationKey, generation);
+  ): ContextAvailabilityEffectReceipt {
+    if (this.unavailable()) return this.emptyAvailabilityReceipt();
+    const normalized = this.normalizeAvailabilityCommands(commands);
+    if (normalized.length === 0) return this.emptyAvailabilityReceipt();
 
-      if (command.kind === "available") {
-        this.applyAvailable(command);
-      } else if (command.kind === "terminal-remove") {
-        this.catalogUnavailable(command.projectId, [documentId]);
-        await this.sessions?.revokeDocument(
-          command.projectId,
-          documentId,
-          command.generation,
-          command.commandId,
-        );
+    const committed: ProjectDocumentAvailabilityCommand[] = [];
+    const replayed: ProjectDocumentAvailabilityCommand[] = [];
+    const staleCommandIds: string[] = [];
+    for (const command of normalized) {
+      const id = availabilityDocumentId(command);
+      const key = `${command.projectId}/${id}`;
+      const previous = this.appliedAvailability.get(key);
+      if (!previous) {
+        committed.push(command);
+        continue;
+      }
+      const comparison = BigInt(command.generation) - BigInt(previous.generation);
+      if (comparison < 0n) {
+        staleCommandIds.push(command.commandId);
+      } else if (comparison === 0n) {
+        if (previous.commandId !== command.commandId || previous.kind !== command.kind) {
+          throw new Error(`Availability command collision for ${key}`);
+        }
+        replayed.push(command);
       } else {
-        this.authorityUnavailable(command.projectId, command.authority, [documentId]);
-        await this.sessions?.revokeAccess(
-          command.projectId,
-          documentId,
-          command.generation,
-          command.commandId,
+        committed.push(command);
+      }
+    }
+
+    const projectId = normalized[0]?.projectId as string;
+    const state = this.project(projectId);
+    let plan: ContextAvailabilityLocalBatchPlan | null = null;
+    if (committed.length > 0) {
+      const route = this.routePorts.get(projectId)?.port ?? this.fallbackRoute;
+      const routeSearch = route?.readSearch(projectId) ?? null;
+      plan = planContextAvailabilityBatch({
+        commands: committed,
+        project: state.snapshot,
+        tabs: this.desk.read(projectId),
+        recentRoutes: this.workingSet.readRecentRoutes(projectId),
+        routeSearch,
+        appliedGenerations: this.appliedAvailability,
+      });
+
+      this.desk.commitAvailability(projectId, {
+        tabs: [...plan.tabs],
+        selectedTabIdByWork: { ...plan.selectedTabIdByWork },
+      });
+      this.workingSet.replaceRecentRoutes(projectId, plan.recentRoutes);
+      state.selection = plan.selection;
+      state.admitted = plan.admitted;
+      for (const record of plan.generationRecords) {
+        this.appliedAvailability.set(`${projectId}/${record.documentId}`, {
+          generation: record.generation,
+          commandId: record.commandId,
+          kind: record.kind,
+        });
+      }
+      if (route && routeSearch && plan.routeSearch) {
+        route.updateSearch(projectId, (latest) =>
+          projectSearchEquals(latest, routeSearch) ? (plan?.routeSearch ?? latest) : latest,
         );
       }
-      appliedCommandIds.push(command.commandId);
-    }
-    return { appliedCommandIds };
-  }
-
-  private applyAvailable(
-    command: Extract<ProjectDocumentAvailabilityCommand, { kind: "available" }>,
-  ): void {
-    const entry = command.document;
-    const documentId = entry.entryId;
-    const scheme = entry.uri.slice(0, entry.uri.indexOf(":")) as ProjectContextTreeScheme;
-    const path = entry.path.join("/");
-    const workId = entry.scope.kind === "work" ? entry.scope.workId : undefined;
-    const slice = this.desk.read(command.projectId);
-    const priorTabs = slice.tabs.filter(
-      (tab): tab is ServerContextTab => tab.kind !== "new" && tab.documentId === documentId,
-    );
-    if (priorTabs.length > 0 && this.desk.replace) {
-      this.desk.replace(
-        command.projectId,
-        slice.tabs.map((tab) => {
-          if (tab.kind === "new" || tab.documentId !== documentId) return tab;
-          const common = {
-            ...tab,
-            scheme,
-            path,
-            name: entry.name,
-            provisionalName: entry.provisionalName,
-          };
-          if (workId) return { ...common, workId };
-          const { workId: _oldWorkId, ...withoutWork } = common;
-          return withoutWork;
-        }),
-      );
-    }
-
-    const target: ContextRouteTarget = { scheme, path, workId: workId ?? null };
-    const state = this.project(command.projectId);
-    if (
-      state.selection.status === "bound" &&
-      state.selection.identity.kind === "server" &&
-      state.selection.identity.documentId === documentId
-    ) {
-      state.selection = { ...state.selection, locator: target };
-      state.admitted = target;
-      const route = this.routePorts.get(command.projectId)?.port ?? this.fallbackRoute;
-      route?.updateSearch(command.projectId, (latest) =>
-        latest.screen === "context" ? openContextRouteSearch(latest, target) : latest,
-      );
       this.publish(state);
     }
 
-    const oldRoutes = priorTabs.flatMap((tab) => workingSetRouteForTab(tab) ?? []);
-    if (oldRoutes.length > 0) {
-      const tabs = this.desk.read(command.projectId).tabs;
-      this.workingSet.reconcileContextRoutes(command.projectId, {
-        removedLocators: oldRoutes,
-        survivingOwnedLocators: tabs.flatMap((tab) => workingSetRouteForTab(tab) ?? []),
-        promote: workingSetRouteForTarget(documentId, target),
-        clearAll: false,
-      });
+    const replayEffects = replayed.flatMap((command) => availabilitySessionEffect(command));
+    const effects = [...(plan?.sessionEffects ?? []), ...replayEffects];
+    for (const effect of effects) this.pendingSessionEffects.set(effect.commandId, effect);
+    const runs = effects.map((effect) => this.startSessionEffect(effect));
+    return {
+      committedCommandIds: committed.map((command) => command.commandId),
+      replayedCommandIds: replayed.map((command) => command.commandId),
+      staleCommandIds,
+      sessionSettlement: Promise.all(runs),
+    };
+  }
+
+  retryPendingSessionEffects(): Promise<readonly ContextAvailabilitySessionEffectResult[]> {
+    const effects = [...this.pendingSessionEffects.values()].sort((left, right) =>
+      left.commandId.localeCompare(right.commandId),
+    );
+    return Promise.all(effects.map((effect) => this.startSessionEffect(effect)));
+  }
+
+  private normalizeAvailabilityCommands(
+    commands: readonly ProjectDocumentAvailabilityCommand[],
+  ): ProjectDocumentAvailabilityCommand[] {
+    const projectId = commands[0]?.projectId;
+    const byDocument = new Map<string, ProjectDocumentAvailabilityCommand>();
+    for (const command of commands) {
+      if (command.projectId !== projectId) throw new Error("Availability batch mixes projects");
+      const id = availabilityDocumentId(command);
+      const previous = byDocument.get(id);
+      if (!previous) {
+        byDocument.set(id, command);
+      } else if (JSON.stringify(previous) !== JSON.stringify(command)) {
+        throw new Error(`Availability batch conflicts for document ${id}`);
+      }
     }
+    return [...byDocument.values()].sort((left, right) =>
+      left.commandId.localeCompare(right.commandId),
+    );
+  }
+
+  private startSessionEffect(
+    effect: PendingSessionAvailabilityEffect,
+  ): Promise<ContextAvailabilitySessionEffectResult> {
+    const existing = this.sessionEffectRuns.get(effect.commandId);
+    if (existing) return existing;
+    let operation: Promise<unknown>;
+    try {
+      operation =
+        effect.operation === "revoke-document"
+          ? (this.sessions?.revokeDocument(
+              effect.projectId,
+              effect.documentId,
+              effect.generation,
+              effect.commandId,
+            ) ?? Promise.resolve())
+          : (this.sessions?.revokeAccess(
+              effect.projectId,
+              effect.documentId,
+              effect.generation,
+              effect.commandId,
+            ) ?? Promise.resolve());
+    } catch (reason) {
+      operation = Promise.reject(reason);
+    }
+    const run = operation.then(
+      (): ContextAvailabilitySessionEffectResult => {
+        if (this.pendingSessionEffects.get(effect.commandId) === effect) {
+          this.pendingSessionEffects.delete(effect.commandId);
+        }
+        return { commandId: effect.commandId, operation: effect.operation, status: "fulfilled" };
+      },
+      (reason: unknown): ContextAvailabilitySessionEffectResult => ({
+        commandId: effect.commandId,
+        operation: effect.operation,
+        status: "rejected",
+        reason,
+      }),
+    );
+    this.sessionEffectRuns.set(effect.commandId, run);
+    void run.finally(() => {
+      if (this.sessionEffectRuns.get(effect.commandId) === run) {
+        this.sessionEffectRuns.delete(effect.commandId);
+      }
+    });
+    return run;
+  }
+
+  private emptyAvailabilityReceipt(): ContextAvailabilityEffectReceipt {
+    return {
+      committedCommandIds: [],
+      replayedCommandIds: [],
+      staleCommandIds: [],
+      sessionSettlement: Promise.resolve([]),
+    };
   }
 
   writerClose(projectId: string, documentId: string): ContextRemovalOutcome {
@@ -589,38 +697,6 @@ export class ContextRemovalCoordinator {
       { cause: "catalog-unavailable", documentIds: [...new Set(documentIds)] },
       obsoleteRoutes,
     );
-    const state = this.project(projectId);
-    if (state.selection.status === "bound" && state.selection.locator.workId === workId) {
-      this.leaveSelection(projectId);
-    }
-    const route = this.routePorts.get(projectId)?.port ?? this.fallbackRoute;
-    if (route?.readSearch(projectId).work === workId) {
-      route.updateSearch(projectId, (latest) =>
-        latest.work === workId
-          ? transitionProjectSearch(latest, { kind: "work-collection" })
-          : latest,
-      );
-    }
-    return outcome;
-  }
-
-  private authorityUnavailable(
-    projectId: string,
-    authority: ProjectContextAuthority,
-    documentIds: readonly string[],
-  ): ContextRemovalOutcome {
-    const workId = authority.kind === "work" ? authority.workId : undefined;
-    const obsoleteRoutes = workId
-      ? this.workingSet
-          .readRecentRoutes(projectId)
-          .filter((candidate) => candidate.workId === workId)
-      : [];
-    const outcome = this.executeRepresented(
-      projectId,
-      { cause: "authority-unavailable", documentIds: [...new Set(documentIds)] },
-      obsoleteRoutes,
-    );
-    if (!workId) return outcome;
     const state = this.project(projectId);
     if (state.selection.status === "bound" && state.selection.locator.workId === workId) {
       this.leaveSelection(projectId);
@@ -1077,6 +1153,7 @@ export class ContextRemovalCoordinator {
 
   private publish(state: CoordinatorProjectState): void {
     state.snapshot = {
+      activeWorkId: state.activeWorkId,
       selection: state.selection,
       admitted: state.admitted,
       removalFence: state.removalFence,
@@ -1089,4 +1166,27 @@ export class ContextRemovalCoordinator {
 
 function locatorKey(locator: ContextRouteTarget): string {
   return `${locator.scheme}\u0000${locator.path}\u0000${locator.workId ?? ""}`;
+}
+
+function availabilityDocumentId(command: ProjectDocumentAvailabilityCommand): string {
+  return command.kind === "available" ? command.document.entryId : command.documentId;
+}
+
+function availabilitySessionEffect(
+  command: ProjectDocumentAvailabilityCommand,
+): PendingSessionAvailabilityEffect[] {
+  if (command.kind === "available") return [];
+  return [
+    {
+      commandId: command.commandId,
+      operation: command.kind === "terminal-remove" ? "revoke-document" : "revoke-access",
+      projectId: command.projectId,
+      documentId: command.documentId,
+      generation: command.generation,
+    },
+  ];
+}
+
+function projectSearchEquals(left: ProjectSearch, right: ProjectSearch): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }

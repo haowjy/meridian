@@ -143,10 +143,33 @@ function AuthenticatedLayout() {
   // ThreadStoreProvider during light↔workspace transitions.
   return (
     <AppQueryProvider initialProjects={projects}>
-      <ContextRemovalAccountProvider key={user.userId} accountId={user.userId}>
-        <AuthenticatedProviderTree now={now} pathname={pathname} user={user} />
-      </ContextRemovalAccountProvider>
+      <AuthenticatedAccountProviderTree now={now} pathname={pathname} user={user} />
     </AppQueryProvider>
+  );
+}
+
+function AuthenticatedAccountProviderTree({
+  now,
+  pathname,
+  user,
+}: {
+  now: number;
+  pathname: string;
+  user: { userId: string; workingSetSyncEnabled: boolean | null };
+}) {
+  const queryClient = useQueryClient();
+  return (
+    <ContextRemovalAccountProvider
+      key={user.userId}
+      accountId={user.userId}
+      repairProjectCatalog={(projectId) =>
+        queryClient.invalidateQueries({
+          queryKey: ["projects", projectId, "context-catalog"],
+        })
+      }
+    >
+      <AuthenticatedProviderTree now={now} pathname={pathname} user={user} />
+    </ContextRemovalAccountProvider>
   );
 }
 
