@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+- `database`, `contracts`, `apps/server`, `apps/app`: add the authoritative
+  Context metadata catalog with atomic whole-commit replay, Work/no-Work
+  authority, authenticated snapshot/delta/children/lookup routes, and one
+  normalized client cache shared by tree, picker, opening, and placement
+  consumers; remove the recursive tree transport and duplicate client owner.
+
 - `apps/app`: deepen the shared suggestion menu into a host-independent,
   generation-fenced and reentrancy-safe lifecycle with stable-row refresh
   selection, ordinary key actions, and a semantic host retreat lease that maps
