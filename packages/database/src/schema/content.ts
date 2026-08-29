@@ -87,6 +87,7 @@ export const works = pgTable(
     status: text("status").notNull().default("active"),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     aiWriteMode: text("ai_write_mode").notNull().default("direct"),
+    entityRevision: bigint("entity_revision", { mode: "bigint" }).notNull().default(sql`1`),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: softDeleteAt(),

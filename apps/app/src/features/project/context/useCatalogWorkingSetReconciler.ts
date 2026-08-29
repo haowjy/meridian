@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import type { CatalogCacheView } from "@/client/query/context-catalog-cache";
 import { isProjectContextCatalogKey } from "@/client/query/project-query-keys";
+import { observeWorksAvailability } from "@/client/query/works-availability-observer";
 import { useContextTabsStore } from "@/client/stores";
 import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
 import { useContextRemovalCoordinator } from "./ContextRemovalAccountProvider";
@@ -50,6 +51,7 @@ export function useCatalogWorkingSetReconciler(projectId: string): void {
   const removal = useContextRemovalCoordinator();
 
   useEffect(() => {
+    const stopWorksObservation = observeWorksAvailability(queryClient, projectId);
     const installed = new Map<string, CatalogCacheView>();
     for (const query of queryClient.getQueryCache().findAll()) {
       if (!isProjectContextCatalogKey(query.queryKey, projectId)) continue;
@@ -57,7 +59,7 @@ export function useCatalogWorkingSetReconciler(projectId: string): void {
       if (view) installed.set(JSON.stringify(query.queryKey), view);
     }
 
-    return queryClient.getQueryCache().subscribe((event) => {
+    const stopWorkingSetObservation = queryClient.getQueryCache().subscribe((event) => {
       if (!isProjectContextCatalogKey(event.query.queryKey, projectId)) return;
       const next = event.query.state.data as CatalogCacheView | undefined;
       if (!next) return;
@@ -96,5 +98,9 @@ export function useCatalogWorkingSetReconciler(projectId: string): void {
         }
       }
     });
+    return () => {
+      stopWorksObservation();
+      stopWorkingSetObservation();
+    };
   }, [projectId, queryClient, removal]);
 }

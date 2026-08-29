@@ -19,6 +19,8 @@ export interface Work {
   status: WorkStatus;
   archivedAt: string | null;
   aiWriteMode: AiWriteMode;
+  /** Durable per-entity ordering fence. JSON form of a monotonic bigint. */
+  entityRevision: string;
   /**
    * the server's count of unpushed `branch_write_journal` rows across
    * this work's branches (spec §3.4) — the single denominator the whole review
@@ -33,6 +35,20 @@ export interface Work {
   lastActivityAt: string;
   deletedAt: string | null;
 }
+
+export type WorkCatalogEntry = Work & { unpushedChangeCount: number };
+
+/** Complete, version-ordered Work lifecycle projection for one project. */
+export type WorksSnapshot = {
+  projectId: ProjectId;
+  /** Causal project-catalog evidence; clients do not use it for snapshot ordering. */
+  catalogGeneration: string;
+  /** Project availability generation: the total order for complete snapshots. */
+  authorityRevision: string;
+  /** Correlates one acquisition response; it is not ordering authority. */
+  requestId: string;
+  works: readonly WorkCatalogEntry[];
+};
 
 export interface CreateWorkRequest {
   id?: WorkId;

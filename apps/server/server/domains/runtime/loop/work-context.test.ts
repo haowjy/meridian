@@ -18,6 +18,7 @@ function work(index: number, overrides: Partial<Work> = {}): Work {
     status: "active",
     archivedAt: null,
     aiWriteMode: "direct",
+    entityRevision: "1",
     createdAt: timestamp,
     updatedAt: timestamp,
     lastActivityAt: timestamp,

@@ -21,10 +21,10 @@ import {
 import { eq, inArray, sql } from "drizzle-orm";
 import {
   currentDrizzleDb,
-  getDrizzleTransactionLocal,
+  type DrizzleTransactionParticipant,
+  enlistDrizzleTransactionParticipant,
   runInDrizzleTransaction,
   runInRootDrizzleTransaction,
-  setDrizzleTransactionLocal,
 } from "../../../shared/drizzle-transaction.js";
 import { type EventSink, emitEvent } from "../../observability/index.js";
 import type {
@@ -34,7 +34,30 @@ import type {
 import { mapAuthoritativeFile } from "./catalog-file-mapper.js";
 
 const ADVANCE_STATE = {};
-type AdvanceState = { generation: bigint; keys: Set<string> };
+type AdvanceState = { generation?: bigint; keys: Set<string>; publisherFenceHeld: boolean };
+const advanceParticipant: DrizzleTransactionParticipant<AdvanceState> = {
+  key: ADVANCE_STATE,
+  create: () => ({ keys: new Set(), publisherFenceHeld: false }),
+  fork: (parent) => ({
+    generation: parent.generation,
+    keys: new Set(parent.keys),
+    publisherFenceHeld: parent.publisherFenceHeld,
+  }),
+  merge(parent, child) {
+    if (
+      parent.generation !== undefined &&
+      child.generation !== undefined &&
+      parent.generation !== child.generation
+    ) {
+      throw new Error("Availability generation changed inside one ambient transaction");
+    }
+    return {
+      generation: parent.generation ?? child.generation,
+      keys: new Set([...parent.keys, ...child.keys]),
+      publisherFenceHeld: parent.publisherFenceHeld || child.publisherFenceHeld,
+    };
+  },
+};
 type AvailabilityRow = {
   document: typeof documents.$inferSelect;
   source: typeof contextSources.$inferSelect | null;
@@ -171,25 +194,42 @@ export function createDrizzleProjectContextAvailability(
           ...input.projectIds.map(projectKey),
           ...input.userIds.map(userKey),
         ]);
-        let state = getDrizzleTransactionLocal<AdvanceState>(ADVANCE_STATE);
-        if (!state) {
+        const state = enlistDrizzleTransactionParticipant(advanceParticipant);
+        const missing = [...requested].filter((key) => !state.keys.has(key)).sort();
+        if (missing.length === 0 && state.generation !== undefined) {
+          return String(state.generation);
+        }
+        if (!state.publisherFenceHeld) {
+          // One transaction-scoped publisher fence makes sequence allocation order match
+          // commit visibility even when later advance calls introduce previously unknown keys.
+          await tx.execute(sql`select pg_advisory_xact_lock(1296387666, 1096174676)`);
+          state.publisherFenceHeld = true;
+        }
+        if (missing.length > 0) {
+          await tx
+            .insert(contextAvailabilityHeads)
+            .values(missing.map((authorityKey) => ({ authorityKey, generation: 0n })))
+            .onConflictDoNothing({ target: contextAvailabilityHeads.authorityKey });
+          // Lock one canonical key at a time rather than relying on a query plan's row-lock order.
+          for (const authorityKey of missing) {
+            await tx.execute(
+              sql`select authority_key from context_availability_heads where authority_key = ${authorityKey} for update`,
+            );
+          }
+        }
+        if (state.generation === undefined) {
           const result = await tx.execute<{ generation: string }>(
             sql`select nextval(${sql.raw(`'${contextAvailabilityGeneration.seqName}'`)})::text as generation`,
           );
           const value = result[0]?.generation;
           if (!value) throw new Error("Failed to allocate availability generation");
-          state = { generation: BigInt(value), keys: new Set() };
-          setDrizzleTransactionLocal(ADVANCE_STATE, state);
+          state.generation = BigInt(value);
         }
-        const missing = [...requested].filter((key) => !state?.keys.has(key)).sort();
         if (missing.length > 0) {
           await tx
-            .insert(contextAvailabilityHeads)
-            .values(missing.map((authorityKey) => ({ authorityKey, generation: state.generation })))
-            .onConflictDoUpdate({
-              target: contextAvailabilityHeads.authorityKey,
-              set: { generation: state.generation, updatedAt: new Date() },
-            });
+            .update(contextAvailabilityHeads)
+            .set({ generation: state.generation, updatedAt: new Date() })
+            .where(inArray(contextAvailabilityHeads.authorityKey, missing));
           for (const key of missing) state.keys.add(key);
         }
         return String(state.generation);

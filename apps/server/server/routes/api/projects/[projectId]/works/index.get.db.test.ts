@@ -2,6 +2,7 @@
 
 import { sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createTestWorkProjectionMutation } from "../../../../../test-support/work-projection.js";
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS === "1" || process.env.RUN_DB_TESTS === "true";
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -97,6 +98,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         workRepo: createDrizzleProjectWorkRepository({
           db,
           hasUnreviewedDraft: async () => false,
+          projectionMutation: createTestWorkProjectionMutation(db),
         }),
         preferences,
         documentSync: createWorkDraftPending(createDrizzleWorkDraftPendingStore(db)),
@@ -123,7 +125,13 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
           ],
         },
       });
-      expect(Object.keys(response.value)).toEqual(["works"]);
+      expect(Object.keys(response.value)).toEqual([
+        "projectId",
+        "catalogGeneration",
+        "authorityRevision",
+        "requestId",
+        "works",
+      ]);
     });
 
     it("groups pending branches for multiple Works and projects missing counts as zero", async () => {
@@ -275,14 +283,19 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       expect(renderedPlan).toMatch(/Index Cond[^}]*work_id/);
     });
 
-    it("honors archived collection filtering", async () => {
+    it("keeps archived and active Works in one lifecycle snapshot", async () => {
       const archived = await routeApp.workRepo.archive(OLDER_WORK_ID);
       expect(archived.status).toBe("archived");
 
       const response = await handler(event("archived") as never);
 
       expect(response).toMatchObject({
-        value: { works: [{ id: OLDER_WORK_ID, status: "archived" }] },
+        value: {
+          works: [
+            { id: OLDER_WORK_ID, status: "archived" },
+            { id: NEWER_WORK_ID, status: "active" },
+          ],
+        },
       });
     });
 

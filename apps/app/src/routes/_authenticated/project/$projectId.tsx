@@ -248,8 +248,4 @@ function useProjectRouteCacheSeed(projectId: string, data: ProjectRouteData): vo
     seedProjectRouteData(queryClient, projectId, data);
     return null;
   });
-
-  useEffect(() => {
-    seedProjectRouteData(queryClient, projectId, data);
-  }, [data, projectId, queryClient]);
 }

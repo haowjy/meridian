@@ -3,7 +3,8 @@
 
 import { setupI18n } from "@lingui/core";
 import { I18nProvider } from "@lingui/react";
-import type { ListWorksResponse, Work } from "@meridian/contracts/protocol";
+import type { ListWorksResponse } from "@meridian/contracts/protocol";
+import type { WorkCatalogEntry } from "@meridian/contracts/works";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -45,7 +46,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-const WORK: Work = {
+const WORK: WorkCatalogEntry = {
   id: "work-b",
   projectId: "project-b",
   createdByUserId: "user-1",
@@ -56,6 +57,8 @@ const WORK: Work = {
   status: "active",
   archivedAt: null,
   aiWriteMode: "direct",
+  entityRevision: "1",
+  unpushedChangeCount: 0,
   createdAt: "2026-08-28T00:00:00.000Z",
   updatedAt: "2026-08-28T00:00:00.000Z",
   lastActivityAt: "2026-08-28T00:00:00.000Z",
@@ -137,7 +140,7 @@ it("keeps the exact seeded live host mounted while its Work catalog refresh is h
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   });
-  queryClient.setQueryData(projectQueryKeys.works("project-b"), { works: [WORK] });
+  queryClient.setQueryData(projectQueryKeys.works("project-b"), worksSnapshot("1"));
 
   await withReactRoot(
     <QueryClientProvider client={queryClient}>
@@ -161,12 +164,22 @@ it("keeps the exact seeded live host mounted while its Work catalog refresh is h
       expect(document.querySelector('[data-project-host="project-b"]')).toBe(host);
       expect(document.querySelector('[data-context-publisher="project-b"]')).toBe(publisher);
 
-      await act(async () => refresh.resolve({ works: [WORK] }));
+      await act(async () => refresh.resolve(worksSnapshot("2")));
       expect(document.querySelector('[data-project-host="project-b"]')).toBe(host);
       expect(document.querySelector('[data-context-publisher="project-b"]')).toBe(publisher);
     },
   );
 });
+
+function worksSnapshot(authorityRevision: string): ListWorksResponse {
+  return {
+    projectId: "project-b",
+    catalogGeneration: "generation-b",
+    authorityRevision,
+    requestId: `request-${authorityRevision}`,
+    works: [WORK],
+  };
+}
 
 function ProjectHost() {
   const projectId = useParams({ strict: false }).projectId as string;

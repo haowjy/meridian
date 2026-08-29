@@ -15,12 +15,14 @@ import { Ok } from "../../../shared/result.js";
 import { truncateDrizzleTables } from "../../../test-support/drizzle-reset.js";
 import { useRollbackTestDatabase } from "../../../test-support/rollback-test-database.js";
 import { createDrizzleProjectRepository } from "../../projects/adapters/project-repository/drizzle.js";
+import { createWorkProjectionMutation } from "../../projects/adapters/work-projection-mutation.js";
 import { createDrizzleWorkRepository } from "../../projects/adapters/work-repository/drizzle.js";
 import { createProjectContextDocumentStore } from "../context-source-provisioning.js";
 import { createDrizzleContextCatalog } from "./context-catalog.js";
 import { ContextFS } from "./context-fs/context-fs.js";
 import { DrizzleContextDocumentStore } from "./context-fs/drizzle-store.js";
 import { DrizzleContextTreeMutationStore } from "./context-fs/drizzle-tree-mutation-store.js";
+import { createDrizzleProjectContextAvailability } from "./project-context-availability.js";
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS === "1" || process.env.RUN_DB_TESTS === "true";
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -357,6 +359,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       const repository = createDrizzleProjectRepository({
         db,
         catalogLifecycle: {
+          async upsertWorkAuthorities() {},
           async refreshProject(projectId) {
             await catalog.refreshProject(projectId);
             throw new Error("catalog failure");
@@ -377,10 +380,11 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         slug: "catalog-project",
       });
       const catalog = createDrizzleContextCatalog(db);
+      const availability = createDrizzleProjectContextAvailability(db);
       const repository = createDrizzleWorkRepository({
         db,
         hasUnreviewedDraft: async () => false,
-        catalogLifecycle: catalog,
+        projectionMutation: createWorkProjectionMutation({ db, availability, catalog }),
       });
       const workId = "00000000-0000-4000-8000-000000000807" as never;
       const scope = { kind: "project", projectId: PROJECT_ID } as const;
@@ -392,25 +396,36 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       });
       const authority = async () =>
         (await catalog.snapshot(scope)).entries.find((entry) => entry.entryId === workId);
-      await expect(authority()).resolves.toMatchObject({ kind: "authority", available: true });
+      await expect(authority()).resolves.toMatchObject({
+        kind: "authority",
+        available: true,
+        entityRevision: "1",
+      });
       await repository.archive(workId);
-      await expect(authority()).resolves.toMatchObject({ available: false });
+      await expect(authority()).resolves.toMatchObject({ available: false, entityRevision: "2" });
       await repository.unarchive(workId);
-      await expect(authority()).resolves.toMatchObject({ available: true });
+      await expect(authority()).resolves.toMatchObject({ available: true, entityRevision: "3" });
       await repository.softDelete(workId);
-      await expect(authority()).resolves.toMatchObject({ available: false });
+      await expect(authority()).resolves.toMatchObject({ available: false, entityRevision: "4" });
       await repository.restore(workId);
-      await expect(authority()).resolves.toMatchObject({ available: true });
+      await expect(authority()).resolves.toMatchObject({ available: true, entityRevision: "5" });
 
       const failingRepository = createDrizzleWorkRepository({
         db,
         hasUnreviewedDraft: async () => false,
-        catalogLifecycle: {
-          async refreshProject(projectId) {
-            await catalog.refreshProject(projectId);
-            throw new Error("catalog failure");
+        projectionMutation: createWorkProjectionMutation({
+          db,
+          availability,
+          catalog: {
+            async refreshProject(projectId) {
+              await catalog.refreshProject(projectId);
+            },
+            async upsertWorkAuthorities(workIds) {
+              await catalog.upsertWorkAuthorities(workIds);
+              throw new Error("catalog failure");
+            },
           },
-        },
+        }),
       });
       await expect(failingRepository.archive(workId)).rejects.toThrow("catalog failure");
       await expect(repository.findById(workId)).resolves.toMatchObject({ status: "active" });

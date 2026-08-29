@@ -160,6 +160,7 @@ function fixture(): Work {
     archivedAt: null,
     deletedAt: null,
     aiWriteMode: "draft",
+    entityRevision: "1",
     unpushedChangeCount: 0,
     lastActivityAt: "2026-08-15T00:00:00.000Z",
     createdAt: "2026-08-15T00:00:00.000Z",

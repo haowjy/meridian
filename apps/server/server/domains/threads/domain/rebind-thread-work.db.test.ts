@@ -1,5 +1,6 @@
 /** PostgreSQL coverage for nullable and concurrent thread Work rebinds. */
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { createTestWorkProjectionMutation } from "../../../test-support/work-projection.js";
 import {
   resetThreadWorkRaceFixture,
   THREAD_WORK_RACE,
@@ -14,11 +15,17 @@ else
     const schema = await import("@meridian/database/schema");
     const { eq } = await import("drizzle-orm");
     const { createDrizzleProjectWorkRepository } = await import("../../projects/index.js");
-    const { createDrizzleRepositories } = await import("../adapters/drizzle/repositories.js");
+    const { createDrizzleRepositoriesForTest } = await import(
+      "../adapters/drizzle/repositories.js"
+    );
     const { rebindThreadWork } = await import("./rebind-thread-work.js");
     const db = createDb(DATABASE_URL, { max: 4 });
-    const repos = createDrizzleRepositories(db);
-    const works = createDrizzleProjectWorkRepository({ db, hasUnreviewedDraft: async () => false });
+    const repos = createDrizzleRepositoriesForTest(db);
+    const works = createDrizzleProjectWorkRepository({
+      db,
+      hasUnreviewedDraft: async () => false,
+      projectionMutation: createTestWorkProjectionMutation(db),
+    });
     const ids = THREAD_WORK_RACE;
     beforeEach(async () => {
       await resetThreadWorkRaceFixture(db);

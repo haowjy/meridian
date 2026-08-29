@@ -26,7 +26,7 @@ import type {
   TurnStatus,
   TurnUsage,
 } from "../threads/index.js";
-import type { AiWriteMode, Work, WorkSlug } from "../works/index.js";
+import type { AiWriteMode, Work, WorkSlug, WorksSnapshot } from "../works/index.js";
 import type { Filetype, YjsTrackedSchemaType } from "./filetype.js";
 
 export type { JsonValue } from "../threads/index.js";
@@ -78,9 +78,7 @@ export type { WorkChatFeedPage as ListWorkThreadsResponse } from "../threads/pro
 
 export type { AiWriteMode, Work };
 
-export type ListWorksResponse = {
-  works: Work[];
-};
+export type ListWorksResponse = WorksSnapshot;
 
 export const PROJECT_CONTEXT_TREE_SCHEMES = CONTEXT_URI_SCHEMES;
 

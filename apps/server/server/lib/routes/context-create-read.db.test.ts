@@ -1,7 +1,9 @@
 /** Route seam coverage for create-with-content followed by the public read projection. */
+
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
+import { createTestWorkProjectionMutation } from "../../test-support/work-projection.js";
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS === "1" || process.env.RUN_DB_TESTS === "true";
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -60,6 +62,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       it(`creates and reads ${path} with the ${schemaType} schema`, async () => {
         const collab = createCollabDomain({
           db,
+          workProjectionMutation: createTestWorkProjectionMutation(db),
           workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
           documentAccess: createDrizzleDocumentAccess(db),
         });
@@ -145,6 +148,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     ])("rejects binary-suffixed tracked create for %s without persisting a document", async (path) => {
       const collab = createCollabDomain({
         db,
+        workProjectionMutation: createTestWorkProjectionMutation(db),
         workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
         documentAccess: createDrizzleDocumentAccess(db),
       });
@@ -183,6 +187,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     it("allows exactly one concurrent create and preserves the winner's content", async () => {
       const collab = createCollabDomain({
         db,
+        workProjectionMutation: createTestWorkProjectionMutation(db),
         workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
         documentAccess: createDrizzleDocumentAccess(db),
       });
@@ -228,6 +233,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     it("registers kb and user documents and unregisters deleted documents", async () => {
       const collab = createCollabDomain({
         db,
+        workProjectionMutation: createTestWorkProjectionMutation(db),
         workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
         documentAccess: createDrizzleDocumentAccess(db),
       });
@@ -315,6 +321,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       });
       const collab = createCollabDomain({
         db,
+        workProjectionMutation: createTestWorkProjectionMutation(db),
         workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
         documentAccess: createDrizzleDocumentAccess(db),
       });
@@ -405,6 +412,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       });
       const collab = createCollabDomain({
         db,
+        workProjectionMutation: createTestWorkProjectionMutation(db),
         workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
         documentAccess: createDrizzleDocumentAccess(db),
       });
