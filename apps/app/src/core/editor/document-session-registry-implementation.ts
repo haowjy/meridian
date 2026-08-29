@@ -270,6 +270,7 @@ export class DocumentSessionRegistry
 
   setOwnUserId(userId: UserId): void {
     if (this.accountId === userId) return;
+    this.clearRetainedLiveDocuments();
     const transitionVersion = ++this.accountTransitionVersion;
     const previous = this.coordination;
     this.accountId = userId;
@@ -296,6 +297,7 @@ export class DocumentSessionRegistry
   }
 
   destroyAll(): void {
+    this.clearRetainedLiveDocuments();
     this.accountTransitionVersion += 1;
     const captured = this.coordination;
     this.coordination = null;
@@ -325,8 +327,7 @@ export class DocumentSessionRegistry
 
   invalidateAll(): Promise<void> {
     if (this.invalidationPromise) return this.invalidationPromise;
-    this.retainedByOwner.clear();
-    this.publishRetainedLiveDocuments();
+    this.clearRetainedLiveDocuments();
     this.unleasedRetainedByOwner.clear();
     this.liveDocCapWarningEmitted = false;
     for (const timer of this.pendingTeardownTimers.values()) clearTimeout(timer);
@@ -353,6 +354,14 @@ export class DocumentSessionRegistry
       })
       .catch(() => undefined);
     return pending;
+  }
+
+  private clearRetainedLiveDocuments(): void {
+    const hadRetainedReferences = [...this.retainedByOwner.values()].some(
+      (retained) => retained.size > 0,
+    );
+    this.retainedByOwner.clear();
+    if (hadRetainedReferences) this.publishRetainedLiveDocuments();
   }
 
   private async configuredCoordination(): Promise<DocumentSessionCrossContextCoordination> {

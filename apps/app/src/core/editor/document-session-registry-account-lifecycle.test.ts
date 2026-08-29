@@ -13,6 +13,31 @@ import {
 } from "./document-session-registry.test-support";
 
 describe("DocumentSessionRegistry account lifecycle", () => {
+  it("publishes one synchronous empty retained snapshot at account transition and destroy", async () => {
+    const registry = await registryFor("account-retained-a");
+    const snapshots: Array<readonly { projectId: string; documentId: string }[]> = [];
+    registry.observeRetainedLiveDocuments((snapshot) => snapshots.push(snapshot));
+    const first = await admit(registry, "project", "doc-a", "1");
+    registry.retain("owner-a", [first]);
+
+    registry.setOwnUserId("account-retained-b");
+    expect(snapshots.at(-1)).toEqual([]);
+    expect(snapshots.filter((snapshot) => snapshot.length === 0)).toHaveLength(2);
+
+    const second = await admit(registry, "project", "doc-b", "1");
+    registry.retain("owner-b", [second]);
+    const emptiesBeforeDestroy = snapshots.filter((snapshot) => snapshot.length === 0).length;
+    registry.destroyAll();
+    expect(snapshots.at(-1)).toEqual([]);
+    expect(snapshots.filter((snapshot) => snapshot.length === 0)).toHaveLength(
+      emptiesBeforeDestroy + 1,
+    );
+    registry.destroyAll();
+    expect(snapshots.filter((snapshot) => snapshot.length === 0)).toHaveLength(
+      emptiesBeforeDestroy + 1,
+    );
+  });
+
   it("invalidates prior leases and isolates persistence on account switch", async () => {
     const registry = await registryFor("account-a");
     const firstLease = await admit(registry, "project", "doc", "1");
