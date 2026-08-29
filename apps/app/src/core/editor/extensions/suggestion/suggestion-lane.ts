@@ -18,10 +18,9 @@
  *
  * Two things this deliberately does NOT do, for every lane at once:
  *
- * - **Own Escape.** The chrome kernel does (`escStep`), and it runs first at
- *   priority 1050; a menu takes its step by being a registered layer, which the
- *   React surface does when it opens. Suggestion's own Escape handling stays as
- *   the floor under that, for the frame before React has rendered.
+ * - **Own Escape.** The host does. The lane registers semantic retreat beside
+ *   its ordinary bindings, so editor Chrome and Composer can place the same
+ *   backtrack/root-dismiss action in their own arbitration order.
  * - **Gate on transaction origin.** `shouldShow` is evaluated on every
  *   transaction, so using it to keep remote writes from opening a menu would
  *   also close an open menu every time a collaborator typed anywhere in the
@@ -40,9 +39,10 @@ import Suggestion, { exitSuggestion, type SuggestionProps } from "@tiptap/sugges
 
 import {
   createSuggestionLifecycle,
-  type KeyArbiter,
   type SuggestionChoiceAction,
   type SuggestionGeneration,
+  type SuggestionHost,
+  type SuggestionHostLease,
   type SuggestionKeyBindings,
   type SuggestionLifecycle,
   type SuggestionMenu,
@@ -61,7 +61,7 @@ import {
 export type SuggestionLaneOptions<TCatalog> = {
   catalog: () => TCatalog | null;
   /** Host composition seam: the adapter never imports editor chrome. */
-  keyArbiter: (editor: Editor) => KeyArbiter | null;
+  suggestionHost: (editor: Editor) => SuggestionHost | null;
 };
 
 /**
@@ -123,7 +123,7 @@ export type SuggestionLaneSpec<TCatalog, TItem, TEntry extends TItem = TItem, TM
    * navigation and action intent; the host only registers the returned chords.
    */
   keyBindings?: (menu: SuggestionMenu<TEntry, TMeta>) => SuggestionKeyBindings;
-  /** Escape backtracking for a hierarchical lane. False falls through to dismissal. */
+  /** Hierarchical retreat. False tells the host to dismiss the root. */
   backtrack?: (input: { editor: Editor; catalog: TCatalog; range: Range }) => boolean;
 };
 
@@ -151,7 +151,7 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
     name: spec.name,
 
     addOptions() {
-      return { catalog: () => null, keyArbiter: () => null };
+      return { catalog: () => null, suggestionHost: () => null };
     },
 
     addStorage(): LaneStorage {
@@ -230,7 +230,7 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
             spec.choose({ editor: target, catalog, range, entry: props, action: "enter" });
           },
           render: () => {
-            let releaseKeymap: (() => void) | null = null;
+            let hostLease: SuggestionHostLease | null = null;
             let identity: SuggestionGeneration | null = null;
 
             return {
@@ -243,13 +243,17 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
                 // menu is on screen the instant the trigger text lands, and a
                 // writer who types it and ArrowDown in one motion must not
                 // out-run React.
-                releaseKeymap =
-                  options.keyArbiter(editor)?.register({
+                hostLease =
+                  options.suggestionHost(editor)?.register({
                     id: spec.keymapId,
                     bindings: spec.keyBindings?.(menu) ?? {
                       ArrowDown: () => menu.move(1),
                       ArrowUp: () => menu.move(-1),
                       Enter: () => menu.chooseActive("enter"),
+                    },
+                    retreat: {
+                      backtrack: () => menu.backtrack(),
+                      dismiss: () => menu.dismiss(),
                     },
                   }) ?? null;
               },
@@ -264,8 +268,8 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
               },
 
               onExit() {
-                releaseKeymap?.();
-                releaseKeymap = null;
+                hostLease?.release();
+                hostLease = null;
                 if (identity) lifecycle.close(identity);
                 identity = null;
               },

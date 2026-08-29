@@ -89,8 +89,10 @@ change-trail events, not manuscript content.
   lifecycle and the document catalog's ranking — sits in
   [`../completion/`](../completion/AGENTS.md) rather than here, because another
   host must not import the editor to complete a reference. The TipTap adapter
-  sees keys only through its injected `KeyArbiter`; `config.ts` adapts editor
-  chrome to that port so chrome policy stays in the editor host. See
+  sees interaction only through its injected `SuggestionHost`; the editor
+  adapter contributes ordinary keys to Chrome's keymap and semantic retreat to
+  Chrome's one Escape chain under one lease. Composer can place the same retreat
+  in its own precedence without importing editor Chrome. See
   [`extensions/suggestion/suggestion-lane.ts`](extensions/suggestion/suggestion-lane.ts).
 
 - Control-surface policy is the chrome kernel's, not an extension's private

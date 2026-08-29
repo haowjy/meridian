@@ -34,10 +34,11 @@ FIFO until that event is complete, while still returning its reserved identity
 or acceptance immediately. Close consumes the full session/generation ticket;
 session ID alone never proves ownership.
 
-**Keys describe actions, not hosts.** A lane may register ArrowUp, ArrowDown,
-Home, End, Enter, Tab, and Escape through the injected arbiter. The shared menu
-owns edge movement, Enter-versus-Tab choice intent, and Escape backtracking; an
-unhandled action returns false so the host keeps its normal arbitration.
+**Interactions describe actions, not host policy.** One `SuggestionHost` lease
+registers ordinary ArrowUp, ArrowDown, Home, End, Enter, and Tab bindings plus
+semantic retreat (`backtrack`, then root `dismiss`). The shared menu owns edge
+movement and Enter-versus-Tab choice intent, while each host places retreat in
+its own Escape precedence. Releasing the lease tears down both halves once.
 
 **The catalog offers what the resolver can find.** Rows rank titles and aliases
 because that is what `POST …/links/resolve` matches on, and names normalize the

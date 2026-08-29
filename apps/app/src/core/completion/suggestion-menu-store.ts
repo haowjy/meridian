@@ -15,12 +15,28 @@ export type SuggestionGeneration = Readonly<{
 }>;
 export type SuggestionSelectionPolicy = "reset" | "preserve-active";
 export type SuggestionChoiceAction = "enter" | "tab";
-export type SuggestionKey = "ArrowDown" | "ArrowUp" | "Home" | "End" | "Enter" | "Tab" | "Escape";
+export type SuggestionKey = "ArrowDown" | "ArrowUp" | "Home" | "End" | "Enter" | "Tab";
 export type SuggestionKeyBindings = Readonly<Partial<Record<SuggestionKey, () => boolean>>>;
 
-/** The only key capability a suggestion host supplies to its adapter. */
-export type KeyArbiter = {
-  register: (input: { id: string; bindings: SuggestionKeyBindings }) => () => void;
+export type SuggestionRetreat = {
+  /** Move one level toward the root. False means this session is already at its root. */
+  backtrack: () => boolean;
+  /** Close the root suggestion without prescribing which physical key caused it. */
+  dismiss: () => void;
+};
+
+/** One host registration owns ordinary keys and semantic retreat together. */
+export type SuggestionHostLease = {
+  release: () => void;
+};
+
+/** The host-neutral interaction capability a suggestion adapter consumes. */
+export type SuggestionHost = {
+  register: (input: {
+    id: string;
+    bindings: SuggestionKeyBindings;
+    retreat: SuggestionRetreat;
+  }) => SuggestionHostLease;
 };
 
 export type SuggestionMenuSnapshot<TItem, TMeta = null> = {

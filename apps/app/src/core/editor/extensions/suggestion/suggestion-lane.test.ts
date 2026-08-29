@@ -11,9 +11,10 @@
  */
 import { Editor } from "@tiptap/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { KeyArbiter } from "@/core/completion";
-
+import type { SuggestionChoiceAction, SuggestionHost } from "@/core/completion";
+import { getEditorChrome } from "../../chrome";
 import { createStandaloneEditorExtensions } from "../../config";
+import { editorSuggestionHost } from "../../suggestion-host";
 import { createSuggestionLane } from "./suggestion-lane";
 
 type WordCatalog = { title: string; words: readonly string[] };
@@ -22,6 +23,7 @@ type WordEntry = WordItem & { tooLong: boolean };
 
 const CATALOG: WordCatalog = { title: "Offer a word", words: ["ember", "emberling", "quill"] };
 const backtrackWordLane = vi.fn(() => true);
+const chooseWordLane = vi.fn<(action: SuggestionChoiceAction) => void>();
 
 /**
  * A lane with every optional field exercised: a projection that reads the
@@ -45,7 +47,8 @@ const wordLane = createSuggestionLane<WordCatalog, WordItem, WordEntry, { title:
     })),
   choosable: (entry) => !entry.tooLong,
   meta: (catalog) => ({ title: catalog.title }),
-  choose: ({ editor, range, entry }) => {
+  choose: ({ editor, range, entry, action }) => {
+    chooseWordLane(action);
     editor.commands.insertContentAt(range, entry.word);
   },
   backtrack: () => backtrackWordLane(),
@@ -56,13 +59,12 @@ const wordLane = createSuggestionLane<WordCatalog, WordItem, WordEntry, { title:
     End: () => menu.moveTo("last"),
     Enter: () => menu.chooseActive("enter"),
     Tab: () => menu.chooseActive("tab"),
-    Escape: () => menu.backtrack(),
   }),
 });
 
 let editor: Editor | null = null;
-const releaseKeymap = vi.fn();
-const registerKeymap = vi.fn<KeyArbiter["register"]>(() => releaseKeymap);
+const releaseHost = vi.fn();
+const registerHost = vi.fn<SuggestionHost["register"]>(() => ({ release: releaseHost }));
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -78,7 +80,7 @@ function mount({ withLane = true } = {}) {
         ? [
             wordLane.extension.configure({
               catalog: () => CATALOG,
-              keyArbiter: () => ({ register: registerKeymap }),
+              suggestionHost: () => ({ register: registerHost }),
             }),
           ]
         : []),
@@ -87,6 +89,27 @@ function mount({ withLane = true } = {}) {
   });
   editor = instance;
   return instance;
+}
+
+function mountWithRealHost() {
+  const instance = new Editor({
+    extensions: [
+      ...createStandaloneEditorExtensions(),
+      wordLane.extension.configure({
+        catalog: () => CATALOG,
+        suggestionHost: editorSuggestionHost,
+      }),
+    ],
+    content: { type: "doc", content: [{ type: "paragraph" }] },
+  });
+  editor = instance;
+  return instance;
+}
+
+function press(instance: Editor, key: string) {
+  instance.view.dom.dispatchEvent(
+    new KeyboardEvent("keydown", { key, keyCode: key === "Escape" ? 27 : 0, bubbles: true }),
+  );
 }
 
 /**
@@ -116,7 +139,7 @@ describe("a lane declared as a spec", () => {
     const instance = mount();
     await type(instance, "%emb");
 
-    expect(registerKeymap).toHaveBeenCalledWith(
+    expect(registerHost).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "test-word-lane",
         bindings: expect.objectContaining({
@@ -126,7 +149,7 @@ describe("a lane declared as a spec", () => {
         }),
       }),
     );
-    const registration = registerKeymap.mock.calls.at(-1)?.[0];
+    const registration = registerHost.mock.calls.at(-1)?.[0];
     expect(registration?.bindings.ArrowDown?.()).toBe(true);
     expect(wordLane.getMenu(instance)?.snapshot().activeIndex).toBe(0);
   });
@@ -134,7 +157,8 @@ describe("a lane declared as a spec", () => {
   it("registers the full hierarchical key contract through the shared menu", async () => {
     const instance = mount();
     await type(instance, "%emb");
-    const bindings = registerKeymap.mock.calls.at(-1)?.[0].bindings;
+    const registration = registerHost.mock.calls.at(-1)?.[0];
+    const bindings = registration?.bindings;
 
     expect(Object.keys(bindings ?? {})).toEqual([
       "ArrowDown",
@@ -143,13 +167,109 @@ describe("a lane declared as a spec", () => {
       "End",
       "Enter",
       "Tab",
-      "Escape",
     ]);
     expect(bindings?.End?.()).toBe(true);
     expect(wordLane.getMenu(instance)?.snapshot().activeId).toBe("ember");
     expect(bindings?.Home?.()).toBe(true);
-    expect(bindings?.Escape?.()).toBe(true);
+    expect(registration?.retreat.backtrack()).toBe(true);
     expect(backtrackWordLane).toHaveBeenCalledOnce();
+  });
+
+  it("lets a Composer-style host place semantic retreat in its own precedence", async () => {
+    const instance = mount();
+    await type(instance, "%emb");
+    const retreat = registerHost.mock.calls.at(-1)?.[0].retreat;
+    expect(retreat?.backtrack()).toBe(true);
+
+    backtrackWordLane.mockReturnValueOnce(false);
+    releaseHost.mockClear();
+    retreat?.dismiss();
+    expect(wordLane.getMenu(instance)?.snapshot().open).toBe(false);
+    expect(releaseHost).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Enter and Tab as distinct choice intents", async () => {
+    const enterEditor = mount();
+    await type(enterEditor, "%quill");
+    registerHost.mock.calls.at(-1)?.[0].bindings.Enter?.();
+    expect(chooseWordLane).toHaveBeenLastCalledWith("enter");
+
+    enterEditor.destroy();
+    const tabEditor = mount();
+    await type(tabEditor, "%quill");
+    registerHost.mock.calls.at(-1)?.[0].bindings.Tab?.();
+    expect(chooseWordLane).toHaveBeenLastCalledWith("tab");
+  });
+
+  it("runs the semantic lease through the mounted Chrome kernel", async () => {
+    backtrackWordLane.mockReset().mockReturnValueOnce(true).mockReturnValueOnce(false);
+    const instance = mountWithRealHost();
+    const chrome = getEditorChrome(instance);
+    expect(chrome).not.toBeNull();
+
+    await type(instance, "%emb");
+    expect(wordLane.getMenu(instance)?.snapshot().open).toBe(true);
+    const suggestionKeys = () =>
+      chrome?.keymapContributions().filter((entry) => entry.id === "test-word-lane") ?? [];
+    expect(suggestionKeys()).toHaveLength(1);
+    expect(Object.keys(suggestionKeys()[0]?.bindings ?? {})).toEqual([
+      "ArrowDown",
+      "ArrowUp",
+      "Home",
+      "End",
+      "Enter",
+      "Tab",
+    ]);
+
+    const menu = wordLane.getMenu(instance);
+    const registeredRevision = chrome?.keymapRevision ?? 0;
+    const visualLayer = chrome?.openLayer({
+      id: "test-word-lane#mounted",
+      ownerId: "test-word-lane",
+      dismissal: "self",
+      close: () => {
+        visualLayer?.release();
+        menu?.dismiss();
+      },
+    });
+    expect(chrome?.layers).toHaveLength(1);
+
+    const cancelGesture = vi.fn();
+    chrome?.beginDrag(cancelGesture);
+    press(instance, "Escape");
+    expect(cancelGesture).toHaveBeenCalledOnce();
+    expect(backtrackWordLane).not.toHaveBeenCalled();
+
+    const rival = chrome?.openLayer({
+      id: "rival-overlay",
+      parentId: visualLayer?.id,
+      close: () => rival?.release(),
+    });
+    press(instance, "Escape");
+    expect(rival?.layer).not.toBe(chrome?.layers.at(-1));
+    expect(chrome?.layers).toHaveLength(1);
+    expect(backtrackWordLane).not.toHaveBeenCalled();
+
+    press(instance, "End");
+    expect(menu?.snapshot().activeId).toBe("ember");
+    press(instance, "Home");
+    expect(menu?.snapshot().activeId).toBe("ember");
+
+    press(instance, "Escape");
+    expect(backtrackWordLane).toHaveBeenCalledTimes(1);
+    expect(chrome?.layers).toHaveLength(1);
+    expect(menu?.snapshot().open).toBe(true);
+
+    press(instance, "Escape");
+    expect(backtrackWordLane).toHaveBeenCalledTimes(2);
+    expect(chrome?.layers).toHaveLength(0);
+    expect(menu?.snapshot().open).toBe(false);
+    expect(suggestionKeys()).toHaveLength(0);
+
+    // The stale presentation cleanup and editor teardown cannot release the
+    // already-ended host registration a second time.
+    visualLayer?.release();
+    expect(chrome?.keymapRevision).toBe(registeredRevision + 1);
   });
 
   it("writes what the lane's choice writes, over the trigger's own range", async () => {
