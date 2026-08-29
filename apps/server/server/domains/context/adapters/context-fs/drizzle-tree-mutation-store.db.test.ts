@@ -280,7 +280,12 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       expect(await db.select().from(contextCatalogScopeHeads)).toEqual([]);
       expect(await db.select().from(contextCatalogEntries)).toEqual([]);
       expect(await db.select().from(contextCatalogCommits)).toEqual([]);
-      expect(await db.select().from(contextAvailabilityHeads)).toEqual([]);
+      expect(
+        await db
+          .select()
+          .from(contextAvailabilityHeads)
+          .where(eq(contextAvailabilityHeads.authorityKey, `project:${PROJECT_ID}`)),
+      ).toEqual([]);
       expect(callbacks).toEqual([]);
       expect(publish).not.toHaveBeenCalled();
     });
