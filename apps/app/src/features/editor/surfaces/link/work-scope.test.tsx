@@ -346,11 +346,11 @@ function manuscriptTree(...names: readonly string[]): ProjectContextTreeDirector
   );
 }
 
-/** The context tree spells scratch `scratch://<workId>/…` (tracked task #32). */
-function scratchTree(workId: string, ...names: readonly string[]): ProjectContextTreeDirectory {
+/** Context trees expose stable slug-qualified Scratch authority. */
+function scratchTree(workSlug: string, ...names: readonly string[]): ProjectContextTreeDirectory {
   return directory(
-    `scratch://${workId}`,
-    names.map((name) => file(name, `scratch://${workId}/${name}`)),
+    `scratch://@${workSlug}`,
+    names.map((name) => file(name, `scratch://@${workSlug}/${name}`)),
   );
 }
 

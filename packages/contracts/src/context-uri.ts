@@ -75,14 +75,21 @@ export function canonicalContextUri(
   if (authority.kind === "work" && !isValidWorkSlug(authority.workSlug)) {
     throw new RangeError(`Invalid Work slug authority "${authority.workSlug}"`);
   }
-  const segments = path.split("/").filter(Boolean);
+  const segments = path.split("/").filter((segment) => segment !== "" && segment !== ".");
+  if (segments.includes("..")) {
+    throw new RangeError('Path traversal (".." ) is not allowed');
+  }
   if (segments.some((segment) => segment.startsWith("@"))) {
     throw new RangeError('Path segments beginning with "@" are reserved');
   }
+  const normalizedPath = segments.join("/");
   const qualifier =
     authority.kind === "work" ? `@${authority.workSlug}` : authority.kind === "none" ? "@" : null;
-  if (qualifier) return path ? `${scheme}://${qualifier}/${path}` : `${scheme}://${qualifier}/`;
-  return path ? `${scheme}://${path}` : `${scheme}://`;
+  if (qualifier)
+    return normalizedPath
+      ? `${scheme}://${qualifier}/${normalizedPath}`
+      : `${scheme}://${qualifier}/`;
+  return normalizedPath ? `${scheme}://${normalizedPath}` : `${scheme}://`;
 }
 
 /** Strict serializer, lenient parser; bare paths resolve to `manuscript://`. */
@@ -206,7 +213,11 @@ function isProjectScopedScheme(scheme: ContextUriScheme): scheme is ProjectScope
 }
 
 function isValidWorkSlug(value: string): boolean {
-  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(value);
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(value) && !isUuid(value);
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function invalidContextUri(uri: string, reason: string): ContextUriParseError {

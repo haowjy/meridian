@@ -353,7 +353,14 @@ export async function createProductionAppPorts(input: {
     eventSink,
   });
   const results = createDrizzleResultRepository(db);
-  const promotionService = createPromotionService({ objectStore, results });
+  const promotionService = createPromotionService({
+    objectStore,
+    results,
+    async resolveWorkSlug({ projectId, workId }) {
+      const work = await workRepo.findById(workId);
+      return work && work.projectId === projectId && !work.deletedAt ? work.slug : null;
+    },
+  });
   contextPorts = createProductionUnifiedContextPortFactory({
     db,
     documentSync,

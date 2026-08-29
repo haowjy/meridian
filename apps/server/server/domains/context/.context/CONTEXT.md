@@ -96,7 +96,8 @@ router resolves to a stable Work ID before dispatch.
   selected Work's `scratch` source and serializes with its Work ID authority.
   Zero or multiple matches both resolve to `null`; resolution never guesses.
 - Router methods attach the canonical URI to every `ContextError`.
-- `uploads://` is intake, not an authoring workspace: tracked creation, untitled
+- `uploads://` is intake, not an authoring workspace. F0 owns its authority,
+  provisioning, and resolution; F4 owns the actual `UploadIntake` lifecycle. Tracked creation, untitled
   allocation, directory creation, and cross-scheme move-in are rejected with an
   actionable `invalid_operation`. Same-scheme moves and flat binary upload intake
   stay available; nested intake paths are rejected because they would implicitly

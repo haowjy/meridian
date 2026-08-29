@@ -369,7 +369,11 @@ describe("queued identity outcomes", () => {
     const rig = new UntitledLifecycleRig();
     rig.move.enqueueResult({
       status: "conflict",
-      collision: { scheme: "scratch", path: "taken.md", workId: "work-1" },
+      collision: {
+        scheme: "scratch",
+        path: "taken.md",
+        authority: { kind: "work", workId: "work-1" },
+      },
     });
     rig.start();
     rig.append("doc-1");

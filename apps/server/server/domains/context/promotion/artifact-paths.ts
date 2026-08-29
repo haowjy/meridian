@@ -4,9 +4,9 @@ export function parentSourcePath(sourcePath: string): string {
   return idx <= 0 ? "." : normalized.slice(0, idx);
 }
 
-/** Maps a source path to a work-scoped results URI under the promoting Work. */
+/** Maps a source path to canonical Scratch results under its factual owner. */
 export function resultsUriForSourcePath(
-  workId: string,
+  workSlug: string | null,
   rootThreadId: string,
   sourcePath: string,
 ): string {
@@ -15,7 +15,11 @@ export function resultsUriForSourcePath(
   const relative = normalized.startsWith(runPrefix)
     ? normalized.slice(runPrefix.length)
     : normalized;
-  return `scratch://${workId}/results/${relative}`;
+  return canonicalContextUri(
+    "scratch",
+    `results/${relative}`,
+    workSlug ? { kind: "work", workSlug } : { kind: "none" },
+  );
 }
 
 export function objectStoreKeyForResult(
@@ -27,3 +31,5 @@ export function objectStoreKeyForResult(
   const baseName = sourcePath.replace(/^\/+/, "").split("/").pop() ?? "artifact";
   return `results/${projectId}/${rootThreadId}/${resultId}/${baseName}`;
 }
+
+import { canonicalContextUri } from "@meridian/contracts/context-uri";

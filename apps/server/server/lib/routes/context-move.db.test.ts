@@ -367,7 +367,11 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         }),
       ).resolves.toEqual({
         status: "conflict",
-        collision: { scheme: "manuscript", path: "Act 1/Source" },
+        collision: {
+          scheme: "manuscript",
+          path: "Act 1/Source",
+          authority: { kind: "project" },
+        },
       });
       await expect(port.list("manuscript://Act 1/Source")).resolves.toEqual({
         ok: true,

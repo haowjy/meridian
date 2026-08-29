@@ -12,7 +12,10 @@ import type {
   ThreadWorksRepository,
   WorkContextDeliveryRepository,
 } from "../ports/repositories.js";
-import { ThreadWorkProjectMismatchError } from "../ports/repositories.js";
+import {
+  ThreadMembershipUnavailableError,
+  ThreadWorkProjectMismatchError,
+} from "../ports/repositories.js";
 
 export type RebindThreadWorkErrorCode =
   | "thread_unavailable"
@@ -80,6 +83,9 @@ export async function rebindThreadWork(
   try {
     rebound = await deps.threadWorks.rebindPrimary(thread.id, targetWorkId);
   } catch (cause) {
+    if (cause instanceof ThreadMembershipUnavailableError) {
+      throw new RebindThreadWorkError("thread_unavailable", input.threadId);
+    }
     if (cause instanceof WorkLifecycleUnavailableError) {
       throw new RebindThreadWorkError("target_work_unavailable", input.threadId, cause.workId);
     }

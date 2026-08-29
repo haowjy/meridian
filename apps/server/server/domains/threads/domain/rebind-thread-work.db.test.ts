@@ -91,7 +91,6 @@ else
     });
 
     it("serializes concurrent Work targets to one primary", async () => {
-      await repos.threadWorks.addMembership(ids.threadId, ids.workId, true);
       await Promise.all([
         rebind({ kind: "none" }),
         rebind({ kind: "work", workId: ids.targetWorkId }),

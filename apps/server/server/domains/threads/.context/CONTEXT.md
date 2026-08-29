@@ -74,7 +74,7 @@ instead of the N:1 `threads.workId` column.
 | `ModelResponseRepository` | `create / findById / listByTurn` |
 | `UsageRecorder` | `recordModelResponseUsage` — legacy helper retained for repository conformance/direct callers; runtime model responses now flow through the read-model projector |
 | `ThreadRepositories` | aggregate of the above four + `transaction<T>` for atomic multi-repo writes + `runTurnStartTransition` for thread-row-serialized turn setup |
-| `ThreadWorksRepository` | Adds organizational memberships and reads the primary. Its Work-before-thread primary rebind demotes the old membership and promotes/upserts the target, retaining association history while preserving exactly one primary. |
+| `ThreadWorksRepository` | Adds organizational memberships and reads the primary. Its Work-before-thread primary rebind revalidates thread lifecycle under the same row lock, then demotes the old membership and promotes/upserts the target, retaining association history while preserving exactly one primary. |
 | `rebindThreadWork` | Transaction-composable mutation above `rebindPrimary`; binding, receipt, typed lifecycle errors, and targeted durable obligation have one policy owner. Actor adapters own transaction and post-commit delivery. |
 | `restoreOwnedThreadFromTrash` | Authenticated restore boundary; authorizes through the including-deleted thread's project, revalidates thread and project ownership under the lifecycle lock, and wakes delivery only after the exact restore transition commits. |
 | `EventJournalWriter` | `appendEvent(threadId, event) -> bigint seq` |

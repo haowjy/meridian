@@ -99,11 +99,18 @@ describe("parseContextMove", () => {
     ["invalid source path", "manuscript", body({ path: "Act 2//a.md" })],
     ["invalid name", "manuscript", body({ newName: "folder/a.md" })],
     ["project source with Work", "manuscript", body({ sourceWorkId: WORK_ID })],
-    ["Work source without Work", "scratch", body()],
     ["project destination with Work", "manuscript", body({ destinationWorkId: WORK_ID })],
-    ["Work destination without Work", "manuscript", body({ destinationScheme: "scratch" })],
   ])("rejects %s", (_label, sourceScheme, requestBody) => {
     expect(() => parseContextMove({ sourceScheme, body: requestBody })).toThrow();
+  });
+
+  it("represents explicit no-Work source and destination authority", () => {
+    expect(
+      parseContextMove({
+        sourceScheme: "scratch",
+        body: body({ destinationScheme: "uploads", sourceWorkId: null, destinationWorkId: null }),
+      }),
+    ).toMatchObject({ source: { scope: "none" }, destination: { scope: "none" } });
   });
 });
 
@@ -173,6 +180,40 @@ describe("handleContextMoveRequest", () => {
     );
   });
 
+  it("commits no-Work to no-Work using explicit @/ authority", async () => {
+    const deps = depsFor();
+    await expect(
+      request(
+        deps,
+        body({ destinationScheme: "scratch", destinationFolderPath: "Dest" }),
+        "scratch",
+      ),
+    ).resolves.toMatchObject({ status: "moved" });
+    expect(deps.port.commitWriterLocation).toHaveBeenCalledWith(
+      "scratch://@/Source.md",
+      "scratch://@/Dest/Source.md",
+      { origin: { type: "human", userId: "user-1" } },
+    );
+  });
+
+  it("commits no-Work to a real Work without exposing its ID", async () => {
+    const deps = depsFor({ works: { [WORK_ID]: { projectId: "project-1" } } });
+    await request(
+      deps,
+      body({
+        destinationScheme: "scratch",
+        destinationFolderPath: "Dest",
+        destinationWorkId: WORK_ID,
+      }),
+      "scratch",
+    );
+    expect(deps.port.commitWriterLocation).toHaveBeenCalledWith(
+      "scratch://@/Source.md",
+      "scratch://@work-1/Dest/Source.md",
+      expect.anything(),
+    );
+  });
+
   it.each([
     ["stale_source", "stale-source"],
     ["stale_target", "stale-target"],
@@ -193,7 +234,36 @@ describe("handleContextMoveRequest", () => {
     });
     await expect(request(deps)).resolves.toEqual({
       status: "conflict",
-      collision: { scheme: "manuscript", path: "Dest/Source.md" },
+      collision: {
+        scheme: "manuscript",
+        path: "Dest/Source.md",
+        authority: { kind: "project" },
+      },
     });
+  });
+
+  it("maps a qualified collision back to its internal Work identity", async () => {
+    const deps = depsFor({ works: { [WORK_ID]: { projectId: "project-1" } } });
+    deps.port.commitWriterLocation.mockResolvedValue({
+      ok: false,
+      error: { code: "conflict", uri: "scratch://@work-1/Dest/Source.md" },
+    });
+    await expect(request(deps, body({ sourceWorkId: WORK_ID }), "scratch")).resolves.toEqual({
+      status: "conflict",
+      collision: {
+        scheme: "scratch",
+        path: "Dest/Source.md",
+        authority: { kind: "work", workId: WORK_ID },
+      },
+    });
+  });
+
+  it("refuses a conflict locator whose authority is no longer known", async () => {
+    const deps = depsFor();
+    deps.port.commitWriterLocation.mockResolvedValue({
+      ok: false,
+      error: { code: "conflict", uri: "scratch://@missing-work/Dest/Source.md" },
+    });
+    await expect(request(deps)).rejects.toMatchObject({ statusCode: 409 });
   });
 });

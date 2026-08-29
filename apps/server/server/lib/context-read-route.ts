@@ -1,4 +1,4 @@
-import type { ContextAuthority } from "@meridian/contracts/context-uri";
+import { type ContextAuthority, parseUnifiedContextUri } from "@meridian/contracts/context-uri";
 import type { ContextReadResponse, ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { createError } from "nitro/h3";
 import {
@@ -64,14 +64,25 @@ export function resolveContextReadPath(
   if (explicitScheme) {
     if (explicitScheme[1] !== scheme)
       throw createError({ statusCode: 400, message: "Context path scheme does not match route" });
+    const parsed = parseUnifiedContextUri(trimmed);
+    if (!parsed.ok) throw createError({ statusCode: 400, message: parsed.error.reason });
     if (isWorkScopedBrowseScheme(scheme)) {
-      if (authority.kind === "contextual") {
+      if (authority.kind === "contextual")
         throw createError({ statusCode: 500, message: "Missing resolved context authority" });
+      if (parsed.value.authority.kind === "contextual") {
+        uri = workScopedBrowseUri(scheme, authority, parsed.value.path);
+      } else {
+        const sameAuthority =
+          parsed.value.authority.kind === authority.kind &&
+          (authority.kind !== "work" ||
+            (parsed.value.authority.kind === "work" &&
+              parsed.value.authority.workSlug === authority.workSlug));
+        if (!sameAuthority) {
+          throw createError({ statusCode: 400, message: "Context authority does not match route" });
+        }
+        uri = parsed.value.canonical;
       }
-      uri = workScopedBrowseUri(scheme, authority, explicitScheme[2]);
-    } else {
-      uri = normalizeSchemePath(scheme, explicitScheme[2]);
-    }
+    } else uri = parsed.value.canonical;
   } else if (/^[a-z][a-z0-9+.-]*:/.test(trimmed)) {
     throw createError({ statusCode: 400, message: 'Malformed URI: expected "scheme://path"' });
   } else if (isWorkScopedBrowseScheme(scheme)) {

@@ -19,7 +19,7 @@ export type PromotionResult =
   | { ok: false; error: PromotionError };
 export interface PromoteArtifactInput {
   projectId: string;
-  workId: string;
+  workId: string | null;
   sourcePath: string;
   bytes: Uint8Array;
   provenance: ResultProvenance;
@@ -41,6 +41,7 @@ export interface PromotionService {
 export interface PromotionServiceDeps {
   objectStore: ObjectStorePort;
   results: ResultRepository;
+  resolveWorkSlug(input: { projectId: string; workId: string }): Promise<string | null>;
 }
 const err = (code: PromotionErrorCode, message: string): PromotionResult => ({
   ok: false,
@@ -54,12 +55,16 @@ export function createPromotionService(deps: PromotionServiceDeps): PromotionSer
       if (!sourcePath || sourcePath.includes(".."))
         return err("invalid_input", "Invalid source path");
       if (!input.projectId) return err("invalid_input", "projectId is required");
-      if (!input.workId) return err("invalid_input", "workId is required");
       if (!input.provenance.agentSlug)
         return err("invalid_input", "provenance.agentSlug is required");
       const policy = evaluatePromotionPolicy(sourcePath);
       if (policy.decision === "skip" || !policy.mimeType)
         return err("policy_skip", `Path not eligible for promotion: ${sourcePath}`);
+      const workSlug = input.workId
+        ? await deps.resolveWorkSlug({ projectId: input.projectId, workId: input.workId })
+        : null;
+      if (input.workId && !workSlug)
+        return err("invalid_input", "Work is not available in this project");
       const resultId = randomUUID();
       const objectKey = objectStoreKeyForResult(
         input.projectId,
@@ -70,7 +75,7 @@ export function createPromotionService(deps: PromotionServiceDeps): PromotionSer
       const put = await deps.objectStore.put(objectKey, input.bytes, policy.mimeType);
       if (!put.ok) return err("object_store_error", put.error.message);
       const resultsUri = resultsUriForSourcePath(
-        input.workId,
+        workSlug,
         input.provenance.rootThreadId,
         sourcePath,
       );

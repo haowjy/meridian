@@ -8,6 +8,7 @@ import { and, eq } from "drizzle-orm";
 import { runInDrizzleTransaction } from "../../../../shared/drizzle-transaction.js";
 import { requireLockedActiveWork } from "../../../../shared/work-lifecycle-lock.js";
 import {
+  ThreadMembershipUnavailableError,
   ThreadWorkProjectMismatchError,
   type ThreadWorksRepository,
 } from "../../ports/repositories.js";
@@ -54,11 +55,11 @@ export function createDrizzleThreadWorksRepository(db: DrizzleDatabase): ThreadW
           }
 
           const [thread] = await activeDb
-            .select({ projectId: schema.threads.projectId })
+            .select({ projectId: schema.threads.projectId, deletedAt: schema.threads.deletedAt })
             .from(schema.threads)
             .where(eq(schema.threads.id, threadId))
             .for("update");
-          if (!thread) throw new Error("Thread membership requires an existing thread");
+          if (!thread || thread.deletedAt) throw new ThreadMembershipUnavailableError(threadId);
 
           if (changesPrimary) {
             const [lockedCurrent] = await activeDb

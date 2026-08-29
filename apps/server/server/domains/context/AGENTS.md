@@ -14,8 +14,9 @@ stable Work ID before adapter dispatch. `thread_works` membership selects the
 thread's primary Work but never grants context access.
 
 Scheme capabilities are declared once in `ports/context-adapter.ts` and enforced
-by the router. `uploads://` is writable upload intake but does not allow clients
-to create context entries or directories, so its binary intake is flat;
+by the router. F0 owns Uploads authority, provisioning, and resolution; F4 owns
+the actual `UploadIntake` lifecycle. `uploads://` does not allow general clients
+to create context entries or directories, so binary intake is flat;
 `scratch://` is the Work authoring space and accepts nested intake paths.
 
 Text creation and writes must resolve the document filetype and use the collab

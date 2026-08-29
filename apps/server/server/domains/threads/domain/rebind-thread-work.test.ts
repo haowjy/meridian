@@ -2,6 +2,7 @@ import type { ThreadId, UserId, WorkId } from "@meridian/contracts/runtime";
 import type { Thread } from "@meridian/contracts/threads";
 import type { Work } from "@meridian/contracts/works";
 import { describe, expect, it, vi } from "vitest";
+import { ThreadMembershipUnavailableError } from "../ports/repositories.js";
 import { rebindThreadWork } from "./rebind-thread-work.js";
 
 const THREAD_ID = "00000000-0000-4000-8000-000000000101" as ThreadId;
@@ -85,5 +86,18 @@ describe("rebindThreadWork", () => {
         target: { kind: "work", workId: TARGET_ID },
       }),
     ).rejects.toEqual(expect.objectContaining({ name: "RebindThreadWorkError", code }));
+  });
+
+  it("translates a lifecycle loss under the membership lock", async () => {
+    const h = fixture(null);
+    h.deps.threadWorks.rebindPrimary = async () => {
+      throw new ThreadMembershipUnavailableError(THREAD_ID);
+    };
+    await expect(
+      rebindThreadWork(h.deps, {
+        threadId: THREAD_ID,
+        target: { kind: "work", workId: TARGET_ID },
+      }),
+    ).rejects.toMatchObject({ name: "RebindThreadWorkError", code: "thread_unavailable" });
   });
 });

@@ -310,6 +310,14 @@ export class ThreadWorkProjectMismatchError extends Error {
   }
 }
 
+/** Membership mutation lost the thread lifecycle race under its row lock. */
+export class ThreadMembershipUnavailableError extends Error {
+  constructor(readonly threadId: ThreadId) {
+    super("Thread is unavailable for membership mutation");
+    this.name = "ThreadMembershipUnavailableError";
+  }
+}
+
 export interface TurnDocumentTouch {
   id: string;
   turnId: TurnId;

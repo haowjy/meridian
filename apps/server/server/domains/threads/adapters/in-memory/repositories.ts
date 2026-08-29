@@ -36,7 +36,10 @@ import type {
   UpdateSpawnLifecycleInput,
   UpdateTurnStatusInput,
 } from "../../ports/repositories.js";
-import { ThreadWorkProjectMismatchError } from "../../ports/repositories.js";
+import {
+  ThreadMembershipUnavailableError,
+  ThreadWorkProjectMismatchError,
+} from "../../ports/repositories.js";
 import { createInMemoryProjectChatAdapter } from "./project-chat-adapter.js";
 
 // USD rollups are display-side only; integer millicredits in the billing
@@ -417,7 +420,7 @@ export function createInMemoryRepositories(
   const threadWorksRepo: ThreadWorksRepository = {
     async addMembership(threadId, workId, isPrimary) {
       const thread = threads.get(threadId);
-      if (!thread) throw new Error("Thread membership requires an existing thread");
+      if (!thread || thread.deletedAt) throw new ThreadMembershipUnavailableError(threadId);
       if (options.works && workId) {
         const work = await options.works.findById(workId);
         if (!work || work.deletedAt || work.id !== workId) {
@@ -453,7 +456,7 @@ export function createInMemoryRepositories(
     },
     async rebindPrimary(threadId, workId) {
       const thread = threads.get(threadId);
-      if (!thread) throw new Error("Thread membership requires an existing thread");
+      if (!thread || thread.deletedAt) throw new ThreadMembershipUnavailableError(threadId);
       if (options.works && workId) {
         const work = await options.works.findById(workId);
         if (!work || work.deletedAt) {

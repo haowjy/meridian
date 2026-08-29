@@ -5,6 +5,7 @@ import {
   isProjectContextTreeScheme,
   isWorkScopedProjectContextScheme,
 } from "@meridian/contracts/protocol";
+import type { WorkId } from "@meridian/contracts/runtime";
 import { createError } from "nitro/h3";
 import { projectBrowseContextUri } from "../domains/context/browse-layer-scheme.js";
 import {
@@ -45,7 +46,13 @@ type WorkLocator = {
   path: string;
 };
 
-export type ContextMoveLocator = ProjectLocator | WorkLocator;
+type NoWorkLocator = {
+  scope: "none";
+  scheme: WorkScopedContextFsScheme;
+  path: string;
+};
+
+export type ContextMoveLocator = ProjectLocator | NoWorkLocator | WorkLocator;
 
 export interface ParsedContextMove {
   source: ContextMoveLocator;
@@ -54,7 +61,7 @@ export interface ParsedContextMove {
 }
 
 function parseWorkId(raw: unknown, field: "sourceWorkId" | "destinationWorkId") {
-  if (raw === undefined) return undefined;
+  if (raw === undefined || raw === null) return null;
   if (typeof raw !== "string" || raw.trim() === "") {
     throw createError({ statusCode: 400, message: `\`${field}\` must be a non-empty string` });
   }
@@ -64,7 +71,7 @@ function parseWorkId(raw: unknown, field: "sourceWorkId" | "destinationWorkId") 
 function parseLocator(input: {
   scheme: unknown;
   path: string;
-  workId: string | undefined;
+  workId: string | null;
   workIdField: "sourceWorkId" | "destinationWorkId";
 }): ContextMoveLocator {
   if (!isProjectContextTreeScheme(input.scheme)) {
@@ -72,10 +79,7 @@ function parseLocator(input: {
   }
   if (isWorkScopedProjectContextScheme(input.scheme)) {
     if (!input.workId) {
-      throw createError({
-        statusCode: 400,
-        message: `\`${input.workIdField}\` is required for ${input.scheme}`,
-      });
+      return { scope: "none", scheme: input.scheme, path: input.path };
     }
     return {
       scope: "work",
@@ -84,7 +88,7 @@ function parseLocator(input: {
       path: input.path,
     };
   }
-  if (input.workId) {
+  if (input.workId !== null) {
     throw createError({
       statusCode: 400,
       message: `\`${input.workIdField}\` is not valid for ${input.scheme}`,
@@ -148,6 +152,9 @@ function locatorUri(
     // serializing the internal ID as URI authority.
     return projectBrowseContextUri(locator.scheme, path);
   }
+  if (locator.scope === "none") {
+    return projectBrowseContextUri(locator.scheme, path, { kind: "none" });
+  }
   return projectBrowseContextUri(locator.scheme, path);
 }
 
@@ -174,15 +181,39 @@ export async function commitContextMove(input: {
     if (result.error.code === "conflict") {
       const collision = parseUnifiedContextUri(result.error.uri);
       if (!collision.ok) contextErrorToHttp(collision.error);
+      const authority = collision.value.authority;
+      const workId =
+        authority.kind === "work"
+          ? [...(input.qualifiedWorkSlugs ?? [])].find(
+              ([, slug]) => slug === authority.workSlug,
+            )?.[0]
+          : undefined;
+      if (authority.kind === "work" && !workId) {
+        throw createError({
+          statusCode: 409,
+          message: "Conflict authority is no longer available",
+        });
+      }
       return {
         status: "conflict",
-        collision: {
-          scheme: collision.value.scheme,
-          path: collision.value.path,
-          ...(collision.value.authority.kind === "work"
-            ? { workId: collision.value.authority.workSlug }
-            : {}),
-        },
+        collision:
+          authority.kind === "work"
+            ? {
+                scheme: collision.value.scheme as WorkScopedContextFsScheme,
+                path: collision.value.path,
+                authority: { kind: "work", workId: workId as WorkId },
+              }
+            : authority.kind === "none"
+              ? {
+                  scheme: collision.value.scheme as WorkScopedContextFsScheme,
+                  path: collision.value.path,
+                  authority: { kind: "none" },
+                }
+              : {
+                  scheme: collision.value.scheme as ProjectContextFsScheme,
+                  path: collision.value.path,
+                  authority: { kind: "project" },
+                },
       };
     }
     contextErrorToHttp(result.error);
@@ -217,9 +248,8 @@ export async function handleContextMoveRequest(
     projectWorks: works,
   });
   if (!port) throw createError({ statusCode: 404, message: "Work not found" });
-  const qualifiedWorkSlugs =
-    workIds.size > 1
-      ? new Map(works.filter((work) => workIds.has(work.id)).map((work) => [work.id, work.slug]))
-      : undefined;
+  const qualifiedWorkSlugs = new Map(
+    works.filter((work) => workIds.has(work.id)).map((work) => [work.id, work.slug]),
+  );
   return commitContextMove({ port, userId: input.userId, move, qualifiedWorkSlugs });
 }

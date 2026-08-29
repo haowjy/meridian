@@ -77,6 +77,17 @@ describe("parseContextUri", () => {
     });
   });
 
+  it("rejects a marked UUID-shaped Work authority", () => {
+    const workId = "123e4567-e89b-12d3-a456-426614174000";
+    expect(parseContextUri(`scratch://@${workId}/notes.md`)).toMatchObject({ ok: false });
+    expect(() =>
+      canonicalContextUri("scratch", "notes.md", { kind: "work", workSlug: workId }),
+    ).toThrow(/Invalid Work slug/);
+    expect(parseContextUri("scratch://@00000000-0000-0000-0000-000000000001/x")).toMatchObject({
+      ok: false,
+    });
+  });
+
   it("distinguishes contextual, explicit Work, and explicit no-Work authority", () => {
     expect(parseContextUri("uploads://draft.png")).toMatchObject({
       ok: true,
@@ -125,5 +136,16 @@ describe("parseContextUri", () => {
     expect(() =>
       canonicalContextUri("scratch", "file.md", { kind: "work", workSlug: "bad_slug" }),
     ).toThrow(/Invalid Work slug/);
+    expect(() => canonicalContextUri("scratch", "../secret.md", { kind: "none" })).toThrow();
+  });
+
+  it.each([
+    ["/notes.md", "scratch://@/notes.md"],
+    ["notes//draft.md", "scratch://@/notes/draft.md"],
+    ["./notes/./draft.md", "scratch://@/notes/draft.md"],
+  ])("normalizes serializer input %s and round trips", (path, expected) => {
+    const uri = canonicalContextUri("scratch", path, { kind: "none" });
+    expect(uri).toBe(expected);
+    expect(parseContextUri(uri)).toMatchObject({ ok: true, value: { canonical: uri } });
   });
 });

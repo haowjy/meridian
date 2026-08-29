@@ -8,7 +8,9 @@
 - `contracts`, `apps/server`, `apps/app`: make absent Work scope executable for thread
   creation, inheritance, direct live model edits, response settlement, canonical URI
   authority, rebinds, and project-owned Scratch/Uploads; Work-only writes return typed
-  `work_required`, and implicit Work/thread bootstrap and fallback preference state are gone.
+  `work_required`; canonical no-Work/slug-qualified moves and promoted-result identities
+  never expose Work IDs; thread deletion and rebind serialize under one lifecycle lock; and
+  implicit Work/thread bootstrap and fallback preference state are gone.
 
 - `apps/app`: separate ordinary Editor screen continuity from atomic Work
   supersession, keep guarded deleted routes out of obligation settlement and
@@ -61,8 +63,6 @@
 
 - `apps/app`: normalized thread user state serializes optimistic Favorite
   commands and prevents stale feed responses from overwriting newer truth.
-
-- `database`, `contracts`, `apps/server`, `apps/app`: cut over the former project-wide current Work to a narrowly named new-chat fallback with CAS repair; delete its GET/PUT selection API and all creation/rebind/receipt side effects; preserve fallback-only omitted root creation; canonicalize human/model Work metadata (including blank-field clearing); converge Work catalogs and associated chats from writer, model, reconciliation, and reversal paths; and prove fallback precedence and contention against PostgreSQL.
 
 - `apps/app`: give persistent Chat and Editor separate sibling draft-review
   controllers on desktop and phone, with a route-owned latest-wins handoff that
