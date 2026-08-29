@@ -21,8 +21,8 @@ router resolves to exact project-scoped Work authority before dispatch.
   modules: `context-source-provisioning.ts` (race-safe `context_sources`
   provisioning + lazy promise-cached resolution) and the factory composition root.
 - **ContextPort router** (`context/router.ts`) — dispatches scheme-relative paths
-  to the correct scheme adapter; converts faults into `ContextError` results with
-  the canonical URI attached. Router and tree-move boundaries share the canonical
+  to the correct scheme adapter; attaches its resolved canonical URI to successful
+  reads/writes and to `ContextError` results. Router and tree-move boundaries share the canonical
   mapper in `context/adapter-fault.ts`, including actionable invalid-operation messages.
 - **Scheme/storage ports** — `ContextPort`, `ContextSchemeAdapter`,
   `ContextDocumentStore`, and `ContextTreeMutationStore` (for `move`/`delete`
@@ -101,7 +101,9 @@ router resolves to exact project-scoped Work authority before dispatch.
   relative traversal cannot escape its scheme root. `work://` maps to the
   selected Work's `scratch` source and serializes with its Work ID authority.
   Zero or multiple matches both resolve to `null`; resolution never guesses.
-- Router methods attach the canonical URI to every `ContextError`.
+- Router methods attach the resolved canonical URI to every `ContextError` and
+  successful read/write result. Transport and collab callers publish that value;
+  they never echo syntax-only request URIs as document identity.
 - `uploads://` is intake, not an authoring workspace. F0 owns its authority,
   provisioning, and resolution; F4 owns the actual `UploadIntake` lifecycle. Tracked creation, untitled
   allocation, directory creation, and cross-scheme move-in are rejected with an

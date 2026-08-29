@@ -262,6 +262,28 @@ describe("handleContextMoveRequest", () => {
     });
   });
 
+  it("shapes an explicit no-Work collision without contextual fallback", async () => {
+    const deps = depsFor();
+    deps.port.commitWriterLocation.mockResolvedValue({
+      ok: false,
+      error: { code: "conflict", uri: "scratch://@/Dest/Source.md" },
+    });
+    await expect(
+      request(
+        deps,
+        body({ destinationScheme: "scratch", destinationFolderPath: "Dest" }),
+        "scratch",
+      ),
+    ).resolves.toEqual({
+      status: "conflict",
+      collision: {
+        scheme: "scratch",
+        path: "Dest/Source.md",
+        authority: { kind: "none" },
+      },
+    });
+  });
+
   it("maps a qualified collision back to its internal Work identity", async () => {
     const deps = depsFor({ works: { [WORK_ID]: { projectId: "project-1" } } });
     deps.port.commitWriterLocation.mockResolvedValue({

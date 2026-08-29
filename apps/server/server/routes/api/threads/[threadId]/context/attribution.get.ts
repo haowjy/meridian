@@ -50,7 +50,7 @@ export default defineEventHandler(async (event) => {
   const attribution = await services.documentSync.getLastUpdateAttribution(document.documentId);
   return {
     documentId: document.documentId,
-    uri,
+    uri: document.uri,
     ...attribution,
   };
 });

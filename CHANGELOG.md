@@ -7,7 +7,9 @@
 
 - `contracts`, `apps/server`: separate grammar-only Work slugs from opaque,
   project-resolved URI authority; preserve exact move and historical restore
-  identity; and reconcile promoted result rows before compensating stored bytes.
+  identity; return resolved canonical identity from successful context and
+  reversal operations; and reconcile promoted result rows before compensating
+  stored bytes.
 
 - `contracts`, `apps/server`, `apps/app`: make absent Work scope executable for thread
   creation, inheritance, direct live model edits, response settlement, canonical URI

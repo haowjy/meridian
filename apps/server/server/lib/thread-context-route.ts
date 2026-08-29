@@ -40,7 +40,7 @@ export async function readThreadContextDocument(
   if (!result.ok) contextErrorToHttp(result.error);
   return {
     documentId: result.value.documentId,
-    uri: input.uri,
+    uri: result.value.uri,
     markdown: result.value.content,
   };
 }
@@ -57,7 +57,7 @@ export async function writeThreadContextDocument(
   if (!result.ok) contextErrorToHttp(result.error);
   return {
     documentId: result.value.documentId,
-    uri: input.uri,
+    uri: result.value.uri,
     markdown: result.value.markdown ?? input.markdown,
     updateSeq: result.value.updateSeq ?? 0,
   };

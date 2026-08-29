@@ -263,7 +263,7 @@ export function createContextPortRouter(deps: ContextPortRouterDeps): ContextPor
       const result = await callAdapter(canonical, () => adapter.read(path));
       if (!result.ok) return result;
       if (result.value === null) return Err({ code: "not_found", uri: canonical });
-      return Ok(result.value);
+      return Ok({ ...result.value, uri: canonical });
     },
 
     async write(
@@ -277,7 +277,8 @@ export function createContextPortRouter(deps: ContextPortRouterDeps): ContextPor
       if (!adapter.capabilities.writable) {
         return Err({ code: "permission_denied", uri: canonical });
       }
-      return callAdapter(canonical, () => adapter.write(path, content, options));
+      const result = await callAdapter(canonical, () => adapter.write(path, content, options));
+      return result.ok ? Ok({ ...result.value, uri: canonical }) : result;
     },
 
     async ensureTrackedDocument(
@@ -401,7 +402,8 @@ export function createContextPortRouter(deps: ContextPortRouterDeps): ContextPor
       if (!adapter.capabilities.writable) {
         return Err({ code: "permission_denied", uri: canonical });
       }
-      return callAdapter(canonical, () => adapter.edit(path, command, options));
+      const result = await callAdapter(canonical, () => adapter.edit(path, command, options));
+      return result.ok ? Ok({ ...result.value, uri: canonical }) : result;
     },
 
     async writeBinary(
@@ -421,7 +423,8 @@ export function createContextPortRouter(deps: ContextPortRouterDeps): ContextPor
           message: UPLOAD_FOLDER_CREATION_DENIED_MESSAGE,
         });
       }
-      return callAdapter(canonical, () => adapter.writeBinary(path, options));
+      const result = await callAdapter(canonical, () => adapter.writeBinary(path, options));
+      return result.ok ? Ok({ ...result.value, uri: canonical }) : result;
     },
 
     async move(

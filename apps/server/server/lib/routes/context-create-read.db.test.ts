@@ -220,6 +220,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         value: {
           content: winner === results[0] ? "alpha\n" : "beta\n",
           documentId: winner?.documentId,
+          uri: "manuscript://race.md",
         },
       });
     });

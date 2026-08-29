@@ -208,11 +208,11 @@ describe("context router Work slug resolution", () => {
     const context = port();
     await expect(context.read("scratch://@revision-pass/notes.md")).resolves.toEqual({
       ok: true,
-      value: { content: SIBLING_ID },
+      value: { content: SIBLING_ID, uri: "scratch://@revision-pass/notes.md" },
     });
     await expect(context.write("scratch://@revision-pass/notes.md", "revised")).resolves.toEqual({
       ok: true,
-      value: { documentId: SIBLING_ID },
+      value: { documentId: SIBLING_ID, uri: "scratch://@revision-pass/notes.md" },
     });
   });
 
@@ -424,7 +424,7 @@ describe("context router scheme creation capabilities", () => {
 
     await expect(port.writeBinary(`uploads://@current/cover.png`, options)).resolves.toEqual({
       ok: true,
-      value: { documentId: "binary-new" },
+      value: { documentId: "binary-new", uri: "uploads://@current/cover.png" },
     });
     expect(uploads.writeBinary).toHaveBeenCalledOnce();
   });
@@ -462,7 +462,7 @@ describe("context router scheme creation capabilities", () => {
 
     await expect(port.writeBinary(`scratch://@current/nest/deep.png`, options)).resolves.toEqual({
       ok: true,
-      value: { documentId: "binary-new" },
+      value: { documentId: "binary-new", uri: "scratch://@current/nest/deep.png" },
     });
     expect(scratch.writeBinary).toHaveBeenCalledWith("nest/deep.png", options);
   });

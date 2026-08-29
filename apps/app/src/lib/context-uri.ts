@@ -9,7 +9,7 @@ import {
 import type { ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { isWorkScopedProjectContextScheme } from "@meridian/contracts/protocol";
 
-export type ContextUri = Omit<ParsedContextUri, "path" | "canonical"> & {
+export type ContextUri = Omit<ParsedContextUri, "path"> & {
   path: string;
 };
 
