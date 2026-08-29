@@ -40,6 +40,7 @@ if (!enabled || !databaseUrl) {
         "0074_cute_domino",
         "0075_bumpy_golden_guardian",
         "0076_fuzzy_timeslip",
+        "0077_supreme_darkstar",
       ]);
       for (let index = 1; index < tail.length; index += 1) {
         expect(tail[index]?.when).toBeGreaterThan(tail[index - 1]?.when ?? 0);
