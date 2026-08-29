@@ -8,6 +8,7 @@ import type {
 import type { DocumentId, ProjectId } from "@meridian/contracts/runtime";
 
 import {
+  type AuthorityCommitBoundary,
   compareAvailabilityGeneration,
   DocumentSessionAuthorityStore,
   type PendingDrain,
@@ -192,6 +193,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     private readonly local: LocalSessionAuthority,
     private readonly intervalMs: number,
     createWakeChannel: ((accountId: AccountId, wake: () => void) => WakeChannel | null) | null,
+    acknowledgeAuthorityCommit: AuthorityCommitBoundary,
   ) {
     this.store = new DocumentSessionAuthorityStore(
       accountId,
@@ -203,6 +205,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       () => {
         void this.reconcilePending("operation").catch(() => undefined);
       },
+      acknowledgeAuthorityCommit,
     );
     this.readiness = this.store.ensureAvailable().catch((error) => {
       throw new DocumentSessionCoordinationError(
@@ -802,6 +805,7 @@ export function createDocumentSessionCrossContextCoordination(input: {
   secureContext?: boolean;
   createWakeChannel?: ((accountId: AccountId, wake: () => void) => WakeChannel | null) | null;
   reconcileIntervalMs?: number;
+  acknowledgeAuthorityCommit?: AuthorityCommitBoundary;
 }): DocumentSessionCrossContextCoordination {
   const secure = input.secureContext ?? globalThis.isSecureContext === true;
   const locks = input.locks === undefined ? nativeLocks() : input.locks;
@@ -819,5 +823,6 @@ export function createDocumentSessionCrossContextCoordination(input: {
     input.local,
     input.reconcileIntervalMs ?? PENDING_DRAIN_RECONCILE_MS,
     input.createWakeChannel === undefined ? nativeWakeChannel : input.createWakeChannel,
+    input.acknowledgeAuthorityCommit ?? (() => undefined),
   );
 }

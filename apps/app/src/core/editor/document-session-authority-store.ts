@@ -62,6 +62,11 @@ export type PendingDocumentPurge = {
   revokedThrough: AvailabilityGeneration;
 };
 
+/** Awaitable acknowledgement boundary after an authority transaction has durably committed. */
+export type AuthorityCommitBoundary = (
+  operation: "admit" | "start-drain" | "finish-drain" | "compare-clear-purge",
+) => void | Promise<void>;
+
 export type AdmissionDecision =
   | { kind: "admitted"; persistenceGeneration: AvailabilityGeneration }
   | { kind: "generation-revoked" }
@@ -194,6 +199,7 @@ export class DocumentSessionAuthorityStore {
     private readonly idb: IDBFactory = indexedDB,
     private readonly onVersionChange: () => void = () => undefined,
     private readonly onPurgeWake: () => void = () => undefined,
+    private readonly acknowledgeCommit: AuthorityCommitBoundary = () => undefined,
   ) {
     this.databasePromise = new Promise((resolve, reject) => {
       let settled = false;
@@ -390,6 +396,7 @@ export class DocumentSessionAuthorityStore {
       admittedThrough: maximumGeneration(currentHead?.admittedThrough ?? null, input.generation),
     } satisfies AccessHeadRecord);
     await transactionDone(transaction);
+    await this.acknowledgeCommit("admit");
     return { kind: "admitted", persistenceGeneration };
   }
 
@@ -520,6 +527,7 @@ export class DocumentSessionAuthorityStore {
     }
     rooms.put(room);
     await transactionDone(transaction);
+    await this.acknowledgeCommit("start-drain");
     return { kind: "started", pending };
   }
 
@@ -609,6 +617,7 @@ export class DocumentSessionAuthorityStore {
       } satisfies PendingDocumentPurge);
     }
     await transactionDone(transaction);
+    await this.acknowledgeCommit("finish-drain");
     return true;
   }
 
@@ -648,6 +657,7 @@ export class DocumentSessionAuthorityStore {
     }
     store.delete(purge.key);
     await transactionDone(transaction);
+    await this.acknowledgeCommit("compare-clear-purge");
     return true;
   }
 
