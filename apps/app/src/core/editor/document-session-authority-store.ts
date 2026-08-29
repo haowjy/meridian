@@ -14,6 +14,7 @@ const AUTHORITY_STORE_VERSION = 1;
 const FENCES = "fences";
 const PURGES = "purges";
 const LIVE_PERSISTENCE_PREFIX = `meridian:document:${collabSchemaKeyTag()}:live/`;
+const LIVE_PERSISTENCE_PATTERN = /^meridian:document:v\d+\.\d+:live\//;
 
 type FenceRecord = RevocationFence & { key: DocumentFenceKey | AccessFenceKey };
 export type PendingDocumentPurge = {
@@ -74,8 +75,9 @@ export function parseDocumentSessionPersistenceKey(name: string): {
   documentId: DocumentId;
   generation: AvailabilityGeneration;
 } | null {
-  if (!name.startsWith(LIVE_PERSISTENCE_PREFIX)) return null;
-  const parts = name.slice(LIVE_PERSISTENCE_PREFIX.length).split("/");
+  const prefix = name.match(LIVE_PERSISTENCE_PATTERN)?.[0];
+  if (!prefix) return null;
+  const parts = name.slice(prefix.length).split("/");
   if (parts.length !== 3 || !/^\d+$/.test(parts[2] ?? "")) return null;
   const accountId = decodeKeyPart(parts[0] ?? "");
   const documentId = decodeKeyPart(parts[1] ?? "");

@@ -108,6 +108,11 @@ describe("DocumentSessionAuthorityStore", () => {
       documentId: "document/b",
       generation: "42",
     });
+    expect(
+      parseDocumentSessionPersistenceKey(
+        key.replace(/meridian:document:v\d+\.\d+:/, "meridian:document:v1.0:"),
+      ),
+    ).toEqual({ accountId: "account/a", documentId: "document/b", generation: "42" });
     expect(parseDocumentSessionPersistenceKey("branch:branch-1:gen:42")).toBeNull();
   });
 
