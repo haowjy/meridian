@@ -51,8 +51,21 @@ describe("contextRouteTargetFromUri", () => {
     ).toBeNull();
   });
 
-  it("degrades a bare scratch URI when there is no displayed work", () => {
-    expect(contextRouteTargetFromUri("scratch://probe-cycle-3.mdx", null)).toBeNull();
+  it("routes contextual scratch to the unassigned source when no Work is displayed", () => {
+    expect(contextRouteTargetFromUri("scratch://probe-cycle-3.mdx", null)).toEqual({
+      scheme: "scratch",
+      path: "/probe-cycle-3.mdx",
+      workId: null,
+    });
+  });
+
+  it("resolves an explicit same-project authority from the supplied Work catalog", () => {
+    expect(
+      contextRouteTargetFromUri("uploads://@other-work/reference.pdf", ACTIVE_WORK, [
+        ACTIVE_WORK,
+        { id: "work-2", slug: "other-work" },
+      ]),
+    ).toEqual({ scheme: "uploads", path: "/reference.pdf", workId: "work-2" });
   });
 });
 
@@ -60,7 +73,7 @@ describe("canOpenContextUri", () => {
   it("uses the same work-aware resolution policy as navigation", () => {
     expect(canOpenContextUri("manuscript://arc/chapter-1.mdx", null)).toBe(true);
     expect(canOpenContextUri("scratch://notes/beat.md", ACTIVE_WORK)).toBe(true);
-    expect(canOpenContextUri("scratch://notes/beat.md", null)).toBe(false);
+    expect(canOpenContextUri("scratch://notes/beat.md", null)).toBe(true);
     expect(canOpenContextUri("scratch://@other-work/notes/beat.md", ACTIVE_WORK)).toBe(false);
   });
 });

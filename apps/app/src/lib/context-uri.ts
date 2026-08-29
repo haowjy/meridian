@@ -38,6 +38,7 @@ export function contextUriFromWritePath(path: string): string {
 export function contextRouteTargetFromUri(
   uri: string,
   activeWork: ActiveWorkHandle | null,
+  availableWorks: readonly ActiveWorkHandle[] = activeWork ? [activeWork] : [],
 ): ParsedContextUriTarget | null {
   const parsed = parseContextUri(uri);
   if (!parsed) return null;
@@ -46,22 +47,23 @@ export function contextRouteTargetFromUri(
     return { scheme: parsed.scheme, path: parsed.path, workId: null };
   }
 
-  // URI navigation never changes the displayed Work. A qualifier is routable
-  // here only when it names that already-active Work.
   if (parsed.authority.kind === "none") {
     return { scheme: parsed.scheme, path: parsed.path, workId: null };
   }
-  if (
-    !activeWork ||
-    (parsed.authority.kind === "work" && parsed.authority.workSlug !== activeWork.slug)
-  ) {
-    return null;
+  if (parsed.authority.kind === "contextual") {
+    return { scheme: parsed.scheme, path: parsed.path, workId: activeWork?.id ?? null };
   }
-  return { scheme: parsed.scheme, path: parsed.path, workId: activeWork.id };
+  const requestedSlug = parsed.authority.workSlug;
+  const qualified = availableWorks.find(({ slug }) => slug === requestedSlug);
+  return qualified ? { scheme: parsed.scheme, path: parsed.path, workId: qualified.id } : null;
 }
 
-export function canOpenContextUri(uri: string, activeWork: ActiveWorkHandle | null): boolean {
-  return contextRouteTargetFromUri(uri, activeWork) !== null;
+export function canOpenContextUri(
+  uri: string,
+  activeWork: ActiveWorkHandle | null,
+  availableWorks?: readonly ActiveWorkHandle[],
+): boolean {
+  return contextRouteTargetFromUri(uri, activeWork, availableWorks) !== null;
 }
 
 function formatContextPath(value: string): string {

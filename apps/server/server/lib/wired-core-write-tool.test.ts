@@ -265,10 +265,9 @@ describe("wired write tool", () => {
     await expect(write({ command: "diff" }, ctx)).resolves.toMatchObject({
       isError: true,
       output: {
-        schema: "meridian.agent-edit.v1",
-        command: "diff",
-        status: "invalid_write",
-        message: "Turn diff queries are not available in this host.",
+        code: "work_required",
+        message: "Work required for write.diff",
+        details: { operation: "write.diff" },
       },
     });
   });

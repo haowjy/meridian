@@ -29,8 +29,8 @@ flowchart TD
 
 Acyclic at the domain level: threads reference project/work ownership, never
 the reverse (the only projects↔threads imports are test fixtures).
-Root thread creation may omit a Work choice from the client: the server resolves
-the narrow new-chat fallback transactionally. An existing thread may later be
+Root thread creation may omit a Work choice or send explicit null: both create
+an executable no-Work thread with no primary membership. An existing thread may later be
 explicitly rebound through the composer or model tool; both adapters share the
 canonical thread-domain operation. Work management and navigation never invoke
 that operation implicitly.

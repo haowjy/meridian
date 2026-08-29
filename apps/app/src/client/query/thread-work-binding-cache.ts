@@ -21,7 +21,7 @@ import { patchThreadInProjectCaches } from "./project-thread-cache";
 import { threadQueryKeys } from "./thread-query-keys";
 import { convergeWorkProjection } from "./work-projection-cache";
 
-export type ThreadWorkProjectionCursor = { seq: string; workId: string };
+export type ThreadWorkProjectionCursor = { seq: string; workId: string | null };
 
 export type ThreadWorkConvergence =
   | { source: "confirmed"; projectId: string; result: RebindThreadWorkResponse }
@@ -157,7 +157,7 @@ export function convergeThreadWorkBinding(
     client.setQueryData(projectQueryKeys.threads(projectId), transition.threads);
     client.setQueryData(projectQueryKeys.works(projectId), transition.catalog);
     const row = transition.threads.find(({ id }) => id === threadId);
-    if (row?.workId) patchSnapshot(client, threadId, row.workId);
+    patchSnapshot(client, threadId, row?.workId ?? null);
     const ids = new Set([transition.previousWorkId, row?.workId].filter(Boolean) as string[]);
     invalidateThreadProjectionDependencies(client, {
       threadId,

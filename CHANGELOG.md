@@ -6,8 +6,9 @@
 ## [Unreleased]
 
 - `contracts`, `apps/server`, `apps/app`: make absent Work scope executable for thread
-  creation, inheritance, runtime writes, URI authority, rebinds, and project-owned
-  Scratch/Uploads while removing implicit Work/thread bootstrap and fallback preference state.
+  creation, inheritance, direct live model edits, response settlement, canonical URI
+  authority, rebinds, and project-owned Scratch/Uploads; Work-only writes return typed
+  `work_required`, and implicit Work/thread bootstrap and fallback preference state are gone.
 
 - `apps/app`: separate ordinary Editor screen continuity from atomic Work
   supersession, keep guarded deleted routes out of obligation settlement and

@@ -146,7 +146,8 @@ export type MoveContextEntryLocator = {
   scheme: ProjectContextTreeScheme;
   path: string;
   /** Present only for scratch/uploads locations. */
-  workId?: string;
+  /** Omission and explicit null both create an executable no-Work root thread. */
+  workId?: WorkId | null;
 };
 export type MoveContextEntryConflict = {
   status: "conflict";
@@ -167,7 +168,7 @@ export function isProjectContextTreeScheme(value: unknown): value is ProjectCont
   );
 }
 
-/** Context tree schemes addressed as `scheme://<workId>/…` on the browse API. */
+/** Context tree schemes supporting contextual, `@slug`, and explicit `@/` authority. */
 export const WORK_SCOPED_PROJECT_CONTEXT_TREE_SCHEMES = new Set<ProjectContextTreeScheme>([
   ...WORK_SCOPED_CONTEXT_URI_SCHEMES,
 ]);

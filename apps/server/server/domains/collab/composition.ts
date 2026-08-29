@@ -417,7 +417,9 @@ export function createCollabDomain(deps: CollabDomainDeps): CollabDomain {
       getPersistenceQueueMetrics: hocuspocusPersistence.getPersistenceQueueMetrics,
     },
     authorityHeads: createDrizzleDocumentAuthorityHeads(deps.db),
-    agentEdit: { agentEdit: () => agentEdit },
+    agentEdit: {
+      agentEdit: (context) => (context?.draftOwner === null ? runtime.liveUtilityCore : agentEdit),
+    },
     reversal: turnReversal,
     documents: {
       ensureDocument: persistence.lifecycle.ensureDocument,

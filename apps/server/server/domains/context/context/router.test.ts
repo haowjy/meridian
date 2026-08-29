@@ -228,7 +228,7 @@ describe("context router Work slug resolution", () => {
       error: {
         code: "invalid_uri",
         uri: "scratch://notes/@evil.md",
-        reason: 'File and folder names cannot begin with "@" (@evil.md)',
+        reason: 'Path segments beginning with "@" are reserved',
       },
     });
   });

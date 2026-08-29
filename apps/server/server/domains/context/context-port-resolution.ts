@@ -73,9 +73,9 @@ export async function contextPortForProjectRecovery(input: {
   const works = await input.deps.works.listByProject(input.projectId);
   const workIds = new Set(works.map((work) => work.id));
   const workAuthorities = new Map(works.map((work) => [work.slug, work.id]));
-  const primaryWorkId = input.requestedWorkId ?? works[0]?.id ?? null;
+  const primaryWorkId = input.requestedWorkId ?? null;
   if (!primaryWorkId || !workIds.has(primaryWorkId)) {
-    return input.deps.contextPorts.forProject(input.projectId, input.userId);
+    return input.deps.contextPorts.forProject(input.projectId, input.userId, workAuthorities);
   }
   return input.deps.contextPorts.forWork(
     primaryWorkId,

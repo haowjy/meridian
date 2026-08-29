@@ -6,12 +6,13 @@ import type {
   Work,
   WorkBindingReceiptState,
 } from "@meridian/contracts/works";
-import type { WorkRepository } from "../../projects/index.js";
+import { WorkLifecycleUnavailableError, type WorkRepository } from "../../projects/index.js";
 import type {
   ThreadRepository,
   ThreadWorksRepository,
   WorkContextDeliveryRepository,
 } from "../ports/repositories.js";
+import { ThreadWorkProjectMismatchError } from "../ports/repositories.js";
 
 export type RebindThreadWorkErrorCode =
   | "thread_unavailable"
@@ -75,7 +76,18 @@ export async function rebindThreadWork(
     }
   }
 
-  const rebound = await deps.threadWorks.rebindPrimary(thread.id, targetWorkId);
+  let rebound: Awaited<ReturnType<ThreadWorksRepository["rebindPrimary"]>>;
+  try {
+    rebound = await deps.threadWorks.rebindPrimary(thread.id, targetWorkId);
+  } catch (cause) {
+    if (cause instanceof WorkLifecycleUnavailableError) {
+      throw new RebindThreadWorkError("target_work_unavailable", input.threadId, cause.workId);
+    }
+    if (cause instanceof ThreadWorkProjectMismatchError) {
+      throw new RebindThreadWorkError("project_mismatch", input.threadId, cause.workId);
+    }
+    throw cause;
+  }
   const previousWork = rebound.previousWorkId
     ? await deps.works.findById(rebound.previousWorkId)
     : null;

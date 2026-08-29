@@ -1,3 +1,4 @@
+import type { ContextAuthority } from "@meridian/contracts/context-uri";
 import type { ContextReadResponse, ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { createError } from "nitro/h3";
 import {
@@ -51,7 +52,7 @@ function normalizeSchemePath(scheme: ProjectContextTreeScheme, path: string): st
 export function resolveContextReadPath(
   scheme: ProjectContextTreeScheme,
   rawPath: unknown,
-  workId?: string | null,
+  authority: ContextAuthority = { kind: "contextual" },
 ): ResolvedReadPath {
   if (Array.isArray(rawPath))
     throw createError({ statusCode: 400, message: "`path` must be a single string" });
@@ -64,16 +65,20 @@ export function resolveContextReadPath(
     if (explicitScheme[1] !== scheme)
       throw createError({ statusCode: 400, message: "Context path scheme does not match route" });
     if (isWorkScopedBrowseScheme(scheme)) {
-      if (!workId) throw createError({ statusCode: 400, message: "`workId` is required" });
-      uri = workScopedBrowseUri(scheme, workId, explicitScheme[2]);
+      if (authority.kind === "contextual") {
+        throw createError({ statusCode: 500, message: "Missing resolved context authority" });
+      }
+      uri = workScopedBrowseUri(scheme, authority, explicitScheme[2]);
     } else {
       uri = normalizeSchemePath(scheme, explicitScheme[2]);
     }
   } else if (/^[a-z][a-z0-9+.-]*:/.test(trimmed)) {
     throw createError({ statusCode: 400, message: 'Malformed URI: expected "scheme://path"' });
   } else if (isWorkScopedBrowseScheme(scheme)) {
-    if (!workId) throw createError({ statusCode: 400, message: "`workId` is required" });
-    uri = workScopedBrowseUri(scheme, workId, trimmed);
+    if (authority.kind === "contextual") {
+      throw createError({ statusCode: 500, message: "Missing resolved context authority" });
+    }
+    uri = workScopedBrowseUri(scheme, authority, trimmed);
   } else {
     uri = normalizeSchemePath(scheme, trimmed);
   }
@@ -90,10 +95,18 @@ export async function handleContextReadRequest(
   input: ContextReadRouteInput,
 ): Promise<ContextReadResponse> {
   await requireProjectOwner({ projects: deps.projectRepo }, input.projectId, input.userId);
-  if (isWorkScopedBrowseScheme(input.scheme) && !input.workId) {
-    throw createError({ statusCode: 400, message: "`workId` is required" });
+  let authority: ContextAuthority = { kind: "contextual" };
+  if (isWorkScopedBrowseScheme(input.scheme)) {
+    if (!input.workId) authority = { kind: "none" };
+    else {
+      const work = await deps.workRepo.findById(input.workId);
+      if (!work || work.projectId !== input.projectId || work.deletedAt) {
+        throw createError({ statusCode: 404, message: "Work not found" });
+      }
+      authority = { kind: "work", workSlug: work.slug };
+    }
   }
-  const path = resolveContextReadPath(input.scheme, input.rawPath, input.workId);
+  const path = resolveContextReadPath(input.scheme, input.rawPath, authority);
   const port = await contextPortForProjectBrowse({
     deps: { contextPorts: deps.contextPorts, works: deps.workRepo },
     projectId: input.projectId,

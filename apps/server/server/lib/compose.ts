@@ -488,6 +488,8 @@ export function composeAppServices(ports: ProductionAppPorts): AppServices {
   });
   const responseWrites = createAgentEditResponseWriteLifecycle({
     documentSync: ports.documentSync,
+    threadWorks: ports.threadRepos.threadWorks,
+    works: ports.workRepo,
   });
   for (const registration of createWiredCoreToolRegistrations({
     threads: ports.threadRepos.threads,

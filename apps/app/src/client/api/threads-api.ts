@@ -31,6 +31,7 @@ import {
   type UpdateThreadUserStateRequest,
   type UpdateThreadUserStateResponse,
 } from "@meridian/contracts/protocol";
+import type { WorkId } from "@meridian/contracts/runtime";
 import type { RebindThreadWorkRequest, RebindThreadWorkResponse } from "@meridian/contracts/works";
 
 import { deleteRequest, getJson, patchJson, postJson, putJson } from "./http-client";
@@ -41,6 +42,7 @@ type CreateThreadInput = {
   title?: string;
   systemPrompt?: string | null;
   currentAgent?: string;
+  workId?: WorkId | null;
 };
 
 export type AppendUserMessageInput = {

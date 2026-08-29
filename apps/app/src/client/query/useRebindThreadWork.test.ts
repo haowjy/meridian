@@ -291,4 +291,33 @@ describe("thread Work binding convergence", () => {
     ).toBe("work-c");
     act(() => root.unmount());
   });
+
+  it("keeps an explicit none result nullable through mutation and caches", async () => {
+    const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    client.setQueryData(projectQueryKeys.threads("project-1"), [
+      { id: "thread-1", projectId: "project-1", workId: "work-a" },
+    ]);
+    client.setQueryData(projectQueryKeys.works("project-1"), { works: [responseWork] });
+    rebindThreadWork.mockResolvedValue({
+      ...response,
+      after: { kind: "none" },
+      receipt: { ...response.receipt, after: { kind: "none" } },
+    });
+    let mutateAsync: ReturnType<typeof useRebindThreadWork>["mutateAsync"] | undefined;
+    function Probe() {
+      mutateAsync = useRebindThreadWork("project-1", "thread-1").mutateAsync;
+      return null;
+    }
+    const root = createRoot(document.createElement("div"));
+    act(() => root.render(createElement(QueryClientProvider, { client }, createElement(Probe))));
+    let outcome: Awaited<ReturnType<NonNullable<typeof mutateAsync>>> | undefined;
+    await act(async () => {
+      outcome = await mutateAsync?.({ target: { kind: "none" }, previousWorkId: "work-a" });
+    });
+    expect(outcome).toMatchObject({ kind: "confirmed", result: { work: null } });
+    expect(
+      client.getQueryData<ThreadListItem[]>(projectQueryKeys.threads("project-1"))?.[0]?.workId,
+    ).toBeNull();
+    act(() => root.unmount());
+  });
 });

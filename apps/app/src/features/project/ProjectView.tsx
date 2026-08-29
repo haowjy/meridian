@@ -179,6 +179,7 @@ export function ProjectView(props: ProjectViewProps) {
     onSelectContextPath: onSelectEditorContextPath,
     activeThreadId: resolvedThreadId,
     chatWork,
+    availableWorks: works ?? [],
     editorScope,
     editorWorkId,
     retryEditorWork: worksQuery.refetch,
@@ -217,6 +218,7 @@ export type ResolvedProjectViewProps = ProjectViewProps & {
     options?: { replace?: boolean },
   ) => void;
   chatWork: Work | null;
+  availableWorks: readonly Work[];
   editorScope: EditorWorkScope;
   editorWorkId: string | null;
   retryEditorWork: () => void;
@@ -415,6 +417,7 @@ function DesktopProject(props: ReviewScopedProjectProps) {
               projectId={props.projectId}
               threadId={props.activeThreadId}
               activeWork={props.chatWork}
+              availableWorks={props.availableWorks}
               activeScreen={screen}
               // Centered chat owns the route (`?screen` follows it); the dock must
               // only change which conversation it shows, never the screen — so it

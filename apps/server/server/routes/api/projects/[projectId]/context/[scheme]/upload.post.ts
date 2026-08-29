@@ -19,7 +19,7 @@ function formText(
 }
 
 export default defineEventHandler(async (event) => {
-  const { app, userId, projectId, scheme, workId, port } = await resolveContextRoute(event);
+  const { app, userId, projectId, scheme, authority, port } = await resolveContextRoute(event);
   const parts = await readMultipartFormData(event);
   const file = parts?.find((part) => part.name === "file" && part.filename);
   if (!file?.filename)
@@ -30,7 +30,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 415, message: `Unsupported file type: ${mimeType}` });
   const rawPath = formText(parts, "path");
   const path = parseContextMutationPath(rawPath ?? file.filename, "path");
-  const uri = toUri(scheme, path, workId);
+  const uri = toUri(scheme, path, authority);
   const existing = await port.stat(uri);
   if (existing.ok) throw createError({ statusCode: 409, message: `Path already exists: ${path}` });
   if (!existing.ok && existing.error.code !== "not_found") contextErrorToHttp(existing.error);

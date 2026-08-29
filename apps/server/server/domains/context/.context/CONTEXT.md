@@ -4,7 +4,7 @@ Agent-readable/writable project workspace content addressed by context URIs.
 The context-URI cleanse (A0–A3) deleted the legacy dual-port and replaced it
 with a single unified `ContextPort` that resolves durable project schemes
 (`manuscript://`, `kb://`, `user://`) and work-item-scoped schemes
-(`scratch://<workId>/…`, `uploads://<workId>/…`).
+(`scratch://@slug/…`, `uploads://@slug/…`) plus explicit no-Work `@/` authority.
 
 ## What it owns
 
@@ -203,7 +203,7 @@ router resolves to a stable Work ID before dispatch.
 
 - **Legacy `ContextPortFactory`** (dual-port with `forThread`/`forProject`) — deleted.
 - **`fs1://`** scheme — sandbox-era vestige, removed.
-- **`scratch://.results`** — promotion cruft, removed. Results → `scratch://<workId>/results/…`.
+- **`scratch://.results`** — promotion cruft, removed. Results use canonical Scratch paths.
 - **`LegacyThreadContextPort`** / `manuscriptContextPort` / `REQUIRED_MANUSCRIPT_URI` — deleted.
 - **Corpus-import domain ceremony** — folded into `kb://imports/…` ingest.
 

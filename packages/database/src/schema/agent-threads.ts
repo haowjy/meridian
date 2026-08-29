@@ -130,7 +130,7 @@ export const threads = pgTable(
   ],
 );
 
-/** M:N thread↔work membership; primary Work is the default work-scoped authority. */
+/** M:N thread↔Work history; the optional primary row is contextual authority. */
 export const threadWorks = pgTable(
   "thread_works",
   {

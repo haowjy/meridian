@@ -5,11 +5,10 @@ import type { UserId, WorkId } from "@meridian/contracts/runtime";
 import type { RebindThreadWorkRequest, RebindThreadWorkResponse } from "@meridian/contracts/works";
 import { createError } from "nitro/h3";
 import type { NoticePort } from "../domains/notices/index.js";
-import {
-  type ProjectRepository,
-  type WorkContextDelivery,
-  WorkLifecycleUnavailableError,
-  type WorkRepository,
+import type {
+  ProjectRepository,
+  WorkContextDelivery,
+  WorkRepository,
 } from "../domains/projects/index.js";
 import type { ThreadRunOwnership } from "../domains/runtime/index.js";
 import {
@@ -17,7 +16,6 @@ import {
   rebindThreadWork,
   requireThreadOwner,
   type ThreadRepository,
-  ThreadWorkProjectMismatchError,
   type ThreadWorksRepository,
   type WorkContextDeliveryRepository,
 } from "../domains/threads/index.js";
@@ -110,26 +108,6 @@ export async function handleRebindThreadWorkRequest(
         }),
         409,
       );
-    }
-    if (cause instanceof WorkLifecycleUnavailableError) {
-      if (input.body.target.kind === "work" && cause.workId === input.body.target.workId) {
-        throwHttpInterrupt(
-          meridianError({
-            code: "work_unavailable",
-            message: "That Work is no longer available. Refresh Work and choose another.",
-            source: "system",
-            details: { refresh: "works" },
-          }),
-          409,
-        );
-      }
-      throwHttpInterrupt(
-        meridianErrorFromSystem("thread_work_missing", "Conversation has no current Work"),
-        409,
-      );
-    }
-    if (cause instanceof ThreadWorkProjectMismatchError) {
-      throwHttpInterrupt(meridianErrorFromSystem("not_found", "Thread or Work not found"), 404);
     }
     throw cause;
   } finally {

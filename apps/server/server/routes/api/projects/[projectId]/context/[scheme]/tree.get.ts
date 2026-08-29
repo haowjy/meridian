@@ -1,4 +1,6 @@
 /** GET /api/projects/[projectId]/context/[scheme]/tree — project context file tree. */
+
+import type { ContextAuthority } from "@meridian/contracts/context-uri";
 import {
   type ProjectContextTreeDirectory,
   type ProjectContextTreeFile,
@@ -24,12 +26,14 @@ const ROOT_NAMES: Record<ProjectContextTreeScheme, string> = {
   user: "User Files",
 };
 
-function rootUri(scheme: ProjectContextTreeScheme, workId: string | null): string {
+function rootUri(scheme: ProjectContextTreeScheme, authority: ContextAuthority): string {
   if (isWorkScopedBrowseScheme(scheme)) {
-    if (!workId) throw createError({ statusCode: 400, message: "`workId` is required" });
-    return workScopedBrowseUri(scheme, workId);
+    if (authority.kind === "contextual") {
+      throw createError({ statusCode: 500, message: "Missing resolved context authority" });
+    }
+    return workScopedBrowseUri(scheme, authority);
   }
-  return toUri(scheme, "", null);
+  return toUri(scheme, "");
 }
 
 function pathFromUri(uri: string, root: string): string {
@@ -104,22 +108,22 @@ async function buildDirectory(
 }
 
 export default defineEventHandler(async (event) => {
-  const { projectId, scheme, workId, port } = await resolveContextRoute(event);
-  return serializeTransport(await buildProjectContextTree({ projectId, scheme, workId, port }));
+  const { projectId, scheme, authority, port } = await resolveContextRoute(event);
+  return serializeTransport(await buildProjectContextTree({ projectId, scheme, authority, port }));
 });
 
 export async function buildProjectContextTree({
   projectId,
   scheme,
-  workId,
+  authority,
   port,
 }: {
   projectId: string;
   scheme: ProjectContextTreeScheme;
-  workId: string | null;
+  authority: ContextAuthority;
   port: ContextPort;
 }): Promise<ProjectContextTreeResponse> {
-  const root = rootUri(scheme, workId);
+  const root = rootUri(scheme, authority);
   const tree = await buildDirectory(port, root, root, ROOT_NAMES[scheme]);
   return { projectId, scheme, capabilities: schemeCapabilities(scheme), tree };
 }

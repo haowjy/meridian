@@ -144,12 +144,11 @@ function locatorUri(
   if (locator.scope === "work") {
     const slug = qualifiedWorkSlugs?.get(locator.workId);
     if (slug) return `${locator.scheme}://@${slug}/${path}`;
+    // A port already bound to this Work resolves contextual syntax without
+    // serializing the internal ID as URI authority.
+    return projectBrowseContextUri(locator.scheme, path);
   }
-  return projectBrowseContextUri(
-    locator.scheme,
-    path,
-    locator.scope === "work" ? locator.workId : undefined,
-  );
+  return projectBrowseContextUri(locator.scheme, path);
 }
 
 export async function commitContextMove(input: {

@@ -112,7 +112,12 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       });
 
       const treeResponse = () =>
-        buildProjectContextTree({ projectId, scheme: "scratch", workId, port });
+        buildProjectContextTree({
+          projectId,
+          scheme: "scratch",
+          authority: { kind: "work", workSlug: "current-work" },
+          port,
+        });
       await expect(treeResponse()).resolves.toMatchObject({
         projectId,
         scheme: "scratch",

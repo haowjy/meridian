@@ -1,6 +1,5 @@
 /**
- * Project preferences persistence port for project UI settings plus the internal
- * omitted-new-chat fallback pointer. Only compare-and-set repair can write that pointer.
+ * Project preferences persistence port for project UI settings.
  */
 import type {
   ProjectPreferences,

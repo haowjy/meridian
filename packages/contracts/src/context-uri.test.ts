@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { documentTitleFromUri, parseContextUri } from "./context-uri.js";
+import { canonicalContextUri, documentTitleFromUri, parseContextUri } from "./context-uri.js";
 
 describe("documentTitleFromUri", () => {
   it.each([
@@ -93,5 +93,37 @@ describe("parseContextUri", () => {
       ok: true,
       value: { authority: { kind: "none" }, canonical: "uploads://@/draft.png" },
     });
+  });
+
+  it.each([
+    ["scratch://", "scratch://"],
+    ["scratch://notes/a.md", "scratch://notes/a.md"],
+    ["scratch://@revision-pass/", "scratch://@revision-pass/"],
+    ["scratch://@revision-pass/notes/a.md", "scratch://@revision-pass/notes/a.md"],
+    ["scratch://@/", "scratch://@/"],
+    ["scratch://@/notes/a.md", "scratch://@/notes/a.md"],
+  ])("round trips every Work-capable authority form: %s", (uri, canonical) => {
+    const parsed = parseContextUri(uri);
+    expect(parsed).toMatchObject({ ok: true, value: { canonical } });
+  });
+
+  it.each([
+    "scratch://folder/@reserved/file.md",
+    "scratch://@revision-pass/folder/@reserved/file.md",
+    "manuscript://folder/@reserved/file.md",
+    "scratch://@bad_slug/file.md",
+    "scratch://@-bad/file.md",
+  ])("rejects reserved path segments and invalid authorities: %s", (uri) => {
+    expect(parseContextUri(uri)).toMatchObject({ ok: false });
+  });
+
+  it("refuses to serialize authorities or paths the parser rejects", () => {
+    expect(() =>
+      canonicalContextUri("manuscript", "chapter.md", { kind: "none" } as never),
+    ).toThrow(/does not support authority/);
+    expect(() => canonicalContextUri("scratch", "folder/@reserved/file.md")).toThrow(/reserved/);
+    expect(() =>
+      canonicalContextUri("scratch", "file.md", { kind: "work", workSlug: "bad_slug" }),
+    ).toThrow(/Invalid Work slug/);
   });
 });
