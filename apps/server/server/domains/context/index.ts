@@ -8,6 +8,7 @@ export {
   DrizzleContextDocumentStore,
   updateDocumentProjectionById,
 } from "./adapters/context-fs/drizzle-store.js";
+export { DrizzleContextTreeMutationStore } from "./adapters/context-fs/drizzle-tree-mutation-store.js";
 export { InMemoryContextDocumentStore } from "./adapters/context-fs/in-memory-store.js";
 export { createDrizzleDocumentLinkResolver } from "./adapters/drizzle-document-link-resolver.js";
 export { InMemoryContextCatalog } from "./adapters/in-memory-context-catalog.js";

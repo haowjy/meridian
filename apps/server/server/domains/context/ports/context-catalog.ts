@@ -22,7 +22,7 @@ export interface ContextCatalogMutationPort {
   refreshSources(
     sourceIds: readonly string[],
     invalidatedRootIds?: readonly string[],
-  ): Promise<void>;
+  ): Promise<string>;
   /** Reconcile project authority entries after a Work/project lifecycle mutation. */
   refreshProject(projectId: string): Promise<void>;
 }

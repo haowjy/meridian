@@ -11,7 +11,8 @@ import { useRollbackTestDatabase } from "../../../../test-support/rollback-test-
 import { createCollabDomain } from "../../../collab/index.js";
 import { createDrizzleProjectWorkAuthorityResolver } from "../../../projects/index.js";
 import { ContextFS } from "./context-fs.js";
-import { DrizzleContextDocumentStore, DrizzleContextTreeMutationStore } from "./drizzle-store.js";
+import { DrizzleContextDocumentStore } from "./drizzle-store.js";
+import { DrizzleContextTreeMutationStore } from "./drizzle-tree-mutation-store.js";
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS === "1" || process.env.RUN_DB_TESTS === "true";
 const DATABASE_URL = process.env.DATABASE_URL;

@@ -48,8 +48,11 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     const { createDrizzleDocumentAccess } = await import("../../lib/document-access.js");
     const { createDrizzleProjectWorkAuthorityResolver } = await import("../projects/index.js");
     const { ContextFS } = await import("../context/adapters/context-fs/context-fs.js");
-    const { DrizzleContextDocumentStore, DrizzleContextTreeMutationStore } = await import(
+    const { DrizzleContextDocumentStore } = await import(
       "../context/adapters/context-fs/drizzle-store.js"
+    );
+    const { DrizzleContextTreeMutationStore } = await import(
+      "../context/adapters/context-fs/drizzle-tree-mutation-store.js"
     );
     const { checkDependentLaterLiveRows } = await import("./adapters/drizzle-live-dependencies.js");
     const { createDrizzleJournal } = await import("./adapters/drizzle-journal.js");
@@ -1350,8 +1353,11 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       expect(liveMembership.members).not.toContain(CREATED_DOC_ID);
 
       const { ContextFS } = await import("../context/adapters/context-fs/context-fs.js");
-      const { DrizzleContextDocumentStore, DrizzleContextTreeMutationStore } = await import(
+      const { DrizzleContextDocumentStore } = await import(
         "../context/adapters/context-fs/drizzle-store.js"
+      );
+      const { DrizzleContextTreeMutationStore } = await import(
+        "../context/adapters/context-fs/drizzle-tree-mutation-store.js"
       );
       const tree = new ContextFS({
         store: new DrizzleContextDocumentStore({ db, contextSourceId: SOURCE_ID }),

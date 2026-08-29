@@ -19,10 +19,8 @@ import { createDrizzleWorkRepository } from "../../projects/adapters/work-reposi
 import { createProjectContextDocumentStore } from "../context-source-provisioning.js";
 import { createDrizzleContextCatalog } from "./context-catalog.js";
 import { ContextFS } from "./context-fs/context-fs.js";
-import {
-  DrizzleContextDocumentStore,
-  DrizzleContextTreeMutationStore,
-} from "./context-fs/drizzle-store.js";
+import { DrizzleContextDocumentStore } from "./context-fs/drizzle-store.js";
+import { DrizzleContextTreeMutationStore } from "./context-fs/drizzle-tree-mutation-store.js";
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS === "1" || process.env.RUN_DB_TESTS === "true";
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -297,8 +295,9 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         refreshProject: (projectId: string) => catalog.refreshProject(projectId),
         async refreshSources(sourceIds: readonly string[]) {
           refreshCalls += 1;
-          await catalog.refreshSources(sourceIds);
+          const generation = await catalog.refreshSources(sourceIds);
           if (failMutationRefresh && refreshCalls === 2) throw new Error("catalog failure");
+          return generation;
         },
       };
       const store = createProjectContextDocumentStore(

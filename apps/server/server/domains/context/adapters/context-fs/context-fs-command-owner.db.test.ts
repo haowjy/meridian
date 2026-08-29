@@ -126,7 +126,7 @@ it("routes every current first-touch ContextFS mutation through the command owne
 
   async function expectOneTransaction(operation: () => Promise<unknown>): Promise<void> {
     const before = transactionEntries;
-    await operation();
+    await expect(operation()).resolves.toMatchObject({ ok: true });
     expect(transactionEntries - before).toBe(1);
   }
 

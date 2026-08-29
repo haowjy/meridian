@@ -39,6 +39,7 @@ import type {
 } from "../ports/context-catalog.js";
 import type { ProjectContextAvailabilityMutationPort } from "../ports/project-context-availability.js";
 import { catalogSourceAuthority, mapAuthoritativeFile } from "./catalog-file-mapper.js";
+import { createDrizzleProjectContextAvailability } from "./project-context-availability.js";
 
 const DEFAULT_DELTA_LIMIT = 100;
 const MAX_DELTA_LIMIT = 500;
@@ -336,6 +337,8 @@ export function createDrizzleContextCatalog(
     availabilityMutations?: ProjectContextAvailabilityMutationPort;
   } = {},
 ): ContextCatalog & ContextCatalogMutationPort {
+  const availabilityMutations =
+    options.availabilityMutations ?? createDrizzleProjectContextAvailability(db);
   const retainedCommitsPerScope = Math.max(
     1,
     Math.floor(options.retainedCommitsPerScope ?? DEFAULT_RETAINED_COMMITS_PER_SCOPE),
@@ -563,7 +566,7 @@ export function createDrizzleContextCatalog(
               .leftJoin(projects, eq(contextSources.projectId, projects.id))
               .leftJoin(works, eq(contextSources.workId, works.id))
               .where(inArray(contextSources.id, [...new Set(sourceIds)] as never));
-      await options.availabilityMutations?.advance({
+      const availabilityGeneration = await availabilityMutations.advance({
         projectIds: [
           ...new Set(
             ownershipRows.flatMap(
@@ -586,6 +589,7 @@ export function createDrizzleContextCatalog(
       )) {
         await refreshScope(scope, invalidatedRootIds, commitId);
       }
+      return availabilityGeneration;
     },
     async refreshProject(projectId) {
       const tx = currentDrizzleDb(db) as Database;
@@ -598,7 +602,7 @@ export function createDrizzleContextCatalog(
         .select({ id: works.id })
         .from(works)
         .where(eq(works.projectId, projectId));
-      await options.availabilityMutations?.advance({
+      await availabilityMutations.advance({
         projectIds: [projectId],
         userIds: project?.isPersonal ? [project.userId] : [],
       });

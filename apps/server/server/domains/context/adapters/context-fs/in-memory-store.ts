@@ -13,6 +13,7 @@ import {
  */
 
 import { Err, Ok, type Result } from "../../../../shared/result.js";
+import type { EventSink } from "../../../observability/index.js";
 import { parseFilename, splitPath } from "../../context/paths.js";
 import type {
   ContextDocument,
@@ -33,6 +34,11 @@ import {
   type ContextTreeMutationResult,
   type ContextTreeMutationStore,
 } from "../../ports/context-tree-mutation-store.js";
+import {
+  type ContextDocumentMembershipObserver,
+  createMembershipCommandId,
+  dispatchMembershipEvents,
+} from "./membership-event-dispatcher.js";
 
 type FolderRow = ContextFolder & {
   contextSourceId: string;
@@ -423,9 +429,11 @@ export class InMemoryContextTreeMutationStore implements ContextTreeMutationStor
 
   constructor(
     private readonly backing: InMemoryContextDocumentStoreBacking,
-    private readonly membershipObserver?: {
-      documentDeleted(documentId: string): void | Promise<void>;
-    },
+    private readonly membershipObserver?: Pick<
+      ContextDocumentMembershipObserver,
+      "documentDeleted"
+    >,
+    private readonly eventSink?: EventSink,
   ) {}
 
   /** Test hook: runs after CAS rechecks, immediately before destructive writes. */
@@ -865,11 +873,18 @@ export class InMemoryContextTreeMutationStore implements ContextTreeMutationStor
       });
     });
     if (result.ok && this.membershipObserver) {
-      await Promise.allSettled(
-        result.value.deletedDocumentIds.map((documentId) =>
-          Promise.resolve().then(() => this.membershipObserver?.documentDeleted(documentId)),
-        ),
-      );
+      await dispatchMembershipEvents({
+        observer: {
+          documentCreated: () => undefined,
+          documentDeleted: (documentId) => this.membershipObserver?.documentDeleted(documentId),
+        },
+        events: result.value.deletedDocumentIds.map((documentId) => ({
+          method: "documentDeleted" as const,
+          documentId,
+        })),
+        commandId: createMembershipCommandId(),
+        eventSink: this.eventSink,
+      });
     }
     return result;
   }

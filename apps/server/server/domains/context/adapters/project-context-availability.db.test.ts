@@ -4,15 +4,17 @@ import {
   contextAvailabilityHeads,
   contextSources,
   documents,
+  folders,
   projects,
   users,
   works,
 } from "@meridian/database/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { runInDrizzleTransaction } from "../../../shared/drizzle-transaction.js";
 import { truncateDrizzleTables } from "../../../test-support/drizzle-reset.js";
 import { useRollbackTestDatabase } from "../../../test-support/rollback-test-database.js";
+import { createInMemoryEventSink } from "../../observability/index.js";
 import { createDrizzleContextCatalog } from "./context-catalog.js";
 import { createDrizzleProjectContextAvailability } from "./project-context-availability.js";
 
@@ -147,6 +149,32 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       expect(BigInt(next)).toBeGreaterThan(BigInt(first));
     });
 
+    it("owns one root read-only repeatable-read snapshot for heads and identities", async () => {
+      const db = await seed();
+      let transactionOptions: unknown;
+      const snapshotDb = new Proxy(db, {
+        get(target, property, receiver) {
+          if (property !== "transaction") return Reflect.get(target, property, receiver);
+          return (operation: never, options: unknown) => {
+            transactionOptions = options;
+            return db.transaction(operation, options as never);
+          };
+        },
+      });
+      const availability = createDrizzleProjectContextAvailability(snapshotDb);
+
+      await expect(
+        availability.lookup(
+          { projectId: PROJECT as never, documentIds: [DOCS[0]] as never },
+          { userId: USER },
+        ),
+      ).resolves.toMatchObject({ resolutions: [{ kind: "available", documentId: DOCS[0] }] });
+      expect(transactionOptions).toEqual({
+        isolationLevel: "repeatable read",
+        accessMode: "read only",
+      });
+    });
+
     it("returns deleted and unavailable Work/project authority from tombstones", async () => {
       const db = await seed();
       const availability = createDrizzleProjectContextAvailability(db);
@@ -170,6 +198,86 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         kind: "authority-unavailable",
         reason: "project_deleted",
       });
+    });
+
+    it("classifies internal and inconsistent identities before any destructive outcome", async () => {
+      const db = await seed();
+      const evidence = createInMemoryEventSink();
+      const manifestId = "00000000-0000-4000-8000-000000000927";
+      await db.insert(documents).values({
+        id: manifestId,
+        contextSourceId: PROJECT_SOURCE,
+        kind: "manifest",
+        name: ".manifest",
+        extension: "json",
+      });
+      const availability = createDrizzleProjectContextAvailability(db, evidence);
+      const result = await availability.lookup(
+        { projectId: PROJECT as never, documentIds: [manifestId] as never },
+        { userId: USER },
+      );
+      expect(result.resolutions).toEqual([
+        expect.objectContaining({
+          kind: "indeterminate",
+          documentId: manifestId,
+          reason: "identity_inconsistent",
+        }),
+      ]);
+      expect(evidence.events).toEqual([
+        expect.objectContaining({
+          name: "ProjectContextIdentityInconsistent",
+          payload: { documentId: manifestId, projectId: PROJECT },
+        }),
+      ]);
+    });
+
+    it("rejects invalid schemes, Work authority, scope pairing, and cross-source ancestry", async () => {
+      const db = await seed();
+      const availability = createDrizzleProjectContextAvailability(db);
+      const assertIndeterminate = async (documentId: string) => {
+        const result = await availability.lookup(
+          { projectId: PROJECT as never, documentIds: [documentId] as never },
+          { userId: USER },
+        );
+        expect(result.resolutions[0]).toMatchObject({
+          kind: "indeterminate",
+          documentId,
+          reason: "identity_inconsistent",
+        });
+      };
+
+      await db
+        .update(contextSources)
+        .set({ slug: "invalid-scheme" })
+        .where(eq(contextSources.id, PROJECT_SOURCE));
+      await assertIndeterminate(DOCS[0]);
+      await db
+        .update(contextSources)
+        .set({ slug: "manuscript" })
+        .where(eq(contextSources.id, PROJECT_SOURCE));
+
+      await db
+        .update(contextSources)
+        .set({ slug: "manuscript" })
+        .where(eq(contextSources.id, WORK_SOURCE));
+      await assertIndeterminate(DOCS[2]);
+      await db
+        .update(contextSources)
+        .set({ slug: "scratch" })
+        .where(eq(contextSources.id, WORK_SOURCE));
+
+      await db.execute(sql`alter table works drop constraint works_slug_valid`);
+      await db.update(works).set({ slug: "invalid slug" }).where(eq(works.id, WORK));
+      await assertIndeterminate(DOCS[2]);
+
+      const foreignFolder = "00000000-0000-4000-8000-000000000928";
+      await db.insert(folders).values({
+        id: foreignFolder,
+        contextSourceId: FOREIGN_SOURCE,
+        name: "foreign-parent",
+      });
+      await db.update(documents).set({ folderId: foreignFolder }).where(eq(documents.id, DOCS[0]));
+      await assertIndeterminate(DOCS[0]);
     });
   });
 }

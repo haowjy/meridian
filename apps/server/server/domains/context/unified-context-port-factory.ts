@@ -17,11 +17,11 @@ import { runInDrizzleTransaction } from "../../shared/drizzle-transaction.js";
 import type { DocumentCreationAggregate, MarkdownDocumentStore } from "../collab/index.js";
 import { createInMemoryCollabDomain } from "../collab/index.js";
 import type { EventSink } from "../observability/index.js";
+import { createDrizzleContextCatalog } from "./adapters/context-catalog.js";
 import { ContextFS } from "./adapters/context-fs/context-fs.js";
-import {
-  type ContextDocumentMembershipObserver,
-  DrizzleContextTreeMutationStore,
-} from "./adapters/context-fs/drizzle-store.js";
+import type { ContextDocumentMembershipObserver } from "./adapters/context-fs/drizzle-store.js";
+import { DrizzleContextTreeMutationStore } from "./adapters/context-fs/drizzle-tree-mutation-store.js";
+import { createDrizzleProjectContextAvailability } from "./adapters/project-context-availability.js";
 import { createContextPortRouter } from "./context/router.js";
 import { UNIFIED_CONTEXT_SCHEMES } from "./context/uri.js";
 import {
@@ -38,7 +38,6 @@ import type {
   ProjectContextFsScheme,
   WorkScopedContextFsScheme,
 } from "./ports/context-port.js";
-import type { ProjectContextAvailabilityMutationPort } from "./ports/project-context-availability.js";
 import {
   createInMemoryUnifiedContextStoreRegistry,
   getInMemoryContextTreeMutationStore,
@@ -310,8 +309,7 @@ function createInMemoryStoreResolvers(
 function createProductionStoreResolvers(
   db: Database,
   manifestMembership: ManifestMembershipPort,
-  catalogMutations?: ContextCatalogMutationPort,
-  availabilityMutations?: ProjectContextAvailabilityMutationPort,
+  catalogMutations: ContextCatalogMutationPort,
   eventSink?: EventSink,
 ): ContextStoreResolvers {
   const membershipObserverFor = (
@@ -353,7 +351,6 @@ function createProductionStoreResolvers(
         db,
         manifestView ? membershipObserverFor(manifestView) : undefined,
         catalogMutations,
-        availabilityMutations,
         eventSink,
       );
     },
@@ -401,14 +398,17 @@ export function createProductionUnifiedContextPortFactory(options: {
   documentSync: MarkdownDocumentStore & DocumentCreationAggregate;
   manifestMembership: ManifestMembershipPort;
   catalogMutations?: ContextCatalogMutationPort;
-  availabilityMutations?: ProjectContextAvailabilityMutationPort;
   eventSink?: EventSink;
 }): UnifiedContextPortFactory {
+  const catalogMutations =
+    options.catalogMutations ??
+    createDrizzleContextCatalog(options.db, undefined, {
+      availabilityMutations: createDrizzleProjectContextAvailability(options.db, options.eventSink),
+    });
   const storeResolvers = createProductionStoreResolvers(
     options.db,
     options.manifestMembership,
-    options.catalogMutations,
-    options.availabilityMutations,
+    catalogMutations,
     options.eventSink,
   );
 

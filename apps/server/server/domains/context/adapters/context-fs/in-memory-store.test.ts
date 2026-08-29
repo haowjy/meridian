@@ -1,6 +1,7 @@
 /** ContextFS in-memory store visibility contracts. */
 import { DOCUMENT_KINDS } from "@meridian/database/schema";
 import { describe, expect, it } from "vitest";
+import { createInMemoryEventSink } from "../../../observability/index.js";
 import {
   createInMemoryContextDocumentStoreBacking,
   findInMemoryContextDocumentsById,
@@ -107,6 +108,54 @@ describe("InMemoryContextDocumentStore", () => {
     ).resolves.toEqual({
       ok: true,
       value: { deletedDocumentIds: [DOC_ID], availabilityGeneration: "1" },
+    });
+  });
+
+  it("preserves the receipt and diagnoses each failed post-commit membership callback", async () => {
+    const backing = createInMemoryContextDocumentStoreBacking();
+    const store = new InMemoryContextDocumentStore({ sourceId: SOURCE_ID, backing });
+    const folder = await store.createFolder(null, "chapters");
+    const secondId = "00000000-0000-4000-8000-000000000704";
+    for (const id of [secondId, DOC_ID]) {
+      await store.upsertDocument({
+        id,
+        folderId: folder.id,
+        name: id === DOC_ID ? "a" : "b",
+        extension: "md",
+        markdown: "chapter",
+        filetype: "markdown",
+      });
+    }
+    const callbacks: string[] = [];
+    const evidence = createInMemoryEventSink();
+    const tree = new InMemoryContextTreeMutationStore(
+      backing,
+      {
+        documentDeleted(documentId) {
+          callbacks.push(documentId);
+          if (documentId === DOC_ID) throw new Error("membership delivery failed");
+        },
+      },
+      evidence,
+    );
+    const folderToken = await tree.inspect(SOURCE_ID, "chapters");
+    if (!folderToken) throw new Error("expected folder token");
+
+    const receipt = await tree.commitRecursiveDelete({ root: folderToken, mode: "recursive" });
+
+    expect(receipt).toEqual({
+      ok: true,
+      value: { deletedDocumentIds: [DOC_ID, secondId].sort(), availabilityGeneration: "1" },
+    });
+    expect(callbacks).toEqual([DOC_ID, secondId].sort());
+    expect(evidence.events).toHaveLength(1);
+    expect(evidence.events[0]).toMatchObject({
+      name: "PostCommitCallbackFailure",
+      payload: {
+        commandId: expect.any(String),
+        callbackKind: "documentDeleted",
+        documentId: DOC_ID,
+      },
     });
   });
 });

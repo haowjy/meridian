@@ -283,12 +283,12 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         port.delete("user://user.md", {
           expected: { kind: "file", documentId: userDocumentId },
         }),
-      ).resolves.toEqual({
+      ).resolves.toMatchObject({
         ok: true,
         value: {
           status: "deleted",
           deletedDocumentIds: [userDocumentId],
-          availabilityGeneration: "0",
+          availabilityGeneration: expect.not.stringMatching(/^0$/),
         },
       });
       await collab.drainHocuspocusPersistence();
@@ -369,12 +369,12 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         port.delete(`scratch://@${authority.workSlug}/notes.md`, {
           expected: { kind: "file", documentId: created.documentId },
         }),
-      ).resolves.toEqual({
+      ).resolves.toMatchObject({
         ok: true,
         value: {
           status: "deleted",
           deletedDocumentIds: [created.documentId],
-          availabilityGeneration: "0",
+          availabilityGeneration: expect.not.stringMatching(/^0$/),
         },
       });
       await collab.drainHocuspocusPersistence();

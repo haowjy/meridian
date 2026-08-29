@@ -389,7 +389,6 @@ export async function createProductionAppPorts(input: {
     documentSync,
     manifestMembership: documentSync,
     catalogMutations: contextCatalog,
-    availabilityMutations: projectContextAvailability,
     eventSink,
   });
   // Upload creates the asset as a context document, so the service needs the

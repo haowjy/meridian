@@ -94,7 +94,7 @@ describe("wired write tool", () => {
         return Ok({
           status: "deleted" as const,
           deletedDocumentIds: [deletedDocumentId],
-          availabilityGeneration: "0",
+          availabilityGeneration: "17",
         });
       }),
     } satisfies ContextPort;
@@ -505,7 +505,7 @@ function contextPortFor(documentId: string, filePath: string): ContextPort {
     }),
     delete: async () => ({
       ok: true,
-      value: { status: "deleted", deletedDocumentIds: [documentId], availabilityGeneration: "0" },
+      value: { status: "deleted", deletedDocumentIds: [documentId], availabilityGeneration: "17" },
     }),
     list: async () => ({ ok: true, value: [] }),
     search: async () => ({ ok: true, value: [] }),
