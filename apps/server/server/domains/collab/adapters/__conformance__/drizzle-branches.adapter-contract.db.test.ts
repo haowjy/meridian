@@ -586,14 +586,14 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       });
 
       await expect(resolveDocumentUri(db, scratchDocumentId)).resolves.toBe(
-        `scratch://${WORK_ID}/lineage.md`,
+        "scratch://@branch-work/lineage.md",
       );
       await db
         .update(threadWorks)
         .set({ workId: NEXT_WORK_ID })
         .where(eq(threadWorks.threadId, THREAD_ID));
       await expect(resolveDocumentUri(db, scratchDocumentId)).resolves.toBe(
-        `scratch://${WORK_ID}/lineage.md`,
+        "scratch://@branch-work/lineage.md",
       );
     });
 

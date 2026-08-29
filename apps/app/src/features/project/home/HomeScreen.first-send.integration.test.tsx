@@ -56,7 +56,7 @@ const work = (id: string, name: string): Work => ({
   createdAt: "2026-08-14T00:00:00.000Z",
   updatedAt: "2026-08-14T00:00:00.000Z",
 });
-const firstWork = work("work-1", "Book 1");
+const firstWork = work("work-1", "Arc One");
 const secondWork = work("work-2", "Expedition");
 const agents: ProjectAgentSummary[] = [
   {
@@ -358,9 +358,9 @@ describe("Home first send", () => {
         />
       </Providers>,
       async () => {
-        await waitFor(() => Boolean(document.querySelector('[aria-label*="currently Book 1"]')));
+        await waitFor(() => Boolean(document.querySelector('[aria-label*="currently Arc One"]')));
         await act(async () =>
-          document.querySelector<HTMLButtonElement>('[aria-label*="currently Book 1"]')?.click(),
+          document.querySelector<HTMLButtonElement>('[aria-label*="currently Arc One"]')?.click(),
         );
         await waitFor(() => document.body.textContent?.includes("Expedition") === true);
         await act(async () =>
@@ -385,10 +385,10 @@ describe("Home first send", () => {
         await act(async () =>
           document.querySelector<HTMLButtonElement>('[aria-label*="choice unavailable"]')?.click(),
         );
-        await waitFor(() => document.body.textContent?.includes("Book 1") === true);
+        await waitFor(() => document.body.textContent?.includes("Arc One") === true);
         await act(async () =>
           [...document.querySelectorAll("button")]
-            .find(({ textContent }) => textContent?.trim() === "Book 1")
+            .find(({ textContent }) => textContent?.trim() === "Arc One")
             ?.click(),
         );
         await act(async () =>
@@ -461,7 +461,7 @@ describe("Home first send", () => {
         <HomeScreen projectId={projectId} onOpenThread={vi.fn()} onSelectThread={vi.fn()} />
       </Providers>,
       async () => {
-        await waitFor(() => Boolean(document.querySelector('[aria-label*="currently Book 1"]')));
+        await waitFor(() => Boolean(document.querySelector('[aria-label*="currently Arc One"]')));
         const textarea = await setTextarea("Archived opening");
         await act(async () =>
           textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),

@@ -201,7 +201,15 @@ describe("nested spawn runtime (P2b gate)", () => {
             text: "<work_context>\ntest\n</work_context>",
             current: {
               projectId: "00000000-0000-0000-0000-000000000001",
-              workId: "00000000-0000-0000-0000-000000000002",
+              execution: {
+                scope: {
+                  kind: "work",
+                  workId: "00000000-0000-0000-0000-000000000002",
+                  workSlug: "test-work",
+                },
+                aiWriteMode: "direct",
+                draftOwner: null,
+              },
             },
           };
         },

@@ -7,6 +7,7 @@ import {
   contextSources,
   documents,
   folders,
+  works,
 } from "@meridian/database/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import { toCanonical } from "./context/uri.js";
@@ -34,10 +35,11 @@ export async function resolveDocumentUri(
       extension: documents.extension,
       folderId: documents.folderId,
       sourceSlug: contextSources.slug,
-      workId: contextSources.workId,
+      workSlug: works.slug,
     })
     .from(documents)
     .innerJoin(contextSources, eq(documents.contextSourceId, contextSources.id))
+    .leftJoin(works, eq(works.id, contextSources.workId))
     .where(
       and(
         eq(documents.id, documentId as DocumentId),
@@ -55,7 +57,12 @@ export async function resolveDocumentUri(
   const folderPath = await resolveFolderPath(db, document.folderId);
   const filename = document.extension ? `${document.name}.${document.extension}` : document.name;
   const path = [...folderPath, filename].join("/");
-  const workAuthority = scheme === "scratch" || scheme === "uploads" ? document.workId : null;
+  const workAuthority =
+    scheme === "scratch" || scheme === "uploads"
+      ? document.workSlug
+        ? { kind: "work" as const, workSlug: document.workSlug }
+        : { kind: "none" as const }
+      : { kind: "contextual" as const };
   return toCanonical(scheme, path, workAuthority);
 }
 

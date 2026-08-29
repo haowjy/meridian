@@ -1,4 +1,6 @@
 /** Typed Work receipt reversal behavior and ordering. */
+
+import type { WorkId } from "@meridian/contracts/runtime";
 import type { WorkReceipt } from "@meridian/contracts/works";
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryWorkRepository } from "../domains/projects/index.js";
@@ -12,13 +14,13 @@ const THREAD_ID = "thread-1" as never;
 const TURN_ID = "turn-1" as never;
 
 function harness(receipts: WorkReceipt[]) {
-  let liveThreadWorkId: WorkReceipt["workId"] | null = null;
+  let liveThreadWorkId: WorkId | null = null;
   const works = createInMemoryWorkRepository({
     hasLiveThreads: (workId) => workId === liveThreadWorkId,
   });
   return {
     works,
-    setLiveThreadWork(workId: WorkReceipt["workId"] | null) {
+    setLiveThreadWork(workId: WorkId | null) {
       liveThreadWorkId = workId;
     },
     deps: {
@@ -397,7 +399,11 @@ describe("Work receipt reversal", () => {
   });
 });
 
-function updateReceipt(workId: WorkReceipt["workId"], before: string, after: string): WorkReceipt {
+function updateReceipt(
+  workId: WorkId,
+  before: string,
+  after: string,
+): Extract<WorkReceipt, { category: "mutate" }> {
   return {
     operation: "update",
     category: "mutate",
@@ -411,17 +417,14 @@ function updateReceipt(workId: WorkReceipt["workId"], before: string, after: str
 }
 
 function switchReceipt(
-  before: { id: WorkReceipt["workId"]; name: string },
-  after: { id: WorkReceipt["workId"]; name: string },
+  before: { id: WorkId; name: string },
+  after: { id: WorkId; name: string },
 ): WorkReceipt {
   return {
     operation: "switch",
     category: "binding",
-    changed: true,
-    workId: after.id,
-    workName: after.name,
-    before: state(before.name),
-    after: state(after.name),
+    before: { kind: "work", workId: before.id, workSlug: before.name, ...state(before.name) },
+    after: { kind: "work", workId: after.id, workSlug: after.name, ...state(after.name) },
     inverse: null,
   };
 }

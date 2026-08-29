@@ -1,28 +1,30 @@
-/** Canonical thread Work-rebind command shared by model and writer adapters. */
+/** Canonical nullable thread Work-rebind command shared by model and writer adapters. */
 import type { ThreadId, WorkId } from "@meridian/contracts/runtime";
 import type {
+  RebindThreadWorkRequest,
   RebindThreadWorkResult,
   Work,
-  WorkReceipt,
-  WorkReceiptState,
+  WorkBindingReceiptState,
 } from "@meridian/contracts/works";
-import { WorkLifecycleUnavailableError, type WorkRepository } from "../../projects/index.js";
+import type { WorkRepository } from "../../projects/index.js";
 import type {
   ThreadRepository,
   ThreadWorksRepository,
   WorkContextDeliveryRepository,
 } from "../ports/repositories.js";
 
-type RebindThreadWorkErrorReason = "unavailable" | "missing_primary";
+export type RebindThreadWorkErrorCode =
+  | "thread_unavailable"
+  | "target_work_unavailable"
+  | "project_mismatch";
 
 export class RebindThreadWorkError extends Error {
   constructor(
-    readonly reason: RebindThreadWorkErrorReason,
+    readonly code: RebindThreadWorkErrorCode,
     readonly threadId: ThreadId,
+    readonly workId?: WorkId,
   ) {
-    super(
-      reason === "unavailable" ? "Thread or Work not found" : "Conversation has no current Work",
-    );
+    super(code.replaceAll("_", " "));
     this.name = "RebindThreadWorkError";
   }
 }
@@ -34,30 +36,20 @@ interface RebindThreadWorkDeps {
   obligations: Pick<WorkContextDeliveryRepository, "enqueueThread">;
 }
 
-export interface RebindThreadWorkInput {
+export interface RebindThreadWorkInput extends RebindThreadWorkRequest {
   threadId: ThreadId;
-  targetWorkId: WorkId;
 }
 
-function receiptState(work: Work): WorkReceiptState {
+function receiptState(work: Work | null): WorkBindingReceiptState {
+  if (!work) return { kind: "none" };
   return {
+    kind: "work",
+    workId: work.id,
+    workSlug: work.slug,
     name: work.name,
     goal: work.goal,
     description: work.description,
     status: work.status,
-  };
-}
-
-function receipt(previousWork: Work, targetWork: Work, changed: boolean): WorkReceipt {
-  return {
-    operation: "switch",
-    category: "binding",
-    changed,
-    workId: targetWork.id,
-    workName: targetWork.name,
-    before: receiptState(previousWork),
-    after: receiptState(targetWork),
-    inverse: null,
   };
 }
 
@@ -66,43 +58,41 @@ export async function rebindThreadWork(
   deps: RebindThreadWorkDeps,
   input: RebindThreadWorkInput,
 ): Promise<RebindThreadWorkResult> {
-  const [thread, requestedTarget] = await Promise.all([
-    deps.threads.findById(input.threadId),
-    deps.works.findById(input.targetWorkId),
-  ]);
-  if (
-    !thread ||
-    thread.deletedAt ||
-    !requestedTarget ||
-    requestedTarget.deletedAt ||
-    requestedTarget.projectId !== thread.projectId
-  ) {
-    throw new RebindThreadWorkError("unavailable", input.threadId);
+  const thread = await deps.threads.findById(input.threadId);
+  if (!thread || thread.deletedAt) {
+    throw new RebindThreadWorkError("thread_unavailable", input.threadId);
   }
 
-  const rebound = await deps.threadWorks.rebindPrimary(thread.id, requestedTarget.id);
-  if (!rebound.previousWorkId) {
-    throw new RebindThreadWorkError("missing_primary", input.threadId);
+  const targetWorkId = input.target.kind === "work" ? input.target.workId : null;
+  let requestedTarget: Work | null = null;
+  if (targetWorkId) {
+    requestedTarget = await deps.works.findById(targetWorkId);
+    if (!requestedTarget || requestedTarget.deletedAt || requestedTarget.status === "archived") {
+      throw new RebindThreadWorkError("target_work_unavailable", input.threadId, targetWorkId);
+    }
+    if (requestedTarget.projectId !== thread.projectId) {
+      throw new RebindThreadWorkError("project_mismatch", input.threadId, targetWorkId);
+    }
   }
 
-  const [previousWork, targetWork] = await Promise.all([
-    deps.works.findById(rebound.previousWorkId),
-    deps.works.findById(requestedTarget.id),
-  ]);
-  if (!previousWork || previousWork.deletedAt) {
-    throw new RebindThreadWorkError("missing_primary", input.threadId);
-  }
-  if (!targetWork || targetWork.deletedAt) {
-    throw new WorkLifecycleUnavailableError(requestedTarget.id, targetWork ? "deleted" : "missing");
+  const rebound = await deps.threadWorks.rebindPrimary(thread.id, targetWorkId);
+  const previousWork = rebound.previousWorkId
+    ? await deps.works.findById(rebound.previousWorkId)
+    : null;
+  const targetWork = targetWorkId ? await deps.works.findById(targetWorkId) : null;
+  if (targetWorkId && (!targetWork || targetWork.deletedAt || targetWork.status === "archived")) {
+    throw new RebindThreadWorkError("target_work_unavailable", input.threadId, targetWorkId);
   }
 
+  const before = receiptState(previousWork);
+  const after = receiptState(targetWork);
   if (rebound.changed) await deps.obligations.enqueueThread(thread.id);
 
   return {
     threadId: thread.id as ThreadId,
-    previousWorkId: previousWork.id,
-    work: targetWork,
+    before,
+    after,
     changed: rebound.changed,
-    receipt: receipt(previousWork, targetWork, rebound.changed),
+    receipt: { operation: "switch", category: "binding", before, after, inverse: null },
   };
 }

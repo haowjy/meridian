@@ -103,7 +103,15 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
               text: "<work_context>current state</work_context>",
               current: {
                 projectId: "00000000-0000-0000-0000-000000000001",
-                workId: "00000000-0000-0000-0000-000000000002",
+                execution: {
+                  scope: {
+                    kind: "work",
+                    workId: "00000000-0000-0000-0000-000000000002",
+                    workSlug: "test-work",
+                  },
+                  aiWriteMode: "direct",
+                  draftOwner: null,
+                },
               },
             };
           },

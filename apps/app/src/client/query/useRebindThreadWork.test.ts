@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { ListWorksResponse, ThreadListItem } from "@meridian/contracts/protocol";
-import type { RebindThreadWorkResponse } from "@meridian/contracts/works";
+import type { RebindThreadWorkResponse, Work } from "@meridian/contracts/works";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -25,12 +25,67 @@ const { listProjectThreads, listProjectWorks, rebindThreadWork } = vi.hoisted(()
 vi.mock("@/client/api/projects-api", () => ({ listProjectThreads, listProjectWorks }));
 vi.mock("@/client/api/threads-api", () => ({ rebindThreadWork }));
 
+const responseWork = {
+  id: "work-b",
+  projectId: "project-1",
+  createdByUserId: "user-1",
+  name: "B",
+  slug: "b",
+  goal: null,
+  description: null,
+  status: "active",
+  archivedAt: null,
+  aiWriteMode: "direct",
+  createdAt: "2026-08-01T00:00:00.000Z",
+  updatedAt: "2026-08-01T00:00:00.000Z",
+  lastActivityAt: "2026-08-01T00:00:00.000Z",
+  deletedAt: null,
+} as Work;
 const response = {
   threadId: "thread-1",
-  previousWorkId: "work-a",
-  work: { id: "work-b", name: "B" },
+  before: {
+    kind: "work",
+    workId: "work-a",
+    workSlug: "a",
+    name: "A",
+    goal: null,
+    description: null,
+    status: "active",
+  },
+  after: {
+    kind: "work",
+    workId: "work-b",
+    workSlug: "b",
+    name: "B",
+    goal: null,
+    description: null,
+    status: "active",
+  },
   changed: true,
-  receipt: { inverse: null },
+  receipt: {
+    operation: "switch",
+    category: "binding",
+    before: {
+      kind: "work",
+      workId: "work-a",
+      workSlug: "a",
+      name: "A",
+      goal: null,
+      description: null,
+      status: "active",
+    },
+    after: {
+      kind: "work",
+      workId: "work-b",
+      workSlug: "b",
+      name: "B",
+      goal: null,
+      description: null,
+      status: "active",
+    },
+    inverse: null,
+  },
+  contextUpdate: "delivered",
 } as RebindThreadWorkResponse;
 
 describe("thread Work binding convergence", () => {
@@ -49,17 +104,25 @@ describe("thread Work binding convergence", () => {
   it("ignores an older projection cursor", () => {
     const client = new QueryClient();
     client.setQueryData(projectQueryKeys.works("project-1"), {
-      works: [response.work],
+      works: [responseWork],
     });
     convergeThreadWorkBinding(client, {
       source: "projected",
       seq: "12",
-      signal: { projectId: "project-1", threadId: "thread-1", workId: "work-b" },
+      signal: {
+        projectId: "project-1",
+        threadId: "thread-1",
+        scope: { kind: "work", workId: "work-b", workSlug: "work-b" },
+      },
     });
     convergeThreadWorkBinding(client, {
       source: "projected",
       seq: "11",
-      signal: { projectId: "project-1", threadId: "thread-1", workId: "work-a" },
+      signal: {
+        projectId: "project-1",
+        threadId: "thread-1",
+        scope: { kind: "work", workId: "work-a", workSlug: "work-a" },
+      },
     });
     expect(client.getQueryData(threadQueryKeys.workProjectionCursor("thread-1"))).toEqual({
       seq: "12",
@@ -70,14 +133,18 @@ describe("thread Work binding convergence", () => {
   it("invalidates the affected Work catalog and every associated-chat leaf for a projected rebind", () => {
     const client = new QueryClient();
     client.setQueryData(projectQueryKeys.works("project-1"), {
-      works: [response.work],
+      works: [responseWork],
     });
     const keys = seedAssociatedChats(client);
 
     convergeThreadWorkBinding(client, {
       source: "projected",
       seq: "12",
-      signal: { projectId: "project-1", threadId: "thread-1", workId: "work-b" },
+      signal: {
+        projectId: "project-1",
+        threadId: "thread-1",
+        scope: { kind: "work", workId: "work-b", workSlug: "work-b" },
+      },
     });
 
     expect(client.getQueryState(projectQueryKeys.works("project-1"))?.isInvalidated).toBe(true);
@@ -93,7 +160,7 @@ describe("thread Work binding convergence", () => {
       { id: "thread-1", workId: "work-a" },
     ]);
     client.setQueryData(projectQueryKeys.works("project-1"), {
-      works: [response.work],
+      works: [responseWork],
     });
     const associated = seedAssociatedChats(client);
     convergeThreadWorkBinding(client, {
@@ -105,7 +172,7 @@ describe("thread Work binding convergence", () => {
       client.getQueryData<ThreadListItem[]>(projectQueryKeys.threads("project-1"))?.[0].workId,
     ).toBe("work-b");
     expect(client.getQueryData<ListWorksResponse>(projectQueryKeys.works("project-1"))).toEqual({
-      works: [response.work],
+      works: [responseWork],
     });
     expect(client.getQueryState(associated.workA)?.isInvalidated).toBe(true);
     expect(client.getQueryState(associated.workB)?.isInvalidated).toBe(true);
@@ -206,7 +273,11 @@ describe("thread Work binding convergence", () => {
     convergeThreadWorkBinding(client, {
       source: "projected",
       seq: "3",
-      signal: { projectId: "project-1", threadId: "thread-1", workId: "work-c" },
+      signal: {
+        projectId: "project-1",
+        threadId: "thread-1",
+        scope: { kind: "work", workId: "work-c", workSlug: "work-c" },
+      },
     });
     await act(async () => resolveMutation?.(response));
 

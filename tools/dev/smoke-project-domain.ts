@@ -106,7 +106,11 @@ async function main(): Promise<void> {
     }
 
     console.log("4. work in project");
-    const work = await repos.works.ensureDefaultForProject(PROJECT_ID, "Default Work");
+    const work = await repos.works.create({
+      projectId: PROJECT_ID,
+      createdByUserId: userId,
+      name: "Revision Pass",
+    });
     const works = await repos.works.listByProject(PROJECT_ID);
     if (works.length !== 1 || works[0]?.id !== work.id) {
       throw new Error(`listWorks failed: ${JSON.stringify(works)}`);
@@ -116,7 +120,7 @@ async function main(): Promise<void> {
     const thread = await repos.threads.create({
       userId,
       projectId: PROJECT_ID,
-      workId: work.id,
+      workId: null,
       title: "Chat",
     });
     const threads = await repos.threads.listByProject(PROJECT_ID);

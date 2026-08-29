@@ -383,8 +383,6 @@ export async function createProductionAppPorts(input: {
   const projects = createDrizzleProjectBootstrapRepository({
     db,
     documents: documentSync,
-    threads: threadRepos.threads,
-    threadWorks: threadRepos.threadWorks,
   });
   workRepo = createDrizzleProjectWorkRepository({
     db,
@@ -463,6 +461,7 @@ export function composeAppServices(ports: ProductionAppPorts): AppServices {
   });
   const interruptRegistry = createInterruptRegistry();
   const workContext = createWorkContextReader({
+    threads: ports.threadRepos.threads,
     works: ports.workRepo,
     threadWorks: ports.threadRepos.threadWorks,
   });
@@ -561,7 +560,6 @@ export function composeAppServices(ports: ProductionAppPorts): AppServices {
       return resolveWorkMembership(
         {
           workRepo: ports.workRepo,
-          preferences: ports.preferences,
           threadWorks: ports.threadRepos.threadWorks,
         },
         input,
@@ -840,9 +838,6 @@ export function createInMemoryAppServices(): AppServices {
       async restore() {
         throw new Error("in-memory work repository is not implemented");
       },
-      async ensureDefaultForProject() {
-        throw new Error("in-memory work repository is not implemented");
-      },
       async touch() {},
     },
     projectRepo: {
@@ -916,9 +911,6 @@ export function createInMemoryAppServices(): AppServices {
         throw new Error("in-memory work repository is not implemented");
       },
       async restore() {
-        throw new Error("in-memory work repository is not implemented");
-      },
-      async ensureDefaultForProject() {
         throw new Error("in-memory work repository is not implemented");
       },
       async touch() {},

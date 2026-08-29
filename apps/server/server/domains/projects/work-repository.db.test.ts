@@ -399,44 +399,6 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       await expect(works.softDelete(work.id)).resolves.toBeUndefined();
     });
 
-    it("serializes named and default creation on one project lock", async () => {
-      const insertBarrier = 748_210_842;
-      await control.unsafe(`
-        CREATE FUNCTION test_block_work_insert() RETURNS trigger
-        LANGUAGE plpgsql AS $$
-        BEGIN
-          PERFORM pg_advisory_xact_lock(${insertBarrier});
-          RETURN NEW;
-        END;
-        $$;
-        CREATE TRIGGER test_block_work_insert
-        BEFORE INSERT ON works
-        FOR EACH ROW EXECUTE FUNCTION test_block_work_insert();
-      `);
-      await control`SELECT pg_advisory_lock(${insertBarrier})`;
-      let barrierHeld = true;
-
-      try {
-        const named = works.create({ projectId: PROJECT_ID, name: "Book 1" });
-        await waitForLock("advisory");
-        const defaulted = works.ensureDefaultForProject(PROJECT_ID, "Book 1");
-        await waitForLock("advisory", 2);
-
-        await control`SELECT pg_advisory_unlock(${insertBarrier})`;
-        barrierHeld = false;
-        const [namedWork, defaultWork] = await Promise.all([named, defaulted]);
-
-        expect(defaultWork.id).toBe(namedWork.id);
-        await expect(works.listByProject(PROJECT_ID)).resolves.toHaveLength(1);
-      } finally {
-        if (barrierHeld) await control`SELECT pg_advisory_unlock(${insertBarrier})`;
-        await control.unsafe(`
-          DROP TRIGGER IF EXISTS test_block_work_insert ON works;
-          DROP FUNCTION IF EXISTS test_block_work_insert();
-        `);
-      }
-    });
-
     it("serializes Work content creation before deletion", async () => {
       const insertBarrier = 748_210_843;
       const work = await works.create({ projectId: PROJECT_ID, name: "Creation race" });

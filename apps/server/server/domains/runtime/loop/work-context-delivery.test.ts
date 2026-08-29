@@ -53,7 +53,15 @@ async function pendingDeliveryFixture() {
             text: "<work_context>current: target</work_context>",
             current: {
               projectId: "00000000-0000-0000-0000-000000000001",
-              workId: "00000000-0000-0000-0000-000000000002",
+              execution: {
+                scope: {
+                  kind: "work",
+                  workId: "00000000-0000-0000-0000-000000000002",
+                  workSlug: "test-work",
+                },
+                aiWriteMode: "direct",
+                draftOwner: null,
+              },
             },
           };
         },
@@ -94,7 +102,11 @@ describe("createWorkContextDelivery", () => {
             text: `<work_context>\ncurrent: ${currentWork}\n</work_context>`,
             current: {
               projectId: project.id,
-              workId,
+              execution: {
+                scope: { kind: "work", workId, workSlug: currentWork },
+                aiWriteMode: "direct",
+                draftOwner: null,
+              },
             },
           };
         },
@@ -134,7 +146,7 @@ describe("createWorkContextDelivery", () => {
             turnId: turns[0]?.id,
             threadId: thread.id,
             projectId: project.id,
-            workId,
+            scope: { kind: "work", workId, workSlug: "book-2" },
           },
         }),
       ]),
@@ -222,7 +234,15 @@ describe("createWorkContextDelivery", () => {
             text: "<work_context>fresh</work_context>",
             current: {
               projectId: "00000000-0000-0000-0000-000000000001",
-              workId: "00000000-0000-0000-0000-000000000002",
+              execution: {
+                scope: {
+                  kind: "work",
+                  workId: "00000000-0000-0000-0000-000000000002",
+                  workSlug: "test-work",
+                },
+                aiWriteMode: "direct",
+                draftOwner: null,
+              },
             },
           };
         },
@@ -302,7 +322,15 @@ describe("createWorkContextDelivery", () => {
             text: "fresh",
             current: {
               projectId: "00000000-0000-0000-0000-000000000001",
-              workId: "00000000-0000-0000-0000-000000000002",
+              execution: {
+                scope: {
+                  kind: "work",
+                  workId: "00000000-0000-0000-0000-000000000002",
+                  workSlug: "test-work",
+                },
+                aiWriteMode: "direct",
+                draftOwner: null,
+              },
             },
           };
         },

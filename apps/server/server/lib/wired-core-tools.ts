@@ -226,13 +226,8 @@ function modelWork(work: Work): ModelWork {
 }
 
 function modelContextUri(uri: string, context: ResolvedModelContextPort): string {
-  const match = /^(scratch|uploads):\/\/([^/]+)(\/.*)?$/.exec(uri);
-  if (!match) return uri;
-  const workId = match[2];
-  const path = match[3] ?? "";
-  if (workId === context.primaryWorkId) return `${match[1]}://${path.replace(/^\//, "")}`;
-  const slug = [...context.workAuthorities].find(([, id]) => id === workId)?.[0];
-  return slug ? `${match[1]}://@${slug}${path}` : uri;
+  void context;
+  return uri;
 }
 
 function modelContextResults<T extends { uri: string }>(
@@ -242,8 +237,7 @@ function modelContextResults<T extends { uri: string }>(
   return values.map((value) => ({ ...value, uri: modelContextUri(value.uri, context) }));
 }
 
-// Error payloads reach the model too: a canonical WorkId URI inside a
-// ContextError leaks the identity the @slug grammar exists to hide.
+// Error payloads reach the model through the same canonical URI boundary.
 function modelContextError(
   error: ContextError,
   context: ResolvedModelContextPort,
@@ -606,6 +600,47 @@ export function createWiredCoreToolRegistrations(deps: ToolWiringDeps): ToolRegi
           };
         }
 
+        if (command.command === "switch") {
+          const selected =
+            command.target.kind === "work"
+              ? await workBySlug(deps, thread.projectId, command.target.work)
+              : null;
+          if (isToolError(selected)) return selected;
+          if (!selected && command.target.kind === "work") {
+            return toolError({ message: `Unknown Work ${command.target.work}` });
+          }
+          const rebound = await deps.transaction(() =>
+            rebindThreadWork(
+              {
+                threads: deps.threads,
+                threadWorks: deps.threadWorks,
+                works: deps.works,
+                obligations: deps.obligations,
+              },
+              {
+                threadId: thread.id,
+                target: selected ? { kind: "work", workId: selected.id } : { kind: "none" },
+              },
+            ),
+          );
+          return {
+            output:
+              rebound.after.kind === "work"
+                ? {
+                    slug: rebound.after.workSlug,
+                    name: rebound.after.name,
+                    goal: rebound.after.goal,
+                    description: rebound.after.description,
+                    status: rebound.after.status,
+                  }
+                : { kind: "none", aiWriteMode: "direct", draftOwner: null },
+            metadata: {
+              workReceipt: rebound.receipt,
+              ...(rebound.changed ? { workContextChanged: true } : {}),
+            },
+          };
+        }
+
         const selected = await workBySlug(deps, thread.projectId, command.work);
         if (isToolError(selected)) return selected;
         if (!selected) return toolError({ message: `Unknown Work ${command.work}` });
@@ -686,28 +721,6 @@ export function createWiredCoreToolRegistrations(deps: ToolWiringDeps): ToolRegi
             },
           };
         }
-
-        const rebound = await deps.transaction(() =>
-          rebindThreadWork(
-            {
-              threads: deps.threads,
-              threadWorks: deps.threadWorks,
-              works: deps.works,
-              obligations: deps.obligations,
-            },
-            {
-              threadId: thread.id,
-              targetWorkId: selected.id,
-            },
-          ),
-        );
-        return {
-          output: modelWork(rebound.work),
-          metadata: {
-            workReceipt: rebound.receipt,
-            ...(rebound.changed ? { workContextChanged: true } : {}),
-          },
-        };
       } catch (error) {
         if (error instanceof WorkNameRequiredError) {
           return toolError({ code: "invalid_work_name", message: error.message });

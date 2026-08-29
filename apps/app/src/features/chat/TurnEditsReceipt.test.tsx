@@ -56,11 +56,16 @@ const deletedWorkReceipt = {
 const switchedWorkReceipt = {
   operation: "switch",
   category: "binding",
-  changed: true,
-  workId: "work-1",
-  workName: "Side quests",
-  before: null,
-  after: null,
+  before: { kind: "none" },
+  after: {
+    kind: "work",
+    workId: "work-1",
+    workSlug: "side-quests",
+    name: "Side quests",
+    goal: null,
+    description: null,
+    status: "active",
+  },
   inverse: null,
 } as const;
 const settledTrail = {

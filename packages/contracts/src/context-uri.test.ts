@@ -41,7 +41,7 @@ describe("parseContextUri", () => {
       ok: true,
       value: {
         scheme: "scratch",
-        authority: "Revision-Pass",
+        authority: { kind: "work", workSlug: "Revision-Pass" },
         path: "notes.md",
         canonical: "scratch://@Revision-Pass/notes.md",
       },
@@ -71,9 +71,27 @@ describe("parseContextUri", () => {
     ).toMatchObject({
       ok: true,
       value: {
-        authority: null,
+        authority: { kind: "contextual" },
         path: "00000000-0000-4000-8000-000000000001/notes.md",
       },
+    });
+  });
+
+  it("distinguishes contextual, explicit Work, and explicit no-Work authority", () => {
+    expect(parseContextUri("uploads://draft.png")).toMatchObject({
+      ok: true,
+      value: { authority: { kind: "contextual" }, canonical: "uploads://draft.png" },
+    });
+    expect(parseContextUri("uploads://@revision-pass/draft.png")).toMatchObject({
+      ok: true,
+      value: {
+        authority: { kind: "work", workSlug: "revision-pass" },
+        canonical: "uploads://@revision-pass/draft.png",
+      },
+    });
+    expect(parseContextUri("uploads://@/draft.png")).toMatchObject({
+      ok: true,
+      value: { authority: { kind: "none" }, canonical: "uploads://@/draft.png" },
     });
   });
 });

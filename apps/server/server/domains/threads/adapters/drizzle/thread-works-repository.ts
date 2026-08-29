@@ -18,7 +18,7 @@ export function createDrizzleThreadWorksRepository(db: DrizzleDatabase): ThreadW
 
   async function mutateMembership<T>(
     threadId: ThreadId,
-    targetWorkId: WorkId,
+    targetWorkId: WorkId | null,
     changesPrimary: boolean,
     operation: (input: {
       activeDb: ReturnType<typeof currentDrizzleDb>;
@@ -47,7 +47,7 @@ export function createDrizzleThreadWorksRepository(db: DrizzleDatabase): ThreadW
           // Work rows are the outer lifecycle lock. Sorting makes concurrent
           // primary changes acquire the old and target Works canonically.
           const workIds = [
-            ...new Set([targetWorkId, ...(currentWorkId ? [currentWorkId] : [])]),
+            ...new Set([targetWorkId, currentWorkId].filter(Boolean) as WorkId[]),
           ].sort();
           for (const workId of workIds) {
             await requireLockedActiveWork(db, workId);
@@ -76,12 +76,14 @@ export function createDrizzleThreadWorksRepository(db: DrizzleDatabase): ThreadW
             }
           }
 
-          const [target] = await activeDb
-            .select({ projectId: schema.works.projectId })
-            .from(schema.works)
-            .where(eq(schema.works.id, targetWorkId));
-          if (!target || target.projectId !== thread.projectId) {
-            throw new ThreadWorkProjectMismatchError(targetWorkId);
+          if (targetWorkId) {
+            const [target] = await activeDb
+              .select({ projectId: schema.works.projectId })
+              .from(schema.works)
+              .where(eq(schema.works.id, targetWorkId));
+            if (!target || target.projectId !== thread.projectId) {
+              throw new ThreadWorkProjectMismatchError(targetWorkId);
+            }
           }
           return operation({
             activeDb,
@@ -147,18 +149,15 @@ export function createDrizzleThreadWorksRepository(db: DrizzleDatabase): ThreadW
                 ),
               );
           }
-          await activeDb
-            .insert(schema.threadWorks)
-            .values({
-              threadId,
-              workId,
-              projectId,
-              isPrimary: true,
-            })
-            .onConflictDoUpdate({
-              target: [schema.threadWorks.threadId, schema.threadWorks.workId],
-              set: { projectId, isPrimary: true },
-            });
+          if (workId) {
+            await activeDb
+              .insert(schema.threadWorks)
+              .values({ threadId, workId, projectId, isPrimary: true })
+              .onConflictDoUpdate({
+                target: [schema.threadWorks.threadId, schema.threadWorks.workId],
+                set: { projectId, isPrimary: true },
+              });
+          }
           return { previousWorkId: currentWorkId, changed: true };
         },
       );

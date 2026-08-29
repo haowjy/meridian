@@ -134,7 +134,7 @@ describe("wired write tool", () => {
         if (uri.endsWith("/missing.md")) {
           return {
             ok: false as const,
-            error: { code: "not_found" as const, uri: `scratch://${targetId}/missing.md` },
+            error: { code: "not_found" as const, uri: "scratch://@target/missing.md" },
           };
         }
         return {
@@ -153,7 +153,7 @@ describe("wired write tool", () => {
         value: [
           {
             kind: "file" as const,
-            uri: `scratch://${targetId}/notes.md`,
+            uri: "scratch://@target/notes.md",
             documentId,
             editable: true as const,
             readonly: false,
@@ -166,7 +166,7 @@ describe("wired write tool", () => {
         ok: true as const,
         value: [
           {
-            uri: `scratch://${targetId}/notes.md`,
+            uri: "scratch://@target/notes.md",
             matches: [],
             matchCount: 1,
           },

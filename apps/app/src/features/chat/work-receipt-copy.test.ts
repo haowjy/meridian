@@ -14,11 +14,16 @@ describe("Work receipt presentation", () => {
     const receipt: WorkReceipt = {
       operation: "switch",
       category: "binding",
-      changed: true,
-      workId: "w1",
-      workName: "第二卷",
-      before: null,
-      after: null,
+      before: { kind: "none" },
+      after: {
+        kind: "work",
+        workId: "w1",
+        workSlug: "volume-two",
+        name: "第二卷",
+        goal: null,
+        description: null,
+        status: "active",
+      },
       inverse: null,
     };
     expect(workReceiptLine(receipt)).toBe("已将此对话切换到工作 第二卷");

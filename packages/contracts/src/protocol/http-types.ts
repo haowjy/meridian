@@ -99,7 +99,7 @@ export type CreateUntitledContextDocumentResponse = {
   path: string;
   name: string;
   /** Present only when the canonical location is Work-scoped. */
-  workId?: string;
+  workId?: string | null;
 };
 
 export type CreateUntitledContextDocumentResult =

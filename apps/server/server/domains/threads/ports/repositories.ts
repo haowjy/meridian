@@ -294,7 +294,7 @@ export interface ThreadWorksRepository {
   /** Demotes the previous membership and promotes/upserts the target under the thread row lock. */
   rebindPrimary(
     threadId: ThreadId,
-    workId: WorkId,
+    workId: WorkId | null,
   ): Promise<{ previousWorkId: WorkId | null; changed: boolean }>;
   /** Locks the thread after callers have acquired any Work lifecycle locks. */
   lockPrimary(threadId: ThreadId): Promise<{ workId: WorkId } | null>;

@@ -46,7 +46,10 @@ export function parseRebindThreadWorkRequest(raw: unknown): RebindThreadWorkRequ
   if (keys.length !== 1 || keys[0] !== "workId") {
     throw createError({ statusCode: 400, message: "Request body must contain only `workId`" });
   }
-  return { workId: requireRequestId(body.workId, "workId") as WorkId };
+  if (body.workId === null) return { target: { kind: "none" } };
+  return {
+    target: { kind: "work", workId: requireRequestId(body.workId, "workId") as WorkId },
+  };
 }
 
 export async function handleRebindThreadWorkRequest(
@@ -62,9 +65,11 @@ export async function handleRebindThreadWorkRequest(
     input.threadId,
     input.userId,
   );
-  const target = await deps.works.findById(input.body.workId);
-  if (!target || target.deletedAt || target.projectId !== thread.projectId) {
-    throwHttpInterrupt(meridianErrorFromSystem("not_found", "Thread or Work not found"), 404);
+  if (input.body.target.kind === "work") {
+    const target = await deps.works.findById(input.body.target.workId);
+    if (!target || target.deletedAt || target.projectId !== thread.projectId) {
+      throwHttpInterrupt(meridianErrorFromSystem("not_found", "Thread or Work not found"), 404);
+    }
   }
 
   const claim = await deps.runOwnership.tryAcquire(thread.id);
@@ -83,23 +88,31 @@ export async function handleRebindThreadWorkRequest(
     transition = await deps.transaction(async () => {
       const rebound = await rebindThreadWork(deps, {
         threadId: thread.id,
-        targetWorkId: input.body.workId,
+        target: input.body.target,
       });
       await recordWriterWorkSwitchNotice(deps.notices, rebound);
       return rebound;
     });
   } catch (cause) {
-    if (cause instanceof RebindThreadWorkError && cause.reason === "unavailable") {
+    if (cause instanceof RebindThreadWorkError && cause.code === "thread_unavailable") {
       throwHttpInterrupt(meridianErrorFromSystem("not_found", "Thread or Work not found"), 404);
     }
-    if (cause instanceof RebindThreadWorkError && cause.reason === "missing_primary") {
+    if (cause instanceof RebindThreadWorkError && cause.code === "project_mismatch") {
+      throwHttpInterrupt(meridianErrorFromSystem("not_found", "Thread or Work not found"), 404);
+    }
+    if (cause instanceof RebindThreadWorkError && cause.code === "target_work_unavailable") {
       throwHttpInterrupt(
-        meridianErrorFromSystem("thread_work_missing", "Conversation has no current Work"),
+        meridianError({
+          code: "work_unavailable",
+          message: "That Work is no longer available. Refresh Work and choose another.",
+          source: "system",
+          details: { refresh: "works" },
+        }),
         409,
       );
     }
     if (cause instanceof WorkLifecycleUnavailableError) {
-      if (cause.workId === input.body.workId) {
+      if (input.body.target.kind === "work" && cause.workId === input.body.target.workId) {
         throwHttpInterrupt(
           meridianError({
             code: "work_unavailable",

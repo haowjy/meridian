@@ -3,6 +3,7 @@ import type { RebindThreadWorkResponse, Work } from "@meridian/contracts/works";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { isMeridianApiError } from "@/client/api/http-client";
 import { rebindThreadWork } from "@/client/api/threads-api";
+import { projectQueryKeys } from "./project-query-keys";
 import { threadQueryKeys } from "./thread-query-keys";
 import {
   convergeThreadWorkBinding,
@@ -19,7 +20,7 @@ export type NormalizedCommit = {
 };
 
 export type ThreadWorkMutationOutcome =
-  | { kind: "confirmed"; result: RebindThreadWorkResponse }
+  | { kind: "confirmed"; result: NormalizedCommit; response: RebindThreadWorkResponse }
   | { kind: "reconciled_committed"; result: NormalizedCommit & { changed: true } }
   | { kind: "reconciled_not_current"; requestedWorkId: string; currentWork: Work }
   | { kind: "superseded"; requestedWorkId: string; currentWork: Work };
@@ -32,7 +33,9 @@ export function useRebindThreadWork(projectId: string, threadId: string) {
       const admitted = client.getQueryData<ThreadWorkProjectionCursor>(cursorKey)?.seq ?? null;
       let response: RebindThreadWorkResponse | null = null;
       try {
-        response = await rebindThreadWork(threadId, { workId: targetWorkId });
+        response = await rebindThreadWork(threadId, {
+          target: { kind: "work", workId: targetWorkId },
+        });
       } catch (cause) {
         if (isMeridianApiError(cause)) throw cause;
       }
@@ -40,7 +43,18 @@ export function useRebindThreadWork(projectId: string, threadId: string) {
       const overlapped = admitted !== settled;
       if (response && !overlapped) {
         convergeThreadWorkBinding(client, { source: "confirmed", projectId, result: response });
-        return { kind: "confirmed", result: response };
+        const work = client
+          .getQueryData<import("@meridian/contracts/protocol").ListWorksResponse>(
+            projectQueryKeys.works(projectId),
+          )
+          ?.works.find(({ id }) => id === targetWorkId);
+        if (work) {
+          return {
+            kind: "confirmed",
+            result: { threadId: response.threadId, work, changed: response.changed },
+            response,
+          };
+        }
       }
 
       const fresh = await readStableThreadWorkBinding(client, {
@@ -52,7 +66,11 @@ export function useRebindThreadWork(projectId: string, threadId: string) {
       if (!currentWork) throw new Error("The thread's current Work is absent from its catalog");
       if (fresh.workId === targetWorkId) {
         if (response) {
-          return { kind: "confirmed", result: response };
+          return {
+            kind: "confirmed",
+            result: { threadId: response.threadId, work: currentWork, changed: response.changed },
+            response,
+          };
         }
         return {
           kind: "reconciled_committed",

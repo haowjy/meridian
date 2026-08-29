@@ -65,6 +65,39 @@ describe("thread context-port resolution", () => {
 
     expect(calls).toEqual([{ workId: WORK_ID, projectId: CUSTOM_PROJECT_ID, threadId: THREAD_ID }]);
   });
+
+  it("keeps every real Work explicitly addressable from a no-Work thread", async () => {
+    const resolution = await resolveThreadContext(
+      {
+        threads: { findById: async () => ({ ...thread(), workId: null }) },
+        threadWorks: { findPrimary: async () => null },
+        works: {
+          listByProject: async () => [{ id: WORK_ID, slug: "current-work" }] as never,
+        },
+      },
+      THREAD_ID,
+    );
+    if (!resolution) throw new Error("missing resolution");
+
+    const authorities: Array<ReadonlyMap<string, string> | undefined> = [];
+    const contextPorts = {
+      forWork: () => {
+        throw new Error("no-Work thread must use its project-owned base port");
+      },
+      forProject: (
+        _projectId: string,
+        _userId: string,
+        workAuthorities?: ReadonlyMap<string, string>,
+      ) => {
+        authorities.push(workAuthorities);
+        return {} as ContextPort;
+      },
+    } as UnifiedContextPortFactory;
+
+    contextPortForThread(contextPorts, resolution);
+
+    expect([...(authorities[0]?.entries() ?? [])]).toEqual([["current-work", WORK_ID]]);
+  });
 });
 
 describe("project recovery context-port resolution", () => {

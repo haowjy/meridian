@@ -215,10 +215,10 @@ describe("context router Work slug resolution", () => {
     });
   });
 
-  it("returns stable Work IDs in canonical URIs rather than persistable slugs", async () => {
+  it("returns stable Work slugs in canonical URIs", async () => {
     await expect(port().list("scratch://@revision-pass")).resolves.toMatchObject({
       ok: true,
-      value: [{ uri: `scratch://${SIBLING_ID}/notes.md` }],
+      value: [{ uri: `scratch://@revision-pass/notes.md` }],
     });
   });
 
@@ -251,7 +251,7 @@ describe("context router untitled identity recovery", () => {
     } as unknown as ContextSchemeAdapter;
     const port = createContextPortRouter({
       adapters: new Map([["scratch", scratch]]),
-      adapterAuthorities: new Map([["scratch", "work-1"]]),
+      adapterAuthorities: new Map([["scratch", { kind: "work" as const, workSlug: "primary" }]]),
       primaryWorkId: "work-1",
       workAuthorities: new Map([["primary", "work-1"]]),
       resolveWorkAdapters: () => new Map([["scratch", scratch]]),
@@ -380,7 +380,7 @@ describe("context router scheme creation capabilities", () => {
       ok: false,
       error: {
         code: "invalid_operation",
-        uri: `uploads://${workId}/old.md`,
+        uri: "uploads://@current/old.md",
         message: expect.stringContaining("scratch://"),
       },
     });
@@ -388,7 +388,7 @@ describe("context router scheme creation capabilities", () => {
       port.commitWriterLocation(`scratch://@current/old.md`, `uploads://@current/old.md`),
     ).resolves.toMatchObject({
       ok: false,
-      error: { code: "invalid_operation", uri: `uploads://${workId}/old.md` },
+      error: { code: "invalid_operation", uri: "uploads://@current/old.md" },
     });
     await expect(
       port.move(`uploads://@current/old.md`, `uploads://@current/renamed.md`),
@@ -430,7 +430,7 @@ describe("context router scheme creation capabilities", () => {
       ok: false,
       error: {
         code: "invalid_operation",
-        uri: `uploads://${workId}/nest/deep.png`,
+        uri: "uploads://@current/nest/deep.png",
         message: expect.stringMatching(/flat files.+folders are not available/i),
       },
     });

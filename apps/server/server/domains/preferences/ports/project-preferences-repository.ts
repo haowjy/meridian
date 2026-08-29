@@ -6,7 +6,7 @@ import type {
   ProjectPreferences,
   UpdateProjectPreferencesRequest,
 } from "@meridian/contracts/preferences";
-import type { ProjectId, UserId, WorkId } from "@meridian/contracts/runtime";
+import type { ProjectId, UserId } from "@meridian/contracts/runtime";
 
 export interface ProjectPreferencesRepository {
   read(userId: UserId, projectId: ProjectId): Promise<ProjectPreferences>;
@@ -15,11 +15,4 @@ export interface ProjectPreferencesRepository {
     projectId: ProjectId,
     input: UpdateProjectPreferencesRequest,
   ): Promise<ProjectPreferences>;
-  getNewChatFallbackWorkId(userId: UserId, projectId: ProjectId): Promise<WorkId | null>;
-  repairNewChatFallbackWorkId(
-    userId: UserId,
-    projectId: ProjectId,
-    expectedWorkId: WorkId | null,
-    workId: WorkId,
-  ): Promise<boolean>;
 }

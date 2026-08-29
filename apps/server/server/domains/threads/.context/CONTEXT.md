@@ -11,8 +11,7 @@ instead of the N:1 `threads.workId` column.
   conversation data model. A thread contains turns; a turn contains blocks
   (text, reasoning, tool_use, tool_result, image, file, custom) and model
   responses with token/cost rollups.
-- **Thread↔Work membership** — `thread_works` join table (one primary per
-  thread). `threads.workId` column is **dropped**. Membership is organizational;
+- **Thread↔Work membership** — `thread_works` join table (at most one primary per thread; absence is executable no-Work). `threads.workId` column is **dropped**. Membership is organizational;
   same-project Work-authority URIs do not require membership.
 - **Thread Work rebind** — `rebindThreadWork` is the canonical mutation for
   explicitly changing an existing thread's primary Work. It owns lifecycle validation,
@@ -22,8 +21,7 @@ instead of the N:1 `threads.workId` column.
   turn Undo/Redo. The authenticated writer adapter additionally holds
   cross-process thread-run ownership across its transaction. Preflight
   absence remains concealed by the HTTP adapter; lifecycle-lock absence is a
-  typed refreshable conflict, missing primary membership is a separate
-  integrity conflict, and database failures propagate unchanged.
+  typed refreshable conflict, no-Work is a valid before/after binding state, and database failures propagate unchanged.
 - **Event journal** — append-only log of `OrchestratorEvent` payloads per
   thread, used for replay and real-time fan-out. Model-response and block rows
   are now projected from durable journal facts, not authored directly by the
@@ -47,8 +45,7 @@ instead of the N:1 `threads.workId` column.
 - **AI write mode** — `works.ai_write_mode` column (`'direct'` | `'draft'`)
   controls whether AI edits go into branch review or directly to live.
   The column is owned by the Work, not the thread. It is seeded from the
-  project's `ProjectPreferences.aiWriteMode` at Work creation. Write-time
-  routing resolves `thread → primary Work → works.ai_write_mode`.
+  project's `ProjectPreferences.aiWriteMode` at Work creation. Write-time routing resolves `thread → optional primary Work → works.ai_write_mode`; no-Work always executes directly with no draft owner.
 
   The write-mode route (`lib/work-write-mode-route.ts`) maps
   `aiWriteMode` → branch `pushPolicy` (`'direct'` → `'auto'`, `'draft'` →

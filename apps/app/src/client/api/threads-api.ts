@@ -112,7 +112,9 @@ export function rebindThreadWork(
   threadId: string,
   body: RebindThreadWorkRequest,
 ): Promise<RebindThreadWorkResponse> {
-  return putJson(apiThreadWorkPath(threadId), body);
+  return putJson(apiThreadWorkPath(threadId), {
+    workId: body.target.kind === "work" ? body.target.workId : null,
+  });
 }
 
 /**

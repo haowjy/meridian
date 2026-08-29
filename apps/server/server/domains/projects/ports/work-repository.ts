@@ -84,10 +84,5 @@ export interface WorkRepository {
   softDelete(id: WorkId): Promise<void>;
   /** Restores a soft-deleted Work when its stable name and slug remain available. */
   restore(id: WorkId): Promise<Work>;
-  /**
-   * Provision a concretely named Work only when the project has none. The omitted-root-create
-   * fallback policy belongs to resolveNewChatFallbackWork.
-   */
-  ensureDefaultForProject(projectId: ProjectId, name?: string): Promise<Work>;
   touch(id: WorkId): Promise<void>;
 }

@@ -27,15 +27,11 @@ export async function resolveThreadContext(
   const thread = await deps.threads.findById(threadId);
   if (!thread) return null;
 
-  const primaryMembership = await deps.threadWorks.findPrimary(thread.id);
-  if (!primaryMembership) {
-    return { thread, primaryWorkId: null, workAuthorities: new Map() };
-  }
-
   const projectWorks = await deps.works.listByProject(thread.projectId);
+  const primaryMembership = await deps.threadWorks.findPrimary(thread.id);
   return {
     thread,
-    primaryWorkId: primaryMembership.workId,
+    primaryWorkId: primaryMembership?.workId ?? null,
     workAuthorities: new Map(projectWorks.map((work) => [work.slug, work.id])),
   };
 }
@@ -55,7 +51,11 @@ export function contextPortForThread(
       options.responseId,
     );
   }
-  return contextPorts.forProject(resolution.thread.projectId, resolution.thread.userId);
+  return contextPorts.forProject(
+    resolution.thread.projectId,
+    resolution.thread.userId,
+    resolution.workAuthorities,
+  );
 }
 
 export interface ProjectBrowseContextPortDeps {

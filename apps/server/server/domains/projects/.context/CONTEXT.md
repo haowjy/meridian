@@ -1,4 +1,4 @@
-# domains/projects — Default project bootstrap
+# domains/projects — Project bootstrap
 
 Minimal Meridian-specific bootstrap code for the first authenticated workspace.
 This domain is not the full project CRUD surface; that lives in
@@ -7,14 +7,9 @@ This domain is not the full project CRUD surface; that lives in
 ## What it owns
 
 - **Default bootstrap** — `ProjectRepository.ensureDefaultBootstrap(userId)`
-  idempotently creates or reuses the user's personal project, default `Writer`
-  agent, first work, manuscript context source, `chapter-1.md` document, and
-  primary thread.
+  idempotently creates or reuses the user's personal project, default `Writer` agent, manuscript context source, `chapter-1.md` document, and project-owned unassigned Scratch and Uploads sources. Bootstrap creates no Work or thread.
 - **Bootstrap URI** — `DEFAULT_BOOTSTRAP_URI` is `manuscript://chapter-1.md`.
-- **Work domain** — `WorkRepository` owns Work metadata/lifecycle persistence;
-  `resolveNewChatFallbackWork` owns the narrow omitted-root-create fallback policy,
-  and `listWorkCatalog` owns the owner-gated catalog projection across Work
-  persistence and collab pending-draft counts.
+- **Work domain** — `WorkRepository` owns explicit Work metadata/lifecycle persistence, and `listWorkCatalog` owns the owner-gated catalog projection across Work persistence and collab pending-draft counts.
 
 ## Contracts
 
@@ -22,7 +17,7 @@ This domain is not the full project CRUD surface; that lives in
 |---|---|
 | `ProjectRepository.ensureDefaultBootstrap(userId)` | Returns the converged `DefaultBootstrap` bundle for the authenticated user. |
 | `ProjectRepository.ensureDefaultBootstrapReady(userId)` | Auth path: performs one idempotent repair check per process, then uses the durable completion flag as its lock-free fast path. Seed failures leave no partial bootstrap and return false without failing unrelated requests. |
-| `DefaultBootstrap` | Project, work, thread, document, context source, agent definition, and URI IDs needed by the app shell. |
+| `ProjectBootstrapResult` | Project, manuscript document/source, Writer agent definition, and URI IDs needed by the app shell. |
 | `WorkRepository` | Creates/lists/updates/archives/unarchives/deletes/restores Works; delete is guarded by all Work-owned durable content. Its `transaction` boundary keeps compound Work commands atomic. |
 | `listWorkCatalog(deps, input)` | Owner-gates and lists the requested Work collection, then enriches it through one set-oriented pending-draft count read. |
 | `createWork(input)` | Creates a Work and durably enqueues affected thread Work context in the same transaction; it never changes the new-chat fallback. |

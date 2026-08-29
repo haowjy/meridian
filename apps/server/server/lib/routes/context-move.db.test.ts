@@ -23,9 +23,6 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     const { createDrizzleProjectBootstrapRepository } = await import(
       "../../domains/projects/index.js"
     );
-    const { createDrizzleRepositories } = await import(
-      "../../domains/threads/adapters/drizzle/index.js"
-    );
     const { useRollbackTestDatabase } = await import(
       "../../test-support/rollback-test-database.js"
     );
@@ -101,12 +98,18 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
 
     async function arrangeUntitled() {
       const collab = createBoundCollab();
-      const { projectId, workId } = await createDrizzleProjectBootstrapRepository({
+      const { projectId } = await createDrizzleProjectBootstrapRepository({
         db,
-        threads: createDrizzleRepositories(db).threads,
-        threadWorks: createDrizzleRepositories(db).threadWorks,
         documents: collab,
       }).ensureDefaultBootstrap(USER_ID as never);
+      const workId = crypto.randomUUID();
+      await db.insert(schema.works).values({
+        id: workId,
+        projectId,
+        createdByUserId: USER_ID,
+        name: "Current Work",
+        slug: "current-work",
+      });
       const contextPorts = createProductionUnifiedContextPortFactory({
         db,
         documentSync: collab,

@@ -21,11 +21,17 @@ export interface ContextSchemeCapabilities {
 }
 
 /** An unresolved Work handle exactly as it appeared after `@` on the wire. */
-export type WorkSlugAuthority = string & { readonly __brand: "WorkSlugAuthority" };
+export type WorkSlugAuthority = string;
+
+/** Authority carried by Work-capable context URI syntax. */
+export type ContextAuthority =
+  | { kind: "contextual" }
+  | { kind: "none" }
+  | { kind: "work"; workSlug: WorkSlugAuthority };
 
 export interface ParsedContextUri {
   scheme: ContextUriScheme;
-  authority: WorkSlugAuthority | null;
+  authority: ContextAuthority;
   /** Normalized path: no edge slash, empty or `.` segments, or repeated slashes. */
   path: string;
   canonical: string;
@@ -34,7 +40,7 @@ export interface ParsedContextUri {
 type ContextUriParseError = { ok: false; error: { uri: string; reason: string } };
 export type ContextUriParseResult = { ok: true; value: ParsedContextUri } | ContextUriParseError;
 type AuthorityParseResult =
-  | { ok: true; value: { authority: WorkSlugAuthority | null; rawPath: string } }
+  | { ok: true; value: { authority: ContextAuthority; rawPath: string } }
   | ContextUriParseError;
 
 export interface ParseContextUriOptions {
@@ -46,11 +52,11 @@ export interface ParseContextUriOptions {
 export function canonicalContextUri(
   scheme: ContextUriScheme,
   path: string,
-  authority: string | null = null,
+  authority: ContextAuthority = { kind: "contextual" },
 ): string {
-  if (authority) {
-    return path ? `${scheme}://${authority}/${path}` : `${scheme}://${authority}`;
-  }
+  const qualifier =
+    authority.kind === "work" ? `@${authority.workSlug}` : authority.kind === "none" ? "@" : null;
+  if (qualifier) return path ? `${scheme}://${qualifier}/${path}` : `${scheme}://${qualifier}/`;
   return path ? `${scheme}://${path}` : `${scheme}://`;
 }
 
@@ -100,11 +106,7 @@ export function parseContextUri(
       scheme,
       authority: authorityResult.value.authority,
       path,
-      canonical: canonicalContextUri(
-        scheme,
-        path,
-        authorityResult.value.authority ? `@${authorityResult.value.authority}` : null,
-      ),
+      canonical: canonicalContextUri(scheme, path, authorityResult.value.authority),
     },
   };
 }
@@ -134,14 +136,13 @@ function parseAuthorityPrefix(
   rawPath: string,
   rawUri: string,
 ): AuthorityParseResult {
-  if (!rawPath) return { ok: true, value: { authority: null, rawPath } };
+  if (!rawPath) return { ok: true, value: { authority: { kind: "contextual" }, rawPath } };
 
   const segments = rawPath.split("/").filter((segment) => segment !== "" && segment !== ".");
   const qualifiers: string[] = [];
   while (segments[0]?.startsWith("@")) qualifiers.push(segments.shift() ?? "");
-  if (qualifiers.length === 0) return { ok: true, value: { authority: null, rawPath } };
-  if (qualifiers.some((qualifier) => qualifier.length === 1)) {
-    return invalidContextUri(rawUri, "Work authority qualifier must include a slug after @");
+  if (qualifiers.length === 0) {
+    return { ok: true, value: { authority: { kind: "contextual" }, rawPath } };
   }
   if (qualifiers.length > 1) {
     return invalidContextUri(
@@ -155,7 +156,11 @@ function parseAuthorityPrefix(
       `Scheme "${scheme}" does not yet support authority qualifiers`,
     );
   }
-  const authority = qualifiers[0]?.slice(1) as WorkSlugAuthority;
+  const qualifier = qualifiers[0] ?? "";
+  const authority: ContextAuthority =
+    qualifier === "@"
+      ? { kind: "none" }
+      : { kind: "work", workSlug: qualifier.slice(1) as WorkSlugAuthority };
   return {
     ok: true,
     value: { authority, rawPath: segments.join("/") },

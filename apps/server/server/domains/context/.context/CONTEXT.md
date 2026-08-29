@@ -77,8 +77,7 @@ router resolves to a stable Work ID before dispatch.
 ## URI and router invariants
 
 - Wire context URIs are `scheme://[@slug]/path`; a scheme root is `scheme://`.
-  Canonical server results use the resolved Work ID so persisted references do
-  not rebind if a deleted Work's slug is reused.
+  Canonical server results retain the stable Work slug from the wire; explicit `@/` is no-Work authority.
 - Bare paths default to `manuscript://` (project-scoped).
 - Leading/trailing slashes and repeated slashes are normalized away; `.` segments
   are dropped; `..` is rejected.
@@ -86,7 +85,7 @@ router resolves to a stable Work ID before dispatch.
   The prefix is reserved for Work authority qualifiers; interior `@` characters
   remain valid.
 - Work-scoped schemes (`scratch://`, `uploads://`) accept one `@<work-slug>`
-  qualifier. Omitted authority resolves to the thread's primary Work. Every
+  qualifier. Omitted authority resolves contextually to the thread's real or absent scope; absent scope uses writable project-owned Scratch and Uploads sources. Every
   non-deleted Work in the same project is addressable regardless of thread
   membership; cross-project Works are refused. `manuscript://`,
   `kb://`, `user://` carry no work authority.

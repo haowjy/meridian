@@ -39,7 +39,11 @@ describe("orchestrator event projector tool calls", () => {
           turnId: turn.id,
           threadId: GOLDEN_THREAD_ID,
           projectId: "00000000-0000-4000-8000-000000000001",
-          workId: "00000000-0000-4000-8000-000000000002",
+          scope: {
+            kind: "work",
+            workId: "00000000-0000-4000-8000-000000000002",
+            workSlug: "test-work",
+          },
         },
       ]),
     ).toEqual([
@@ -49,7 +53,11 @@ describe("orchestrator event projector tool calls", () => {
         value: {
           threadId: GOLDEN_THREAD_ID,
           projectId: "00000000-0000-4000-8000-000000000001",
-          workId: "00000000-0000-4000-8000-000000000002",
+          scope: {
+            kind: "work",
+            workId: "00000000-0000-4000-8000-000000000002",
+            workSlug: "test-work",
+          },
         },
       },
     ]);

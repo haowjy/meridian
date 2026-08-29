@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { canOpenContextUri, contextRouteTargetFromUri } from "@/lib/context-uri";
 
 const WORK_ID = "123e4567-e89b-12d3-a456-426614174000";
-const OTHER_WORK_ID = "00000000-0000-4000-8000-000000000000";
 const ACTIVE_WORK = { id: WORK_ID, slug: "revision-pass" };
 
 describe("contextRouteTargetFromUri", () => {
@@ -38,18 +37,12 @@ describe("contextRouteTargetFromUri", () => {
     });
   });
 
-  it("routes a stable persisted Work-ID location without treating the ID as a filename", () => {
+  it("treats an unqualified UUID segment as a path, never as URI authority", () => {
     expect(contextRouteTargetFromUri(`scratch://${WORK_ID}/notes/beat.md`, ACTIVE_WORK)).toEqual({
       scheme: "scratch",
-      path: "/notes/beat.md",
+      path: `/${WORK_ID}/notes/beat.md`,
       workId: WORK_ID,
     });
-  });
-
-  it("does not rebind a persisted location from another Work", () => {
-    expect(
-      contextRouteTargetFromUri(`scratch://${OTHER_WORK_ID}/notes/beat.md`, ACTIVE_WORK),
-    ).toBeNull();
   });
 
   it("degrades when an explicit work authority does not belong to the active work", () => {

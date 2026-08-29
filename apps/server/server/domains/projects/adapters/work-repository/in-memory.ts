@@ -12,7 +12,7 @@ import {
   WorkNameConflictError,
   WorkRestoreConflictError,
 } from "../../ports/work-repository.js";
-import { DEFAULT_WORK_NAME, nextWorkSlug } from "./shared.js";
+import { nextWorkSlug } from "./shared.js";
 
 export interface InMemoryWorkRepositoryOptions {
   hasLiveThreads?: (workId: WorkId) => boolean | Promise<boolean>;
@@ -181,17 +181,6 @@ export function createInMemoryWorkRepository(
       row.updatedAt = now();
       row.lastActivityAt = row.updatedAt;
       return { ...row };
-    },
-
-    async ensureDefaultForProject(projectId: ProjectId, name?: string): Promise<Work> {
-      const existing = [...rows.values()].filter(
-        (work) => work.projectId === projectId && work.deletedAt === null,
-      );
-      existing.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-      if (existing[0]) return { ...existing[0] };
-      const work = build({ projectId, name: name?.trim() || DEFAULT_WORK_NAME });
-      rows.set(work.id, work);
-      return { ...work };
     },
 
     async touch(id: WorkId): Promise<void> {

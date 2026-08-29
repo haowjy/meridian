@@ -180,7 +180,9 @@ export async function commitContextMove(input: {
         collision: {
           scheme: collision.value.scheme,
           path: collision.value.path,
-          ...(collision.value.authority ? { workId: collision.value.authority } : {}),
+          ...(collision.value.authority.kind === "work"
+            ? { workId: collision.value.authority.workSlug }
+            : {}),
         },
       };
     }

@@ -5,6 +5,7 @@
  */
 
 import { validateContextEntryPath } from "@meridian/contracts/context-entry-validation";
+import type { ContextAuthority } from "@meridian/contracts/context-uri";
 import type { DeleteContextEntryResult } from "@meridian/contracts/protocol";
 import { Err, Ok, type Result } from "../../../shared/result.js";
 import type {
@@ -39,13 +40,15 @@ import { type ParseContextUriOptions, parseContextUri, toCanonical } from "./uri
 export interface ContextPortRouterDeps {
   adapters: ReadonlyMap<ContextScheme, ContextSchemeAdapter>;
   /** Canonical Work authority for Work-scoped adapters already present in the base map. */
-  adapterAuthorities?: ReadonlyMap<ContextScheme, string>;
+  adapterAuthorities?: ReadonlyMap<ContextScheme, ContextAuthority>;
   /** Non-deleted, same-project Work handles. Values are stable IDs used below this seam. */
   workAuthorities?: ReadonlyMap<string, string>;
   /** Primary Work for bare Work-scoped URIs in this router. */
   primaryWorkId?: string;
   /** Lazily builds Work-scoped adapters for an authority-addressed target Work. */
   resolveWorkAdapters?: (workId: string) => ReadonlyMap<ContextScheme, ContextSchemeAdapter>;
+  /** Builds project-owned Scratch and Uploads adapters for explicit no-Work authority. */
+  resolveNoWorkAdapters?: () => ReadonlyMap<ContextScheme, ContextSchemeAdapter>;
   /** URI parse options — unified port passes manuscript default + extended schemes. */
   parseOptions?: ParseContextUriOptions;
 }
@@ -53,7 +56,7 @@ export interface ContextPortRouterDeps {
 interface Dispatch extends ContextTreeDispatch {
   adapter: ContextSchemeAdapter;
   scheme: ContextScheme;
-  authority: string | null;
+  authority: ContextAuthority;
   workScopeId: string | null;
   path: string;
   canonical: string;
@@ -77,13 +80,13 @@ function crossSchemeCreationDenied(
     : null;
 }
 
-function uriFor(scheme: ContextScheme, path: string, authority: string | null): string {
+function uriFor(scheme: ContextScheme, path: string, authority: ContextAuthority): string {
   return toCanonical(scheme, path, authority);
 }
 
 function toSearchResult(
   scheme: ContextScheme,
-  authority: string | null,
+  authority: ContextAuthority,
   hit: AdapterSearchHit,
 ): SearchResult {
   return {
@@ -96,7 +99,7 @@ function toSearchResult(
 
 function toFileRef(
   scheme: ContextScheme,
-  authority: string | null,
+  authority: ContextAuthority,
   ref: AdapterFileRef,
   readonly: boolean,
 ): FileRef {
@@ -126,7 +129,7 @@ function toFileRef(
 
 function toFileEntry(
   scheme: ContextScheme,
-  authority: string | null,
+  authority: ContextAuthority,
   entry: AdapterFileEntry,
   readonly: boolean,
 ): FileEntry {
@@ -166,22 +169,29 @@ export function createContextPortRouter(deps: ContextPortRouterDeps): ContextPor
     const { scheme, authority, path } = parsed.value;
 
     let adapterMap = adapters;
-    let resolvedAuthority: string | null = null;
-    if (authority) {
-      resolvedAuthority = deps.workAuthorities?.get(authority) ?? null;
-      if (!resolvedAuthority) {
+    const canonicalAuthority =
+      authority.kind === "contextual"
+        ? (deps.adapterAuthorities?.get(scheme) ?? authority)
+        : authority;
+    let workScopeId = authority.kind === "contextual" ? (deps.primaryWorkId ?? null) : null;
+    if (authority.kind === "none") {
+      adapterMap = deps.resolveNoWorkAdapters?.() ?? adapters;
+    } else if (authority.kind === "work") {
+      const resolvedWorkId = deps.workAuthorities?.get(authority.workSlug) ?? null;
+      if (!resolvedWorkId) {
         const validWorkSlugs = [...(deps.workAuthorities?.keys() ?? [])];
         const valid = validWorkSlugs.map((slug) => `@${slug}`).join(", ");
         return Err({
           code: "invalid_uri",
           uri: parsed.value.canonical,
-          reason: `Unknown Work @${authority}. Valid Work slugs: ${valid || "none"}`,
-          workSlug: authority,
+          reason: `Unknown Work @${authority.workSlug}. Valid Work slugs: ${valid || "none"}`,
+          workSlug: authority.workSlug,
           validWorkSlugs,
         });
       }
       try {
-        adapterMap = deps.resolveWorkAdapters?.(resolvedAuthority) ?? adapters;
+        adapterMap = deps.resolveWorkAdapters?.(resolvedWorkId) ?? adapters;
+        workScopeId = resolvedWorkId;
       } catch (error) {
         return Err({
           code: "io_error",
@@ -191,7 +201,7 @@ export function createContextPortRouter(deps: ContextPortRouterDeps): ContextPor
       }
     }
 
-    const canonical = toCanonical(scheme, path, resolvedAuthority);
+    const canonical = toCanonical(scheme, path, canonicalAuthority);
 
     const adapter = adapterMap.get(scheme);
     if (!adapter) {
@@ -204,8 +214,8 @@ export function createContextPortRouter(deps: ContextPortRouterDeps): ContextPor
     return Ok({
       adapter,
       scheme,
-      authority: resolvedAuthority,
-      workScopeId: resolvedAuthority ?? deps.primaryWorkId ?? null,
+      authority: canonicalAuthority,
+      workScopeId,
       path,
       canonical,
     });
@@ -301,26 +311,33 @@ export function createContextPortRouter(deps: ContextPortRouterDeps): ContextPor
 
       const locations: Array<{
         scheme: ContextScheme;
-        authority: string | null;
+        authority: ContextAuthority;
+        workScopeId: string | null;
         adapter: ContextSchemeAdapter;
       }> = [];
       const locationKeys = new Set<string>();
       const addLocation = (
         scheme: ContextScheme,
-        authority: string | null,
+        authority: ContextAuthority,
+        workScopeId: string | null,
         candidate: ContextSchemeAdapter,
       ) => {
-        const key = `${scheme}:${authority ?? ""}`;
+        const key = `${scheme}:${JSON.stringify(authority)}`;
         if (locationKeys.has(key)) return;
         locationKeys.add(key);
-        locations.push({ scheme, authority, adapter: candidate });
+        locations.push({ scheme, authority, workScopeId, adapter: candidate });
       };
       for (const [scheme, candidate] of adapters) {
-        addLocation(scheme, deps.adapterAuthorities?.get(scheme) ?? null, candidate);
+        addLocation(
+          scheme,
+          deps.adapterAuthorities?.get(scheme) ?? { kind: "contextual" },
+          deps.primaryWorkId ?? null,
+          candidate,
+        );
       }
-      for (const authority of deps.workAuthorities?.values() ?? []) {
-        for (const [scheme, candidate] of deps.resolveWorkAdapters?.(authority) ?? []) {
-          addLocation(scheme, authority, candidate);
+      for (const [slug, workId] of deps.workAuthorities ?? []) {
+        for (const [scheme, candidate] of deps.resolveWorkAdapters?.(workId) ?? []) {
+          addLocation(scheme, { kind: "work", workSlug: slug as never }, workId, candidate);
         }
       }
       for (const location of locations) {
@@ -340,7 +357,7 @@ export function createContextPortRouter(deps: ContextPortRouterDeps): ContextPor
           scheme: location.scheme,
           path: finalized.value.path,
           name: finalized.value.name,
-          ...(location.authority ? { workId: location.authority } : {}),
+          ...(location.workScopeId ? { workId: location.workScopeId } : {}),
         });
       }
 
@@ -362,7 +379,7 @@ export function createContextPortRouter(deps: ContextPortRouterDeps): ContextPor
             scheme: r.value.scheme,
             path: created.value.path,
             name: created.value.name,
-            ...(r.value.authority ? { workId: r.value.authority } : {}),
+            ...(r.value.workScopeId ? { workId: r.value.workScopeId } : {}),
           });
     },
 
@@ -498,7 +515,8 @@ export function createContextPortRouter(deps: ContextPortRouterDeps): ContextPor
         if (!adapter.capabilities.searchable) continue;
         const result = await callAdapter(`${scheme}://`, () => adapter.search(query));
         if (!result.ok) continue;
-        for (const hit of result.value) hits.push(toSearchResult(scheme, null, hit));
+        const authority = deps.adapterAuthorities?.get(scheme) ?? { kind: "contextual" as const };
+        for (const hit of result.value) hits.push(toSearchResult(scheme, authority, hit));
       }
       hits.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
       return Ok(hits);
