@@ -35,6 +35,13 @@ type LiveRoomState = {
 
 type RetainedLiveDocument = { lease: LiveDocumentSessionLease; detached: boolean };
 
+type AuthorityStore = Pick<
+  DocumentSessionAuthorityStore,
+  "close" | "readFence" | "readAdmissionFences" | "advanceFence" | "retryPendingPurges"
+>;
+
+type UnleasedRoomState = { session: DocumentSession; detached: boolean };
+
 export class DocumentSessionAuthorityError extends Error {
   constructor(
     readonly kind:
@@ -54,14 +61,16 @@ export class DocumentSessionAuthorityError extends Error {
 
 export class DocumentSessionRegistry implements LiveDocumentSessionAuthority {
   private accountId: AccountId | null = null;
-  private authorityStore: DocumentSessionAuthorityStore | null = null;
+  private accountEpoch = 0;
+  private authorityStore: AuthorityStore | null = null;
   private readonly liveRooms = new Map<DocumentId, LiveRoomState>();
-  private readonly branchSessions = new Map<string, DocumentSession>();
+  private readonly unleasedRooms = new Map<string, UnleasedRoomState>();
   private readonly retainedByOwner = new Map<string, Map<DocumentId, RetainedLiveDocument>>();
-  private readonly temporaryRetainedByOwner = new Map<
+  private readonly unleasedRetainedByOwner = new Map<
     string,
     { roomKeys: Set<string>; detachedRoomKeys: Set<string> }
   >();
+  private readonly authorityOperations = new Map<string, Promise<void>>();
   private readonly pendingTeardownTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private liveDocCapWarningEmitted = false;
   private readonly sessionObservers = new Map<
@@ -70,9 +79,7 @@ export class DocumentSessionRegistry implements LiveDocumentSessionAuthority {
   >();
 
   constructor(
-    private readonly createAuthorityStore: (
-      accountId: AccountId,
-    ) => DocumentSessionAuthorityStore = (accountId) =>
+    private readonly createAuthorityStore: (accountId: AccountId) => AuthorityStore = (accountId) =>
       new DocumentSessionAuthorityStore(accountId),
     private readonly teardownGraceMs = SESSION_TEARDOWN_GRACE_MS,
   ) {}
@@ -82,37 +89,42 @@ export class DocumentSessionRegistry implements LiveDocumentSessionAuthority {
     documentId: DocumentId,
     generation: AvailabilityGeneration,
   ): Promise<LiveDocumentSessionLease> {
-    const { accountId, store } = this.configuredAuthority();
     compareAvailabilityGeneration(generation, generation);
-    await store.retryPendingPurges();
-    for (const fence of [
-      await store.readFence(documentFenceKey(accountId, documentId)),
-      await store.readFence(accessFenceKey(accountId, projectId, documentId)),
-    ]) {
-      if (fence && compareAvailabilityGeneration(generation, fence.revokedThrough) <= 0) {
+    return this.runAuthorityOperation(documentId, async ({ accountId, store, epoch }) => {
+      await store.retryPendingPurges();
+      const fences = await store.readAdmissionFences(
+        documentFenceKey(accountId, documentId),
+        accessFenceKey(accountId, projectId, documentId),
+      );
+      for (const fence of fences) {
+        if (fence && compareAvailabilityGeneration(generation, fence.revokedThrough) <= 0) {
+          throw new DocumentSessionAuthorityError(
+            "generation-revoked",
+            `Generation ${generation} is revoked for ${documentId}`,
+          );
+        }
+      }
+
+      this.assertAccountEpoch(accountId, epoch);
+      await this.retireUnleasedLiveRoom(documentId);
+      this.assertAccountEpoch(accountId, epoch);
+      const lease = { accountId, projectId, documentId, generation };
+      const state = this.liveRooms.get(documentId) ?? {
+        session: null,
+        persistenceGeneration: null,
+        leases: new Map(),
+      };
+      const existing = state.leases.get(projectId);
+      if (existing && compareAvailabilityGeneration(generation, existing.generation) < 0) {
         throw new DocumentSessionAuthorityError(
-          "generation-revoked",
-          `Generation ${generation} is revoked for ${documentId}`,
+          "stale-lease",
+          `A newer lease already exists for ${documentId}`,
         );
       }
-    }
-
-    const lease = { accountId, projectId, documentId, generation };
-    const state = this.liveRooms.get(documentId) ?? {
-      session: null,
-      persistenceGeneration: null,
-      leases: new Map(),
-    };
-    const existing = state.leases.get(projectId);
-    if (existing && compareAvailabilityGeneration(generation, existing.generation) < 0) {
-      throw new DocumentSessionAuthorityError(
-        "stale-lease",
-        `A newer lease already exists for ${documentId}`,
-      );
-    }
-    state.leases.set(projectId, lease);
-    this.liveRooms.set(documentId, state);
-    return lease;
+      state.leases.set(projectId, lease);
+      this.liveRooms.set(documentId, state);
+      return lease;
+    });
   }
 
   async revokeDocument(
@@ -121,30 +133,35 @@ export class DocumentSessionRegistry implements LiveDocumentSessionAuthority {
     generation: AvailabilityGeneration,
     commandId: AvailabilityCommandId,
   ): Promise<{ revokedThrough: AvailabilityGeneration; persistence: "cleared" }> {
-    const { accountId, store } = this.configuredAuthority();
-    const currentFence = await store.readFence(documentFenceKey(accountId, documentId));
-    if (
-      !currentFence ||
-      compareAvailabilityGeneration(generation, currentFence.revokedThrough) > 0
-    ) {
-      this.rejectCommandBehindActiveLease(documentId, generation);
-    }
-    const advance = await store.advanceFence({
-      key: documentFenceKey(accountId, documentId),
-      documentId,
-      revokedThrough: generation,
-      commandId,
-      purge: true,
+    compareAvailabilityGeneration(generation, generation);
+    return this.runAuthorityOperation(documentId, async ({ accountId, store, epoch }) => {
+      const currentFence = await store.readFence(documentFenceKey(accountId, documentId));
+      if (
+        !currentFence ||
+        compareAvailabilityGeneration(generation, currentFence.revokedThrough) > 0
+      ) {
+        this.rejectCommandBehindActiveLease(documentId, generation);
+      }
+      const advance = await store.advanceFence({
+        key: documentFenceKey(accountId, documentId),
+        documentId,
+        revokedThrough: generation,
+        commandId,
+        purge: true,
+      });
+      this.assertCommandAccepted(advance.kind, documentId, generation);
+      this.assertAccountEpoch(accountId, epoch);
+      if (advance.kind === "advanced") await this.removeLiveDocument(documentId);
+      this.assertAccountEpoch(accountId, epoch);
+      if (!(await store.retryPendingPurges())) {
+        throw new DocumentSessionAuthorityError(
+          "purge-pending",
+          `Persistence purge is pending for ${documentId}`,
+        );
+      }
+      this.assertAccountEpoch(accountId, epoch);
+      return { revokedThrough: advance.fence.revokedThrough, persistence: "cleared" as const };
     });
-    this.assertCommandAccepted(advance.kind, documentId, generation);
-    if (advance.kind === "advanced") await this.removeLiveDocument(documentId);
-    if (!(await store.retryPendingPurges())) {
-      throw new DocumentSessionAuthorityError(
-        "purge-pending",
-        `Persistence purge is pending for ${documentId}`,
-      );
-    }
-    return { revokedThrough: advance.fence.revokedThrough, persistence: "cleared" };
   }
 
   async revokeAccess(
@@ -156,48 +173,53 @@ export class DocumentSessionRegistry implements LiveDocumentSessionAuthority {
     revokedThrough: AvailabilityGeneration;
     persistence: "cleared" | "retained-by-other-lease";
   }> {
-    const { accountId, store } = this.configuredAuthority();
-    const state = this.liveRooms.get(documentId);
-    const projectLease = state?.leases.get(projectId);
-    const currentFence = await store.readFence(accessFenceKey(accountId, projectId, documentId));
-    if (
-      projectLease &&
-      (!currentFence ||
-        compareAvailabilityGeneration(generation, currentFence.revokedThrough) > 0) &&
-      compareAvailabilityGeneration(generation, projectLease.generation) < 0
-    ) {
-      throw new DocumentSessionAuthorityError(
-        "older-command",
-        `A newer lease retains ${documentId}`,
-      );
-    }
-    const retainedByOtherLease = [...(state?.leases.keys() ?? [])].some((id) => id !== projectId);
-    const advance = await store.advanceFence({
-      key: accessFenceKey(accountId, projectId, documentId),
-      documentId,
-      revokedThrough: generation,
-      commandId,
-      purge: !retainedByOtherLease,
+    compareAvailabilityGeneration(generation, generation);
+    return this.runAuthorityOperation(documentId, async ({ accountId, store, epoch }) => {
+      const state = this.liveRooms.get(documentId);
+      const projectLease = state?.leases.get(projectId);
+      const currentFence = await store.readFence(accessFenceKey(accountId, projectId, documentId));
+      if (
+        projectLease &&
+        (!currentFence ||
+          compareAvailabilityGeneration(generation, currentFence.revokedThrough) > 0) &&
+        compareAvailabilityGeneration(generation, projectLease.generation) < 0
+      ) {
+        throw new DocumentSessionAuthorityError(
+          "older-command",
+          `A newer lease retains ${documentId}`,
+        );
+      }
+      const retainedByOtherLease = [...(state?.leases.keys() ?? [])].some((id) => id !== projectId);
+      const advance = await store.advanceFence({
+        key: accessFenceKey(accountId, projectId, documentId),
+        documentId,
+        revokedThrough: generation,
+        commandId,
+        purge: !retainedByOtherLease,
+      });
+      this.assertCommandAccepted(advance.kind, documentId, generation);
+      this.assertAccountEpoch(accountId, epoch);
+      if (advance.kind === "advanced") {
+        state?.leases.delete(projectId);
+        this.removeRetainedProjectLease(projectId, documentId);
+        if (!retainedByOtherLease) await this.removeLiveDocument(documentId);
+      }
+      this.assertAccountEpoch(accountId, epoch);
+      if (retainedByOtherLease) {
+        return {
+          revokedThrough: advance.fence.revokedThrough,
+          persistence: "retained-by-other-lease" as const,
+        };
+      }
+      if (!(await store.retryPendingPurges())) {
+        throw new DocumentSessionAuthorityError(
+          "purge-pending",
+          `Persistence purge is pending for ${documentId}`,
+        );
+      }
+      this.assertAccountEpoch(accountId, epoch);
+      return { revokedThrough: advance.fence.revokedThrough, persistence: "cleared" as const };
     });
-    this.assertCommandAccepted(advance.kind, documentId, generation);
-    if (advance.kind === "advanced") {
-      state?.leases.delete(projectId);
-      this.removeRetainedProjectLease(projectId, documentId);
-      if (!retainedByOtherLease) await this.removeLiveDocument(documentId);
-    }
-    if (retainedByOtherLease) {
-      return {
-        revokedThrough: advance.fence.revokedThrough,
-        persistence: "retained-by-other-lease",
-      };
-    }
-    if (!(await store.retryPendingPurges())) {
-      throw new DocumentSessionAuthorityError(
-        "purge-pending",
-        `Persistence purge is pending for ${documentId}`,
-      );
-    }
-    return { revokedThrough: advance.fence.revokedThrough, persistence: "cleared" };
   }
 
   get(lease: LiveDocumentSessionLease): DocumentSession {
@@ -253,8 +275,23 @@ export class DocumentSessionRegistry implements LiveDocumentSessionAuthority {
 
   release(ownerId: string): void {
     this.retainedByOwner.delete(ownerId);
-    this.temporaryRetainedByOwner.delete(ownerId);
     this.reconcileRetainedSessions();
+  }
+
+  retainBranchRooms(ownerId: string, roomKeys: Iterable<string>): void {
+    const keys = new Set(roomKeys);
+    for (const roomKey of keys) {
+      if (parseYjsRoomName(roomKey)?.kind !== "branch") {
+        throw new Error(`Branch retention requires a branch room: ${roomKey}`);
+      }
+    }
+    this.unleasedRetainedByOwner.set(ownerId, { roomKeys: keys, detachedRoomKeys: new Set() });
+    this.reconcileUnleasedSessions();
+  }
+
+  releaseBranchRooms(ownerId: string): void {
+    this.unleasedRetainedByOwner.delete(ownerId);
+    this.reconcileUnleasedSessions();
   }
 
   getBranchRoom(roomKey: string): DocumentSession {
@@ -262,17 +299,18 @@ export class DocumentSessionRegistry implements LiveDocumentSessionAuthority {
     if (room?.kind !== "branch")
       throw new Error(`Branch session requires a branch room: ${roomKey}`);
     this.cancelPendingTeardown(roomKey);
-    const existing = this.branchSessions.get(roomKey);
+    const existing = this.unleasedRooms.get(roomKey)?.session;
     if (existing) return existing;
     const session = this.createSession(roomKey, false);
     this.attachSessionTransport(session);
     session.subscribe((snapshot) => {
       if (snapshot.connectionState?.kind !== "reset") return;
       void session.destroy().finally(() => {
-        if (this.branchSessions.get(roomKey) === session) this.branchSessions.delete(roomKey);
+        if (this.unleasedRooms.get(roomKey)?.session === session)
+          this.unleasedRooms.delete(roomKey);
       });
     });
-    this.branchSessions.set(roomKey, session);
+    this.unleasedRooms.set(roomKey, { session, detached: false });
     return session;
   }
 
@@ -295,7 +333,12 @@ export class DocumentSessionRegistry implements LiveDocumentSessionAuthority {
   setOwnUserId(userId: UserId): void {
     if (this.accountId === userId) return;
     const previous = this.authorityStore;
-    this.destroyAll();
+    this.accountEpoch += 1;
+    if (this.accountId !== null) this.destroyAll();
+    else {
+      for (const { session } of this.unleasedRooms.values())
+        session.markerStore.setOwnUserId(userId);
+    }
     this.accountId = userId;
     this.authorityStore = this.createAuthorityStore(userId);
     void previous?.close();
@@ -303,18 +346,19 @@ export class DocumentSessionRegistry implements LiveDocumentSessionAuthority {
   }
 
   destroyAll(): void {
+    this.accountEpoch += 1;
     this.retainedByOwner.clear();
-    this.temporaryRetainedByOwner.clear();
+    this.unleasedRetainedByOwner.clear();
     this.liveDocCapWarningEmitted = false;
     for (const timer of this.pendingTeardownTimers.values()) clearTimeout(timer);
     this.pendingTeardownTimers.clear();
     for (const state of this.liveRooms.values()) void state.session?.destroy();
-    for (const session of this.branchSessions.values()) void session.destroy();
+    for (const { session } of this.unleasedRooms.values()) void session.destroy();
     this.liveRooms.clear();
-    this.branchSessions.clear();
+    this.unleasedRooms.clear();
   }
 
-  private configuredAuthority(): { accountId: AccountId; store: DocumentSessionAuthorityStore } {
+  private configuredAuthority(): { accountId: AccountId; store: AuthorityStore } {
     if (!this.accountId || !this.authorityStore) {
       throw new DocumentSessionAuthorityError(
         "account-unconfigured",
@@ -322,6 +366,48 @@ export class DocumentSessionRegistry implements LiveDocumentSessionAuthority {
       );
     }
     return { accountId: this.accountId, store: this.authorityStore };
+  }
+
+  private async runAuthorityOperation<T>(
+    documentId: DocumentId,
+    operation: (context: {
+      accountId: AccountId;
+      store: AuthorityStore;
+      epoch: number;
+    }) => Promise<T>,
+  ): Promise<T> {
+    const { accountId, store } = this.configuredAuthority();
+    const epoch = this.accountEpoch;
+    const key = `${encodeURIComponent(accountId)}/${encodeURIComponent(documentId)}`;
+    const previous = this.authorityOperations.get(key) ?? Promise.resolve();
+    let result!: T;
+    const current = previous
+      .catch(() => undefined)
+      .then(async () => {
+        this.assertAccountEpoch(accountId, epoch);
+        try {
+          result = await operation({ accountId, store, epoch });
+        } catch (error) {
+          this.assertAccountEpoch(accountId, epoch);
+          throw error;
+        }
+      });
+    this.authorityOperations.set(key, current);
+    try {
+      await current;
+      return result;
+    } finally {
+      if (this.authorityOperations.get(key) === current) this.authorityOperations.delete(key);
+    }
+  }
+
+  private assertAccountEpoch(accountId: AccountId, epoch: number): void {
+    if (this.accountId !== accountId || this.accountEpoch !== epoch) {
+      throw new DocumentSessionAuthorityError(
+        "account-mismatch",
+        "Session account changed during the authority operation",
+      );
+    }
   }
 
   private requireLease(lease: LiveDocumentSessionLease): LiveRoomState {
@@ -389,10 +475,6 @@ export class DocumentSessionRegistry implements LiveDocumentSessionAuthority {
   private async removeLiveDocument(documentId: DocumentId): Promise<void> {
     this.cancelPendingTeardown(documentId);
     for (const retained of this.retainedByOwner.values()) retained.delete(documentId);
-    for (const retained of this.temporaryRetainedByOwner.values()) {
-      retained.roomKeys.delete(documentId);
-      retained.detachedRoomKeys.delete(documentId);
-    }
     const state = this.liveRooms.get(documentId);
     this.liveRooms.delete(documentId);
     await state?.session?.destroy();
@@ -438,18 +520,12 @@ export class DocumentSessionRegistry implements LiveDocumentSessionAuthority {
     for (const retained of this.retainedByOwner.values()) {
       for (const [documentId, owner] of retained) keep.set(documentId, owner);
     }
-    for (const retained of this.temporaryRetainedByOwner.values()) {
-      for (const documentId of retained.roomKeys) {
-        if (!keep.has(documentId))
-          this.temporaryGetLive(documentId, retained.detachedRoomKeys.has(documentId));
-      }
-    }
     for (const owner of keep.values()) {
       const state = this.requireLease(owner.lease);
       this.getOrCreateLiveSession(owner.lease, state, !owner.detached);
     }
     for (const [documentId, state] of this.liveRooms) {
-      if (state.session && !keep.has(documentId) && !this.isTemporarilyRetained(documentId)) {
+      if (state.session && !keep.has(documentId)) {
         this.scheduleTeardown(documentId);
       }
     }
@@ -460,10 +536,17 @@ export class DocumentSessionRegistry implements LiveDocumentSessionAuthority {
     const timer = setTimeout(() => {
       this.pendingTeardownTimers.delete(roomKey);
       const state = this.liveRooms.get(roomKey);
-      if (!state?.session || this.isRetained(roomKey)) return;
-      const session = state.session;
-      state.session = null;
-      void session.destroy();
+      if (state?.session) {
+        if (this.isRetained(roomKey)) return;
+        const session = state.session;
+        state.session = null;
+        void session.destroy();
+        return;
+      }
+      const unleased = this.unleasedRooms.get(roomKey);
+      if (!unleased || this.isUnleasedRetained(roomKey)) return;
+      this.unleasedRooms.delete(roomKey);
+      void unleased.session.destroy();
     }, this.teardownGraceMs);
     this.pendingTeardownTimers.set(roomKey, timer);
   }
@@ -477,12 +560,12 @@ export class DocumentSessionRegistry implements LiveDocumentSessionAuthority {
 
   private isRetained(documentId: DocumentId): boolean {
     for (const retained of this.retainedByOwner.values()) if (retained.has(documentId)) return true;
-    return this.isTemporarilyRetained(documentId);
+    return false;
   }
 
-  private isTemporarilyRetained(documentId: DocumentId): boolean {
-    for (const retained of this.temporaryRetainedByOwner.values()) {
-      if (retained.roomKeys.has(documentId)) return true;
+  private isUnleasedRetained(roomKey: string): boolean {
+    for (const retained of this.unleasedRetainedByOwner.values()) {
+      if (retained.roomKeys.has(roomKey)) return true;
     }
     return false;
   }
@@ -502,12 +585,48 @@ export class DocumentSessionRegistry implements LiveDocumentSessionAuthority {
       observers = new Map();
       this.sessionObservers.set(roomKey, observers);
     }
-    observers.set(observer, this.temporaryPeek(roomKey)?.subscribe(observer));
+    observers.set(observer, this.peekAnyRoom(roomKey)?.subscribe(observer));
     return () => {
       observers?.get(observer)?.();
       observers?.delete(observer);
       if (observers?.size === 0) this.sessionObservers.delete(roomKey);
     };
+  }
+
+  private reconcileUnleasedSessions(): void {
+    const keep = new Set<string>();
+    const attach = new Set<string>();
+    for (const retained of this.unleasedRetainedByOwner.values()) {
+      for (const roomKey of retained.roomKeys) {
+        keep.add(roomKey);
+        if (!retained.detachedRoomKeys.has(roomKey)) attach.add(roomKey);
+      }
+    }
+    for (const roomKey of keep) {
+      if (parseYjsRoomName(roomKey)?.kind === "branch") this.getBranchRoom(roomKey);
+      else this.temporaryGetLive(roomKey, !attach.has(roomKey));
+    }
+    for (const roomKey of this.unleasedRooms.keys()) {
+      if (!keep.has(roomKey)) this.scheduleTeardown(roomKey);
+    }
+  }
+
+  private peekAnyRoom(roomKey: string): DocumentSession | undefined {
+    return (
+      this.unleasedRooms.get(roomKey)?.session ?? this.liveRooms.get(roomKey)?.session ?? undefined
+    );
+  }
+
+  private async retireUnleasedLiveRoom(documentId: DocumentId): Promise<void> {
+    const room = this.unleasedRooms.get(documentId);
+    if (!room) return;
+    this.cancelPendingTeardown(documentId);
+    this.unleasedRooms.delete(documentId);
+    for (const retained of this.unleasedRetainedByOwner.values()) {
+      retained.roomKeys.delete(documentId);
+      retained.detachedRoomKeys.delete(documentId);
+    }
+    await room.session.destroy();
   }
 
   private maybeWarnLiveDocCap(): void {
@@ -559,22 +678,43 @@ export class DocumentSessionRegistry implements LiveDocumentSessionAuthority {
     openRoomKeys: Iterable<string>,
     options: { detachedRoomKeys?: Iterable<string> } = {},
   ): void {
-    this.temporaryRetainedByOwner.set(ownerId, {
-      roomKeys: new Set(openRoomKeys),
-      detachedRoomKeys: new Set(options.detachedRoomKeys),
+    const roomKeys = new Set(openRoomKeys);
+    const branchKeys = new Set(
+      [...roomKeys].filter((roomKey) => parseYjsRoomName(roomKey)?.kind === "branch"),
+    );
+    const liveKeys = new Set([...roomKeys].filter((roomKey) => !branchKeys.has(roomKey)));
+    const detached = new Set(options.detachedRoomKeys);
+    if (branchKeys.size > 0 && liveKeys.size === 0) {
+      this.retainBranchRooms(ownerId, branchKeys);
+      return;
+    }
+    this.unleasedRetainedByOwner.set(ownerId, {
+      roomKeys: new Set([...branchKeys, ...liveKeys]),
+      detachedRoomKeys: new Set([...detached].filter((roomKey) => liveKeys.has(roomKey))),
     });
-    this.reconcileRetainedSessions();
+    this.reconcileUnleasedSessions();
   }
 
   temporaryPeek(roomKey: string): DocumentSession | undefined {
     const room = parseYjsRoomName(roomKey);
     return room?.kind === "branch"
-      ? this.branchSessions.get(roomKey)
-      : (this.liveRooms.get(roomKey)?.session ?? undefined);
+      ? this.unleasedRooms.get(roomKey)?.session
+      : this.unleasedRooms.get(roomKey)?.session;
   }
 
   async temporaryRevokeRoom(roomKey: string): Promise<void> {
-    await this.removeLiveDocument(roomKey);
+    this.cancelPendingTeardown(roomKey);
+    for (const retained of this.unleasedRetainedByOwner.values()) {
+      retained.roomKeys.delete(roomKey);
+      retained.detachedRoomKeys.delete(roomKey);
+    }
+    const room = this.unleasedRooms.get(roomKey);
+    this.unleasedRooms.delete(roomKey);
+    await room?.session.destroy();
+  }
+
+  temporaryRelease(ownerId: string): void {
+    this.releaseBranchRooms(ownerId);
   }
 
   temporaryObserve(
@@ -588,16 +728,25 @@ export class DocumentSessionRegistry implements LiveDocumentSessionAuthority {
     const room = parseYjsRoomName(documentId);
     if (room?.kind !== "live")
       throw new Error(`Live session requires a document id: ${documentId}`);
-    const state = this.liveRooms.get(documentId) ?? {
-      session: null,
-      persistenceGeneration: null,
-      leases: new Map(),
-    };
-    this.liveRooms.set(documentId, state);
-    if (!state.session) state.session = this.createSession(documentId, false);
-    if (!detached && state.session.getSnapshot().status === "detached")
-      this.attachSessionTransport(state.session);
-    return state.session;
+    if (this.liveRooms.get(documentId)?.leases.size) {
+      throw new DocumentSessionAuthorityError(
+        "stale-lease",
+        `Legacy acquisition is unavailable after admission for ${documentId}`,
+      );
+    }
+    this.cancelPendingTeardown(documentId);
+    const existing = this.unleasedRooms.get(documentId);
+    if (existing) {
+      if (!detached && existing.session.getSnapshot().status === "detached") {
+        this.attachSessionTransport(existing.session);
+        existing.detached = false;
+      }
+      return existing.session;
+    }
+    const session = this.createSession(documentId, false);
+    this.unleasedRooms.set(documentId, { session, detached });
+    if (!detached) this.attachSessionTransport(session);
+    return session;
   }
 }
 
@@ -641,7 +790,7 @@ export function getDocumentSessionRegistry(): TemporaryUnfencedDocumentSessionRe
     attachDetached: (id) => registry.temporaryAttachDetached(id),
     restartUnavailableRoom: (id) => registry.temporaryRestartUnavailableRoom(id),
     retain: (owner, ids, options) => registry.temporaryRetain(owner, ids, options),
-    release: (owner) => registry.release(owner),
+    release: (owner) => registry.temporaryRelease(owner),
     peek: (id) => registry.temporaryPeek(id),
     has: (id) => registry.temporaryPeek(id) !== undefined,
     observe: (id, observer) => registry.temporaryObserve(id, observer),

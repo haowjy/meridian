@@ -7,6 +7,7 @@ import type {
   DocumentFenceKey,
   RevocationFence,
 } from "@meridian/contracts/protocol";
+import { assertAvailabilityGeneration } from "@meridian/contracts/protocol";
 import type { DocumentId, ProjectId } from "@meridian/contracts/runtime";
 import { collabSchemaKeyTag } from "@meridian/prosemirror-schema";
 
@@ -46,6 +47,8 @@ export function compareAvailabilityGeneration(
   left: AvailabilityGeneration,
   right: AvailabilityGeneration,
 ): -1 | 0 | 1 {
+  assertAvailabilityGeneration(left);
+  assertAvailabilityGeneration(right);
   const comparison = BigInt(left) - BigInt(right);
   return comparison < 0n ? -1 : comparison > 0n ? 1 : 0;
 }
@@ -67,6 +70,7 @@ export function documentSessionPersistenceKey(
   documentId: DocumentId,
   generation: AvailabilityGeneration,
 ): string {
+  assertAvailabilityGeneration(generation);
   return `${LIVE_PERSISTENCE_PREFIX}${encodeKeyPart(accountId)}/${encodeKeyPart(documentId)}/${generation}`;
 }
 
@@ -78,7 +82,12 @@ export function parseDocumentSessionPersistenceKey(name: string): {
   const prefix = name.match(LIVE_PERSISTENCE_PATTERN)?.[0];
   if (!prefix) return null;
   const parts = name.slice(prefix.length).split("/");
-  if (parts.length !== 3 || !/^\d+$/.test(parts[2] ?? "")) return null;
+  if (parts.length !== 3) return null;
+  try {
+    assertAvailabilityGeneration(parts[2] ?? "");
+  } catch {
+    return null;
+  }
   const accountId = decodeKeyPart(parts[0] ?? "");
   const documentId = decodeKeyPart(parts[1] ?? "");
   if (accountId === null || documentId === null) return null;
@@ -106,6 +115,9 @@ function transactionDone(transaction: IDBTransaction): Promise<void> {
 export class DocumentSessionAuthorityStore {
   private readonly databasePromise: Promise<IDBDatabase>;
   private readonly blockedDeleteRequests = new Set<string>();
+  private retryPromise: Promise<boolean> | null = null;
+  private retryRequested = false;
+  private closed = false;
 
   constructor(
     readonly accountId: AccountId,
@@ -126,6 +138,7 @@ export class DocumentSessionAuthorityStore {
   }
 
   async close(): Promise<void> {
+    this.closed = true;
     (await this.databasePromise).close();
   }
 
@@ -139,6 +152,24 @@ export class DocumentSessionAuthorityStore {
     return record ? { revokedThrough: record.revokedThrough, commandId: record.commandId } : null;
   }
 
+  /** Read both applicable fences from one IndexedDB snapshot. */
+  async readAdmissionFences(
+    documentKey: DocumentFenceKey,
+    accessKey: AccessFenceKey,
+  ): Promise<readonly [RevocationFence | null, RevocationFence | null]> {
+    const database = await this.databasePromise;
+    const transaction = database.transaction(FENCES, "readonly");
+    const fences = transaction.objectStore(FENCES);
+    const [documentRecord, accessRecord] = await Promise.all([
+      requestResult(fences.get(documentKey)) as Promise<FenceRecord | undefined>,
+      requestResult(fences.get(accessKey)) as Promise<FenceRecord | undefined>,
+    ]);
+    await transactionDone(transaction);
+    const toFence = (record: FenceRecord | undefined): RevocationFence | null =>
+      record ? { revokedThrough: record.revokedThrough, commandId: record.commandId } : null;
+    return [toFence(documentRecord), toFence(accessRecord)];
+  }
+
   /** Atomically advances the fence and records purge work before any physical deletion. */
   async advanceFence(input: {
     key: DocumentFenceKey | AccessFenceKey;
@@ -147,6 +178,7 @@ export class DocumentSessionAuthorityStore {
     commandId: AvailabilityCommandId;
     purge: boolean;
   }): Promise<FenceAdvance> {
+    assertAvailabilityGeneration(input.revokedThrough);
     const database = await this.databasePromise;
     const transaction = database.transaction([FENCES, PURGES], "readwrite");
     const fences = transaction.objectStore(FENCES);
@@ -197,6 +229,27 @@ export class DocumentSessionAuthorityStore {
   }
 
   async retryPendingPurges(): Promise<boolean> {
+    this.retryRequested = true;
+    if (this.retryPromise) return this.retryPromise;
+    const retry = this.runRequestedPurges();
+    this.retryPromise = retry;
+    try {
+      return await retry;
+    } finally {
+      if (this.retryPromise === retry) this.retryPromise = null;
+    }
+  }
+
+  private async runRequestedPurges(): Promise<boolean> {
+    let cleared = true;
+    do {
+      this.retryRequested = false;
+      if (!(await this.runPendingPurges())) cleared = false;
+    } while (this.retryRequested);
+    return cleared;
+  }
+
+  private async runPendingPurges(): Promise<boolean> {
     let cleared = true;
     for (const pending of await this.pendingPurges()) {
       if (!(await this.settlePurge(pending))) cleared = false;
@@ -205,7 +258,8 @@ export class DocumentSessionAuthorityStore {
   }
 
   private async settlePurge(pending: PendingDocumentPurge): Promise<boolean> {
-    const databases = typeof this.idb.databases === "function" ? await this.idb.databases() : [];
+    if (typeof this.idb.databases !== "function") return false;
+    const databases = await this.idb.databases();
     const matching = (databases ?? []).flatMap(({ name }) => {
       if (!name) return [];
       const parsed = parseDocumentSessionPersistenceKey(name);
@@ -242,7 +296,15 @@ export class DocumentSessionAuthorityStore {
       };
       request.onsuccess = () => {
         this.blockedDeleteRequests.delete(name);
-        if (!settled) resolve(true);
+        if (!settled) {
+          resolve(true);
+          return;
+        }
+        // A blocked request remains live in IndexedDB. Its eventual success is
+        // the wake-up signal for the same durable job, including later matches.
+        if (!this.closed) {
+          queueMicrotask(() => void this.retryPendingPurges().catch(() => undefined));
+        }
       };
     });
   }
