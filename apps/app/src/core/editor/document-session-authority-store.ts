@@ -1,4 +1,4 @@
-/** Durable account-scoped fences and generation-qualified live-room purge work. */
+/** Durable account-scoped live-room ordering, drains, fences, and proven purge work. */
 import type {
   AccessFenceKey,
   AccountId,
@@ -11,13 +11,50 @@ import { assertAvailabilityGeneration } from "@meridian/contracts/protocol";
 import type { DocumentId, ProjectId } from "@meridian/contracts/runtime";
 import { collabSchemaKeyTag } from "@meridian/prosemirror-schema";
 
-const AUTHORITY_STORE_VERSION = 1;
+const AUTHORITY_STORE_VERSION = 2;
 const FENCES = "fences";
 const PURGES = "purges";
+const ROOMS = "room-order";
+const ACCESS_HEADS = "access-heads";
+const ACCESS_OUTCOMES = "access-outcomes";
 const LIVE_PERSISTENCE_PREFIX = `meridian:document:${collabSchemaKeyTag()}:live/`;
 const LIVE_PERSISTENCE_PATTERN = /^meridian:document:v\d+\.\d+:live\//;
 
 type FenceRecord = RevocationFence & { key: DocumentFenceKey | AccessFenceKey };
+export type PendingDrain =
+  | {
+      kind: "document";
+      generation: AvailabilityGeneration;
+      commandId: AvailabilityCommandId;
+      incarnation: AvailabilityGeneration | null;
+    }
+  | {
+      kind: "access";
+      projectId: ProjectId;
+      generation: AvailabilityGeneration;
+      commandId: AvailabilityCommandId;
+      incarnation: AvailabilityGeneration | null;
+    };
+export type RoomOrderRecord = {
+  documentId: DocumentId;
+  persistenceGeneration: AvailabilityGeneration | null;
+  documentAdmittedThrough: AvailabilityGeneration | null;
+  pendingDrain: PendingDrain | null;
+};
+type AccessHeadRecord = {
+  key: string;
+  documentId: DocumentId;
+  projectId: ProjectId;
+  admittedThrough: AvailabilityGeneration;
+};
+type AccessOutcomeRecord = {
+  key: string;
+  documentId: DocumentId;
+  projectId: ProjectId;
+  generation: AvailabilityGeneration;
+  commandId: AvailabilityCommandId;
+  persistence: "cleared" | "retained-by-other-lease";
+};
 export type PendingDocumentPurge = {
   key: string;
   accountId: AccountId;
@@ -31,6 +68,23 @@ export type FenceAdvance =
   | { kind: "older"; fence: RevocationFence }
   | { kind: "collision"; fence: RevocationFence };
 
+export type AdmissionDecision =
+  | { kind: "admitted"; persistenceGeneration: AvailabilityGeneration }
+  | { kind: "generation-revoked" }
+  | { kind: "purge-barrier"; purgeThrough: AvailabilityGeneration }
+  | { kind: "pending"; pending: PendingDrain };
+
+export type DrainStart =
+  | { kind: "started"; pending: PendingDrain }
+  | { kind: "pending"; pending: PendingDrain }
+  | { kind: "older"; revokedThrough: AvailabilityGeneration }
+  | { kind: "collision"; revokedThrough: AvailabilityGeneration }
+  | {
+      kind: "replay";
+      revokedThrough: AvailabilityGeneration;
+      persistence?: "cleared" | "retained-by-other-lease";
+    };
+
 function encodeKeyPart(value: string): string {
   return encodeURIComponent(value);
 }
@@ -43,6 +97,23 @@ function decodeKeyPart(value: string): string | null {
   }
 }
 
+function accessRecordKey(documentId: DocumentId, projectId: ProjectId): string {
+  return `${encodeKeyPart(documentId)}/${encodeKeyPart(projectId)}`;
+}
+
+function purgeRecordKey(accountId: AccountId, documentId: DocumentId): string {
+  return `${accountId}/${documentId}`;
+}
+
+function emptyRoom(documentId: DocumentId): RoomOrderRecord {
+  return {
+    documentId,
+    persistenceGeneration: null,
+    documentAdmittedThrough: null,
+    pendingDrain: null,
+  };
+}
+
 export function compareAvailabilityGeneration(
   left: AvailabilityGeneration,
   right: AvailabilityGeneration,
@@ -51,6 +122,13 @@ export function compareAvailabilityGeneration(
   assertAvailabilityGeneration(right);
   const comparison = BigInt(left) - BigInt(right);
   return comparison < 0n ? -1 : comparison > 0n ? 1 : 0;
+}
+
+function maximumGeneration(
+  current: AvailabilityGeneration | null,
+  candidate: AvailabilityGeneration,
+): AvailabilityGeneration {
+  return current && compareAvailabilityGeneration(current, candidate) > 0 ? current : candidate;
 }
 
 export function documentFenceKey(accountId: AccountId, documentId: DocumentId): DocumentFenceKey {
@@ -122,19 +200,64 @@ export class DocumentSessionAuthorityStore {
   constructor(
     readonly accountId: AccountId,
     private readonly idb: IDBFactory = indexedDB,
+    private readonly onVersionChange: () => void = () => undefined,
   ) {
-    const request = idb.open(
-      `meridian:document-session-authority:${encodeKeyPart(accountId)}`,
-      AUTHORITY_STORE_VERSION,
-    );
-    request.onupgradeneeded = () => {
-      const database = request.result;
-      if (!database.objectStoreNames.contains(FENCES))
-        database.createObjectStore(FENCES, { keyPath: "key" });
-      if (!database.objectStoreNames.contains(PURGES))
-        database.createObjectStore(PURGES, { keyPath: "key" });
-    };
-    this.databasePromise = requestResult(request);
+    this.databasePromise = new Promise((resolve, reject) => {
+      let settled = false;
+      let request: IDBOpenDBRequest;
+      try {
+        request = idb.open(
+          `meridian:document-session-authority:${encodeKeyPart(accountId)}`,
+          AUTHORITY_STORE_VERSION,
+        );
+      } catch (error) {
+        reject(error);
+        return;
+      }
+      request.onupgradeneeded = () => {
+        const database = request.result;
+        if (!database.objectStoreNames.contains(FENCES))
+          database.createObjectStore(FENCES, { keyPath: "key" });
+        if (!database.objectStoreNames.contains(PURGES))
+          database.createObjectStore(PURGES, { keyPath: "key" });
+        if (!database.objectStoreNames.contains(ROOMS))
+          database.createObjectStore(ROOMS, { keyPath: "documentId" });
+        if (!database.objectStoreNames.contains(ACCESS_HEADS))
+          database.createObjectStore(ACCESS_HEADS, { keyPath: "key" });
+        if (!database.objectStoreNames.contains(ACCESS_OUTCOMES))
+          database.createObjectStore(ACCESS_OUTCOMES, { keyPath: "key" });
+      };
+      request.onblocked = () => {
+        if (!settled) {
+          settled = true;
+          reject(new Error("Document session authority upgrade is blocked"));
+        }
+      };
+      request.onerror = () => {
+        if (!settled) {
+          settled = true;
+          reject(request.error ?? new Error("IndexedDB authority open failed"));
+        }
+      };
+      request.onsuccess = () => {
+        if (settled) {
+          request.result.close();
+          return;
+        }
+        settled = true;
+        request.result.onversionchange = () => {
+          this.onVersionChange();
+          request.result.close();
+        };
+        resolve(request.result);
+      };
+    });
+  }
+
+  async ensureAvailable(): Promise<void> {
+    const database = await this.databasePromise;
+    const transaction = database.transaction(ROOMS, "readwrite");
+    await transactionDone(transaction);
   }
 
   async close(): Promise<void> {
@@ -152,7 +275,6 @@ export class DocumentSessionAuthorityStore {
     return record ? { revokedThrough: record.revokedThrough, commandId: record.commandId } : null;
   }
 
-  /** Read both applicable fences from one IndexedDB snapshot. */
   async readAdmissionFences(
     documentKey: DocumentFenceKey,
     accessKey: AccessFenceKey,
@@ -160,17 +282,340 @@ export class DocumentSessionAuthorityStore {
     const database = await this.databasePromise;
     const transaction = database.transaction(FENCES, "readonly");
     const fences = transaction.objectStore(FENCES);
-    const [documentRecord, accessRecord] = await Promise.all([
+    const records = await Promise.all([
       requestResult(fences.get(documentKey)) as Promise<FenceRecord | undefined>,
       requestResult(fences.get(accessKey)) as Promise<FenceRecord | undefined>,
     ]);
     await transactionDone(transaction);
     const toFence = (record: FenceRecord | undefined): RevocationFence | null =>
       record ? { revokedThrough: record.revokedThrough, commandId: record.commandId } : null;
-    return [toFence(documentRecord), toFence(accessRecord)];
+    return [toFence(records[0]), toFence(records[1])];
   }
 
-  /** Atomically advances the fence and records purge work before any physical deletion. */
+  async readRoom(documentId: DocumentId): Promise<RoomOrderRecord> {
+    const database = await this.databasePromise;
+    const transaction = database.transaction(ROOMS, "readonly");
+    const room = (await requestResult(transaction.objectStore(ROOMS).get(documentId))) as
+      | RoomOrderRecord
+      | undefined;
+    await transactionDone(transaction);
+    return room ?? emptyRoom(documentId);
+  }
+
+  async readAccessHead(
+    documentId: DocumentId,
+    projectId: ProjectId,
+  ): Promise<AvailabilityGeneration | null> {
+    const database = await this.databasePromise;
+    const transaction = database.transaction(ACCESS_HEADS, "readonly");
+    const record = (await requestResult(
+      transaction.objectStore(ACCESS_HEADS).get(accessRecordKey(documentId, projectId)),
+    )) as AccessHeadRecord | undefined;
+    await transactionDone(transaction);
+    return record?.admittedThrough ?? null;
+  }
+
+  async listPendingDrains(): Promise<readonly RoomOrderRecord[]> {
+    const database = await this.databasePromise;
+    const transaction = database.transaction(ROOMS, "readonly");
+    const rooms = (await requestResult(
+      transaction.objectStore(ROOMS).getAll(),
+    )) as RoomOrderRecord[];
+    await transactionDone(transaction);
+    return rooms.filter((room) => room.pendingDrain !== null);
+  }
+
+  async admit(input: {
+    documentId: DocumentId;
+    projectId: ProjectId;
+    generation: AvailabilityGeneration;
+  }): Promise<AdmissionDecision> {
+    assertAvailabilityGeneration(input.generation);
+    const database = await this.databasePromise;
+    const transaction = database.transaction([FENCES, PURGES, ROOMS, ACCESS_HEADS], "readwrite");
+    const fences = transaction.objectStore(FENCES);
+    const [documentFence, accessFence, storedRoom, purge] = await Promise.all([
+      requestResult(fences.get(documentFenceKey(this.accountId, input.documentId))) as Promise<
+        FenceRecord | undefined
+      >,
+      requestResult(
+        fences.get(accessFenceKey(this.accountId, input.projectId, input.documentId)),
+      ) as Promise<FenceRecord | undefined>,
+      requestResult(transaction.objectStore(ROOMS).get(input.documentId)) as Promise<
+        RoomOrderRecord | undefined
+      >,
+      requestResult(
+        transaction.objectStore(PURGES).get(purgeRecordKey(this.accountId, input.documentId)),
+      ) as Promise<PendingDocumentPurge | undefined>,
+    ]);
+    if (
+      [documentFence, accessFence].some(
+        (fence) =>
+          fence && compareAvailabilityGeneration(input.generation, fence.revokedThrough) <= 0,
+      )
+    ) {
+      transaction.abort();
+      return { kind: "generation-revoked" };
+    }
+    const room = storedRoom ?? emptyRoom(input.documentId);
+    if (room.pendingDrain) {
+      transaction.abort();
+      return { kind: "pending", pending: room.pendingDrain };
+    }
+    const reusable =
+      room.persistenceGeneration &&
+      (!purge ||
+        compareAvailabilityGeneration(room.persistenceGeneration, purge.revokedThrough) > 0)
+        ? room.persistenceGeneration
+        : null;
+    if (
+      !reusable &&
+      purge &&
+      compareAvailabilityGeneration(input.generation, purge.revokedThrough) <= 0
+    ) {
+      transaction.abort();
+      return { kind: "purge-barrier", purgeThrough: purge.revokedThrough };
+    }
+    const persistenceGeneration = reusable ?? input.generation;
+    room.persistenceGeneration = persistenceGeneration;
+    room.documentAdmittedThrough = maximumGeneration(
+      room.documentAdmittedThrough,
+      input.generation,
+    );
+    transaction.objectStore(ROOMS).put(room);
+    const heads = transaction.objectStore(ACCESS_HEADS);
+    const key = accessRecordKey(input.documentId, input.projectId);
+    const currentHead = (await requestResult(heads.get(key))) as AccessHeadRecord | undefined;
+    heads.put({
+      key,
+      documentId: input.documentId,
+      projectId: input.projectId,
+      admittedThrough: maximumGeneration(currentHead?.admittedThrough ?? null, input.generation),
+    } satisfies AccessHeadRecord);
+    await transactionDone(transaction);
+    return { kind: "admitted", persistenceGeneration };
+  }
+
+  async startDocumentDrain(input: {
+    documentId: DocumentId;
+    generation: AvailabilityGeneration;
+    commandId: AvailabilityCommandId;
+  }): Promise<DrainStart> {
+    return this.startDrain({ kind: "document", ...input });
+  }
+
+  async startAccessDrain(input: {
+    documentId: DocumentId;
+    projectId: ProjectId;
+    generation: AvailabilityGeneration;
+    commandId: AvailabilityCommandId;
+  }): Promise<DrainStart> {
+    return this.startDrain({ kind: "access", ...input });
+  }
+
+  private async startDrain(
+    input:
+      | {
+          kind: "document";
+          documentId: DocumentId;
+          generation: AvailabilityGeneration;
+          commandId: AvailabilityCommandId;
+        }
+      | {
+          kind: "access";
+          documentId: DocumentId;
+          projectId: ProjectId;
+          generation: AvailabilityGeneration;
+          commandId: AvailabilityCommandId;
+        },
+  ): Promise<DrainStart> {
+    assertAvailabilityGeneration(input.generation);
+    const database = await this.databasePromise;
+    const transaction = database.transaction(
+      [FENCES, ROOMS, ACCESS_HEADS, ACCESS_OUTCOMES],
+      "readwrite",
+    );
+    const rooms = transaction.objectStore(ROOMS);
+    const room =
+      ((await requestResult(rooms.get(input.documentId))) as RoomOrderRecord | undefined) ??
+      emptyRoom(input.documentId);
+    if (room.pendingDrain) {
+      transaction.abort();
+      return { kind: "pending", pending: room.pendingDrain };
+    }
+    const key =
+      input.kind === "document"
+        ? documentFenceKey(this.accountId, input.documentId)
+        : accessFenceKey(this.accountId, input.projectId, input.documentId);
+    const fences = transaction.objectStore(FENCES);
+    const current = (await requestResult(fences.get(key))) as FenceRecord | undefined;
+    if (current) {
+      const comparison = compareAvailabilityGeneration(input.generation, current.revokedThrough);
+      if (comparison < 0) {
+        transaction.abort();
+        return { kind: "older", revokedThrough: current.revokedThrough };
+      }
+      if (comparison === 0) {
+        if (current.commandId !== input.commandId) {
+          transaction.abort();
+          return { kind: "collision", revokedThrough: current.revokedThrough };
+        }
+        if (input.kind === "document") {
+          transaction.abort();
+          return { kind: "replay", revokedThrough: current.revokedThrough, persistence: "cleared" };
+        }
+        const outcome = (await requestResult(
+          transaction
+            .objectStore(ACCESS_OUTCOMES)
+            .get(accessRecordKey(input.documentId, input.projectId)),
+        )) as AccessOutcomeRecord | undefined;
+        transaction.abort();
+        if (
+          !outcome ||
+          outcome.generation !== input.generation ||
+          outcome.commandId !== input.commandId
+        ) {
+          throw new Error("Completed access fence is missing its exact outcome");
+        }
+        return {
+          kind: "replay",
+          revokedThrough: current.revokedThrough,
+          persistence: outcome.persistence,
+        };
+      }
+    }
+    const admittedThrough =
+      input.kind === "document"
+        ? room.documentAdmittedThrough
+        : ((
+            (await requestResult(
+              transaction
+                .objectStore(ACCESS_HEADS)
+                .get(accessRecordKey(input.documentId, input.projectId)),
+            )) as AccessHeadRecord | undefined
+          )?.admittedThrough ?? null);
+    if (admittedThrough && compareAvailabilityGeneration(input.generation, admittedThrough) < 0) {
+      transaction.abort();
+      return { kind: "older", revokedThrough: admittedThrough };
+    }
+    const fence: FenceRecord = {
+      key,
+      revokedThrough: input.generation,
+      commandId: input.commandId,
+    };
+    fences.put(fence);
+    if (input.kind === "access") {
+      transaction
+        .objectStore(ACCESS_OUTCOMES)
+        .delete(accessRecordKey(input.documentId, input.projectId));
+    }
+    const pending: PendingDrain = {
+      ...input,
+      incarnation: room.persistenceGeneration,
+    };
+    room.pendingDrain = pending;
+    if (
+      input.kind === "document" &&
+      room.persistenceGeneration &&
+      compareAvailabilityGeneration(room.persistenceGeneration, input.generation) <= 0
+    ) {
+      room.persistenceGeneration = null;
+    }
+    rooms.put(room);
+    await transactionDone(transaction);
+    return { kind: "started", pending };
+  }
+
+  async finishDocumentDrain(input: {
+    documentId: DocumentId;
+    generation: AvailabilityGeneration;
+    commandId: AvailabilityCommandId;
+  }): Promise<boolean> {
+    return this.finishDrain({ kind: "document", ...input, persistence: "cleared" });
+  }
+
+  async finishAccessDrain(input: {
+    documentId: DocumentId;
+    projectId: ProjectId;
+    generation: AvailabilityGeneration;
+    commandId: AvailabilityCommandId;
+    persistence: "cleared" | "retained-by-other-lease";
+  }): Promise<boolean> {
+    return this.finishDrain({ kind: "access", ...input });
+  }
+
+  private async finishDrain(
+    input:
+      | {
+          kind: "document";
+          documentId: DocumentId;
+          generation: AvailabilityGeneration;
+          commandId: AvailabilityCommandId;
+          persistence: "cleared";
+        }
+      | {
+          kind: "access";
+          documentId: DocumentId;
+          projectId: ProjectId;
+          generation: AvailabilityGeneration;
+          commandId: AvailabilityCommandId;
+          persistence: "cleared" | "retained-by-other-lease";
+        },
+  ): Promise<boolean> {
+    const database = await this.databasePromise;
+    const transaction = database.transaction([ROOMS, PURGES, ACCESS_OUTCOMES], "readwrite");
+    const rooms = transaction.objectStore(ROOMS);
+    const room = (await requestResult(rooms.get(input.documentId))) as RoomOrderRecord | undefined;
+    const pending = room?.pendingDrain;
+    if (
+      !room ||
+      !pending ||
+      pending.kind !== input.kind ||
+      pending.generation !== input.generation ||
+      pending.commandId !== input.commandId ||
+      (pending.kind === "access" &&
+        input.kind === "access" &&
+        pending.projectId !== input.projectId)
+    ) {
+      transaction.abort();
+      return false;
+    }
+    room.pendingDrain = null;
+    if (input.kind === "access") {
+      const key = accessRecordKey(input.documentId, input.projectId);
+      transaction.objectStore(ACCESS_OUTCOMES).put({
+        key,
+        documentId: input.documentId,
+        projectId: input.projectId,
+        generation: input.generation,
+        commandId: input.commandId,
+        persistence: input.persistence,
+      } satisfies AccessOutcomeRecord);
+      if (
+        input.persistence === "cleared" &&
+        room.persistenceGeneration &&
+        compareAvailabilityGeneration(room.persistenceGeneration, input.generation) <= 0
+      ) {
+        room.persistenceGeneration = null;
+      }
+    }
+    rooms.put(room);
+    if (input.persistence === "cleared") {
+      const purges = transaction.objectStore(PURGES);
+      const key = purgeRecordKey(this.accountId, input.documentId);
+      const current = (await requestResult(purges.get(key))) as PendingDocumentPurge | undefined;
+      purges.put({
+        key,
+        accountId: this.accountId,
+        documentId: input.documentId,
+        revokedThrough: maximumGeneration(current?.revokedThrough ?? null, input.generation),
+      } satisfies PendingDocumentPurge);
+    }
+    await transactionDone(transaction);
+    return true;
+  }
+
+  /** Compatibility helper retained for focused store tests; coordination uses start/finish. */
   async advanceFence(input: {
     key: DocumentFenceKey | AccessFenceKey;
     documentId: DocumentId;
@@ -197,7 +642,6 @@ export class DocumentSessionAuthorityStore {
         };
       }
     }
-
     const fence: FenceRecord = {
       key: input.key,
       revokedThrough: input.revokedThrough,
@@ -206,13 +650,14 @@ export class DocumentSessionAuthorityStore {
     fences.put(fence);
     if (input.purge) {
       const purges = transaction.objectStore(PURGES);
-      const key = `${this.accountId}/${input.documentId}`;
+      const key = purgeRecordKey(this.accountId, input.documentId);
       const pending = (await requestResult(purges.get(key))) as PendingDocumentPurge | undefined;
-      const revokedThrough =
-        pending && compareAvailabilityGeneration(pending.revokedThrough, input.revokedThrough) > 0
-          ? pending.revokedThrough
-          : input.revokedThrough;
-      purges.put({ key, accountId: this.accountId, documentId: input.documentId, revokedThrough });
+      purges.put({
+        key,
+        accountId: this.accountId,
+        documentId: input.documentId,
+        revokedThrough: maximumGeneration(pending?.revokedThrough ?? null, input.revokedThrough),
+      });
     }
     await transactionDone(transaction);
     return { kind: "advanced", fence };
@@ -228,36 +673,36 @@ export class DocumentSessionAuthorityStore {
     return records;
   }
 
-  async retryPendingPurges(): Promise<boolean> {
-    this.retryRequested = true;
-    if (this.retryPromise) return this.retryPromise;
-    const retry = this.runRequestedPurges();
-    this.retryPromise = retry;
-    try {
-      return await retry;
-    } finally {
-      if (this.retryPromise === retry) this.retryPromise = null;
+  async snapshotPurge(documentId: DocumentId): Promise<PendingDocumentPurge | null> {
+    const database = await this.databasePromise;
+    const transaction = database.transaction([ROOMS, PURGES], "readonly");
+    const [room, purge] = await Promise.all([
+      requestResult(transaction.objectStore(ROOMS).get(documentId)) as Promise<
+        RoomOrderRecord | undefined
+      >,
+      requestResult(
+        transaction.objectStore(PURGES).get(purgeRecordKey(this.accountId, documentId)),
+      ) as Promise<PendingDocumentPurge | undefined>,
+    ]);
+    await transactionDone(transaction);
+    return room?.pendingDrain ? null : (purge ?? null);
+  }
+
+  async compareClearPurge(purge: PendingDocumentPurge): Promise<boolean> {
+    const database = await this.databasePromise;
+    const transaction = database.transaction(PURGES, "readwrite");
+    const store = transaction.objectStore(PURGES);
+    const current = (await requestResult(store.get(purge.key))) as PendingDocumentPurge | undefined;
+    if (!current || current.revokedThrough !== purge.revokedThrough) {
+      transaction.abort();
+      return false;
     }
+    store.delete(purge.key);
+    await transactionDone(transaction);
+    return true;
   }
 
-  private async runRequestedPurges(): Promise<boolean> {
-    let cleared = true;
-    do {
-      this.retryRequested = false;
-      if (!(await this.runPendingPurges())) cleared = false;
-    } while (this.retryRequested);
-    return cleared;
-  }
-
-  private async runPendingPurges(): Promise<boolean> {
-    let cleared = true;
-    for (const pending of await this.pendingPurges()) {
-      if (!(await this.settlePurge(pending))) cleared = false;
-    }
-    return cleared;
-  }
-
-  private async settlePurge(pending: PendingDocumentPurge): Promise<boolean> {
+  async deletePersistenceThrough(pending: PendingDocumentPurge): Promise<boolean> {
     if (typeof this.idb.databases !== "function") return false;
     const databases = await this.idb.databases();
     const matching = (databases ?? []).flatMap(({ name }) => {
@@ -276,8 +721,34 @@ export class DocumentSessionAuthorityStore {
     for (const name of matching) {
       if (!(await this.deleteDatabase(name))) return false;
     }
-    await this.removePending(pending.key);
     return true;
+  }
+
+  async retryPendingPurges(): Promise<boolean> {
+    this.retryRequested = true;
+    if (this.retryPromise) return this.retryPromise;
+    const retry = this.runRequestedPurges();
+    this.retryPromise = retry;
+    try {
+      return await retry;
+    } finally {
+      if (this.retryPromise === retry) this.retryPromise = null;
+    }
+  }
+
+  private async runRequestedPurges(): Promise<boolean> {
+    let cleared = true;
+    do {
+      this.retryRequested = false;
+      for (const pending of await this.pendingPurges()) {
+        if (!(await this.deletePersistenceThrough(pending))) {
+          cleared = false;
+          continue;
+        }
+        if (!(await this.compareClearPurge(pending))) cleared = false;
+      }
+    } while (this.retryRequested);
+    return cleared;
   }
 
   private deleteDatabase(name: string): Promise<boolean> {
@@ -300,19 +771,9 @@ export class DocumentSessionAuthorityStore {
           resolve(true);
           return;
         }
-        // A blocked request remains live in IndexedDB. Its eventual success is
-        // the wake-up signal for the same durable job, including later matches.
-        if (!this.closed) {
+        if (!this.closed)
           queueMicrotask(() => void this.retryPendingPurges().catch(() => undefined));
-        }
       };
     });
-  }
-
-  private async removePending(key: string): Promise<void> {
-    const database = await this.databasePromise;
-    const transaction = database.transaction(PURGES, "readwrite");
-    transaction.objectStore(PURGES).delete(key);
-    await transactionDone(transaction);
   }
 }

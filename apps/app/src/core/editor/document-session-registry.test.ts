@@ -7,7 +7,7 @@ import {
   type LiveDocumentSessionLease,
   WS_CLOSE,
 } from "@meridian/contracts/protocol";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DocumentSessionConnectionState } from "./document-session";
 import { documentSessionPersistenceKey } from "./document-session-authority-store";
 import { clientSchemaReloadGuardKey } from "./schema-fence";
@@ -40,9 +40,8 @@ vi.mock("@/core/transport/hocuspocus-document-transport", () => ({
 }));
 
 const { DocumentSessionAuthorityError, DocumentSessionRegistry } = await import(
-  "./document-session-registry"
+  "./document-session-registry-implementation"
 );
-const { DocumentSessionAuthorityStore } = await import("./document-session-authority-store");
 const { memoryStorage } = await import("@/test-support/memory-storage");
 
 type Registry = InstanceType<typeof DocumentSessionRegistry>;
@@ -65,51 +64,6 @@ async function openBlocker(name: string): Promise<IDBDatabase> {
   });
 }
 
-function deferred() {
-  let resolve!: () => void;
-  const promise = new Promise<void>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
-class AdmissionBarrierStore {
-  readonly entered = deferred();
-  readonly release = deferred();
-  private readCount = 0;
-
-  constructor(
-    private readonly delegate: InstanceType<typeof DocumentSessionAuthorityStore>,
-    private readonly pauseOnRead = 1,
-  ) {}
-
-  close() {
-    return this.delegate.close();
-  }
-  readFence(...args: Parameters<InstanceType<typeof DocumentSessionAuthorityStore>["readFence"]>) {
-    return this.delegate.readFence(...args);
-  }
-  advanceFence(
-    ...args: Parameters<InstanceType<typeof DocumentSessionAuthorityStore>["advanceFence"]>
-  ) {
-    return this.delegate.advanceFence(...args);
-  }
-  retryPendingPurges() {
-    return this.delegate.retryPendingPurges();
-  }
-  async readAdmissionFences(
-    ...args: Parameters<InstanceType<typeof DocumentSessionAuthorityStore>["readAdmissionFences"]>
-  ) {
-    const fences = await this.delegate.readAdmissionFences(...args);
-    this.readCount += 1;
-    if (this.readCount === this.pauseOnRead) {
-      this.entered.resolve();
-      await this.release.promise;
-    }
-    return fences;
-  }
-}
-
 function expectAuthorityError(kind: InstanceType<typeof DocumentSessionAuthorityError>["kind"]) {
   return expect.objectContaining({ name: "DocumentSessionAuthorityError", kind });
 }
@@ -123,6 +77,56 @@ async function admit(
   return registry.admit(projectId, documentId, generation);
 }
 
+class TestLocks {
+  private active = new Map<string, { shared: number; exclusive: boolean }>();
+  private queues = new Map<string, Array<() => void>>();
+  request<T>(
+    name: string,
+    options: { mode?: "shared" | "exclusive"; ifAvailable?: boolean },
+    callback: (lock: object | null) => T | PromiseLike<T>,
+  ): Promise<T> {
+    const mode = options.mode ?? "exclusive";
+    return new Promise((resolve, reject) => {
+      const attempt = () => {
+        const state = this.active.get(name) ?? { shared: 0, exclusive: false };
+        const available =
+          mode === "shared" ? !state.exclusive : !state.exclusive && state.shared === 0;
+        if (!available) {
+          if (options.ifAvailable) void Promise.resolve(callback(null)).then(resolve, reject);
+          else {
+            const queue = this.queues.get(name) ?? [];
+            queue.push(attempt);
+            this.queues.set(name, queue);
+          }
+          return;
+        }
+        if (mode === "shared") state.shared += 1;
+        else state.exclusive = true;
+        this.active.set(name, state);
+        void Promise.resolve(callback({ name }))
+          .then(resolve, reject)
+          .finally(() => {
+            const current = this.active.get(name);
+            if (current) {
+              if (mode === "shared") current.shared -= 1;
+              else current.exclusive = false;
+              if (!current.shared && !current.exclusive) this.active.delete(name);
+            }
+            const queue = this.queues.get(name);
+            const next = queue?.shift();
+            if (!queue?.length) this.queues.delete(name);
+            next?.();
+          });
+      };
+      attempt();
+    });
+  }
+}
+
+beforeEach(() => {
+  vi.stubGlobal("isSecureContext", true);
+  vi.stubGlobal("navigator", { ...navigator, locks: new TestLocks() });
+});
 afterEach(() => {
   providers.length = 0;
   vi.useRealTimers();
@@ -130,70 +134,15 @@ afterEach(() => {
 });
 
 describe("DocumentSessionRegistry live authority", () => {
-  it("serializes a document revoke that arrives during the combined admission read", async () => {
-    const barrierStore = new AdmissionBarrierStore(
-      new DocumentSessionAuthorityStore("account-admit-race"),
+  it("fails before lease or session creation when Web Locks are unavailable", async () => {
+    vi.stubGlobal("navigator", { ...navigator, locks: undefined });
+    const registry = new DocumentSessionRegistry(undefined, 0);
+    registry.setOwnUserId("account-no-web-locks");
+    await expect(admit(registry, "project", "doc", "1")).rejects.toEqual(
+      expectAuthorityError("authority-unavailable"),
     );
-    const registry = new DocumentSessionRegistry(() => barrierStore, 0);
-    registry.setOwnUserId("account-admit-race");
-    const admitting = admit(registry, "project", "doc", "5");
-    await barrierStore.entered.promise;
-    let revokeSettled = false;
-    const revoking = registry.revokeDocument("project", "doc", "5", "terminal-5").then((result) => {
-      revokeSettled = true;
-      return result;
-    });
-    await Promise.resolve();
-    expect(revokeSettled).toBe(false);
-
-    barrierStore.release.resolve();
-    const lease = await admitting;
-    await expect(revoking).resolves.toEqual({ revokedThrough: "5", persistence: "cleared" });
-    expect(() => registry.get(lease)).toThrow(expectAuthorityError("stale-lease"));
-  });
-
-  it("serializes another project admission before deciding access-revoke retention", async () => {
-    const barrierStore = new AdmissionBarrierStore(
-      new DocumentSessionAuthorityStore("account-access-race"),
-      2,
-    );
-    const registry = new DocumentSessionRegistry(() => barrierStore, 0);
-    registry.setOwnUserId("account-access-race");
-    const b = await admit(registry, "project-b", "doc", "4");
-    registry.get(b);
-    const aAdmission = admit(registry, "project-a", "doc", "5");
-    await barrierStore.entered.promise;
-    const revoking = registry.revokeAccess("project-b", "doc", "4", "access-b-4");
-    barrierStore.release.resolve();
-    const a = await aAdmission;
-
-    await expect(revoking).resolves.toEqual({
-      revokedThrough: "4",
-      persistence: "retained-by-other-lease",
-    });
-    expect(registry.get(a).getSnapshot().status).not.toBe("destroyed");
-  });
-
-  it("refuses process-state commit when the account switches during admission", async () => {
-    const barrierStore = new AdmissionBarrierStore(
-      new DocumentSessionAuthorityStore("account-inflight-a"),
-    );
-    const registry = new DocumentSessionRegistry(
-      (accountId) =>
-        accountId === "account-inflight-a"
-          ? barrierStore
-          : new DocumentSessionAuthorityStore(accountId),
-      0,
-    );
-    registry.setOwnUserId("account-inflight-a");
-    const admitting = admit(registry, "project", "doc", "1");
-    await barrierStore.entered.promise;
-
-    registry.setOwnUserId("account-inflight-b");
-    barrierStore.release.resolve();
-    await expect(admitting).rejects.toEqual(expectAuthorityError("account-mismatch"));
-    const b = await admit(registry, "project", "doc", "1");
-    expect(registry.get(b).getSnapshot().status).not.toBe("destroyed");
+    expect(() => registry.temporaryPeek("doc")).not.toThrow();
+    expect(registry.temporaryPeek("doc")).toBeUndefined();
   });
 
   it("shares one room, Y.Doc, and first persistence generation across project leases", async () => {
@@ -459,6 +408,38 @@ describe("DocumentSessionRegistry live authority", () => {
       expectAuthorityError("stale-lease"),
     );
     expect(registry.getDetached(admittedFirst).getSnapshot().status).toBe("detached");
+  });
+
+  it("reserves legacy ingress synchronously through awaited retirement", async () => {
+    const registry = new DocumentSessionRegistry(undefined, 0);
+    registry.setOwnUserId("account-legacy-reservation");
+    const legacy = registry.temporaryGetDetached("doc");
+    const originalDestroy = legacy.destroy.bind(legacy);
+    let entered!: () => void;
+    let release!: () => void;
+    const destroyEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const destroyRelease = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    legacy.destroy = async () => {
+      entered();
+      await destroyRelease;
+      await originalDestroy();
+    };
+
+    const admitting = admit(registry, "project", "doc", "5");
+    expect(() => registry.temporaryGetDetached("doc")).toThrow(expectAuthorityError("stale-lease"));
+    await destroyEntered;
+    expect(() => registry.temporaryGet("doc")).toThrow(expectAuthorityError("stale-lease"));
+    expect(() => registry.temporaryRetain("owner", ["doc"])).toThrow(
+      expectAuthorityError("stale-lease"),
+    );
+    release();
+    const lease = await admitting;
+    expect(legacy.getSnapshot().status).toBe("destroyed");
+    expect(registry.getDetached(lease)).not.toBe(legacy);
   });
 
   it("keeps detached words and Y.Doc through explicit attach and denied restart", async () => {
