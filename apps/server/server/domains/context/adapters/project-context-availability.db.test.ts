@@ -1,5 +1,9 @@
 /** PostgreSQL proof for project-final lookup authority and watermark atomicity. */
-import { conformanceUserValues } from "@meridian/database/__test-support__/db-fixtures";
+import { createDb, type Database } from "@meridian/database";
+import {
+  assertThrowawayDatabaseForRunDbTests,
+  conformanceUserValues,
+} from "@meridian/database/__test-support__/db-fixtures";
 import {
   contextAvailabilityHeads,
   contextSources,
@@ -11,7 +15,7 @@ import {
 } from "@meridian/database/schema";
 import { eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { runInDrizzleTransaction } from "../../../shared/drizzle-transaction.js";
+import { currentDrizzleDb, runInDrizzleTransaction } from "../../../shared/drizzle-transaction.js";
 import { truncateDrizzleTables } from "../../../test-support/drizzle-reset.js";
 import { useRollbackTestDatabase } from "../../../test-support/rollback-test-database.js";
 import { createInMemoryEventSink } from "../../observability/index.js";
@@ -47,8 +51,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       prepareSuite: (db) => truncateDrizzleTables(db, [users]),
     });
 
-    async function seed() {
-      const db = database.current;
+    async function seed(db: Database = database.current) {
       await db
         .insert(users)
         .values([
@@ -149,30 +152,83 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       expect(BigInt(next)).toBeGreaterThan(BigInt(first));
     });
 
-    it("owns one root read-only repeatable-read snapshot for heads and identities", async () => {
-      const db = await seed();
-      let transactionOptions: unknown;
-      const snapshotDb = new Proxy(db, {
-        get(target, property, receiver) {
-          if (property !== "transaction") return Reflect.get(target, property, receiver);
-          return (operation: never, options: unknown) => {
-            transactionOptions = options;
-            return db.transaction(operation, options as never);
-          };
-        },
+    it("reads heads and identities from one repeatable-read snapshot across a committed move", async () => {
+      assertThrowawayDatabaseForRunDbTests(DATABASE_URL);
+      const reader = createDb(DATABASE_URL, { max: 1 });
+      const writer = createDb(DATABASE_URL, { max: 1 });
+      await seed(reader);
+      const initialGeneration = await createDrizzleProjectContextAvailability(reader).advance({
+        projectIds: [PROJECT],
+        userIds: [],
       });
-      const availability = createDrizzleProjectContextAvailability(snapshotDb);
 
-      await expect(
-        availability.lookup(
+      let announceDocumentLock: (() => void) | undefined;
+      const documentLockHeld = new Promise<void>((resolve) => {
+        announceDocumentLock = resolve;
+      });
+
+      try {
+        const mutation = runInDrizzleTransaction(writer, async () => {
+          const tx = currentDrizzleDb(writer) as Database;
+          await tx.execute(sql`lock table documents in access exclusive mode`);
+          announceDocumentLock?.();
+          for (let attempt = 0; attempt < 200; attempt += 1) {
+            const result = await tx.execute<{ blocked: boolean }>(sql`
+              select exists (
+                select 1
+                from pg_locks
+                where relation = 'documents'::regclass
+                  and not granted
+              ) as blocked
+            `);
+            if (result[0]?.blocked) {
+              await tx
+                .update(documents)
+                .set({ contextSourceId: WORK_SOURCE })
+                .where(eq(documents.id, DOCS[0]));
+              return createDrizzleProjectContextAvailability(writer).advance({
+                projectIds: [PROJECT],
+                userIds: [],
+              });
+            }
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          throw new Error("Lookup did not reach the post-head document-read barrier");
+        });
+        await documentLockHeld;
+        const lookup = createDrizzleProjectContextAvailability(reader).lookup(
           { projectId: PROJECT as never, documentIds: [DOCS[0]] as never },
           { userId: USER },
-        ),
-      ).resolves.toMatchObject({ resolutions: [{ kind: "available", documentId: DOCS[0] }] });
-      expect(transactionOptions).toEqual({
-        isolationLevel: "repeatable read",
-        accessMode: "read only",
-      });
+        );
+        const newGeneration = await mutation;
+
+        await expect(lookup).resolves.toMatchObject({
+          resolutions: [
+            {
+              kind: "available",
+              generation: initialGeneration,
+              authority: { kind: "project", projectId: PROJECT },
+            },
+          ],
+        });
+        await expect(
+          createDrizzleProjectContextAvailability(reader).lookup(
+            { projectId: PROJECT as never, documentIds: [DOCS[0]] as never },
+            { userId: USER },
+          ),
+        ).resolves.toMatchObject({
+          resolutions: [
+            {
+              kind: "available",
+              generation: newGeneration,
+              authority: { kind: "work", projectId: PROJECT, workId: WORK },
+            },
+          ],
+        });
+      } finally {
+        await truncateDrizzleTables(reader, [users]);
+        await Promise.all([reader.close(), writer.close()]);
+      }
     });
 
     it("returns deleted and unavailable Work/project authority from tombstones", async () => {
@@ -227,6 +283,48 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         expect.objectContaining({
           name: "ProjectContextIdentityInconsistent",
           payload: { documentId: manifestId, projectId: PROJECT },
+        }),
+      ]);
+    });
+
+    it("reports conflicting requested-project owners for live and tombstoned rows", async () => {
+      const db = await seed();
+      const evidence = createInMemoryEventSink();
+      const availability = createDrizzleProjectContextAvailability(db, evidence);
+      await db.execute(
+        sql`alter table context_sources
+              drop constraint context_sources_exactly_one_scope,
+              drop constraint context_sources_scope_project_fk`,
+      );
+      await db
+        .update(contextSources)
+        .set({ workId: WORK })
+        .where(eq(contextSources.id, PROJECT_SOURCE));
+
+      const assertInconsistent = async () => {
+        const result = await availability.lookup(
+          { projectId: PROJECT as never, documentIds: [DOCS[0]] as never },
+          { userId: USER },
+        );
+        expect(result.resolutions).toEqual([
+          expect.objectContaining({
+            kind: "indeterminate",
+            documentId: DOCS[0],
+            reason: "identity_inconsistent",
+          }),
+        ]);
+      };
+      await assertInconsistent();
+      await db.update(documents).set({ deletedAt: new Date() }).where(eq(documents.id, DOCS[0]));
+      await assertInconsistent();
+      expect(evidence.events).toEqual([
+        expect.objectContaining({
+          name: "ProjectContextIdentityInconsistent",
+          payload: { documentId: DOCS[0], projectId: PROJECT },
+        }),
+        expect.objectContaining({
+          name: "ProjectContextIdentityInconsistent",
+          payload: { documentId: DOCS[0], projectId: PROJECT },
         }),
       ]);
     });

@@ -64,22 +64,14 @@ function classifyAuthoritativeIdentity(input: {
   foldersById: ReadonlyMap<string, typeof folders.$inferSelect>;
 }): IdentityClassification {
   const { document, source, sourceProject, work } = input.row;
-  if (!source) return { kind: "inconsistent" };
-
-  const directProjectIsRequested =
-    source.workId === null && source.projectId === input.requestProjectId;
-  const workIsRequested =
-    source.projectId === null &&
-    source.workId !== null &&
-    work?.projectId === input.requestProjectId;
-  const actorUserSource =
-    source.workId === null &&
-    source.slug === "user" &&
-    sourceProject?.isPersonal === true &&
-    sourceProject.userId === input.actorUserId;
-  if (!directProjectIsRequested && !workIsRequested && !actorUserSource) {
+  const rawProjectIsRequested = source?.projectId === input.requestProjectId;
+  const rawWorkIsRequested = work?.projectId === input.requestProjectId;
+  const rawActorPersonalAuthority =
+    sourceProject?.isPersonal === true && sourceProject.userId === input.actorUserId;
+  if (!rawProjectIsRequested && !rawWorkIsRequested && !rawActorPersonalAuthority) {
     return { kind: "not-visible" };
   }
+  if (!source) return { kind: "inconsistent" };
 
   if (document.kind !== "content" || !isContextUriScheme(source.slug)) {
     return { kind: "inconsistent" };
@@ -96,6 +88,7 @@ function classifyAuthoritativeIdentity(input: {
     (source.projectId !== null) !== hasProjectOwnership ||
     (hasWorkOwnership && (!work || work.id !== source.workId)) ||
     (hasProjectOwnership && (!sourceProject || sourceProject.id !== source.projectId)) ||
+    (rawActorPersonalAuthority && scheme !== "user") ||
     (scheme === "user" &&
       (!sourceProject?.isPersonal || sourceProject.userId !== input.actorUserId))
   ) {
@@ -117,8 +110,7 @@ function classifyAuthoritativeIdentity(input: {
       workId: work.id,
       workSlug,
     } as never;
-  } else if (actorUserSource) {
-    if (scheme !== "user") return { kind: "inconsistent" };
+  } else if (rawActorPersonalAuthority) {
     scope = { kind: "user", userId: input.actorUserId } as never;
     authority = { kind: "user", userId: input.actorUserId } as never;
     generation = input.checkedGeneration;
