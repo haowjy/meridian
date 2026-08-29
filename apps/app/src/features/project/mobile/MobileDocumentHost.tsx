@@ -16,7 +16,7 @@ import { Trans } from "@lingui/react/macro";
 import type { ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo } from "react";
-import { useProjectContextTree } from "@/client/query/useProjectContextTree";
+import { useContextCatalogTree } from "@/client/query/useContextCatalog";
 import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
 import { useDraftReview } from "@/features/chat/DraftReviewProvider";
 import { PassageNotice } from "@/features/editor/PassageNotice";
@@ -50,7 +50,7 @@ export function MobileDocumentHost({
   const removalState = useContextRemovalProject(projectId);
   const { controller, reviewRoomNameForDraft, setActiveEditorDocumentId } = useDraftReview();
   const hasRouteDocument = activeContextScheme !== null && activeContextPath !== null;
-  const { tree, isError, isFetching } = useProjectContextTree(
+  const { tree, isError, isFetching } = useContextCatalogTree(
     projectId,
     activeContextScheme ?? "kb",
     { enabled: hasRouteDocument, workId: editorWorkId },

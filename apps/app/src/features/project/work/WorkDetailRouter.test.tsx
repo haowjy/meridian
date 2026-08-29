@@ -33,8 +33,8 @@ vi.mock("@/client/query/useWorkDrafts", () => ({
   useWorkDrafts: () => ({ status: "success", groups: [], refetch: vi.fn() }),
   activeWorkDraftGroups: (groups: unknown[]) => groups,
 }));
-vi.mock("@/client/query/useProjectContextTree", () => ({
-  useProjectContextTree: () => ({
+vi.mock("@/client/query/useContextCatalog", () => ({
+  useContextCatalogTree: () => ({
     tree: { kind: "dir", name: "", path: "", children: [] },
     isError: false,
     refetch: vi.fn(),

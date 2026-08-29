@@ -1,3 +1,4 @@
+import type { CatalogTreeFile } from "@/client/query/context-catalog-projection";
 /**
  * Opening a project document by id — the app's one answer to "take me there".
  *
@@ -17,13 +18,11 @@
 
 import {
   isWorkScopedProjectContextScheme,
-  type ProjectContextTreeFile,
-  type ProjectContextTreeNode,
   type ProjectContextTreeScheme,
 } from "@meridian/contracts/protocol";
 import { useCallback } from "react";
 
-import { getProjectContextTree } from "@/client/api/projects-api";
+import { lookupContextCatalogFile } from "@/client/query/useContextCatalog";
 import { useContextTabsActions } from "@/client/stores";
 import { useProjectContextRoute } from "../routing/ProjectContextRoute";
 import { contextTabFromFile } from "./context-tab-from-file";
@@ -75,29 +74,14 @@ async function findDocument(
   documentId: string,
   workId: string | null,
   signal: AbortSignal | undefined,
-): Promise<{ scheme: ProjectContextTreeScheme; file: ProjectContextTreeFile } | null> {
+): Promise<{ scheme: ProjectContextTreeScheme; file: CatalogTreeFile } | null> {
   for (const scheme of NAVIGABLE_SCHEMES) {
     if (isWorkScopedProjectContextScheme(scheme) && !workId) continue;
-    const { tree } = await getProjectContextTree(
-      projectId,
-      scheme,
-      isWorkScopedProjectContextScheme(scheme) ? { workId: workId ?? undefined } : undefined,
-    );
+    const file = await lookupContextCatalogFile(projectId, scheme, workId, {
+      entryId: documentId,
+    });
     if (signal?.aborted) return null;
-    const file = fileWithin(tree, documentId);
     if (file) return { scheme, file };
-  }
-  return null;
-}
-
-function fileWithin(
-  node: ProjectContextTreeNode,
-  documentId: string,
-): ProjectContextTreeFile | null {
-  if (node.kind === "file") return node.documentId === documentId ? node : null;
-  for (const child of node.children) {
-    const match = fileWithin(child, documentId);
-    if (match) return match;
   }
   return null;
 }

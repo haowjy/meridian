@@ -77,8 +77,8 @@ vi.mock("@/client/query/useWorkDrafts", () => ({
   useWorkDrafts: () => mocks.drafts,
   activeWorkDraftGroups: (groups: unknown[]) => groups,
 }));
-vi.mock("@/client/query/useProjectContextTree", () => ({
-  useProjectContextTree: (_projectId: string, scheme: "scratch" | "uploads") => mocks[scheme],
+vi.mock("@/client/query/useContextCatalog", () => ({
+  useContextCatalogTree: (_projectId: string, scheme: "scratch" | "uploads") => mocks[scheme],
 }));
 vi.mock("@/client/query/useWorkThreads", () => ({ useWorkThreads: () => mocks.chats }));
 vi.mock("@/client/query/useProjectChatUserState", () => ({

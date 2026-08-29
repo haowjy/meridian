@@ -23,7 +23,7 @@ import type { ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { isWorkScopedProjectContextScheme } from "@meridian/contracts/protocol";
 import { FilePlus, FolderPlus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useProjectContextTree } from "@/client/query/useProjectContextTree";
+import { useContextCatalogTree } from "@/client/query/useContextCatalog";
 import { useWorks } from "@/client/query/useWorks";
 import { InlineErrorRow } from "@/components/app/InlineErrorRow";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -215,7 +215,7 @@ function SchemeSection({
   // workId inside the hook). `pendingOpenPath` waits on the same always-live
   // query so a just-created file can resolve and open; its onSelectFile then
   // lands a new selection here, which re-expands via the effect above.
-  const { tree, isError, refetch } = useProjectContextTree(projectId, scheme, {
+  const { tree, isError, refetch } = useContextCatalogTree(projectId, scheme, {
     workId: editorWorkId,
   });
   useEffect(() => {

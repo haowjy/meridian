@@ -111,7 +111,7 @@ it("submits the Work captured when delete confirmation was requested", async () 
   );
   expect(invalidation).toHaveBeenCalledOnce();
   expect(invalidation).toHaveBeenCalledWith({
-    queryKey: projectQueryKeys.contextTree("project", "scratch", "work-a"),
+    queryKey: projectQueryKeys.contextCatalogTree("project", "scratch", "work-a"),
   });
   expect(useContextTabsStore.getState().byProject.project?.tabs).toMatchObject([
     { documentId: "document-b" },

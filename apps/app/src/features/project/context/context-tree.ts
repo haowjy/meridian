@@ -1,3 +1,8 @@
+import type {
+  CatalogTreeDirectory,
+  CatalogTreeFile,
+  CatalogTreeNode,
+} from "@/client/query/context-catalog-projection";
 /**
  * context-tree — type aliases and lookup helpers for a project's context
  * document tree.
@@ -6,15 +11,10 @@
  * recursive find-by-path helpers (`findContextFile`, `findContextDir`).
  * Pure tree traversal; shared by the context browser/tree/viewer components.
  */
-import type {
-  ProjectContextTreeDirectory,
-  ProjectContextTreeFile,
-  ProjectContextTreeNode,
-} from "@meridian/contracts/protocol";
 
-export type ContextDir = ProjectContextTreeDirectory;
-export type ContextFile = ProjectContextTreeFile;
-export type ContextNode = ProjectContextTreeNode;
+export type ContextDir = CatalogTreeDirectory;
+export type ContextFile = CatalogTreeFile;
+export type ContextNode = CatalogTreeNode;
 
 /** First file in tree order — the default-open target for a fresh project. */
 export function firstContextFile(root: ContextNode): ContextFile | null {

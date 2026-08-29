@@ -1,3 +1,7 @@
+import type {
+  CatalogTreeDirectory,
+  CatalogTreeNode,
+} from "@/client/query/context-catalog-projection";
 /**
  * Every document a link in this scope can reach, from the trees the app already
  * has.
@@ -28,13 +32,10 @@
  */
 
 import { parseUnifiedContextUri } from "@meridian/contracts/context-uri";
-import type {
-  ProjectContextTreeDirectory,
-  ProjectContextTreeNode,
-} from "@meridian/contracts/protocol";
+import type {} from "@meridian/contracts/protocol";
 import { useMemo } from "react";
 
-import { useProjectContextTree } from "@/client/query/useProjectContextTree";
+import { useContextCatalogTree } from "@/client/query/useContextCatalog";
 import type { WikilinkDocument } from "@/core/completion";
 import { schemeLabel } from "@/features/project/context/context-schemes";
 
@@ -60,11 +61,11 @@ export type LinkableDocumentIndex = {
 };
 
 export function useLinkableDocuments({ projectId, workId }: EditorScope): LinkableDocumentIndex {
-  const { tree: manuscript } = useProjectContextTree(projectId ?? "", "manuscript", {
+  const { tree: manuscript } = useContextCatalogTree(projectId ?? "", "manuscript", {
     enabled: Boolean(projectId),
     workId: null,
   });
-  const { tree: scratch } = useProjectContextTree(projectId ?? "", "scratch", {
+  const { tree: scratch } = useContextCatalogTree(projectId ?? "", "scratch", {
     enabled: Boolean(projectId) && Boolean(workId),
     workId,
   });
@@ -99,13 +100,13 @@ function catalogRevision(documents: readonly LinkableDocument[]): string {
  * the only thing separating two documents whose titles look alike.
  */
 function linkableDocuments(
-  tree: ProjectContextTreeDirectory,
+  tree: CatalogTreeDirectory,
   root: readonly string[],
   workId?: string | null,
 ): LinkableDocument[] {
   const documents: LinkableDocument[] = [];
 
-  const visit = (node: ProjectContextTreeNode, folders: readonly string[]) => {
+  const visit = (node: CatalogTreeNode, folders: readonly string[]) => {
     if (node.kind === "dir") {
       const inside = node.path === "/" ? folders : [...folders, node.name];
       for (const child of node.children) visit(child, inside);

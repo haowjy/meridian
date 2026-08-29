@@ -43,8 +43,8 @@ const queryState = {
   refetch: vi.fn(),
 };
 
-vi.mock("@/client/query/useProjectContextTree", () => ({
-  useProjectContextTree: () => queryState,
+vi.mock("@/client/query/useContextCatalog", () => ({
+  useContextCatalogTree: () => queryState,
 }));
 type ViewerCapture = {
   tabs: ContextTab[];

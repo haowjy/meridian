@@ -51,6 +51,8 @@ export type CatalogFileEntry = {
   path: readonly string[];
   uri: CanonicalContextUri;
   fileType: Filetype;
+  /** Catalog-visible identity state used by cross-device untitled reconciliation. */
+  provisionalName: boolean;
 };
 
 export type CatalogEntry =

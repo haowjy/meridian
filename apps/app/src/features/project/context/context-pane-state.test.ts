@@ -1,15 +1,15 @@
-import type { ProjectContextTreeDirectory } from "@meridian/contracts/protocol";
 import { describe, expect, it } from "vitest";
+import type { CatalogTreeDirectory } from "@/client/query/context-catalog-projection";
 
 import { deriveContextPaneState } from "./context-pane-state";
 
 /** A project whose tree loaded fine and simply does not hold the route. */
-const emptyTree: ProjectContextTreeDirectory = {
+const emptyTree: CatalogTreeDirectory = {
   kind: "directory",
   name: "",
   path: "",
   children: [],
-} as unknown as ProjectContextTreeDirectory;
+} as unknown as CatalogTreeDirectory;
 
 function derive(overrides: Partial<Parameters<typeof deriveContextPaneState>[0]> = {}) {
   return deriveContextPaneState({

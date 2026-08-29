@@ -11,7 +11,7 @@ import {
   type ProjectContextTreeScheme,
 } from "@meridian/contracts/protocol";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useProjectContextTree } from "@/client/query/useProjectContextTree";
+import { useContextCatalogTree } from "@/client/query/useContextCatalog";
 import { useContextTabs, useContextTabsActions, useContextTabsStore } from "@/client/stores";
 import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
 import { useContextRemovalCoordinator } from "./context/ContextRemovalAccountProvider";
@@ -92,7 +92,7 @@ export function ContextViewerSurfaceController({
     tree: routeTree,
     isError: routeTreeIsError,
     isFetching: routeTreeIsFetching,
-  } = useProjectContextTree(projectId, activeContextScheme ?? "kb", {
+  } = useContextCatalogTree(projectId, activeContextScheme ?? "kb", {
     enabled: activeContextScheme !== null && activeContextPath !== null,
     workId: routeWorkId,
   });
@@ -285,7 +285,7 @@ export function ContextViewerSurfaceController({
     removalFenced: routeMaterializationFenced,
   });
 
-  const { tree: defaultOpenTree } = useProjectContextTree(projectId, "manuscript", {
+  const { tree: defaultOpenTree } = useContextCatalogTree(projectId, "manuscript", {
     enabled: wantsDefaultOpen,
     workId: routeWorkId,
   });

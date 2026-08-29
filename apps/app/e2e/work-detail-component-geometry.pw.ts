@@ -22,7 +22,7 @@ test.beforeAll(async () => {
         "@lingui/react",
         "@tanstack/react-router",
         "@/client/query/useWorkDrafts",
-        "@/client/query/useProjectContextTree",
+        "@/client/query/useContextCatalog",
         "@/client/query/useWorkThreads",
         "@/client/query/useProjectChatUserState",
         "@/client/query/useWorks",

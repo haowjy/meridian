@@ -292,6 +292,7 @@ async function buildScopeEntries(db: CatalogDb, scope: CatalogScope): Promise<Ca
         path,
         uri: canonicalContextUri(scheme, path.join("/"), authority),
         fileType: filetypeForPath(filename),
+        provisionalName: document.provisionalName,
       });
     }
   }
@@ -356,7 +357,11 @@ export function createDrizzleContextCatalog(
   db: Database,
   wakePort?: ContextCatalogWakePort,
 ): ContextCatalog & ContextCatalogMutationPort {
-  async function refreshScope(scope: CatalogScope, invalidatedRootIds: readonly string[] = []) {
+  async function refreshScope(
+    scope: CatalogScope,
+    invalidatedRootIds: readonly string[] = [],
+    commitId = randomUUID(),
+  ) {
     await runInDrizzleTransaction(db, async () => {
       const tx = currentDrizzleDb(db) as Database;
       const initialHead = await ensureHead(tx, scope);
@@ -393,7 +398,6 @@ export function createDrizzleContextCatalog(
       }
       if (changes.length === 0) return;
       const revision = head.headRevision + 1;
-      const commitId = randomUUID();
       await tx
         .delete(contextCatalogEntries)
         .where(eq(contextCatalogEntries.scopeKey, head.scopeKey));
@@ -530,13 +534,17 @@ export function createDrizzleContextCatalog(
       const entry = snapshot.entries.find((candidate) =>
         input.entryId !== undefined
           ? candidate.entryId === input.entryId
-          : "uri" in candidate && candidate.uri === input.path,
+          : "uri" in candidate &&
+            (candidate.uri === input.path ||
+              ((candidate.kind === "folder" || candidate.kind === "file") &&
+                `/${candidate.path.join("/")}` === input.path)),
       );
       return { entry: entry ?? null, headRevision: snapshot.headRevision };
     },
     async refreshSources(sourceIds, invalidatedRootIds = []) {
       const tx = currentDrizzleDb(db) as Database;
       const scopes = new Map<string, CatalogScope>();
+      const commitId = randomUUID();
       for (const sourceId of new Set(sourceIds)) {
         const scope = await sourceScope(tx, sourceId);
         if (scope) scopes.set(catalogScopeKey(scope), scope);
@@ -544,11 +552,16 @@ export function createDrizzleContextCatalog(
       for (const scope of [...scopes.values()].sort((a, b) =>
         catalogScopeKey(a).localeCompare(catalogScopeKey(b)),
       )) {
-        await refreshScope(scope, invalidatedRootIds);
+        await refreshScope(scope, invalidatedRootIds, commitId);
       }
     },
     async refreshProject(projectId) {
       const tx = currentDrizzleDb(db) as Database;
+      const [project] = await tx
+        .select({ userId: projects.userId, isPersonal: projects.isPersonal })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .limit(1);
       const workRows = await tx
         .select({ id: works.id })
         .from(works)
@@ -557,11 +570,13 @@ export function createDrizzleContextCatalog(
         { kind: "project", projectId },
         { kind: "none", projectId },
         ...workRows.map(({ id }) => ({ kind: "work" as const, projectId, workId: id })),
+        ...(project?.isPersonal ? [{ kind: "user" as const, userId: project.userId }] : []),
       ];
+      const commitId = randomUUID();
       for (const scope of scopes.sort((a, b) =>
         catalogScopeKey(a).localeCompare(catalogScopeKey(b)),
       )) {
-        await refreshScope(scope);
+        await refreshScope(scope, [], commitId);
       }
     },
   };

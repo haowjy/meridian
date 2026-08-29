@@ -1,12 +1,8 @@
 /** Browser adapters and React bindings for the durable untitled reconciler engine. */
 
-import type { ProjectContextTreeNode } from "@meridian/contracts/protocol";
 import { useSyncExternalStore } from "react";
-import {
-  createUntitledContextDocument,
-  getProjectContextTree,
-  listProjectWorks,
-} from "@/client/api/projects-api";
+import { createUntitledContextDocument, listProjectWorks } from "@/client/api/projects-api";
+import { lookupContextCatalogFile } from "@/client/query/useContextCatalog";
 import { useContextTabsStore } from "@/client/stores";
 import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
 import { resolveCatalogWork } from "../catalog-work-resolution";
@@ -19,17 +15,6 @@ import {
   UntitledReconciler,
   type UntitledReconcilerDeps,
 } from "./untitled-reconciler";
-
-function treeContainsDocument(
-  nodes: readonly ProjectContextTreeNode[],
-  documentId: string,
-): boolean {
-  return nodes.some((node) =>
-    node.kind === "dir"
-      ? treeContainsDocument(node.children, documentId)
-      : node.documentId === documentId,
-  );
-}
 
 function browserDeps(identityMutations: ContextIdentityMutationService): UntitledReconcilerDeps {
   const registry = getDocumentSessionRegistry();
@@ -64,10 +49,11 @@ function browserDeps(identityMutations: ContextIdentityMutationService): Untitle
         return result;
       },
       async serverDocumentExists(entry) {
-        const response = await getProjectContextTree(entry.projectId, entry.home.scheme, {
-          workId: entry.home.workId,
-        });
-        return treeContainsDocument(response.tree.children, entry.documentId);
+        return Boolean(
+          await lookupContextCatalogFile(entry.projectId, entry.home.scheme, entry.home.workId, {
+            entryId: entry.documentId,
+          }),
+        );
       },
       async move(entry, source, desired: DesiredIdentity) {
         const { result } = await identityMutations.move(

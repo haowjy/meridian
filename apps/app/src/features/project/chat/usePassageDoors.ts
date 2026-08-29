@@ -19,12 +19,11 @@
 import type { ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { useCallback, useEffect, useRef } from "react";
 
-import { getProjectContextTree } from "@/client/api/projects-api";
+import { lookupContextCatalogFile } from "@/client/query/useContextCatalog";
 import { navigateToPassage } from "@/core/editor/passage-navigation";
 import { dismissPassageNotice, reportPassageChanged } from "@/core/editor/passage-notice-store";
 import type { ContextPassageAnchor } from "@/features/chat/ChatContextNavigation";
 import { LatestNavigationCoordinator } from "@/features/chat/latest-navigation-coordinator";
-import { findContextFile } from "@/features/project/context/context-tree";
 
 export type PassageDoorTarget = {
   scheme: ProjectContextTreeScheme;
@@ -55,13 +54,10 @@ export function usePassageDoors(projectId: string, activeWorkId: string | null):
         dismissPassageNotice();
         if (!passage) return;
 
-        const { tree } = await getProjectContextTree(
-          projectId,
-          target.scheme,
-          target.workId ? { workId: target.workId } : undefined,
-        );
+        const file = await lookupContextCatalogFile(projectId, target.scheme, target.workId, {
+          path: target.path,
+        });
         if (signal.aborted) return;
-        const file = findContextFile(tree, target.path);
         // A binary or missing file has no Yjs document to land in; the door's
         // own destination already explains both.
         if (!file?.editable) return;

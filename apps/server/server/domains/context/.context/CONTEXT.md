@@ -8,6 +8,12 @@ with a single unified `ContextPort` that resolves durable project schemes
 
 ## What it owns
 
+- **Authoritative metadata catalog** — one normalized catalog beside ContextFS
+  with per-scope heads, complete repeatable-read snapshots, bounded whole-commit
+  replay/reset, direct children, and ID/path lookup. ContextFS remains mutation
+  authority; its Drizzle stores reconcile catalog state in the ambient
+  transaction. Wake hints run only after commit and cannot fail a mutation.
+
 - **Unified `ContextPort`** — single port interface (`ports/context-port.ts`)
   providing `stat`/`read`/`write`/`writeBinary`/`mkdir`/`list`/`search` for all
   schemes. Resolved through `contextPortForThread` (the resolver in

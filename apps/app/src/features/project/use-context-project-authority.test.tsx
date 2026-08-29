@@ -29,8 +29,11 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@/client/api/projects-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/client/api/projects-api")>()),
-  getProjectContextTree: mocks.readTree,
   updateProjectWorkingSet: mocks.updateWorkingSet,
+}));
+vi.mock("@/client/query/useContextCatalog", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/client/query/useContextCatalog")>()),
+  fetchContextCatalogTree: mocks.readTree,
 }));
 
 const workingSetStorage = window.localStorage;

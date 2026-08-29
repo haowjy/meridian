@@ -13,7 +13,11 @@ import {
 } from "react";
 import { projectQueryKeys } from "@/client/query/project-query-keys";
 import { threadQueryKeys } from "@/client/query/thread-query-keys";
-import { projectContextTreeQueryOptions } from "@/client/query/useProjectContextTree";
+import {
+  contextCatalogQueryOptions,
+  contextCatalogScope,
+  projectCatalogTree,
+} from "@/client/query/useContextCatalog";
 import {
   type ThreadDraftGroup,
   type ThreadDraftsStatus,
@@ -130,11 +134,15 @@ function useDraftReviewScopeOwner(
     // The active-only list cannot say why a remote disposition removed the
     // draft. For draft-created documents, manifest membership is authoritative:
     // Apply materializes the document; Discard does not.
-    const treeQuery = projectContextTreeQueryOptions(projectId, "manuscript", null);
+    const treeQuery = contextCatalogQueryOptions(
+      projectId,
+      contextCatalogScope(projectId, "manuscript", null),
+    );
     void queryClient
       .cancelQueries({ queryKey: treeQuery.queryKey })
       .then(() => queryClient.fetchQuery({ ...treeQuery, staleTime: 0 }))
-      .then(({ tree }) => {
+      .then((view) => {
+        const { tree } = projectCatalogTree(projectId, "manuscript", view);
         const currentTabs = useContextTabsStore.getState();
         const currentTab = currentTabs.byProject[projectId]?.tabs.find(
           (candidate) => candidate.documentId === activeSelection.documentId,

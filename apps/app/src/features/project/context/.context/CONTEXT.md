@@ -7,7 +7,7 @@ Reference depth. Read the [AGENTS.md](../AGENTS.md) first.
 ```text
 ContextTreePanel (desktop)          MobileContextBrowser (mobile)
        │                                     │
-       ├─ useContextTree (React Query) ──────┤
+       ├─ useContextCatalogTree (projection) ┤
        ├─ useCreateEntryForm ────────────────┤
        ├─ useRenameEntryForm ────────────────┤
        ├─ useDeleteConfirmation ─────────────┤
@@ -28,16 +28,18 @@ ContextPaneController
               └─ ContextViewerHost (active binary viewer)
 ```
 
-`useContextTree` fetches `/api/projects/:projectId/context/:scheme/tree`.
-Mutations invalidate the scheme-scoped tree cache on success. Delete admits its
+React Query acquires compact catalog snapshots and whole-commit deltas into one
+normalized stable-ID cache. Tree and picker are projections over those same
+entry objects; focus, bounded polling, and wake hints all pull the cursor.
+Mutations invalidate the affected catalog scope on success. Delete admits its
 exact evidence to live removal authority first; cache absence never supplies
 deletion evidence. Foreground identity saves and
 background untitled create/move reconciliation share
 `context-identity-mutation.ts`; every successful receipt invalidates its
 materialized tree or both move endpoints, even when no tab is open.
 
-`useFileSuggestions` composes those same cached per-scheme queries and ranks a
-flattened client-side view. It never adds a server-search path; hosts constrain
+`useFileSuggestions` projects directly from the normalized scope views. It
+never walks or caches a second recursive tree and never adds a server-search path; hosts constrain
 schemes and file/directory kinds, then mount the presentation-only list.
 
 Desktop scheme/query orchestration lives in `ContextTreePanel`; `ContextTreeRows`

@@ -53,7 +53,11 @@ export function createContextIdentityMutationService(
     await Promise.all(
       [...unique.values()].map((location) =>
         queryClient.invalidateQueries({
-          queryKey: projectQueryKeys.contextTree(projectId, location.scheme, location.workId),
+          queryKey: projectQueryKeys.contextCatalogTree(
+            projectId,
+            location.scheme,
+            location.workId,
+          ),
         }),
       ),
     );

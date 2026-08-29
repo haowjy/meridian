@@ -7,7 +7,7 @@ import { type QueryClient, useMutation, useQueryClient } from "@tanstack/react-q
 import { applyDraft, discardDraft } from "@/client/api/drafts-api";
 import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
 
-import { isProjectContextTreeKey, projectQueryKeys } from "./project-query-keys";
+import { isProjectContextCatalogKey, projectQueryKeys } from "./project-query-keys";
 import { threadQueryKeys } from "./thread-query-keys";
 
 type DraftReviewMutationBase = {
@@ -67,7 +67,7 @@ export function useApplyDraft() {
       // so EditorView can bind a freshly authorized provider on review exit.
       await getDocumentSessionRegistry().restartUnavailableRoom(variables.documentId);
       void queryClient.invalidateQueries({
-        predicate: (query) => isProjectContextTreeKey(query.queryKey, variables.projectId),
+        predicate: (query) => isProjectContextCatalogKey(query.queryKey, variables.projectId),
       });
       await invalidateDraftReviewQueries(queryClient, variables);
     },

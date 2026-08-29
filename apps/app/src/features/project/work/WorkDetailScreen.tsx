@@ -1,7 +1,7 @@
 /** Focused Work detail composition with independently resilient resources. */
 import { t } from "@lingui/core/macro";
 import { Plural, Trans } from "@lingui/react/macro";
-import type { ProjectContextTreeDirectory } from "@meridian/contracts/protocol";
+import type {} from "@meridian/contracts/protocol";
 import { parseRequestId } from "@meridian/contracts/request-id";
 import type { Work } from "@meridian/contracts/works";
 import { useBlocker } from "@tanstack/react-router";
@@ -15,7 +15,8 @@ import {
   Upload,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useProjectContextTree } from "@/client/query/useProjectContextTree";
+import type { CatalogTreeDirectory } from "@/client/query/context-catalog-projection";
+import { useContextCatalogTree } from "@/client/query/useContextCatalog";
 import { activeWorkDraftGroups, useWorkDrafts } from "@/client/query/useWorkDrafts";
 import { useWorkMutations } from "@/client/query/useWorks";
 import { InlineErrorRow } from "@/components/app/InlineErrorRow";
@@ -285,7 +286,7 @@ function TreeSummary({
   commands: ProjectRouteCommands;
   controller: WorkMetadataController;
 }) {
-  const query = useProjectContextTree(projectId, scheme, { workId: work.id });
+  const query = useContextCatalogTree(projectId, scheme, { workId: work.id });
   const count = query.tree ? countFiles(query.tree) : 0;
   const label = scheme === "scratch" ? t`Scratch` : t`Uploads`;
   const workId = parseRequestId(work.id);
@@ -353,13 +354,13 @@ function Loading() {
 function Empty({ children }: { children: React.ReactNode }) {
   return <p className="text-sm text-muted-foreground">{children}</p>;
 }
-function countFiles(node: ProjectContextTreeDirectory): number {
+function countFiles(node: CatalogTreeDirectory): number {
   return node.children.reduce(
     (sum, child) => sum + (child.kind === "dir" ? countFiles(child) : 1),
     0,
   );
 }
-function TreePreview({ tree }: { tree: ProjectContextTreeDirectory }) {
+function TreePreview({ tree }: { tree: CatalogTreeDirectory }) {
   const visible = tree.children.slice(0, 3);
   if (!visible.length) return null;
   return (

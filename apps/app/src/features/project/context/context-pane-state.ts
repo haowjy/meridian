@@ -3,10 +3,8 @@
  * desktop document surface.
  */
 import { documentTitleFromUri } from "@meridian/contracts/context-uri";
-import type {
-  ProjectContextTreeDirectory,
-  ProjectContextTreeScheme,
-} from "@meridian/contracts/protocol";
+import type { ProjectContextTreeScheme } from "@meridian/contracts/protocol";
+import type { CatalogTreeDirectory } from "@/client/query/context-catalog-projection";
 import type { ContextTab } from "@/client/stores";
 
 import { findContextFile } from "./context-tree";
@@ -41,7 +39,7 @@ export function deriveContextPaneState({
     scheme: ProjectContextTreeScheme;
     optimisticTab: OptimisticContextTab;
   } | null;
-  tree: ProjectContextTreeDirectory | null;
+  tree: CatalogTreeDirectory | null;
   isFetching: boolean;
   isError: boolean;
   removalFenced: boolean;

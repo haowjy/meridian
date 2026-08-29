@@ -1,7 +1,8 @@
 /** Deterministic browser adapters for the Work detail component fixture. */
-import type { ProjectChatItem, ProjectContextTreeDirectory } from "@meridian/contracts/protocol";
+import type { ProjectChatItem } from "@meridian/contracts/protocol";
 import type { CreateWorkRequest, UpdateWorkRequest, Work } from "@meridian/contracts/works";
 import { useState } from "react";
+import type { CatalogTreeDirectory } from "@/client/query/context-catalog-projection";
 import type { WorkCommand, WorkMutations } from "../../src/client/query/useWorks";
 export const t = (parts: TemplateStringsArray, ...values: unknown[]) =>
   parts.reduce((text, part, index) => text + part + (values[index] ?? ""), "");
@@ -24,7 +25,7 @@ export const useWorkDrafts = () => ({
   refetch: () => undefined,
 });
 export const activeWorkDraftGroups = (groups: unknown[]) => groups;
-export const useProjectContextTree = (_projectId: string, scheme: "scratch" | "uploads") => ({
+export const useContextCatalogTree = (_projectId: string, scheme: "scratch" | "uploads") => ({
   tree: state()[scheme],
   isError: false,
   refetch: () => undefined,
@@ -91,8 +92,8 @@ declare global {
         contextPath: string;
         drafts: Array<{ status: string }>;
       }>;
-      scratch: ProjectContextTreeDirectory;
-      uploads: ProjectContextTreeDirectory;
+      scratch: CatalogTreeDirectory;
+      uploads: CatalogTreeDirectory;
       threads: ProjectChatItem[];
       nextThreads?: ProjectChatItem[];
     };

@@ -25,11 +25,11 @@ const tree = {
   ],
 };
 
-const getProjectContextTree = vi.fn(async () => ({ tree }) as never);
+const lookupContextCatalogFile = vi.fn(async () => tree.children[0] as never);
 const navigateToPassage = vi.fn();
 
-vi.mock("@/client/api/projects-api", () => ({
-  getProjectContextTree: (...args: unknown[]) => getProjectContextTree(...(args as [])),
+vi.mock("@/client/query/useContextCatalog", () => ({
+  lookupContextCatalogFile: (...args: unknown[]) => lookupContextCatalogFile(...(args as [])),
 }));
 vi.mock("@/core/editor/passage-navigation", () => ({
   navigateToPassage: (...args: unknown[]) => navigateToPassage(...(args as [])),
@@ -58,7 +58,7 @@ async function withDoors(
 
 beforeEach(() => {
   dismissPassageNotice();
-  getProjectContextTree.mockClear();
+  lookupContextCatalogFile.mockClear();
   navigateToPassage.mockClear();
 });
 
@@ -105,7 +105,7 @@ describe("passage doors", () => {
     await withDoors(async (open) => {
       await act(async () => open(CHAPTER_3));
 
-      expect(getProjectContextTree).not.toHaveBeenCalled();
+      expect(lookupContextCatalogFile).not.toHaveBeenCalled();
       expect(navigateToPassage).not.toHaveBeenCalled();
     });
   });

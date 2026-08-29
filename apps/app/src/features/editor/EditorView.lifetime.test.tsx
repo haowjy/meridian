@@ -128,8 +128,8 @@ vi.mock("@lingui/react/macro", () => ({
 vi.mock("@/client/query/useProjectThreads", () => ({
   useProjectThreads: () => ({ threads: threadList.current, isError: false, isFetching: false }),
 }));
-vi.mock("@/client/query/useProjectContextTree", () => ({
-  useProjectContextTree: () => ({
+vi.mock("@/client/query/useContextCatalog", () => ({
+  useContextCatalogTree: () => ({
     tree: null,
     isError: false,
     isFetching: false,

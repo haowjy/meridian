@@ -9,7 +9,7 @@
  * folder is driven entirely by the route's `scheme`/`folder` params, so
  * OS/browser back pops levels naturally and the top-bar breadcrumb stays in
  * sync. Data comes from the
- * same `useProjectContextTree` query the desktop tree panel uses — the
+ * same `useContextCatalogTree` query the desktop tree panel uses — the
  * client tree is already fully loaded per scheme, so drilling is pure lookup
  * (`findContextDir`), not refetching.
  */
@@ -19,7 +19,7 @@ import type { ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { isWorkScopedProjectContextScheme } from "@meridian/contracts/protocol";
 import { AlertCircle, ChevronRight, Folder, Loader2 } from "lucide-react";
 import { Fragment, useState } from "react";
-import { useProjectContextTree } from "@/client/query/useProjectContextTree";
+import { useContextCatalogTree } from "@/client/query/useContextCatalog";
 import { useWorks } from "@/client/query/useWorks";
 import { cn } from "@/lib/utils";
 import {
@@ -167,7 +167,7 @@ function MobileFolderListing({
   onCreateDone: () => void;
 }) {
   const workId = editorWorkId;
-  const { tree, isError, isFetching } = useProjectContextTree(projectId, scheme, {
+  const { tree, isError, isFetching } = useContextCatalogTree(projectId, scheme, {
     workId: editorWorkId,
   });
 

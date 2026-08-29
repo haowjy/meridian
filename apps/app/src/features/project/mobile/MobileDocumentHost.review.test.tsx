@@ -1,7 +1,7 @@
+import type { CatalogTreeDirectory } from "@/client/query/context-catalog-projection";
 // @vitest-environment jsdom
 /** Phone document hosting publishes and renders the Editor review scope. */
 
-import type { ProjectContextTreeDirectory } from "@meridian/contracts/protocol";
 import { act, StrictMode, useCallback, useEffect, useMemo, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -85,10 +85,10 @@ const tree = {
       schemaType: "document",
     },
   ],
-} as unknown as ProjectContextTreeDirectory;
+} as unknown as CatalogTreeDirectory;
 
-vi.mock("@/client/query/useProjectContextTree", () => ({
-  useProjectContextTree: () => ({
+vi.mock("@/client/query/useContextCatalog", () => ({
+  useContextCatalogTree: () => ({
     tree,
     capabilities: null,
     isError: false,

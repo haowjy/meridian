@@ -402,6 +402,7 @@ export async function createProductionAppPorts(input: {
   const projects = createDrizzleProjectBootstrapRepository({
     db,
     documents: documentSync,
+    catalogLifecycle: contextCatalog,
   });
   workRepo = createDrizzleProjectWorkRepository({
     db,

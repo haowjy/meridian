@@ -10,9 +10,8 @@ import {
 } from "./working-set-tab-seeding";
 
 const mocks = vi.hoisted(() => ({ readTree: vi.fn() }));
-vi.mock("@/client/api/projects-api", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/client/api/projects-api")>()),
-  getProjectContextTree: mocks.readTree,
+vi.mock("@/client/query/useContextCatalog", () => ({
+  fetchContextCatalogTree: mocks.readTree,
 }));
 
 beforeEach(() => {

@@ -33,6 +33,7 @@ const file: CatalogEntry = {
   path: ["Arc", "Chapter.md"],
   uri: "manuscript://Arc/Chapter.md" as never,
   fileType: "markdown",
+  provisionalName: false,
 };
 
 describe("ContextCatalogCache", () => {

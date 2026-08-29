@@ -6,7 +6,6 @@
 
 import {
   CONTEXT_URI_SCHEMES,
-  type ContextSchemeCapabilities,
   type ContextUriScheme,
   WORK_SCOPED_CONTEXT_URI_SCHEMES,
   type WorkScopedContextUriScheme,
@@ -268,54 +267,6 @@ export function parseWorkingSetRouteList(input: unknown): WorkingSetRouteListPar
   }
   return { ok: true, value: routes };
 }
-
-type ProjectContextTreeFileBase = {
-  kind: "file";
-  /** Persisted documents.id UUID used by Yjs and figure routes. */
-  documentId: string;
-  name: string;
-  /** Slash-prefixed display/routing path, e.g. `/project/README.md`. */
-  path: string;
-  /** Canonical context URI, e.g. `kb://project/README.md`. */
-  uri: string;
-  sizeBytes?: number;
-  updatedAt?: string;
-  readonly?: boolean;
-  provisionalName: boolean;
-};
-
-export type ProjectContextTreeEditableFile = ProjectContextTreeFileBase & {
-  editable: true;
-  filetype: Filetype;
-  schemaType: YjsTrackedSchemaType;
-};
-
-export type ProjectContextTreeBinaryFile = ProjectContextTreeFileBase & {
-  editable: false;
-  fileType: DocumentFileType;
-  mimeType?: string;
-};
-
-export type ProjectContextTreeFile = ProjectContextTreeEditableFile | ProjectContextTreeBinaryFile;
-
-export type ProjectContextTreeDirectory = {
-  kind: "dir";
-  name: string;
-  /** Slash-prefixed display/routing path; root is `/`. */
-  path: string;
-  uri: string;
-  readonly?: boolean;
-  children: ProjectContextTreeNode[];
-};
-
-export type ProjectContextTreeNode = ProjectContextTreeDirectory | ProjectContextTreeFile;
-
-export type ProjectContextTreeResponse = {
-  projectId: string;
-  scheme: ProjectContextTreeScheme;
-  capabilities: ContextSchemeCapabilities;
-  tree: ProjectContextTreeDirectory;
-};
 
 export type ContextReadTrackedResponse = {
   kind: "tracked";

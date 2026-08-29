@@ -12,9 +12,9 @@ import { notifyManager, type QueryClient } from "@tanstack/react-query";
 import { listProjectThreads, listProjectWorks } from "@/client/api/projects-api";
 import { invalidateProjectHomeFeed } from "./project-invalidation";
 import {
-  isProjectContextTreeKey,
+  isProjectContextCatalogKey,
   isProjectWorkDerivedKey,
-  isWorkScopedProjectContextTreeKey,
+  isWorkScopedProjectContextCatalogKey,
   projectQueryKeys,
 } from "./project-query-keys";
 import { patchThreadInProjectCaches } from "./project-thread-cache";
@@ -72,8 +72,8 @@ export function invalidateThreadProjectionDependencies(
   void client.invalidateQueries({
     predicate: ({ queryKey }) =>
       input.contextTrees === "all"
-        ? isProjectContextTreeKey(queryKey, input.projectId)
-        : isWorkScopedProjectContextTreeKey(queryKey, input.projectId, ids),
+        ? isProjectContextCatalogKey(queryKey, input.projectId)
+        : isWorkScopedProjectContextCatalogKey(queryKey, input.projectId, ids),
   });
 }
 

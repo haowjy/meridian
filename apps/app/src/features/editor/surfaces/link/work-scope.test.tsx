@@ -11,8 +11,6 @@
  * what a future question asked without invalidating a single cached answer.
  */
 import type {
-  ProjectContextTreeDirectory,
-  ProjectContextTreeNode,
   ResolveDocumentLinkRequest,
   ResolveDocumentLinkResponse,
 } from "@meridian/contracts/protocol";
@@ -20,6 +18,10 @@ import { Editor } from "@tiptap/core";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+  CatalogTreeDirectory,
+  CatalogTreeNode,
+} from "@/client/query/context-catalog-projection";
 
 import { createStandaloneEditorExtensions } from "@/core/editor/config";
 import { getLinkResolution } from "@/core/editor/links";
@@ -34,7 +36,7 @@ const resolveDocumentLink = vi.fn(
     _body: ResolveDocumentLinkRequest,
   ): Promise<ResolveDocumentLinkResponse> => ({ document: null }),
 );
-const trees = new Map<string, ProjectContextTreeDirectory | null>();
+const trees = new Map<string, CatalogTreeDirectory | null>();
 
 vi.mock("@lingui/core/macro", () => ({
   t: (strings: TemplateStringsArray) => strings.join(""),
@@ -43,8 +45,8 @@ vi.mock("@/client/api/document-links-api", () => ({
   resolveDocumentLink: (projectId: string, body: ResolveDocumentLinkRequest) =>
     resolveDocumentLink(projectId, body),
 }));
-vi.mock("@/client/query/useProjectContextTree", () => ({
-  useProjectContextTree: (
+vi.mock("@/client/query/useContextCatalog", () => ({
+  useContextCatalogTree: (
     _projectId: string,
     scheme: string,
     options?: { enabled?: boolean; workId?: string | null },
@@ -339,7 +341,7 @@ function treeKey(scheme: string, workId?: string | null): string {
   return `${scheme}:${workId ?? ""}`;
 }
 
-function manuscriptTree(...names: readonly string[]): ProjectContextTreeDirectory {
+function manuscriptTree(...names: readonly string[]): CatalogTreeDirectory {
   return directory(
     "manuscript://",
     names.map((name) => file(name, `manuscript://${name}`)),
@@ -347,18 +349,18 @@ function manuscriptTree(...names: readonly string[]): ProjectContextTreeDirector
 }
 
 /** Context trees expose stable slug-qualified Scratch authority. */
-function scratchTree(workSlug: string, ...names: readonly string[]): ProjectContextTreeDirectory {
+function scratchTree(workSlug: string, ...names: readonly string[]): CatalogTreeDirectory {
   return directory(
     `scratch://@${workSlug}`,
     names.map((name) => file(name, `scratch://@${workSlug}/${name}`)),
   );
 }
 
-function directory(uri: string, children: ProjectContextTreeNode[]): ProjectContextTreeDirectory {
+function directory(uri: string, children: CatalogTreeNode[]): CatalogTreeDirectory {
   return { kind: "dir", name: "", path: "/", uri, children };
 }
 
-function file(name: string, uri: string): ProjectContextTreeNode {
+function file(name: string, uri: string): CatalogTreeNode {
   return {
     kind: "file",
     documentId: `document-${name}`,

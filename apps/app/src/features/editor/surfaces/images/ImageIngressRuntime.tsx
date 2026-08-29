@@ -1,3 +1,4 @@
+import type { CatalogTreeNode } from "@/client/query/context-catalog-projection";
 /**
  * The app's half of image ingress: where a picture's bytes actually go.
  *
@@ -11,12 +12,11 @@
  * a file is refused, is `ImageIngressOverlay`.
  */
 
-import type { ProjectContextTreeNode } from "@meridian/contracts/protocol";
 import type { Editor } from "@tiptap/core";
 import { useEffect, useMemo } from "react";
 
 import { uploadFigure } from "@/client/api/figures-api";
-import { useProjectContextTree } from "@/client/query/useProjectContextTree";
+import { useContextCatalogTree } from "@/client/query/useContextCatalog";
 import {
   editorAssetIndex,
   type ImageBytesPort,
@@ -34,7 +34,7 @@ export function ImageIngressRuntime({
   projectId: string | undefined;
   documentId: string;
 }) {
-  const { tree: manuscriptTree } = useProjectContextTree(projectId ?? "", "manuscript", {
+  const { tree: manuscriptTree } = useContextCatalogTree(projectId ?? "", "manuscript", {
     enabled: Boolean(projectId),
     workId: null,
   });
@@ -54,7 +54,7 @@ export function ImageIngressRuntime({
   useEffect(() => {
     const assetIndex = editorAssetIndex(editor);
     if (!assetIndex || !manuscriptTree) return;
-    const remember = (node: ProjectContextTreeNode) => {
+    const remember = (node: CatalogTreeNode) => {
       if (node.kind === "file") {
         if (!node.editable && node.fileType === "image") {
           assetIndex.remember(node.documentId, node.path.replace(/^\//, ""));

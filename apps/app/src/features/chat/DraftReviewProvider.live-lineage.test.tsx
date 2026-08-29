@@ -1,3 +1,4 @@
+import type { CatalogEntry } from "@meridian/contracts/protocol";
 import { act, type ReactNode, useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { projectQueryKeys } from "@/client/query/project-query-keys";
@@ -393,29 +394,43 @@ function activeGroup(): ThreadDraftGroup {
 }
 
 function contextTreeResponse(materialized: boolean) {
+  const scope = { kind: "project" as const, projectId: "project-1" };
+  const source = {
+    kind: "source" as const,
+    entryId: "source-1",
+    scope,
+    scheme: "manuscript" as const,
+    name: "Manuscript",
+    uri: "manuscript://",
+  };
   return {
-    projectId: "project-1",
-    scheme: "manuscript",
-    tree: {
-      kind: "dir",
-      name: "Manuscript",
-      path: "/",
-      uri: "manuscript://",
-      children: materialized
-        ? [
-            {
-              kind: "file",
-              documentId: "doc-terminal",
-              name: "terminal.md",
-              path: "/terminal.md",
-              uri: "manuscript://terminal.md",
-              provisionalName: false,
-              editable: true,
-              filetype: "markdown",
-              schemaType: "prosemirror",
-            },
-          ]
-        : [],
-    },
+    scope,
+    generation: "generation-1",
+    headRevision: "1",
+    cursor: "cursor-1",
+    entries: new Map<string, CatalogEntry>([
+      [source.entryId, source],
+      ...(materialized
+        ? ([
+            [
+              "doc-terminal",
+              {
+                kind: "file" as const,
+                entryId: "doc-terminal",
+                scope,
+                sourceId: source.entryId,
+                parentId: source.entryId,
+                name: "terminal.md",
+                aliases: [],
+                path: ["terminal.md"],
+                uri: "manuscript://terminal.md",
+                fileType: "markdown" as const,
+                provisionalName: false,
+              },
+            ],
+          ] as const)
+        : []),
+    ]),
+    invalidatedEntryIds: new Set<string>(),
   };
 }
