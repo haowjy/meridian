@@ -40,8 +40,6 @@ import { schemeLabel } from "@/features/project/context/context-schemes";
 import type { EditorScope } from "../../editor-scope";
 
 export type LinkableDocument = WikilinkDocument & {
-  /** The persisted `documents.id`, which is what a follow opens. */
-  documentId: string;
   /**
    * The document's URI in the resolver's spelling, which is what a relative
    * link in it resolves against.

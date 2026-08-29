@@ -17,11 +17,28 @@ header in [`index.ts`](index.ts).
 
 **A trigger owns its envelope; this owns the menu.** Where a trigger may open,
 what a choice writes, and how a row looks all belong to the host. What arrives
-here is a session: rows, the query, a label, and the two callbacks that take a
-choice or a dismissal. The store's own judgment is narrow and deliberate — a
-menu is open only while it has rows, the highlight sits on the first row the host
-will accept, and a row the host refuses is stepped over rather than handed a key
-that does nothing.
+here is a session: stable row identity, rows, the query, a label, and the two
+callbacks that take a choice or a dismissal. The lifecycle issues stable
+session/generation identities; a host advances the generation before async work,
+and stale updates or closes are refused rather than published by arrival order.
+Query/context/container updates reset selection by explicit caller policy, while
+a same-session refresh can preserve the active stable row ID. The store's own
+judgment remains narrow — a menu is open only while it has rows, the highlight
+sits on the first row the host will accept, and a row the host refuses is stepped
+over rather than handed a key that does nothing.
+
+**Transitions are serialized events.** An accepted open, update, or close first
+installs its captured snapshot, then calls its lifecycle callback, then notifies
+menu subscribers. A synchronous reentrant transition waits in the lifecycle's
+FIFO until that event is complete, while still returning its reserved identity
+or acceptance immediately. Close consumes the full session/generation ticket;
+session ID alone never proves ownership.
+
+**Interactions describe actions, not host policy.** One `SuggestionHost` lease
+registers ordinary ArrowUp, ArrowDown, Home, End, Enter, and Tab bindings plus
+semantic retreat (`backtrack`, then root `dismiss`). The shared menu owns edge
+movement and Enter-versus-Tab choice intent, while each host places retreat in
+its own Escape precedence. Releasing the lease tears down both halves once.
 
 **The catalog offers what the resolver can find.** Rows rank titles and aliases
 because that is what `POST …/links/resolve` matches on, and names normalize the
@@ -39,8 +56,8 @@ of them is the writer's fix, and the menu never guesses which they meant.
 - **No import from `editor/`, `features/`, or a rendering library.** A completion
   that needs the editor belongs in the editor's lane, not here. The reverse
   direction is fine and expected.
-- **Host callbacks, never host state.** `choose`, `dismiss`, and `anchorRect` are
-  read live; the store holds no copy of a document, a catalog, or a rect.
+- **Host callbacks, never host state.** Lifecycle `open`/`update`/`close`, row
+  `choose`, `dismiss`, and `anchorRect` are read live; the store holds no copy of a document, a catalog, or a rect.
 - **A withdrawn session closes rather than freezes.** Hosts can lose their
   catalog mid-menu (a schema fence, a read-only surface), and `close()` is the
   one door for it.

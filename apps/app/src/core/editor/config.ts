@@ -61,6 +61,7 @@ import { ObjectPhysicsExtension } from "./objects";
 import { sanitizePastedHTML } from "./sanitize-paste";
 import { PROSEMIRROR_FRAGMENT_NAME } from "./schema";
 import type { SessionMarkerStore } from "./session-marker-store";
+import { editorSuggestionHost } from "./suggestion-host";
 
 export type EditorUser = {
   name: string;
@@ -356,8 +357,22 @@ export function createStandaloneEditorExtensions({
     MeridianFigure.configure({
       projectId: assetRenderContext?.projectId,
     }),
-    ...(slashCommands ? [SlashCommandExtension.configure(slashCommands)] : []),
-    ...(wikilinks ? [WikilinkSuggestionExtension.configure(wikilinks)] : []),
+    ...(slashCommands
+      ? [
+          SlashCommandExtension.configure({
+            ...slashCommands,
+            suggestionHost: editorSuggestionHost,
+          }),
+        ]
+      : []),
+    ...(wikilinks
+      ? [
+          WikilinkSuggestionExtension.configure({
+            ...wikilinks,
+            suggestionHost: editorSuggestionHost,
+          }),
+        ]
+      : []),
     MarkdownAutoformatExtension,
     // Below the autoformat, which owns the delimiters this deliberately does
     // not pair (`**`, `__`, `~~`, and the backtick outside a fence).

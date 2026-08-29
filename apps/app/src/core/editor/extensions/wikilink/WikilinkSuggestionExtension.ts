@@ -28,7 +28,7 @@ import { allowsWikilinkTrigger } from "./wikilink-trigger";
 
 export type WikilinkMenu = SuggestionMenu<WikilinkMenuItem>;
 
-export type WikilinkExtensionOptions = SuggestionLaneOptions<WikilinkCatalog>;
+export type WikilinkExtensionOptions = Pick<SuggestionLaneOptions<WikilinkCatalog>, "catalog">;
 
 const wikilinkLane = createSuggestionLane<WikilinkCatalog, WikilinkMenuItem>({
   name: "wikilinkSuggestion",
@@ -38,6 +38,7 @@ const wikilinkLane = createSuggestionLane<WikilinkCatalog, WikilinkMenuItem>({
   label: (catalog) => catalog.label,
   allows: allowsWikilinkTrigger,
   items: (catalog, query) => filterWikilinkItems(catalog.documents, query),
+  rowId: (entry) => entry.key,
   choose: ({ editor, range, entry }) => {
     // The trigger's own range stops at the caret, and the `]]` auto-pairing
     // wrote for the second bracket sits just past it. The writer typed one

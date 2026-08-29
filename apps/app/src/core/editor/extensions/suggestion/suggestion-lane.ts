@@ -18,10 +18,9 @@
  *
  * Two things this deliberately does NOT do, for every lane at once:
  *
- * - **Own Escape.** The chrome kernel does (`escStep`), and it runs first at
- *   priority 1050; a menu takes its step by being a registered layer, which the
- *   React surface does when it opens. Suggestion's own Escape handling stays as
- *   the floor under that, for the frame before React has rendered.
+ * - **Own Escape.** The host does. The lane registers semantic retreat beside
+ *   its ordinary bindings, so editor Chrome and Composer can place the same
+ *   backtrack/root-dismiss action in their own arbitration order.
  * - **Gate on transaction origin.** `shouldShow` is evaluated on every
  *   transaction, so using it to keep remote writes from opening a menu would
  *   also close an open menu every time a collaborator typed anywhere in the
@@ -39,12 +38,16 @@ import { Plugin, PluginKey } from "@tiptap/pm/state";
 import Suggestion, { exitSuggestion, type SuggestionProps } from "@tiptap/suggestion";
 
 import {
-  createSuggestionMenu,
+  createSuggestionLifecycle,
+  type SuggestionChoiceAction,
+  type SuggestionGeneration,
+  type SuggestionHost,
+  type SuggestionHostLease,
+  type SuggestionKeyBindings,
+  type SuggestionLifecycle,
   type SuggestionMenu,
-  type SuggestionMenuController,
-  type SuggestionMenuSession,
+  type SuggestionSession,
 } from "@/core/completion";
-import { getEditorChrome } from "../../chrome";
 
 /**
  * What the host offers a lane.
@@ -57,6 +60,8 @@ import { getEditorChrome } from "../../chrome";
  */
 export type SuggestionLaneOptions<TCatalog> = {
   catalog: () => TCatalog | null;
+  /** Host composition seam: the adapter never imports editor chrome. */
+  suggestionHost: (editor: Editor) => SuggestionHost | null;
 };
 
 /**
@@ -87,6 +92,8 @@ export type SuggestionLaneSpec<TCatalog, TItem, TEntry extends TItem = TItem, TM
   allows: (doc: PMNode, from: number) => boolean;
   /** What matched what the writer has typed after the trigger. */
   items: (catalog: TCatalog, query: string) => readonly TItem[];
+  /** Stable identity across reorder and same-session catalog refreshes. */
+  rowId: (entry: TEntry) => string;
   /**
    * How the visible list reads where the caret is — per-row state that depends
    * on the document rather than the query. Asked once per update, so every row
@@ -104,7 +111,20 @@ export type SuggestionLaneSpec<TCatalog, TItem, TEntry extends TItem = TItem, TM
   /** What the menu needs that a row does not carry. Absent means nothing. */
   meta?: (catalog: TCatalog) => TMeta;
   /** What a choice writes into the document, over the trigger's own range. */
-  choose: (input: { editor: Editor; catalog: TCatalog; range: Range; entry: TEntry }) => void;
+  choose: (input: {
+    editor: Editor;
+    catalog: TCatalog;
+    range: Range;
+    entry: TEntry;
+    action: SuggestionChoiceAction;
+  }) => void;
+  /**
+   * Overrides the current three-key behavior for a richer lane. The menu owns
+   * navigation and action intent; the host only registers the returned chords.
+   */
+  keyBindings?: (menu: SuggestionMenu<TEntry, TMeta>) => SuggestionKeyBindings;
+  /** Hierarchical retreat. False tells the host to dismiss the root. */
+  backtrack?: (input: { editor: Editor; catalog: TCatalog; range: Range }) => boolean;
 };
 
 export type SuggestionLane<TCatalog, TEntry, TMeta = null> = {
@@ -124,29 +144,28 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
 
   type LaneStorage = {
     menu: SuggestionMenu<TEntry, TMeta>;
-    /** @internal driven by this lane's plugin only. */
-    controller: SuggestionMenuController<TEntry, TMeta>;
+    lifecycle: SuggestionLifecycle<TEntry, TMeta>;
   };
 
   const extension = Extension.create<SuggestionLaneOptions<TCatalog>, LaneStorage>({
     name: spec.name,
 
     addOptions() {
-      return { catalog: () => null };
+      return { catalog: () => null, suggestionHost: () => null };
     },
 
     addStorage(): LaneStorage {
-      return createSuggestionMenu<TEntry, TMeta>();
+      return createSuggestionLifecycle<TEntry, TMeta>();
     },
 
     addProseMirrorPlugins() {
       const editor = this.editor;
       const options = this.options;
-      const { menu, controller } = this.storage;
+      const { menu, lifecycle } = this.storage;
 
       const sessionFrom = (
         props: SuggestionProps<TItem, TEntry>,
-      ): SuggestionMenuSession<TEntry, TMeta> | null => {
+      ): SuggestionSession<TEntry, TMeta> | null => {
         const catalog = options.catalog();
         if (!catalog) return null;
         const entries = spec.entries
@@ -158,12 +177,26 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
             (props.items as unknown as readonly TEntry[]);
         return {
           items: entries,
+          rowId: spec.rowId,
           query: props.query,
           anchorRect: props.clientRect ?? (() => null),
           label: spec.label(catalog),
           meta: (spec.meta?.(catalog) ?? null) as TMeta,
-          choose: (entry) => props.command(entry),
+          choose: (entry, action) => {
+            const catalog = options.catalog();
+            if (!catalog) return;
+            spec.choose({ editor, catalog, range: props.range, entry, action });
+          },
           choosable: spec.choosable,
+          backtrack: spec.backtrack
+            ? () => {
+                const currentCatalog = options.catalog();
+                return currentCatalog
+                  ? (spec.backtrack?.({ editor, catalog: currentCatalog, range: props.range }) ??
+                      false)
+                  : false;
+              }
+            : undefined,
           dismiss: () => exitSuggestion(editor.view, pluginKey),
         };
       };
@@ -194,48 +227,51 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
               exitSuggestion(target.view, pluginKey);
               return;
             }
-            spec.choose({ editor: target, catalog, range, entry: props });
+            spec.choose({ editor: target, catalog, range, entry: props, action: "enter" });
           },
           render: () => {
-            let releaseKeymap: (() => void) | null = null;
+            let hostLease: SuggestionHostLease | null = null;
+            let identity: SuggestionGeneration | null = null;
 
             return {
               onStart(props) {
                 const session = sessionFrom(props);
                 if (!session) return;
-                controller.open(session);
+                identity = lifecycle.open(session);
 
                 // Registered here rather than from the surface's effect: the
                 // menu is on screen the instant the trigger text lands, and a
                 // writer who types it and ArrowDown in one motion must not
                 // out-run React.
-                releaseKeymap =
-                  getEditorChrome(editor)?.registerKeymap({
+                hostLease =
+                  options.suggestionHost(editor)?.register({
                     id: spec.keymapId,
-                    scope: "layer",
-                    // No token to name: this runs a beat before React opens the
-                    // popover that becomes this menu's layer, which is the
-                    // point of registering here. The keys are then the
-                    // shallowest rung of layer scope, and an open layer that
-                    // claims the same chord answers it instead.
-                    layer: null,
-                    bindings: {
+                    bindings: spec.keyBindings?.(menu) ?? {
                       ArrowDown: () => menu.move(1),
                       ArrowUp: () => menu.move(-1),
-                      Enter: () => menu.chooseActive(),
+                      Enter: () => menu.chooseActive("enter"),
+                    },
+                    retreat: {
+                      backtrack: () => menu.backtrack(),
+                      dismiss: () => menu.dismiss(),
                     },
                   }) ?? null;
               },
 
               onUpdate(props) {
                 const session = sessionFrom(props);
-                if (session) controller.update(session);
+                if (!session || !identity) return;
+                const generation = lifecycle.nextGeneration(identity.sessionId);
+                if (!generation) return;
+                identity = generation;
+                lifecycle.update(generation, session, "reset");
               },
 
               onExit() {
-                releaseKeymap?.();
-                releaseKeymap = null;
-                controller.close();
+                hostLease?.release();
+                hostLease = null;
+                if (identity) lifecycle.close(identity);
+                identity = null;
               },
             };
           },

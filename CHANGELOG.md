@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+- `apps/app`: deepen the shared suggestion menu into a host-independent,
+  generation-fenced and reentrancy-safe lifecycle with stable-row refresh
+  selection, ordinary key actions, and a semantic host retreat lease that maps
+  hierarchical backtracking and root dismissal into each host's own Escape
+  precedence while preserving the `/` and `[[` editor lanes.
+
 - `apps/app`: separate ordinary Editor screen continuity from atomic Work
   supersession, keep guarded deleted routes out of obligation settlement and
   durable reconstruction,
