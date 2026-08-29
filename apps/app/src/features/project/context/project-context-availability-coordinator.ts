@@ -155,18 +155,105 @@ export class ProjectContextAvailabilityCoordinator {
     const watched = new Set(this.watchedRecords(state).map((record) => record.documentId));
     const ids = [...new Set(candidateIds ?? [...watched])].filter((id) => watched.has(id)).sort();
     if (ids.length === 0) return;
+
     const localGenerations = new Map<string, number>();
     for (const documentId of ids) {
       const next = (state.requestGeneration.get(documentId) ?? 0) + 1;
       state.requestGeneration.set(documentId, next);
       localGenerations.set(documentId, next);
     }
+
+    const initial = await this.lookupChunks(projectId, ids, state);
+    const candidates = new Map<string, ProjectContextIdentityResolution>();
+    const unresolved = new Set(initial.unresolved);
+    const indeterminate: string[] = [];
+    for (const [documentId, resolution] of initial.resolutions) {
+      if (state.requestGeneration.get(documentId) !== localGenerations.get(documentId)) continue;
+      if (resolution.kind === "indeterminate") indeterminate.push(documentId);
+      else candidates.set(documentId, resolution);
+    }
+
+    if (indeterminate.length > 0) {
+      for (const documentId of indeterminate)
+        this.dependencies.onIndeterminate?.(projectId, documentId);
+      try {
+        await this.dependencies.repairProjectCatalog(projectId);
+      } catch {
+        for (const documentId of indeterminate) unresolved.add(documentId);
+      }
+      const stillCurrent = indeterminate.filter(
+        (documentId) =>
+          state.requestGeneration.get(documentId) === localGenerations.get(documentId),
+      );
+      if (stillCurrent.length > 0 && !stillCurrent.some((id) => unresolved.has(id))) {
+        const repaired = await this.lookupChunks(projectId, stillCurrent, state);
+        for (const documentId of repaired.unresolved) unresolved.add(documentId);
+        for (const [documentId, resolution] of repaired.resolutions) {
+          if (state.requestGeneration.get(documentId) !== localGenerations.get(documentId))
+            continue;
+          candidates.set(documentId, resolution);
+        }
+      }
+    }
+
+    if (this.projects.get(projectId) !== state || state.leases === 0) return;
+    const liveWatched = new Set(this.watchedRecords(state).map((record) => record.documentId));
+    const isCurrent = (documentId: string) =>
+      liveWatched.has(documentId) &&
+      state.requestGeneration.get(documentId) === localGenerations.get(documentId);
+    if ([...unresolved].some(isCurrent)) return;
+
+    const committed: Array<{
+      documentId: string;
+      resolution: ProjectContextIdentityResolution;
+      generation: bigint;
+      command: ProjectDocumentAvailabilityCommand | null;
+    }> = [];
+    for (const documentId of ids) {
+      if (!isCurrent(documentId)) continue;
+      const resolution = candidates.get(documentId);
+      if (!resolution) continue;
+      const generation = BigInt(authorityGeneration(resolution));
+      if (generation < (state.highestAuthorityGeneration.get(documentId) ?? -1n)) continue;
+      committed.push({
+        documentId,
+        resolution,
+        generation,
+        command: this.classify(projectId, resolution, state),
+      });
+    }
+    if (committed.length === 0) return;
+    const commands = committed.flatMap(({ command }) => (command ? [command] : []));
+    commands.sort((left, right) => left.commandId.localeCompare(right.commandId));
+    this.dependencies.apply(commands);
+
+    for (const candidate of committed) {
+      state.highestAuthorityGeneration.set(candidate.documentId, candidate.generation);
+      if (candidate.resolution.kind === "available") {
+        state.admittedAuthority.set(candidate.documentId, candidate.resolution.authority);
+      } else if (
+        candidate.resolution.kind === "deleted" ||
+        candidate.resolution.kind === "authority-unavailable" ||
+        (candidate.resolution.kind === "not-visible" && candidate.command)
+      ) {
+        state.admittedAuthority.delete(candidate.documentId);
+      }
+    }
+  }
+
+  private async lookupChunks(
+    projectId: string,
+    documentIds: readonly string[],
+    state: ProjectState,
+  ): Promise<{
+    resolutions: Map<string, ProjectContextIdentityResolution>;
+    unresolved: Set<string>;
+  }> {
     const chunks: string[][] = [];
-    for (let index = 0; index < ids.length; index += MAX_IDS)
-      chunks.push(ids.slice(index, index + MAX_IDS));
-    const commands: ProjectDocumentAvailabilityCommand[] = [];
-    let unresolved = false;
-    let nonsupersededCount = 0;
+    for (let index = 0; index < documentIds.length; index += MAX_IDS)
+      chunks.push(documentIds.slice(index, index + MAX_IDS));
+    const resolutions = new Map<string, ProjectContextIdentityResolution>();
+    const unresolved = new Set<string>();
     let cursor = 0;
     const worker = async () => {
       while (cursor < chunks.length) {
@@ -185,44 +272,22 @@ export class ProjectContextAvailabilityCoordinator {
           }
         }
         if (!response) {
-          unresolved = true;
+          for (const documentId of chunk) unresolved.add(documentId);
           continue;
         }
-        const byId = new Map(
-          response.resolutions.map((resolution) => [resolution.documentId, resolution]),
-        );
+        const byId = new Map(response.resolutions.map((item) => [item.documentId, item]));
         if (byId.size !== chunk.length || chunk.some((id) => !byId.has(id))) {
-          unresolved = true;
+          for (const documentId of chunk) unresolved.add(documentId);
           continue;
         }
         for (const documentId of chunk) {
-          if (state.requestGeneration.get(documentId) !== localGenerations.get(documentId))
-            continue;
-          nonsupersededCount += 1;
-          const resolution = byId.get(documentId) as ProjectContextIdentityResolution;
-          const settled =
-            resolution.kind === "indeterminate"
-              ? await this.retryIndeterminate(projectId, documentId, state)
-              : resolution;
-          if (!settled) continue;
-          const generation = BigInt(authorityGeneration(settled));
-          if (generation < (state.highestAuthorityGeneration.get(documentId) ?? -1n)) continue;
-          const command = this.classify(projectId, settled, state);
-          state.highestAuthorityGeneration.set(documentId, generation);
-          if (command) commands.push(command);
+          const resolution = byId.get(documentId);
+          if (resolution) resolutions.set(documentId, resolution);
         }
       }
     };
     await Promise.all([worker(), worker()]);
-    if (
-      !unresolved &&
-      nonsupersededCount > 0 &&
-      this.projects.get(projectId) === state &&
-      state.leases > 0
-    ) {
-      commands.sort((left, right) => left.commandId.localeCompare(right.commandId));
-      await this.dependencies.apply(commands);
-    }
+    return { resolutions, unresolved };
   }
 
   private classify(
@@ -232,7 +297,6 @@ export class ProjectContextAvailabilityCoordinator {
   ): ProjectDocumentAvailabilityCommand | null {
     const documentId = resolution.documentId;
     if (resolution.kind === "available") {
-      state.admittedAuthority.set(documentId, resolution.authority);
       return {
         kind: "available",
         projectId,
@@ -317,28 +381,6 @@ export class ProjectContextAvailabilityCoordinator {
     } finally {
       state.inFlight -= 1;
       state.slotWaiters.shift()?.();
-    }
-  }
-
-  private async retryIndeterminate(
-    projectId: string,
-    documentId: string,
-    state: ProjectState,
-  ): Promise<ProjectContextIdentityResolution | null> {
-    this.dependencies.onIndeterminate?.(projectId, documentId);
-    await this.dependencies.repairProjectCatalog(projectId);
-    try {
-      const retry = await this.withLookupSlot(state, () =>
-        this.dependencies.lookup(projectId, [documentId]),
-      );
-      const resolution = retry.resolutions[0];
-      return resolution &&
-        resolution.documentId === documentId &&
-        resolution.kind !== "indeterminate"
-        ? resolution
-        : null;
-    } catch {
-      return null;
     }
   }
 

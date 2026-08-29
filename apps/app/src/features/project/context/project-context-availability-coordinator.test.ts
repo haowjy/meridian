@@ -145,7 +145,7 @@ describe("ProjectContextAvailabilityCoordinator", () => {
         },
       ]),
     );
-    for (let index = 0; index < 5 && pending.length < 4; index += 1) await Promise.resolve();
+    await vi.waitFor(() => expect(pending).toHaveLength(4));
     pending[3]?.(
       result("project-1", [
         {
@@ -182,5 +182,126 @@ describe("ProjectContextAvailabilityCoordinator", () => {
     lease.watch("tabs", [{ documentId: id(1), sourceWorkId: "work-cold" }]);
     await coordinator.coldScopeHint("project-1", "work-cold");
     expect(lookup).toHaveBeenCalledWith("project-1", [id(1)]);
+  });
+});
+
+describe("complete availability drain fences", () => {
+  it("repairs all indeterminates with one catalog snapshot and minimum retry chunks", async () => {
+    const calls: string[][] = [];
+    let repaired = false;
+    const repairProjectCatalog = vi.fn(async () => {
+      repaired = true;
+    });
+    const coordinator = new ProjectContextAvailabilityCoordinator({
+      lookup: async (projectId, documentIds) => {
+        calls.push([...documentIds]);
+        return result(
+          projectId,
+          documentIds.map((documentId) =>
+            repaired
+              ? { kind: "not-visible" as const, documentId, checkedGeneration: "2" }
+              : {
+                  kind: "indeterminate" as const,
+                  documentId,
+                  checkedGeneration: "1",
+                  reason: "identity_inconsistent" as const,
+                },
+          ),
+        );
+      },
+      repairProjectCatalog,
+      apply: () => undefined,
+    });
+    const lease = coordinator.attachProject("project-1");
+    const documentIds = Array.from({ length: 129 }, (_, index) => id(index));
+    lease.watch(
+      "tabs",
+      documentIds.map((documentId) => ({ documentId })),
+    );
+    await coordinator.recheck("project-1");
+    expect(repairProjectCatalog).toHaveBeenCalledTimes(1);
+    expect(calls.map((call) => call.length)).toEqual([128, 1, 128, 1]);
+  });
+
+  it("quarantines a valid repeated indeterminate but withholds peers on malformed repair", async () => {
+    const peer = id(1);
+    const uncertain = id(2);
+    let malformed = false;
+    const batches: ProjectDocumentAvailabilityCommand[][] = [];
+    const coordinator = new ProjectContextAvailabilityCoordinator({
+      lookup: async (projectId, documentIds) => {
+        if (documentIds.length === 1 && documentIds[0] === uncertain && malformed) {
+          return result(projectId, []);
+        }
+        return result(
+          projectId,
+          documentIds.map((documentId) =>
+            documentId === peer
+              ? {
+                  kind: "deleted" as const,
+                  documentId,
+                  generation: "4",
+                  lastAuthority: { kind: "project" as const, projectId },
+                }
+              : {
+                  kind: "indeterminate" as const,
+                  documentId,
+                  checkedGeneration: "4",
+                  reason: "identity_inconsistent" as const,
+                },
+          ),
+        );
+      },
+      repairProjectCatalog: async () => undefined,
+      apply: (commands) => batches.push([...commands]),
+    });
+    const lease = coordinator.attachProject("project-1");
+    lease.watch(
+      "tabs",
+      [peer, uncertain].map((documentId) => ({ documentId })),
+    );
+    await coordinator.recheck("project-1");
+    expect(
+      batches
+        .flat()
+        .map((command) =>
+          command.kind === "available" ? command.document.entryId : command.documentId,
+        ),
+    ).toEqual([peer]);
+    batches.length = 0;
+    malformed = true;
+    await coordinator.recheck("project-1");
+    expect(batches).toEqual([]);
+  });
+
+  it("does not admit authority when the effect owner throws", async () => {
+    const documentId = id(1);
+    let phase: "available" | "not-visible" = "available";
+    const batches: ProjectDocumentAvailabilityCommand[][] = [];
+    const coordinator = new ProjectContextAvailabilityCoordinator({
+      lookup: async (projectId) =>
+        result(projectId, [
+          phase === "available"
+            ? {
+                kind: "available" as const,
+                documentId,
+                generation: "5",
+                authority: { kind: "project" as const, projectId },
+                entry: { entryId: documentId } as never,
+              }
+            : { kind: "not-visible" as const, documentId, checkedGeneration: "6" },
+        ]),
+      repairProjectCatalog: async () => undefined,
+      apply: (commands) => {
+        batches.push([...commands]);
+        if (phase === "available") throw new Error("owner failed");
+      },
+    });
+    const lease = coordinator.attachProject("project-1");
+    lease.watch("tabs", [{ documentId }]);
+    await expect(coordinator.recheck("project-1")).rejects.toThrow("owner failed");
+    phase = "not-visible";
+    await coordinator.recheck("project-1");
+    expect(batches.at(-1)).toEqual([]);
   });
 });
