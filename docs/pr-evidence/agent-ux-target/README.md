@@ -1,105 +1,99 @@
-# Quiet agent management and New Chat selection
+# Agent v1 implementation target
 
-This folder is the visual and behavioral acceptance target for Meridian Flow's agent implementation. It contains design evidence, not product implementation.
+## Decision
 
-## The target
+Build a portable collaborator, not another workflow product. A writer manages or imports a Mars-defined Agent, chooses it only in New Chat, and then works in the ordinary transcript. First Send atomically binds the chat to one immutable Agent definition revision and its fixed Work.
 
-**New Chat is the only place a writer chooses an Agent and Work. Agents is where definitions and packages are understood and maintained. Existing chats show their immutable identity as a quiet fact.**
+Normal output remains assistant prose. When manuscript text changes, the existing edit receipt and Undo follow. The earlier generic `Sources and effects`, `Helpers consulted`, and `Run details` rows were invented proposals, not current Flow; they are deleted from the target.
 
-```mermaid
-flowchart LR
-    A[Agents<br/>inspect and maintain] --> N[New Chat<br/>choose Agent and Work]
-    N --> C[Existing chat<br/>immutable identity]
-    C --> R[Assistant turn<br/>activity report receipt]
-```
+## Browse the design
 
-The implementation may choose different component boundaries, but it must preserve this ownership, information hierarchy, copy truth, and responsive behavior.
+Open the self-contained [Agent design guide](guide/index.html) for the requirements, architecture, mockups, data model, plan, cuts, and evidence labels.
 
-## Surface ownership
+Authoritative documents:
+
+1. [Requirements](agent-system-requirements.md)
+2. [System design](agent-system-design.md)
+3. [Data model](agent-system-data-model.md)
+4. [Agent experience](agent-ux-spec.md)
+5. [Implementation plan](agent-system-implementation-plan.md)
+
+## Product shape
 
 | Surface | Owns | Does not own |
 |---|---|---|
-| **New Chat** | compact draft Agent and Work controls, first instruction, atomic first send | package management, definition editing, launch gallery, separate start-agent ceremony |
-| **Agents** | inventory, detail, readiness, edit, duplicate, export, revisions, defaults, package install and update | starting chats, starting runs, live runs, helpers, queues, receipts |
-| **Existing chat** | visible immutable Agent and Work identity, ordinary conversation | selectors, switch controls, package settings |
-| **Assistant turn** | current activity, exceptional attention, report, changes, evidence, undo | global task-center or management-page run UI |
-
-The Home package cards that currently create package-shaped projects or chats are not part of the target. Package discovery and maintenance belongs in Agents.
-
-## Design set
-
-1. [Agent system design](agent-system-design.md) defines vocabulary, boundaries, authority, and target architecture.
-2. [Agent system data model](agent-system-data-model.md) defines Mars exchange objects and Flow persistence/domain records.
-3. [Agent system implementation plan](agent-system-implementation-plan.md) defines cross-repository delivery order, gates, and replacement inventory.
-4. [Agent experience](agent-ux-spec.md) defines surface ownership, writer-facing behavior, responsive rules, and visual patterns.
-
-## Visual evidence
-
-Every state is rendered without prototype navigation at 1440 × 1000 and 390 × 844. The target extends Flow's current warm writing desk, pinned composer, compact popover, settings list/detail, assistant prose, activity disclosure, and edit receipt patterns.
+| **New Chat** | Draft Agent choice, conditional Work choice, atomic first Send. | Editing, package management, run details. |
+| **Agents** | Flat inventory, concise detail, four-field editor, local Mars import/export. | Start chat, Run, Test, active work. |
+| **Existing chat** | One inert Agent fact, ordinary transcript, current activity, outcomes. | Agent or Work switching, duplicate identity, definition editing. |
+| **Settled turn** | Assistant prose; existing edit receipt and Undo only if edits occurred. | Generic execution receipt or evidence stack. |
 
 ### New Chat stays writing-first
 
-The blank transcript and ordinary composer remain primary. Agent and Work are small draft controls; the ordinary Send action creates the first message and immutable binding together.
-
-| Desktop | Narrow |
+| Desktop | 390 px |
 |---|---|
-| [![Desktop quiet New Chat](screenshots/new-chat-1440x1000.png)](screenshots/new-chat-1440x1000.png) | [![Narrow quiet New Chat](screenshots/new-chat-390x844.png)](screenshots/new-chat-390x844.png) |
+| ![Desktop New Chat](screenshots/new-chat-1440x1000.png) | ![Mobile New Chat](screenshots/new-chat-390x844.png) |
 
-### Agent choice stays compact
+### Agent selection stays inside the composer
 
-The picker answers only who the collaborator is, what it is for, and whether it is currently available. Deeper understanding and maintenance routes to Agents.
-
-| Desktop | Narrow |
+| Desktop | 390 px |
 |---|---|
-| [![Desktop composer Agent picker](screenshots/new-chat-picker-1440x1000.png)](screenshots/new-chat-picker-1440x1000.png) | [![Narrow composer Agent picker](screenshots/new-chat-picker-390x844.png)](screenshots/new-chat-picker-390x844.png) |
+| ![Desktop Agent picker](screenshots/agent-picker-1440x1000.png) | ![Mobile Agent picker](screenshots/agent-picker-390x844.png) |
 
-### Agents is a management workspace
+### Agents manages without launching
 
-Definitions are primary because they are what writers select. Package ownership and updates remain visible without turning the area into a store or launcher. There is no Start, Run, or Test action.
-
-| Desktop | Narrow |
+| Desktop | 390 px |
 |---|---|
-| [![Desktop Agents inventory and detail](screenshots/agents-1440x1000.png)](screenshots/agents-1440x1000.png) | [![Narrow Agents inventory](screenshots/agents-390x844.png)](screenshots/agents-390x844.png) |
+| ![Desktop Agents management](screenshots/agents-1440x1000.png) | ![Mobile Agents management](screenshots/agents-390x844.png) |
 
-### Editing is structured; Mars remains portable
+### The editor has four fields
 
-The default editor is organized around identity, abilities, boundaries, helpers, and behavior. Saving creates an immutable revision. Mars YAML remains the exchange and distribution format rather than the default authoring interface.
-
-| Desktop | Narrow |
+| Desktop | 390 px |
 |---|---|
-| [![Desktop structured Agent editor](screenshots/agent-editor-1440x1000.png)](screenshots/agent-editor-1440x1000.png) | [![Narrow structured Agent editor](screenshots/agent-editor-390x844.png)](screenshots/agent-editor-390x844.png) |
+| ![Desktop Agent editor](screenshots/agent-editor-1440x1000.png) | ![Mobile Agent editor](screenshots/agent-editor-390x844.png) |
 
-### Package changes affect future chats
+### Mars exchange starts local
 
-Install and update review lives inside Agents. It explains material abilities, helpers, source, compatibility, and host impact, including the fixed promise that existing chats keep their current version.
-
-| Desktop | Narrow |
+| Desktop | 390 px |
 |---|---|
-| [![Desktop package update](screenshots/package-update-1440x1000.png)](screenshots/package-update-1440x1000.png) | [![Narrow package update](screenshots/package-update-390x844.png)](screenshots/package-update-390x844.png) |
+| ![Desktop Mars import review](screenshots/import-review-1440x1000.png) | ![Mobile Mars import review](screenshots/import-review-390x844.png) |
 
-### Existing chats remain quiet
+### Existing chats stay quiet
 
-The bound identity is inert text rather than disabled selector chrome. Activity and helpers remain compact inside the originating assistant turn. The unboxed report leads and the current edit receipt keeps changed documents and Undo immediately discoverable.
-
-| Desktop | Narrow |
+| Desktop | 390 px |
 |---|---|
-| [![Desktop existing chat with inert identity and receipt](screenshots/existing-chat-1440x1000.png)](screenshots/existing-chat-1440x1000.png) | [![Narrow existing chat with inert identity and receipt](screenshots/existing-chat-390x844.png)](screenshots/existing-chat-390x844.png) |
+| ![Desktop existing chat](screenshots/existing-chat-1440x1000.png) | ![Mobile existing chat](screenshots/existing-chat-390x844.png) |
 
-## Non-negotiable behavior
+## Core system
 
-- New Chat is the only Agent and Work choice boundary. Draft selection creates no empty thread.
-- The normal first Send atomically persists the writer message, thread, Work relation, and exact Agent definition binding.
-- Existing chats never switch Agent or Work.
-- Agents supports understanding and maintenance but contains no chat or run launch action.
-- Availability language reflects effective capabilities for this host and writer, not a raw tool manifest.
-- Native Yjs manuscript writes happen without approval and remain recoverable through receipts and precise undo.
-- Writer questions, scoped external confirmations, budget increases, and outcome checks use durable action requests that survive backgrounding and reconnect.
-- Reports lead with the result and changes. Sources, effects, helpers, model, credits, duration, revision, and provenance remain behind progressive disclosures.
-- Custom agents are ordinary Mars package profiles, not a Flow-only definition type.
-- Mobile uses viewport-bounded pickers and routed management views without horizontal clipping or hover-only meaning.
+Root Agent v1 adds only:
 
-## Implementation boundary
+1. a strict versioned Mars compiler boundary;
+2. immutable package and definition revisions;
+3. one account/system catalog entry selecting the revision offered to future chats;
+4. one immutable thread binding;
+5. an atomic `StartAgentChat` application service;
+6. one `prepareAgentTurn` and `EffectiveToolPolicy` path.
 
-Keep catalog/install state, immutable thread binding, run lifecycle, durable action requests, receipt projection, package install/update, and structured authoring as separate ownership boundaries. UI state derives from durable domain state rather than optimistic stream messages.
+It reuses the current thread, turn journal, model gateway, `@meridian/agent-edit`, Yjs, activity, receipt, and Undo. It adds no runtime dependency, workflow engine, state-machine framework, run journal, generic action request system, or approval for native writing.
 
-Current Flow source is evidence for reusable visual patterns and explicit deletions, not a compatibility target. No Agents destination currently ships; implementing this design creates it as a management surface rather than preserving the incomplete Home package-launch behavior.
+Mars v1 gains semantic `actions` for `document.read` and `document.edit`. Flow binds those requests to its own concrete tool operations and Project authority. Mars source never grants Project access, chooses Work, or carries credentials/run state.
+
+Child Agents are post-v1. They add exact revision-resolved child edges, inherited Project/Work context, attenuated policy, and foreground spawn-and-report only after root v1 ships. Remote registry/distribution and external effects remain later designs.
+
+## Provenance
+
+| Label | In this target |
+|---|---|
+| **Existing pattern** | Composer selection, compact activity, assistant prose, edit receipt, Undo. |
+| **Required addition** | Management/editor/import, strict Mars contract, catalog pointer, immutable binding, atomic first Send, unified policy. |
+| **Later extension** | Child Agents, remote distribution, external effects, rich revision management. |
+| **Deleted behavior** | Launch cards, existing-chat switching, one-Work picker, routine statuses, editor preview/rail, generic receipt rows, background/task-center UI, parallel run systems. |
+
+## Verification
+
+- Requirements-first design review covered all 19 functional requirements and approved the target after the catalog, compiler, digest, cutover, and authoring blockers were corrected.
+- `meridian kg check` found no broken links in the work design.
+- `meridian mermaid check` validated all seven diagrams.
+- The product artifact rendered all six states at 1440 × 1000 and 390 × 844 with no page overflow or browser errors.
+- The structured guide rendered overview and experience at both viewports; all 28 local references resolved.
+- The implementation must still pass `pnpm check`, `pnpm test:db`, the 30-run p95 comparison, and a full Portless DB/stream/Yjs/Undo probe.

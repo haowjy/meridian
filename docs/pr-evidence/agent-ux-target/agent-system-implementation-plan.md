@@ -1,405 +1,245 @@
 # Meridian Agent System Implementation Plan
 
-**Status:** proposed cross-repository delivery plan
-**Target:** the architecture in [Meridian Agent System Design](agent-system-design.md) and writer-facing behavior in [Meridian Flow Agent Experience](agent-ux-spec.md)
-**Repositories:** `mars-agents`, `meridian-cli`, `meridian-flow`
-
 ## Delivery decision
 
-Build the shared contract in Mars first, prove it in Meridian CLI, then replace Flow's partial agent model with one immutable install, binding, authority, and execution path. Primary agents, differentiated tool authority, child runs, receipts, and custom package authoring then arrive as end-to-end vertical slices.
-
-Do not preserve the current Flow parser, mutable agent rows, slug precedence, prompt baking, or package sync behavior. There are no real users or data; dual reads, compatibility shims, and row migrations would make the target system harder to reason about.
+Deliver one vertical root-Agent path before building delegation or distribution. The walking skeleton must prove Mars source to immutable definition to New Chat binding to model turn to Yjs edit to receipt and Undo. Each later phase extends a proven seam and deletes the mechanism it replaces.
 
 ```mermaid
 flowchart LR
-    A["1. Contract lock\nMars semantics and fixtures"]
-    B["2. Mars producer\nnormalized catalog and direct bundle"]
-    C["3. CLI conformance\nconsume without reinterpretation"]
-    D["4. Flow foundation\ninstall, bind, compose, execute"]
-    E["5. Primary agents\ntruthful differentiated capabilities"]
-    F["6. Delegation\nattenuated child runs"]
-    G["7. Receipts and UX\nreport-first evidence"]
-    H["8. Custom packages\nauthor, fork, import, export"]
-    I["9. Distribution\nregistry and publisher trust"]
-
-    A --> B --> C
-    B --> D --> E --> F --> G --> H --> I
+    Contract["0. Mars contract"] --> Skeleton["1. Root walking skeleton"]
+    Skeleton --> Truth["2. Policy truth"]
+    Truth --> Manage["3. Management + exchange"]
+    Manage --> Harden["4. UX + cutover"]
+    Harden --> Release["Release root Agent v1"]
+    Release -. later .-> Children["Child Agents"]
+    Children -. later .-> Distribution["Remote distribution"]
 ```
 
-The critical path is **1 → 2 → 4 → 5 → 6 → 7**. CLI conformance begins after the shared fixtures exist and must pass before Mars declares the contract stable, but Flow may develop against a Mars prerelease in parallel.
+## Method, patterns, and stack
 
-### Contract release and host cutover
+### Method
 
-```mermaid
-flowchart LR
-    Schema["Mars contract schema\nand canonical fixtures"]
-    Pre["Mars producer prerelease\npinned version + digest"]
-    CLI["CLI conformance branch"]
-    Flow["Flow conformance/foundation branch"]
-    Stable["Promote unchanged wire contract\nto stable Mars"]
-    CLICut["CLI atomic cutover\ndelete old consumer"]
-    FlowCut["Flow atomic cutover\ndelete old authority path"]
+- **Walking skeleton first:** prove the full writer outcome before broad UI or extensibility.
+- **Contract tests before consumers:** lock Mars normalization and negative cases before persistence/runtime depend on them.
+- **Atomic cutover:** Phases 0 through 4 are internal milestones on one non-deployable cutover lane. None merges independently to `main`, and no deployable state has both slug/prompt-bake and revision/preparation paths.
+- **Functional core, imperative shell:** pure compilation/digest/policy logic around thin persistence and execution effects.
+- **Runtime probe as merge gate:** automated tests are necessary but do not replace Portless browser, log, stream, DB, and Yjs evidence.
+- **Deletion in the owning PR:** schemas can change freely; no compatibility shims or dormant legacy paths.
 
-    Schema --> Pre
-    Pre --> CLI
-    Pre --> Flow
-    CLI --> Stable
-    Flow --> Stable
-    Stable --> CLICut
-    Stable --> FlowCut
-```
+### Structural patterns
 
-Mars owns and versions the language-neutral schema, canonicalization rules, fixture corpus, serializer/formatter API, and compatibility matrix. CLI and Flow pin the exact prerelease and fixture digest in parallel. Stable promotion changes no wire semantics. Each host then cuts over atomically and removes its old semantic path in the same deployable PR. Review-sized foundation changes may live on a stacked/integration branch, but a second live authority path never lands on a deployable branch.
+- domain modules with deep public exports;
+- ports/adapters only for compiler, repositories, gateway, and tool-operation binding;
+- immutable revision references;
+- one cross-domain application service for first Send;
+- one `prepareAgentTurn` composition seam;
+- one `EffectiveToolPolicy` for advertisement and dispatch;
+- existing turn journal and Yjs change trail as lifecycle/evidence authorities.
 
-Rollback retains installed artifacts and repoints only future bindings to the last compatible revision; historical threads remain pinned. Generated bindings, if used, are reproduced from the stable schema and checked against the canonical fixtures in every repository.
+### Existing libraries only
 
-## Release boundaries
-
-| Release | Writer-visible outcome | Included phases |
-|---|---|---|
-| **Foundation** | No writer-facing claim. The shared contract is executable and inspectable in both hosts. | 1–4 |
-| **Primary-agent slice** | A writer chooses a first-party agent for a new chat and gets behavior matching the advertised capabilities. | 5 and the root-run subset of 7 |
-| **Delegation slice** | Eligible agents can consult named helpers; child reports and costs are visible. | 6 and the child subset of 7 |
-| **Custom-agent slice** | A writer can create or fork a portable Mars agent and use/export it. | 8 |
-| **Distribution slice** | Packages can be discovered and installed from a registry with publisher trust signals. | 9 |
-
-The **complete first product** is phases 1–8. The public registry is deliberately later. A smaller first deploy may stop after the primary-agent slice, but delegation and custom agents remain designed parts of the system, not unspecified future work.
-
-## Phase 1 — lock the portable semantics
-
-**Outcome:** one normative vocabulary and contract that neither host can reinterpret.
-
-### Mars changes
-
-- Ratify `PackageName`, `PackageRevision {version,digest,lockDigest}`, `AgentLogicalId`, and `AgentRevisionId`; authored refs use logical IDs and normalized edges use revision IDs.
-- Make `user-invocable` and `model-invocable` independent.
-- Define `subagents` as an exact, resolved delegation roster; omitted or empty means leaf.
-- Add a new versioned `capabilities` schema with required, optional, and denied constraints; every constraint carries a capability contract version and optional typed scope. Keep existing Mars `tools` as concrete target policy and require author-reviewed conversion.
-- Define scope canonicalization, equality, overlap, subsumption, intersection, disjointness, and compound-tool operation mapping.
-- Decide the first contract version and `requiredFeatures` behavior.
-- Specify versioned normalized catalog and direct launch-bundle schemas.
-- Specify provenance, warnings, contract compatibility, and definition-policy diffs.
-- Separate Mars `ContractCompatibility` from Flow `BindingReadiness`; define `DefinitionPolicyDiff` versus Flow `ActivationImpact`.
-- Define activation/control precedence and checkpoint semantics, child binding time, run transition/lease/reconciliation rules, and the transactional external effect/approval protocol.
-- Define durable action-request, continuation suspension/wake, parent-blocking, multiple-request, and answer/expiry/cancel/terminal race semantics. `needs-input` remains a derived presentation, not a run lifecycle value.
-
-### Evidence and gate
-
-- Normative examples and counterexamples exist for every policy-bearing field.
-- All three repository owners agree on capability scope semantics, child identity, update binding, revocation behavior, and unknown-feature behavior.
-- **Stop** if a host default can silently change an explicit restrictive declaration.
-
-## Phase 2 — build the Mars producer and conformance suite
-
-**Outcome:** Mars compiles a package graph into deterministic, versioned artifacts that fully represent profiles and skills.
-
-### Mars changes
-
-- Strict safe-YAML parser and validator.
-- Hosted fetch protocol: strict root-origin policy, Mars offline inspection emits exact locked dependency fetch plan, host fetches immutable coordinates, Mars validates/compiles closure offline/read-only.
-- No hooks, MCP, harness, compiler network, symlink/path escape, or executable package code; enforce redirect/DNS/IP, scheme, local-file, credential-reference, and resource policies.
-- Package graph, dependency, SemVer, digest, and provenance resolution.
-- Normalized profile and skill catalog with qualified child edges.
-- Direct-v1 skills remain instruction/reference modules only; concrete `allowed-tools` restrictions are incompatible with Flow unless a later portable narrowing contract is added.
-- Direct-host launch bundle with static prompt surface and empty dynamic slots.
-- Host-capability negotiation for models, capabilities, delegation, background execution, and contract features.
-- Contract compatibility results: `supported`, `degraded`, or `incompatible`, each with structured reasons. Live connection/authorization/readiness remains host-owned.
-- Golden positive and negative fixtures usable unchanged by every consumer.
-
-### Required fixture families
-
-- identity/display-name divergence and same-slug cross-package profiles
-- omitted host-relative versus explicit-empty capability policy
-- required, optional, and denied capability conflicts
-- scope overlap/subsumption/intersection, including partial cross-disposition overlap where neither subsumes the other; compound-operation filtering; unknown capability/scope versions
-- unknown required contract feature
-- empty, dangling, incompatible, and locked child edges
-- skill content/invocability normalization and direct-target rejection of concrete restrictive `allowed-tools`
-- model route and fallback provenance
-- deterministic digests and definition-policy diffs
-- canonical bundle digest calculation and rejection of legacy duplicate/mismatched lock/descriptor digests
-- lossless versus restrictive-lossy host projection
-- malicious archive/symlink/path escape, dependency cycle/depth, oversize, resource-limit, and digest-mismatch rejection
-- SSRF, redirect-to-private target, DNS rebinding, disallowed file/local origin, and dependency-plan mismatch rejection
-
-### Evidence and gate
-
-- Identical source and lock state produce byte-stable normalized artifacts.
-- Invalid recognized values fail installation rather than becoming warnings.
-- Both hosts can run the same fixture corpus without a host-owned parser.
-- **Stop** if any runtime-relevant skill/profile field is missing from the normalized contract.
-
-## Phase 3 — align Meridian CLI as the reference host
-
-**Outcome:** the ideal CLI behavior consumes the new contract without becoming a second semantic authority.
-
-### CLI changes
-
-- Consume the normalized catalog/direct bundle at the existing preparation/bind seam.
-- Keep task, goal, context files, prior session, credentials, and spawn metadata host-side.
-- Project capabilities into concrete harness tools with explicit lossiness.
-- Persist the exact definition revision, route, effective capabilities, warnings, and report provenance.
-- Preserve spawn-and-report, durable lifecycle, and progressive disclosure.
-
-### Evidence and gate
-
-- Shared fixtures pass in CLI.
-- No confidential dynamic input enters Mars source resolution or bundle construction.
-- Unsupported restrictions fail closed; unsupported optional features degrade visibly.
-- The legacy CLI consumer adapter is removed when the release cuts over.
-
-## Phase 4 — replace Flow's agent foundation
-
-**Outcome:** Flow installs immutable Mars artifacts and every run passes through one binding/composition boundary.
-
-### Flow domain boundaries
-
-```mermaid
-flowchart TD
-    MarsPort["MarsPackagePort + MarsLaunchPort"]
-    Catalog["AgentCatalog\nimmutable installed revisions"]
-    Binding["ThreadBindingService\nfixed revision + bundle"]
-    Compose["AgentRunContextBuilder\nsole composition seam"]
-    Authority["AuthorityResolver"]
-    Execute["AgentRunExecutor"]
-    Journal["RunJournal + receipt projection"]
-
-    MarsPort --> Catalog --> Binding --> Compose --> Authority --> Execute --> Journal
-```
-
-### Flow changes
-
-- Add a Mars adapter at the composition root; domains depend only on ports.
-- Persist immutable installed package artifacts, definition revisions, compatibility, provenance, and activation state.
-- Install updates as candidates, derive Flow activation impact, collect any required acknowledgement, then switch the future-binding activation pointer atomically.
-- Establish the Agents management boundary for definition/package inventory, detail, compatibility, versions, install/update, and provenance. It exposes no chat/run launch action.
-- Keep package/definition enable/disable/revocation/emergency-stop controls separate from immutable content; ordinary revocation blocks later reservations, while only emergency stop blocks new dispatch in an active run.
-- Bind a new chat to an exact definition revision and launch-bundle snapshot.
-- Create the thread, initial writer message, `thread_works` relation, and thread-agent binding immutably in one transaction; reference the existing Project/Work and installed definition/host projection and snapshot the exact launch bundle. Mutable new-chat Agent/Work selection remains draft state and never creates an empty bound thread. Continue/replay never consults current package defaults.
-- Build one `AgentRunContextBuilder` used by root runs and later child runs.
-- Add the capability-to-tool-operation registry, authority resolver, model gateway port, and append-only run journal.
-- Before locking the journal schema, define v1 receipt/transcript retention: persist references and redacted summaries by default, enumerate permitted detailed payloads, and fix their access and retention boundary.
-- Add immutable activation pointers, checkpoint-aware deny-first artifact controls, static host projections, and recomputed writer/Project/Work readiness with launchability separate from blocking and unavailable-optional reasons.
-- Add exact external approval grants and effect states; keep external consequential capabilities incompatible until that protocol is implemented end-to-end.
-- Add the durable action-request and suspended-continuation/wake boundary for root runs, including the transcript-native root Attention surface. Needs input is derived from pending blocking requests and survives reconnect/background execution.
-- Replace the current partial parser/schema/import/update/prompt paths atomically; no dual path.
-
-### Evidence and gate
-
-- Flow passes the shared Mars fixtures.
-- Same-slug profiles cannot retarget a thread across packages or updates.
-- An initial-send failure leaves no empty thread/binding and returns the intact instruction, Agent, Work, and current readiness reason.
-- Unknown contract versions, missing required capabilities, unknown scope versions, and unenforceable denials cannot persist or execute.
-- One receipt explains definition, binding, effective model/actions, warnings, and outcome; static compatibility and live readiness remain separately inspectable.
-- **Stop** if a route, picker, tool handler, or model adapter can assemble policy independently.
-
-## Phase 5 — ship truthful primary agents
-
-**Outcome:** a writer chooses an agent by purpose and receives behavior enforced by the same capability projection shown in the UI.
-
-### First-party package
-
-Start with profiles that prove policy differences, not merely persona differences:
-
-| Profile | Purpose | Native document authority | Delegation |
-|---|---|---|---|
-| **Writer** | Drafts and revises prose from the writer's instruction. | Read and edit | May consult Critic and Continuity |
-| **Critic** | Reviews craft and returns a report. | Read only | Leaf initially |
-| **Continuity** | Finds contradictions against story context. | Read only | Leaf initially |
-| **Reader** | Simulates reader response and confusion. | Read only | Leaf initially |
-
-Names and exact roster remain product copy decisions; the important acceptance condition is materially different enforced authority.
-
-### Flow changes
-
-- Derive New Chat readiness copy from current compatibility and effective capabilities; publish the full effective-capability projection only in Agents detail and package review.
-- Keep Agent and Work selection inside the existing New Chat composer. Use compact footer controls and a bounded purpose/readiness picker; the ordinary first Send commits the message and binding without a separate launch or binding-review surface.
-- Add the Agents management destination: flat definition/package inventory plus inspectable definition detail. It supports source/version/readiness understanding and future-default management but never starts a chat or run.
-- Remove or move Home Agent Package cards that currently create package-shaped projects; packages are installed and maintained in Agents.
-- Render bound Agent/Work in an existing chat as quiet non-interactive facts with no caret, picker, switch, or launch affordance.
-- Enforce user invocability in a domain resolver shared by picker and every direct API.
-- Create a chat with selected agent and fixed Work; never change either in place.
-- Stream through the common run executor.
-- For native Yjs edits, write immediately and record change evidence/undo without approval.
-- Expose the root report and compact receipt inspection.
-
-### Evidence and gate
-
-- Critic/Continuity/Reader never receive or dispatch edit operations.
-- Writer edits through the Yjs path without an approval interruption.
-- A package update affects only new bindings.
-- Browser/runtime probes cover supported/degraded/incompatible contract states; ready/blocked launchability with multiple blocking and unavailable-optional reasons; replay, failure, and undo.
-- Browser/accessibility probes cover the target experience at desktop and 390px, semantic picker rows and focus return, keyboard order, no-hover operation, reduced motion, throttled live-region announcements, and fixed Agent/Work copy.
-- Browser probes prove New Chat is the only Agent/Work selection boundary; Agents exposes management only; Home has no package launch cards; existing chats expose no selector.
-- Root writer questions and scoped external confirmations survive restart/reconnect without transient prompt state; native writes never enter this path.
-- **Stop** if writer-facing capability copy and dispatchable operations differ.
-
-## Phase 6 — add delegated child runs
-
-**Outcome:** a parent can launch only declared compatible children, each with a separate context window and attenuated authority, and receive a durable report.
-
-### Flow changes
-
-- Add `ChildRunCoordinator` behind a spawn/report tool exposed only when the resolved roster is nonempty.
-- Resolve roster edges to exact installed definition revisions at binding time.
-- At child launch, compile/bind that recorded child revision against the current direct-host descriptor, persist its complete bundle and parent-edge digest, and never consult current package defaults.
-- In one transaction, atomically reserve root-tree budget and create the durable child thread/run before foreground or background execution.
-- Inherit Project, fixed Work, lineage, and only the parent's structured delegable authority envelope; revalidate the same grant/account references without reacquiring broader writer grants.
-- Enforce and reconcile depth, child-count, concurrency, estimated credit/token/time, timeout, and cancellation against the root ledger.
-- Return the child report as the primary result; keep transcript, effects, cost, and model details inspectable.
-- Extend the foundation action-request boundary with child attribution, required-child parent blocking, and independent sibling progress. Native document writes never create confirmation requests.
-- Propagate parent cancellation to active descendants and reconcile interrupted background runs.
-
-### Evidence and gate
-
-- Undeclared, non-model-invocable, incompatible, disabled, or retargeted children cannot launch.
-- A child can never gain a capability, resource scope, credential, or budget absent from the parent lineage.
-- Empty `subagents` injects neither helper inventory nor spawn tool.
-- A complete run tree survives restart and can be reconstructed from receipts.
-- Outstanding child attention survives restart and retains its exact request, scope, expiry, and parent-blocking behavior.
-- Race probes cover cancel-before-start, cancel-during-finalize, lease expiry, duplicate finalization, report-delivery failure, and terminal compare-and-set behavior.
-- **Stop** if background work can exist without a durable discoverable reservation.
-
-## Phase 7 — complete receipts and writer communication
-
-**Outcome:** writers see what mattered before, during, and after execution without reading raw tool names or transcripts.
-
-### Flow changes
-
-- Project the run journal into stable root and child receipts.
-- Before a new chat: name, purpose, and honest readiness only. Agents detail and package review own effective capabilities, setup, package/source, and delegation facts.
-- During a run: compact states and child activity as collapsed disclosures inside the originating assistant turn; auto-expand only durable requests or failures under Needs attention.
-- After a run: report first, then changed documents/undo, sources/external effects, children consulted, model/cost/duration, warnings, and definition revision.
-- Separate native writing evidence from external-action approval. External publishing, purchase, or destructive remote mutations may require literal action-time confirmation.
-- Bind each external confirmation to an exact canonical call/account/scope hash, expiry, policy version, and single use; recheck checkpoint-aware controls/grants immediately before dispatch.
-- For every external consequential effect, CAS its stable `effectId` from authorized to dispatching, create the unique attempt/idempotency key, and append the dispatch event in one transaction before the adapter call. The writer-confirmed branch also consumes the grant; the policy-authorized branch uses the same effect claim without a grant.
-- Journal consequential effects as proposed, authorization decision, dispatching, confirmed/failed/unknown and never auto-retry non-idempotent unknown effects.
-
-### Evidence and gate
-
-- Every terminal run has a report or a structured explanation of why no report exists.
-- UI status derives from durable lifecycle state, not optimistic client inference.
-- Denied tool attempts and degraded capabilities are visible without overwhelming the primary report.
-
-## Phase 8 — add portable custom-agent authoring
-
-**Outcome:** user-authored agents are normal Mars packages, not a Flow-only type.
-
-### Mars and Flow changes
-
-- Create a writer-owned/private package source and provenance class.
-- Structured editor writes normative Mars profile fields and Markdown body.
-- Put structured create/edit/fork/export and revision history inside Agents. Its New Chat wording preview is read-only and carries no Choose, Start chat, Run, or Test action.
-- Forking a built-in/package profile records its source coordinate and revision.
-- Save, import, update, and export use the same Mars validation, compatibility, install, definition-policy/activation-impact, and revision pipeline.
-- Exported packages run in CLI and any compatible host.
-- Existing chats remain pinned when a custom profile changes.
-
-### Evidence and gate
-
-- A profile authored in Flow exports and passes the same fixtures/validation in Mars and CLI.
-- No DB-only runtime field is required to reproduce its static behavior.
-- Policy/host-risk expansion is explicit before a new revision becomes active for new chats.
-
-## Phase 9 — add distribution after semantics stabilize
-
-**Outcome:** discovery and publisher trust build on an already-correct executable package model.
-
-- Add package index/discovery metadata, license, repository/homepage, and publisher identity.
-- Add signatures or verified publishers only when the registry trust model warrants them.
-- Compare installed and proposed artifacts atomically: capabilities/scopes, required features, delegation graph, external dependencies, provenance, and host activation impact.
-- Install updates as new immutable revisions; activation and rollback move a pointer for future bindings.
-
-## Suggested PR sequence
-
-These are reviewable contract boundaries, not a file-by-file task breakdown.
-
-1. **Mars semantics and fixture corpus**
-2. **Mars normalized catalog and direct launch bundle**
-3. **Meridian CLI consumer/conformance cutover**
-4. **Flow Mars ports, immutable install, and compatibility persistence**
-5. **Flow thread binding, run composition, authority, journal, and schema replacement**
-6. **First-party package and primary-agent vertical slice**
-7. **Delegation lifecycle and attenuated child execution**
-8. **Receipt projections and complete writer UX**
-9. **Personal package authoring, fork/import/export**
-10. **Registry/distribution trust**, only after the earlier slices are proven
-
-The Flow foundation may require one intentionally large schema/domain PR because splitting the old and new authority paths would create the exact parallel hierarchy the rebuild rules prohibit.
-
-## Replacement inventory
-
-| Delete or replace | Target |
+| Concern | Use |
 |---|---|
-| Flow-owned permissive Mars parser as runtime authority | Versioned normalized Mars consumer |
-| Mutable agent overlays, slug precedence, and source-path identity | Qualified immutable installed definition revision |
-| Current package reset/sync/export lifecycle | Install-new, inspect diff, activate for future bindings |
-| Local agent/skill authored revisions as portable truth | Mars package source plus derived Flow install state |
-| `modelTier` and other ad hoc metadata | Normative Mars routing/model policy |
-| Reinterpreting current concrete Mars `tools` as portable actions | New structured `capabilities`; keep `tools` only for explicit target overrides and require author-reviewed conversion |
-| Empty child lists expanding to global inventory | Empty means leaf; exact qualified roster |
-| UI/catalog filtering as invocation security | Shared domain eligibility resolver |
-| Skill installation implying executable tool registration | Skills compose doctrine; capabilities bind to tools separately |
-| Mutable current-agent/raw baked prompt thread contract | Immutable definition/bundle binding plus run context |
-| Flow dialect or mandatory privileged Mars subprocess | Transport-neutral Mars ports and shared contract |
+| Web UI | React, TanStack Query/Router, existing Radix-based UI primitives, design tokens. |
+| Forms/validation | Existing form patterns plus Zod. Do not add a form framework only for four fields. |
+| Mars source | Existing `yaml` and `smol-toml` behind the compiler port; shared Mars fixtures define semantics. |
+| Persistence | Drizzle and Postgres transactions. |
+| Editing | TipTap, Yjs, and `@meridian/agent-edit`. |
+| Model execution | Existing model gateway and turn runner. |
+| Tests | Vitest, database suite, Playwright, existing event/log probes. |
+| Tooling | pnpm, Nx, Biome, Portless. |
 
-## Verification strategy
+No runtime dependency is planned.
 
-### Contract tests
+## Phase 0: publish the strict Mars subset
 
-- One golden Mars fixture suite runs in Mars, CLI, and Flow CI.
-- Version/feature negotiation, provenance, and diagnostics are deterministic.
-- Negative fixtures prove denial-first behavior and reject ambiguity.
+### Mars repository
 
-### Domain tests
+1. Define package-level `CompiledAgentPackageV1`, `NormalizedAgentDefinitionV1`, and their normative field-presence/default rules.
+2. Add semantic profile `actions` with the v1 identifiers `document.read` and `document.edit`; require at least read and define edit as implying read.
+3. Define non-recursive digest envelopes, domain prefixes, canonical JSON, and canonical source-tree ordering.
+4. Define deterministic wrapping of a standalone Agent Markdown file into `local-<slug>`.
+5. Publish positive and negative fixtures for multi-Agent packages, standalone input, read/edit mapping, unsupported skills/tools, and export/import round-trip.
+6. Mark policy-bearing semantic additions as contract-version changes or required features.
 
-- Pure tests for invocation eligibility and authority intersection.
-- Persistence tests for immutable installs, thread bindings, update pinning, child edges, lifecycle transitions, and receipts.
-- Contract tests prove model advertisement and dispatch use the same capability resolution.
-- Control race tests cover package/definition revocation before reservation, ordinary revocation after reservation, revocation during approval, and emergency stop during an active run.
-- Effect tests cover concurrent double-submit in both writer-confirmed and policy-authorized branches plus crashes immediately before/after a remote call; one stable effect can create only one dispatch claim.
-- Action-request race tests cover answer versus expiry, answer versus cancellation, terminal result versus pending request, multiple blocking requests, restart while suspended, and argument/account/scope mutation between display and answer.
+### Flow repository
 
-### Runtime probes
+1. Implement `MarsDefinitionCompilerPort` with a strict subset adapter using existing parsers.
+2. Reject unsupported `sandbox`, approval, executable hooks, MCP servers, dependencies, arbitrary code, tools/disallowed-tools, skills, and ambiguous policy.
+3. Normalize the first-party Writer and Critic sources to the contract.
 
-- CLI probes cover dynamic injection, harness lossiness, spawn/report, and persisted provenance.
-- Flow probes use the full Portless stack and inspect HTTPS streams, server evidence, DB state, Yjs state, child lineage, and receipts.
-- Native manuscript editing must complete without an approval gate and remain undoable.
-- Background child interruption/restart must reconcile to a durable terminal or recoverable state.
+### Gate
 
-### Browser probes
+- Mars and Flow produce byte-identical canonical results for every fixture.
+- Invalid values fail with stable, source-located diagnostics.
+- Recompiling identical files 100 times produces the same digest.
+- No Flow-specific runtime field is added to Mars source.
 
-- compact New Chat Agent/Work selection, defaults, blocked recovery, and atomic first send
-- Agents inventory/detail/editor/package install/update with no launch actions
-- quiet immutable Agent/Work facts in existing chats and removal of Home package launch cards
-- contract degradation/incompatibility and live readiness explanations
-- primary and child progress
-- report-first receipt inspection
-- update pinning and definition-policy/activation-impact presentation
-- failure, cancellation, reconnect, and undo
-- 390px reflow, keyboard/focus return, no-hover operation, reduced motion, and throttled live-region state announcements
+## Phase 1: prove the root walking skeleton
 
-## Cross-repository stop/go gates
+1. Replace package/definition persistence with the four-record model, including account/system catalog entries.
+2. Seed one edit-capable Writer definition.
+3. Implement `StartAgentChat` and the atomic first-Send endpoint.
+4. Bind by exact `definitionRevisionId` and remove slug fallback.
+5. Implement `prepareAgentTurn` and remove prompt-bake composition.
+6. Route one real turn through the existing gateway and event stream.
+7. Apply an edit through `@meridian/agent-edit` and Yjs.
+8. Render the existing assistant prose, receipt, and Undo.
 
-| Gate | Do not proceed when… |
-|---|---|
-| **Contract** | empty policy, child identity, or unknown restrictive semantics remain ambiguous |
-| **Mars stable release** | CLI and Flow do not pass the same contract fixtures |
-| **Flow persistence** | Flow still needs to parse a runtime semantic absent from Mars artifacts |
-| **Primary-agent UI** | advertised capability and dispatch sets differ |
-| **Delegation** | child authority can widen or background work can become invisible |
-| **Custom agents** | export cannot reproduce static behavior outside Flow |
-| **Registry** | capability diffs, provenance, and immutable update binding are not already reliable |
+### Gate
 
-## Remaining decisions and their deadlines
+A Portless probe demonstrates:
 
-| Decision | Deadline | Recommendation |
+```text
+Mars files
+→ compiled immutable revision
+→ Agent chosen in New Chat
+→ atomic thread + Work + binding + first turn
+→ model event stream
+→ live Yjs edit
+→ TurnEditsReceipt
+→ Undo restores prior state
+```
+
+Inspect Postgres, logs/events, stream order, and Yjs state. Fault-injection database tests prove no partial first-Send aggregate.
+
+## Phase 2: prove truthful policy differentiation
+
+1. Add a read-only Critic definition.
+2. Implement semantic operation projection for `documentAccess`.
+3. Make catalog availability, model advertisement, and dispatch use one `EffectiveToolPolicy` result.
+4. Reject direct API selection of unknown, unavailable, non-user-invocable, or wrong-project definitions.
+5. Inject fabricated edit calls against Critic.
+
+### Gate
+
+- Writer sees and dispatches read/edit operations.
+- Critic sees read operations only.
+- Critic's fabricated edit reaches neither handler nor Yjs.
+- Policy digests match across availability, advertisement, and dispatch tests.
+
+## Phase 3: add management and local exchange
+
+1. Add the flat account/system Agents list and concise detail route.
+2. Add the four-field create/edit form.
+3. Generate a new immutable Mars source/package revision on Save.
+4. Add local multi-Agent package and standalone Agent import review plus export.
+5. Define deletion as `removed_at` on the owned catalog entry while retaining referenced revisions.
+6. Keep source/revision facts in Advanced or overflow, not primary list copy.
+
+### Gate
+
+- Create, edit, export, delete-from-catalog, and re-import work end to end.
+- Export/delete/re-import produces the same compiled digest.
+- Editing an Agent affects a new chat and not an existing one.
+- Import errors name the file and field and persist no partial package.
+- Name/logical-key collisions fail without overwriting and tell the writer to rename and re-import.
+
+## Phase 4: finish the minimal experience and delete old paths
+
+1. Keep Agent selection only in New Chat.
+2. Hide Work selection for the default one-Work product state.
+3. Show bound Agent once in existing chat.
+4. Reuse current activity, assistant prose, receipt, and Undo.
+5. Remove package launch cards and any launch/test actions outside New Chat.
+6. Remove every item in the deleted UX and source inventory below.
+7. Run desktop and 390 px accessibility/visual probes.
+
+### Gate
+
+- The [experience acceptance criteria](agent-ux-spec.md#acceptance-criteria) pass.
+- Source search proves forbidden copy and controls are absent.
+- `pnpm check` and `pnpm test:db` pass.
+- The full root workflow passes a real Portless runtime probe.
+- A same-machine 30-run mock-provider comparison keeps first Send to first event within 10% of baseline p95, and catalog query tests enforce the configured page bound and deterministic cursor.
+
+## Post-v1 extension: add foreground child Agents
+
+This work starts only after root Agent v1 has shipped. Child invocability and roster semantics are not present in the v1 contract or schema.
+
+1. Extend the Mars contract with an exact declared child roster and shared fixtures.
+2. Resolve child slugs to immutable definition revision edges at install time.
+3. Reuse the current child coordinator only where it satisfies the new revision, context, and policy invariants; delete parallel legacy behavior.
+4. Inherit Project and fixed Work.
+5. Intersect parent effective policy, child requested policy, host support, and tree budget.
+6. Start with foreground spawn-and-report and existing transcript output.
+7. Add depth, concurrency, time, and credit enforcement at the coordinator.
+
+### Gate
+
+- Undeclared, unavailable, non-model-invocable, and over-budget children are rejected at launch.
+- A child cannot broaden document access.
+- Child execution cannot change Work.
+- Parent cancellation terminates active children.
+- The parent incorporates useful child output without helper UI or generic orchestration receipts.
+
+Background continuation, resumable work, external effects, or a task center require a separate design based on observed need.
+
+## Replacement and provenance inventory
+
+| Affected area | Classification | Change |
 |---|---|---|
-| First-party capability split and final profile copy | Before Phase 5 | One edit-capable Writer plus report-only Critic, Continuity, and Reader profiles. |
-| First contract/bundle version and required-feature namespace | During Phase 1 | Independent schema versions with explicit feature IDs; never infer support from producer version alone. |
-| Mars producer transport | Before host integration in Phases 3–4 | Keep ports transport-neutral; begin with a contained JSON process if no complete stable library/WASM ABI exists. |
-| Capability-ID/version governance | Before third-party/custom packages depend on shared IDs | Mars owns core contracts with cross-host conformance review; packages namespace non-core capabilities. |
-| Receipt/transcript retention and redaction | Before the Phase 4 journal schema is locked | Persist references/redacted summaries by default; enumerate permitted detailed payloads and gate them by host access and retention policy. |
-| Registry signatures/publisher verification | Before Phase 9 public registry | Decide from the actual registry trust model; content digests/provenance are mandatory earlier. |
+| Current composer Agent control | **Existing pattern** | Keep as the New Chat selection affordance. |
+| Current zero-turn rebinding and separate create/send behavior | **Deleted behavior** | Replace with atomic first Send and exact revision binding. |
+| Current Work control | **Existing pattern, conditional** | Keep only when more than one eligible Work exists. |
+| Current package/project launch cards | **Deleted behavior** | Remove; packages do not launch chats. |
+| Agents inventory/editor/import | **Required addition** | Add account/system management with no launch action. |
+| Current prompt bake and slug lookup | **Deleted behavior** | Replace with `prepareAgentTurn`. |
+| Current activity and edit receipt/Undo | **Existing pattern** | Reuse without generic disclosure rows. |
+| Child Agents, registry, external effects | **Later extension** | Do not scaffold into root v1. |
 
-External approval classes should be added only with the first real external integration, using the exact approval/effect protocol already fixed by the architecture.
+Delete or replace these concepts during the owning phase:
+
+### Definition and persistence
+
+- permissive arbitrary Agent metadata as executable policy;
+- mutable definitions and per-project/user overlays;
+- duplicated `mode`, skills, and subagent relationship authorities;
+- unsupported `modelTier` and non-Mars effort values;
+- active-revision lookup as existing-chat behavior;
+- synthetic `General` fallback;
+- slug-based binding.
+
+### Runtime
+
+- prompt baking outside `prepareAgentTurn`;
+- tool registration and dispatch using different policy sources;
+- dynamic skill invocation in the root first release;
+- launch bundle/host negotiation structures that have no Flow consumer;
+- parallel run/event/receipt stores.
+
+### UI
+
+- launch cards on Home or package pages;
+- Agent switching in existing chats;
+- duplicate Agent identity;
+- redundant one-Work control;
+- normal-state badges;
+- premature search/filter;
+- editor preview and section rail;
+- generic attention/background/task-center UI;
+- package compatibility ceremony;
+- `Sources and effects`, `Helpers consulted`, and `Run details`;
+- duplicate edit counts outside `TurnEditsReceipt`.
+
+## Verification matrix
+
+| Boundary | Test evidence | Runtime evidence |
+|---|---|---|
+| Mars compiler | Shared fixtures, property/determinism cases, negative semantics. | Import a real local package and inspect diagnostics/output. |
+| Persistence | Repository and Postgres constraint tests, including bounded deterministic catalog pagination. | Inspect rows after create/edit/bind/delete-from-catalog. |
+| First Send | Fault-injection DB suite. | Navigate optimistically, interrupt failures, confirm no empty thread. |
+| Policy | Pure unit and dispatch-negative tests. | Compare model schema and actual denied call. |
+| Gateway/journal | Existing contract suite plus preparation integration and the 30-run p95 comparison. | Inspect streams, sequence floor, settle/reload behavior. |
+| Yjs/receipt | Existing edit and reversal tests. | Edit a real chapter, reload, Undo, inspect document state. |
+| UX | Component accessibility and Playwright flows. | Desktop and 390 px screenshots, keyboard-only pass. |
+| Deletion | Negative-space source checks. | No legacy route/control can reach a removed authority path. |
+
+## Stop/go rules
+
+- Do not start management UI until one root edit reaches receipt and Undo.
+- Do not add more capability categories until read versus edit is truthful end to end.
+- Do not add child semantics until root Agent v1 has shipped with one selection, binding, and policy authority.
+- Do not add remote distribution until local Mars round-trip is deterministic.
+- Do not add background execution until a foreground workflow proves why it is insufficient.
+- Do not merge a phase with a dual legacy/new execution path.

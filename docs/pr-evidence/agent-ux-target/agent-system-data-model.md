@@ -1,554 +1,231 @@
 # Meridian Agent System Data Model
 
-**Status:** proposed target structures
-**Related:** [system design](agent-system-design.md), [implementation plan](agent-system-implementation-plan.md)
+## Decision
 
-## Data-model decision
-
-Keep four kinds of state separate:
-
-1. **Editable source** is a Mars package authored outside Flow or in a writer-owned package workspace.
-2. **Immutable definition state** is the exact normalized package/profile revision Flow installed.
-3. **Immutable binding state** is the exact definition and launch bundle a thread selected.
-4. **Run evidence** records what authority was effective and what happened.
-
-Do not build one mutable `agent` row that mixes profile instructions, installation state, thread choice, live permissions, and execution status.
+The first release adds four durable concepts: an immutable package revision, immutable Agent definition revisions within it, a small account/system catalog entry selecting what future chats may use, and one immutable Agent binding per thread. Runs remain turns. Availability remains a query result. Source edits create revisions and then move only the future-chat catalog pointer.
 
 ```mermaid
 erDiagram
-    PACKAGE_SOURCE ||--o{ PACKAGE_REVISION : publishes
-    PACKAGE_REVISION ||--|{ DEFINITION_REVISION : contains
-    PACKAGE_REVISION ||--o{ ARTIFACT_CONTROL : governed_by
-    DEFINITION_REVISION ||--o{ ARTIFACT_CONTROL : governed_by
-    DEFINITION_REVISION ||--o{ HOST_PROJECTION : evaluated_as
-    DEFINITION_REVISION ||--o{ DEFINITION_CHILD_EDGE : parent
-    DEFINITION_REVISION ||--o{ DEFINITION_CHILD_EDGE : child
-    DEFINITION_REVISION ||--o{ THREAD_AGENT_BINDING : selected_by
-    HOST_PROJECTION ||--o{ THREAD_AGENT_BINDING : snapshotted_from
-    THREAD_AGENT_BINDING ||--o{ AGENT_RUN : executes
-    AGENT_RUN ||--o{ AGENT_RUN : delegates
-    AGENT_RUN ||--o{ RUN_EVENT : records
-    AGENT_RUN ||--o{ RUN_ACTION_REQUEST : waits_on
+    AGENT_PACKAGE_REVISIONS ||--|{ AGENT_DEFINITION_REVISIONS : contains
+    AGENT_DEFINITION_REVISIONS ||--o{ AGENT_CATALOG_ENTRIES : selected_by
+    AGENT_DEFINITION_REVISIONS ||--o{ THREAD_AGENT_BINDINGS : binds
+    THREADS ||--|| THREAD_AGENT_BINDINGS : has
+
+    AGENT_PACKAGE_REVISIONS {
+      uuid id PK
+      text package_name
+      text package_digest UK
+      jsonb source_snapshot
+      int schema_version
+      timestamptz created_at
+    }
+    AGENT_DEFINITION_REVISIONS {
+      uuid id PK
+      uuid package_revision_id FK
+      text slug
+      text definition_digest
+      jsonb compiled_definition
+      timestamptz created_at
+    }
+    AGENT_CATALOG_ENTRIES {
+      uuid id PK
+      text account_id
+      boolean is_system
+      text logical_agent_key
+      uuid selected_definition_revision_id FK
+      timestamptz removed_at
+      timestamptz updated_at
+    }
+    THREAD_AGENT_BINDINGS {
+      uuid thread_id PK,FK
+      uuid definition_revision_id FK
+      timestamptz bound_at
+    }
 ```
 
-## Mars exchange structures
+## `agent_package_revisions`
 
-These are versioned contract shapes, not Flow database tables. The TypeScript is readable design notation; Mars must publish a complete language-neutral JSON Schema or equivalent IDL, canonical serialization/digest rules, generated bindings where useful, and the shared fixture corpus before producer or host persistence work begins. Any type merely named below is part of that required contract work, not permission for each repository to invent its own shape.
+One row is one validated import, first-party seed, or save from the structured editor.
 
-### `NormalizedPackageCatalog`
+| Column | Rule |
+|---|---|
+| `id` | Stable internal UUID. |
+| `package_name` | Canonical Mars package coordinate for this local source. Not sufficient as execution identity. |
+| `package_digest` | SHA-256 over `meridian.agent-package.v1\0` plus the canonical supported source tree. Identical installs are idempotent. |
+| `source_snapshot` | Complete local Mars source needed for export and future editing. It is immutable. |
+| `schema_version` | Compiled contract version, initially `1`. |
+| `created_at` | Audit ordering only; never part of digest. |
+
+The table does not need source registries, publisher trust, current activation, update state, compatibility caches, or revocation controls in the first release.
+
+## `agent_definition_revisions`
+
+One row is one compiled Agent from one package revision.
+
+| Column | Rule |
+|---|---|
+| `id` | Exact identity used by chat bindings. |
+| `package_revision_id` | Parent immutable source snapshot. `ON DELETE RESTRICT` once referenced. |
+| `slug` | Unique only within the package revision; presentation and export coordinate, not binding identity. |
+| `definition_digest` | SHA-256 over `meridian.agent-definition.v1\0` plus canonical JSON of `NormalizedAgentDefinitionV1`; the digest is not inside its own preimage. |
+| `compiled_definition` | Strict closed JSON value validated at repository ingress and egress. |
+| `created_at` | Audit ordering only. |
+
+Required uniqueness:
+
+```text
+UNIQUE(package_revision_id, slug)
+UNIQUE(package_revision_id, definition_digest)
+```
+
+The definition repository exports insert and get-by-ID. It does not export `updateDefinition`. Editing compiles and inserts another package/definition revision.
+
+## `agent_catalog_entries`
+
+One row represents one logical Agent offered to future chats. It is the minimum ownership and selection state that immutable artifacts cannot provide by themselves.
+
+| Column | Rule |
+|---|---|
+| `id` | Stable internal UUID. |
+| `account_id` | WorkOS/account owner for a personal Agent; null only for a system entry. |
+| `is_system` | True only for bundled first-party entries. A check constraint makes this mutually consistent with `account_id`. |
+| `logical_agent_key` | Stable identity within the owner scope across edits. It is not used by existing chats. |
+| `selected_definition_revision_id` | The immutable revision offered to future chats. Saving a personal edit changes only this pointer. |
+| `removed_at` | Null while selectable. Delete sets this for future catalog reads; bound revisions remain. |
+| `updated_at` | Future-chat catalog ordering and cache invalidation only. |
+
+Partial unique indexes enforce one system logical key and one logical key per account. Personal Agents are reusable across the writer's Projects. The New Chat catalog first authorizes the Project, then combines system entries with entries owned by the authenticated account and computes current host availability. It does not treat Project membership as Agent ownership.
+
+Import is atomic: install the package/definition revisions and create or select the requested account catalog entries in one transaction. Name or logical-key collision fails with a clear rename-and-reimport instruction in v1; there is no implicit overwrite or merge. Save inserts a new source/package/definition revision and updates the same owned catalog entry in one transaction.
+
+## `thread_agent_bindings`
+
+One row pins a thread to the definition used at its atomic first Send.
+
+| Column | Rule |
+|---|---|
+| `thread_id` | Primary key and foreign key to `threads`. Exactly one binding per Agent chat. |
+| `definition_revision_id` | Foreign key to the immutable definition revision with `ON DELETE RESTRICT`. |
+| `bound_at` | Audit timestamp. |
+
+There is no setter. Handoff or deliberate Agent change creates a new thread with the same chosen/inherited Work and a new binding.
+
+## Existing records remain authoritative
+
+| Concern | Existing owner |
+|---|---|
+| Project membership and authorization | Existing Project/auth domain. |
+| Fixed Work context | Existing `works` and primary `thread_works` relationship. |
+| Writer and assistant turns | Existing thread/turn records. |
+| Sequenced execution evidence | Existing turn journal/events. |
+| Model edit evidence and Undo | Existing collaboration trail and `TurnEditsReceipt` path. |
+
+Do not copy these facts into Agent tables. In particular, package, definition, and catalog rows never contain Project/Work IDs, credentials, current run state, or change receipts.
+
+## In-memory values are not tables
+
+### Catalog row
 
 ```ts
-type NormalizedPackageCatalog = {
-  contractVersion: string;
-  requiredFeatures: string[];
-  package: PackageRevision;
-  agents: NormalizedAgentDefinition[];
-  skills: NormalizedSkillDefinition[];
-  provenance: ProvenanceMap;
-  warnings: ContractDiagnostic[];
+type AgentCatalogRow = {
+  catalogEntryId: string;
+  definitionRevisionId: string;
+  name: string;
+  description: string;
+  documentAccess: "read" | "edit";
+  availability:
+    | { status: "available" }
+    | { status: "unavailable"; reasons: AvailabilityReason[] };
+  origin: { kind: "personal" | "bundled"; canEdit: boolean; canDelete: boolean };
 };
+```
 
-type PackageRevision = {
-  name: PackageName;
-  version: string;
+The UI omits available status copy. `availability` exists so exceptional blockers can be rendered and selection can be enforced. It is computed server-side from the definition and host support, not persisted as a cache.
+
+### Effective tool policy
+
+```ts
+type EffectiveToolPolicy = {
+  advertisedOperations: readonly ToolOperationDescriptor[];
+  canDispatch: (operation: ToolOperationId) => boolean;
   digest: string;
-  lockDigest: string;
-  source: PackageSourceProvenance;
 };
 ```
 
-Exchange identity uses distinct value objects:
+This value is resolved per turn from the bound definition and current authenticated host policy. It is not an `agent_permissions` table. Project authorization remains dynamic and external connections do not exist in the first release.
 
-```ts
-type PackageName = string;
-type AgentLogicalId = {
-  packageName: PackageName;
-  slug: string;
-};
-type AgentRevisionId = {
-  packageRevisionDigest: string;
-  definitionDigest: string;
-  slug: string;
-};
+### Source draft
+
+The browser may hold unsaved name, purpose, instructions, and document access as local form state. It is not a database draft and never becomes launchable. Saving validates and installs a full immutable revision atomically.
+
+## First-Send transaction
+
+The application transaction writes, in order within one Drizzle transaction:
+
+1. thread;
+2. primary `thread_works` row;
+3. `thread_agent_bindings` row;
+4. first writer turn/message;
+5. existing initial journal evidence.
+
+Eligibility and Project/Work authorization are checked inside the transaction or under equivalent locking immediately before writes. Any failure rolls back the aggregate. Model execution starts only after commit.
+
+## Child-Agent extension
+
+A post-v1 extension may add two records only when delegation is implemented:
+
+```text
+agent_definition_child_edges
+  parent_definition_revision_id
+  child_definition_revision_id
+  required
+
+agent_run_tree_budgets
+  root_thread_id
+  max_depth
+  max_concurrency
+  credit_limit
+  deadline
 ```
 
-Authored child references use logical IDs plus dependency constraints. Normalized edges and executable bindings use revision IDs only.
-
-Hosted ingestion uses a Mars-owned fetch plan rather than a second host resolver:
-
-```ts
-type DependencyFetchPlan = {
-  contractVersion: string;
-  root: PackageRevisionReference;
-  lockDigest: string;
-  dependencies: PackageRevisionReference[];
-  planDigest: string;
-};
-```
-
-Mars emits this from bounded offline inspection of the fetched root manifest/complete lock. The host fetches only the exact immutable coordinates through its source-origin policy, then Mars validates and compiles the complete closure offline.
-
-The catalog is deterministic for the same source and dependency lock. It contains every static semantic a host needs; a host never reparses YAML to recover missing behavior.
-
-### `NormalizedAgentDefinition`
-
-```ts
-type NormalizedAgentDefinition = {
-  logicalId: AgentLogicalId;
-  revisionId: AgentRevisionId;
-  display: {
-    name: string;
-    description: string;
-  };
-  instructions: string;
-  invocation: {
-    user: boolean;
-    model: boolean;
-  };
-  route: ModelRoutePolicy;
-  capabilityPolicy: CapabilityPolicy;
-  skills: ResolvedSkillReference[];
-  children: ResolvedChildReference[];
-  executionHints: ExecutionHints;
-  provenance: ProvenanceMap;
-};
-```
-
-### `CapabilityPolicy`
-
-```ts
-type CapabilityPolicy =
-  | { disposition: "inherit"; denied: CapabilityConstraint[] }
-  | {
-      disposition: "explicit";
-      required: CapabilityRequirement[];
-      optional: CapabilityRequirement[];
-      denied: CapabilityConstraint[];
-    };
-
-type CapabilityRequirement = {
-  id: CapabilityId;
-  contractVersion: string;
-  scope?: CapabilityScopeExpression;
-};
-
-type CapabilityConstraint = CapabilityRequirement;
-```
-
-`inherit` is an explicit host-relative declaration, not the accidental result of a parser losing field presence. Published portable profiles use `explicit` and supply all three arrays. Their ceiling is `(required ∪ optional) − denied`; `denied` wins. Empty `required` and `optional` arrays mean no model-callable capabilities. Mars canonicalizes constraints and rejects any cross-disposition overlap using each capability contract's canonical `overlap` relation, including partial intersections where neither scope subsumes the other.
-
-Portable authoring uses a new `capabilities` field. Existing Mars `tools`/`disallowed-tools` remain concrete target tool policy and require author-reviewed conversion or an explicitly nonportable target override; Mars must not silently reinterpret them. Hosts consume only the normalized capability form for portable authority.
-
-Every capability contract versions its operation/argument schema and typed scope grammar. That contract defines canonical serialization, equality, overlap, subsumption, and intersection so Rust, TypeScript, and harness projectors cannot invent different narrowing behavior.
-
-### `HostRuntimeDescriptor`
-
-```ts
-type HostRuntimeDescriptor = {
-  host: "meridian-cli" | "meridian-flow" | string;
-  target: "direct" | string;
-  descriptorVersion: string;
-  bundleVersions: string[];
-  features: string[];
-  models: ModelCapability[];
-  capabilities: HostCapability[];
-  scopeGrammarVersions: string[];
-};
-```
-
-This describes executable host mechanisms. It never contains writer prompts, story content, account tokens, credentials, or live resource grants.
-
-### `ContractCompatibility`
-
-```ts
-type ContractCompatibility = {
-  status: "supported" | "degraded" | "incompatible";
-  boundCapabilities: CapabilityRequirement[];
-  missingRequired: CapabilityIssue[];
-  unavailableOptional: CapabilityIssue[];
-  inapplicableHints: CapabilityIssue[];
-  warnings: ContractDiagnostic[];
-};
-```
-
-Contract compatibility answers whether a host shape can faithfully bind static intent. It does not authorize a particular writer, Project, Work, document, or external account.
-
-Flow separately produces live `BindingReadiness`:
-
-```ts
-type BindingReadiness = {
-  launchability: "ready" | "blocked";
-  effectiveCapabilities: CapabilityRequirement[];
-  blockingReasons: ReadinessDiagnostic[];
-  unavailableOptional: ReadinessDiagnostic[];
-  evaluatedAt: string;
-};
-```
-
-This is recomputed, not cached under the host descriptor digest. Missing live setup/grants for a required capability adds a blocking reason. Missing live setup/grants for an optional capability narrows `effectiveCapabilities`, adds `unavailableOptional`, and remains launchable when no other blocker exists. Multiple reasons coexist; no status-precedence rule discards evidence.
-
-### `DefinitionPolicyDiff` and `ActivationImpact`
-
-```ts
-type DefinitionPolicyDiff = {
-  contractVersion: string;
-  from: PackageRevision;
-  to: PackageRevision;
-  capabilities: CapabilityPolicyChange[];
-  delegation: DelegationGraphChange[];
-  execution: ExecutionRequirementChange[];
-  content: InstructionOrSkillChange[];
-  dependencies: DependencyChange[];
-  provenance: ProvenanceChange[];
-};
-
-type ActivationImpact = {
-  definitionDiffDigest: string;
-  authorityDirection: "reducing" | "unchanged" | "expanding" | "mixed";
-  contentChanged: boolean;
-  trustChanged: boolean;
-  hostRiskChanges: HostRiskChange[];
-  acknowledgementRequired: boolean;
-};
-```
-
-Mars owns static normalized comparison. Flow owns the host/product impact and acknowledgement rule. Neither structure claims to be live run authority.
-
-### `DirectLaunchBundle`
-
-```ts
-type DirectLaunchBundle = {
-  contract: {
-    bundleVersion: string;
-    producerVersion: string;
-    requiredFeatures: string[];
-    canonicalizationVersion: string;
-    bundleDigest: string;
-  };
-  packageClosure: {
-    root: PackageRevision;
-    dependencies: PackageRevisionReference[];
-    resources: ResolvedResourceReference[];
-  };
-  definition: {
-    revisionId: AgentRevisionId;
-    display: { name: string; description: string };
-    instructions: string;
-  };
-  target: {
-    kind: "direct";
-    descriptorDigest: string;
-  };
-  execution: {
-    route: ResolvedModelRoute;
-    capabilityPolicy: CapabilityPolicy;
-    skills: ResolvedSkillContent[];
-    delegation: ResolvedChildReference[];
-    promptSurface: StaticPromptSurface;
-    policy: ExecutionPolicy;
-  };
-  dynamicSlots: DynamicSlotDeclaration[];
-  compatibility: ContractCompatibility;
-  provenance: ProvenanceMap;
-  diagnostics: ContractDiagnostic[];
-};
-```
-
-The bundle is static and stores each resolved semantic once. `target.descriptorDigest` is the sole host-descriptor digest; `compatibility` is implicitly evaluated against that target. `contract.bundleDigest` is calculated over canonical bundle bytes with `bundleDigest` omitted. Flow fills only a fixed contract-owned enum of declared dynamic slots after thread binding and host authorization; packages cannot invent placement for confidential content. Mars publishes the complete language-neutral schema, diagnostic severity/path rules, canonical serialization/digest rules, and fixtures before a host persists this structure.
-
-## Flow persistent records
-
-Names below are conceptual. The implementation lead may align exact table names with the database package, but should preserve ownership and immutability.
-
-### `agent_package_sources`
-
-Editable or trackable package origin.
-
-| Field group | Meaning |
-|---|---|
-| identity | source ID and provenance class: first-party, imported, personal, registry |
-| ownership | account/project owner when the source is private |
-| origin | repository/registry/local/private-workspace locator; no credential secret |
-| authoring state | mutable source pointer or draft only for personal packages |
-
-This record does not execute. External packages may not need mutable source storage; they still have a source/provenance record.
-
-### `agent_package_revisions`
-
-Immutable installed Mars package artifact.
-
-| Field group | Meaning |
-|---|---|
-| coordinate | package name, SemVer, source revision, content digest |
-| contract | contract version, required features, normalized catalog artifact |
-| provenance | publisher/source/license/repository/lock evidence |
-| lifecycle | installed time, supersedes revision, install diagnostics |
-
-An update inserts a new revision. It never rewrites the artifact used by an existing thread.
-
-### `agent_definition_revisions`
-
-Immutable installed projection of one normalized profile.
-
-| Field group | Meaning |
-|---|---|
-| identity | revision ID, package revision ID, qualified coordinate, definition digest |
-| query projection | display name/description and invocation axes |
-| artifact | normalized definition and/or direct bundle inputs |
-| provenance | field/source evidence needed for inspection |
-
-This table is derived from the Mars package revision. It is not an editable authoring format.
-
-### `agent_definition_child_edges`
-
-Resolved exact delegation graph.
-
-| Field | Meaning |
-|---|---|
-| parent definition revision | exact caller revision |
-| child definition revision | exact callee revision |
-| source coordinate | authored qualified reference |
-
-There is no slug-only runtime lookup and no global child inventory fallback. Host-specific availability belongs to `agent_host_projections`, not this definition edge.
-
-### `agent_package_activations`
-
-Mutable pointer selecting the package revision offered for future bindings in a source/owner scope.
-
-| Field group | Meaning |
-|---|---|
-| scope | package source plus global/account/project owner scope |
-| active revision | exact installed package revision |
-| impact | Flow-derived `ActivationImpact` from the Mars `DefinitionPolicyDiff` |
-| acknowledgement | actor/policy, acknowledged digest, and timestamp when expansion/provenance change requires it |
-
-Candidate install, validation, projection, acknowledgement, and pointer switch form the update protocol. The pointer changes atomically only after all prerequisites succeed. Existing thread bindings are unaffected.
-
-### `agent_artifact_controls`
-
-Mutable host governance kept separate from immutable definition content.
-
-| Field group | Meaning |
-|---|---|
-| target | tagged union: exact package revision or exact agent revision |
-| scope | account/project/global catalog scope as the product requires |
-| state | enabled, disabled, revoked, or emergency-stop |
-| generation | monotonic generation plus effective timestamp |
-| evidence | actor/policy, reason, timestamp, and replacement recommendation |
-
-The evaluator reads package and definition targets atomically. Disabling affects discovery and new bindings. Ordinary revocation blocks root/child reservations at or after its generation while preserving historical bundle/receipt identity; dispatch from an earlier reservation ignores it. Emergency stop blocks new dispatch in active runs and requests cancellation. Controls are deny-first: emergency-stop/revoked win over disabled/enabled at every scope; narrower scopes may add restrictions but cannot override broader revocation. Neither state rewrites an artifact.
-
-### `agent_host_projections`
-
-Derived compatibility evaluation for a definition against a host descriptor.
-
-| Field group | Meaning |
-|---|---|
-| key | definition revision plus host-descriptor digest |
-| status | supported, degraded, incompatible |
-| capability projection | statically bound capabilities and eligible child edges |
-| diagnostics | structured incompatibility/lossiness evidence |
-| writer projection | versioned static capability facts used with live readiness to create catalog copy |
-
-A host upgrade creates/reuses a projection for a new descriptor digest. It does not mutate the definition. A thread snapshots the projection it bound against. Writer connections, resource grants, credits, and readiness never live here.
-
-### `thread_agent_bindings`
-
-Exact static execution contract fixed to a thread.
-
-| Field group | Meaning |
-|---|---|
-| identity | thread ID, definition revision ID, host-projection ID |
-| bundle | direct launch-bundle snapshot, version, and digest |
-| context reference | thread's already-fixed Work relationship |
-| lifecycle | created time |
-
-The binding, initial writer message, and `thread_works` relationship are created immutably in the same thread-creation transaction. A mutable pre-send Agent/Work chooser and instruction are draft/client state, not an empty thread. Work remains owned by `works` + `thread_works`; this table references that context but does not grant it.
-
-### `agent_runs`
-
-One root or child execution.
-
-| Field group | Meaning |
-|---|---|
-| lineage | run ID, thread binding, parent/root run IDs, invocation kind |
-| task | bounded task/description and input receipt reference |
-| lifecycle | state revision, queued/preparing/running/cancelling/finalizing/terminal state, cancellation request, attempt/lease, timestamps |
-| effective truth | authority envelope, budget reservation, resolved provider/model route, warnings |
-| outcome | report reference, error classification, usage/cost totals |
-| delivery | separate pending/delivered/failed parent-report delivery projection for child runs |
-
-Do not persist credential secrets. An authority snapshot may record connection/grant identifiers and effective scopes, while adapters resolve secrets at dispatch time.
-
-### `agent_run_tree_budgets`
-
-Root-owned atomic budget ledger plus child reservations.
-
-| Field group | Meaning |
-|---|---|
-| ceiling | child count, concurrency, depth, credits/tokens, and time limits |
-| accounted | committed actual usage plus outstanding reservations |
-| reservation | child run ID, estimated amount, state, expiry/reconciliation evidence |
-
-Child budget and durable run reservation occur in one transaction. Finalization reconciles actual usage and releases unused capacity. This ledger, not a stale run-context snapshot, arbitrates concurrent siblings.
-
-### `agent_approval_grants`
-
-Single-use external-effect confirmation.
-
-| Field group | Meaning |
-|---|---|
-| binding | run, capability operation, canonical arguments/resource hash |
-| account | connection/account grant reference and scope |
-| policy | approval policy version, expiry, single-use nonce |
-| lifecycle | proposed, granted, consumed, expired, rejected; consumed records unique effect-attempt ID |
-
-Any argument, resource, account, or scope change produces a different hash and requires a new grant. Every external consequential effect has a stable `effectId` before authorization. One transaction/CAS claims that effect from authorized to dispatching, creates the unique effect attempt/idempotency key, and appends `dispatching` before the adapter call. The writer-confirmed branch also changes the exact unexpired grant from granted to consumed; the policy-authorized branch records its policy decision and consumes no grant. A unique constraint on `effectId` prevents a second claim in either branch. A claimed non-idempotent attempt without definitive result becomes `unknown`; it never makes a grant/effect reusable. Native Yjs writes never create one.
-
-### `agent_run_events`
-
-Append-only lifecycle and effect evidence, ordered by run-local sequence.
-
-Event families include:
-
-- lifecycle transitions
-- model route/fallback
-- capability/tool request, dispatch, denial, result, and effect
-- external consequential effect transitions: proposed, typed authorization decision, dispatching, confirmed, failed, unknown; include approval/policy and idempotency evidence
-- native document changes and undo/navigation references
-- child reservation, start, report, cancellation, and failure
-- usage/cost increments
-- warnings and reconciliation facts
-- final report or no-report reason
-
-Events are evidence. Current run status and receipts are projections and must never claim a fact contradicted by the journal.
-
-### `agent_run_action_requests`
-
-Durable requests for an exceptional writer decision while a root or child run remains nonterminal.
-
-| Field group | Meaning |
-|---|---|
-| identity | request ID, root/run/optional child run IDs, journal sequence |
-| request | writer input, scoped external confirmation, budget increase, or outcome check; literal question or proposed effect |
-| exact external proposal | proposed `effectId`, capability operation, canonical argument/resource hash, target, connection/account reference, scope, policy version, and expiry; absent for non-effect requests |
-| continuation | suspended continuation/checkpoint reference, wake condition, whether this run blocks, and whether a required child blocks its parent |
-| lifecycle | pending, answered, declined, expired, or resolved; timestamps and state revision |
-| response | writer actor, structured response or decision, resulting wake evidence, and proposal-specific grant moved to `granted`; later consumption belongs only to the effect dispatch claim |
-
-An action request is the durable source of truth for the derived `needs-input` presentation state; `needs-input` is not an `agent_runs` lifecycle value. It is never reconstructed from transient model prose or a streaming UI message. Native manuscript edits do not create confirmation requests. An external-effect confirmation authorizes only the immutable proposal recorded on the request. Answering compare-and-sets the exact request and creates, or moves, the joined proposal-specific grant to `granted`. The resumed executor consumes that still-live grant only inside the later effect `authorized → dispatching` claim transaction. Any argument, resource, target, account, scope, policy-version, or expiry change closes the old request and creates a new proposal/request. A budget increase records the exact increment and new ceiling.
-
-A blocking request releases its attempt lease only after the continuation checkpoint and request are durable. Reconciliation cannot claim that continuation until an answered, declined, or expired request transition appends its wake event. Cancellation may close pending requests without an answer; terminal finalization closes all that remain. Answer, decline, expiry, cancellation, and terminal finalization compare-and-set the request and run revisions so one outcome wins. Multiple requests remain independent: presentation shows `needs-input` when any blocking request is pending, and a continuation wakes only when all requests it requires resolve. A parent waits only when a required child's request says it blocks the parent; unrelated work may continue. Reconnect and background clients rebuild outstanding attention from these records plus the journal.
-
-### `agent_run_receipts`
-
-Optional materialized projection for efficient UI access.
-
-| Field group | Meaning |
-|---|---|
-| primary result | report or structured no-report reason |
-| effects | changed documents, undo/navigation, sources, external operations |
-| delegation | child summaries and report links |
-| execution | exact definition, effective model/actions, duration, usage/cost, warnings |
-
-The receipt is rebuildable from immutable binding data plus run events. It is not a second event truth.
-
-## In-memory domain structures
-
-### `ToolOperationBinding`
-
-```ts
-type ToolOperationBinding = {
-  capability: CapabilityRequirement;
-  toolName: string;
-  modelContract: ModelCallableToolContract | ModelCallableOperationFragment;
-  resolveCall: (args: unknown) => CanonicalCapabilityCall;
-  authorize: ResourceScopeResolver;
-  execute: CapabilityHandler;
-  riskClass: "native-write" | "read" | "external-consequential" | "external-other";
-  writerCopy: CapabilityCopy;
-  receipt: ReceiptFormatter;
-};
-```
-
-The registry maps one capability to one or more operation bindings. It owns model advertisement, canonical call resolution, dispatch, writer-facing facts, action classification, and receipt formatting. This prevents five drifting maps of the same action contract and supports compound model tools without granting every operation they contain.
-
-### `DelegableAuthorityEnvelope`
-
-```ts
-type DelegableAuthorityEnvelope = {
-  grants: Array<{
-    capability: CapabilityRequirement;
-    maximumScope: ResolvedResourceScope;
-    connectionGrant?: ConnectionGrantReference;
-    mayDelegate: boolean;
-    maximumChildScope?: ResolvedResourceScope;
-  }>;
-  delegation: {
-    rosterEdgeIds: string[];
-    maximumDepth: number;
-  };
-  budgetLedger: RunTreeBudgetLedgerReference;
-  deniedReasons: AuthorityDiagnostic[];
-};
-
-type ConnectionGrantReference = {
-  id: string;
-  connectionId: string;
-  accountId: string;
-  capabilities: CapabilityRequirement[];
-  maximumScope: ResolvedResourceScope;
-  revocationGeneration: number;
-  delegation: "none" | "same-account-narrower-scope";
-};
-```
-
-The envelope records the decision, not credential material. A child begins from the parent envelope and may only narrow it; it does not query the writer's broader grants or select a different account. Dispatch revalidates the same grant references and their revocation generations before resolving adapter-owned secrets.
-
-### `AgentRunContext`
-
-```ts
-type AgentRunContext = {
-  binding: ImmutableThreadAgentBinding;
-  task: RunTask;
-  work: FixedWorkContext;
-  conversation: BoundedConversationContext;
-  storyContext: ResolvedStoryContext;
-  authority: DelegableAuthorityEnvelope;
-  tools: ModelCallableToolContract[];
-  route: ResolvedModelRoute;
-  lineage: RunLineage;
-  warnings: RunWarning[];
-};
-```
-
-This value is complete before model execution. Root routes, child coordination, tool dispatch, and provider adapters consume it; none reconstruct it.
-
-## Data invariants
-
-1. A package revision, definition revision, thread binding, or terminal run event is never mutated into a different semantic revision.
-2. Qualified coordinate plus revision/digest, never display name or bare slug, selects executable identity.
-3. A thread has one agent binding and one Work from creation for its entire lifetime.
-4. Existing bindings do not change when packages, host descriptors, catalog activation, or defaults change. Ordinary revocation blocks later reservations, not dispatch in an earlier reserved run; emergency stop is the separate active-run control. Neither substitutes content.
-5. Every child run has one parent and one root; each capability, resource scope, connection grant, and further-delegation right is no broader than its parent's envelope.
-6. The tool set advertised to the model implements exactly the effective capability set the dispatcher recognizes for that run. Resource checks may narrow a specific call further.
-7. A definition, host projection, or run never stores credential secrets.
-8. Current status and receipts are derived from ordered durable evidence.
-9. Native Yjs writes are effects with evidence and undo, not approval requests.
-10. A personal custom agent becomes executable only by producing a valid immutable Mars package/definition revision through the same install path as imported agents.
-11. Concurrent children consume one atomic root-run-tree budget ledger; a snapshot is never sufficient authorization to reserve work.
-12. External consequential dispatch requires an exact, live, single-use approval grant when host policy says so; native Yjs writes cannot enter that protocol.
-
-## Patterns embodied by the data model
-
-| Pattern | Structural consequence |
-|---|---|
-| **Revisioned source, derived install** | Editable package source and immutable installed revision are different records. |
-| **Event journal + projections** | Run events are evidence; status and receipts are query views. |
-| **Snapshot at the stability boundary** | Thread binding freezes the static launch contract; run snapshots effective authority. |
-| **Semantic IR** | Mars normalized structures carry intent across languages and hosts. |
-| **Attenuated authority** | Parent-effective authority is an input to every child resolution. |
-| **One registry per capability** | Advertisement, dispatch, capability copy, risk, and receipt stay aligned. |
-| **Atomic reservation ledger** | Child identity and estimated shared budget commit in one transaction. |
-| **Exact approval grant** | One canonical external call/account/scope consumes one confirmation. |
-| **No parallel truth** | Relational query projections are derived from immutable Mars artifacts and checked by digest. |
+Edges resolve slugs to exact child revision IDs during installation. They never retarget silently. A child thread uses the existing thread/turn lifecycle and its own `thread_agent_bindings` row; parent/child lineage should reuse the current child-run relation if it remains adequate after the root cutover.
+
+Do not add `agent_runs` or `agent_run_events` merely for children. Add durable suspension/action-request records only if background or external-effect requirements later prove they cannot fit the established turn lifecycle.
+
+## Deleted data structures
+
+The target removes rather than migrates these current or previously proposed concepts:
+
+- mutable current definition rows and editable overlays;
+- duplicated skill and subagent relationship sources;
+- slug-based thread binding;
+- synthetic `General` fallback identity;
+- active-package pointers used as existing-chat behavior;
+- prompt snapshots treated as the Agent identity;
+- host projections and compatibility caches for the initial closed subset;
+- `agent_runs`, `agent_run_events`, `agent_run_receipts`, and generic action requests;
+- approval grants for native writing;
+- registry sources, publisher keys, artifact controls, and update activation records.
+
+Because v3 has no real users or data, replacement is a schema cutover with fresh first-party seed data, not a compatibility migration.
+
+## Invariants
+
+1. Every Agent chat has exactly one definition binding and one primary Work link.
+2. Bound definition content never changes.
+3. Definition identity is a revision UUID and digest, never a display name or slug.
+4. A compiled definition cannot exist without its source package revision.
+5. A personal catalog entry has exactly one account owner; a system entry has none.
+6. A catalog pointer may change for future chats, but a thread binding never follows it.
+7. An invalid or unsupported definition never reaches persistence.
+8. A model event never begins before the first-Send transaction commits.
+9. Tool policy is derived, not mutable stored authority.
+10. Deleting a personal Agent means setting `removed_at`; referenced revisions remain.
+
+## Source basis
+
+- [System design](agent-system-design.md)
+- [Requirements](agent-system-requirements.md)
+
+The work item preserves the minimal-architecture and First-Send atomicity
+reviews used to refine this model. This PR package keeps only the target.
