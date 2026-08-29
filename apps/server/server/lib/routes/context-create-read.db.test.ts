@@ -285,7 +285,11 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         }),
       ).resolves.toEqual({
         ok: true,
-        value: { status: "deleted", deletedDocumentIds: [userDocumentId] },
+        value: {
+          status: "deleted",
+          deletedDocumentIds: [userDocumentId],
+          availabilityGeneration: "0",
+        },
       });
       await collab.drainHocuspocusPersistence();
       const deletedMembership = await collab.resolveManifestMembership({
@@ -367,7 +371,11 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         }),
       ).resolves.toEqual({
         ok: true,
-        value: { status: "deleted", deletedDocumentIds: [created.documentId] },
+        value: {
+          status: "deleted",
+          deletedDocumentIds: [created.documentId],
+          availabilityGeneration: "0",
+        },
       });
       await collab.drainHocuspocusPersistence();
       const membershipAfterDelete = await collab.resolveManifestMembership({

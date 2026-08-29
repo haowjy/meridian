@@ -50,8 +50,11 @@ function writableAdapter(scheme: ContextScheme): ContextSchemeAdapter {
       commitPreparedMove: vi.fn(async (prepared) =>
         Ok({ movedNodeId: prepared.source.nodeId, path: prepared.destinationPath }),
       ),
-      commitPreparedDelete: vi.fn(async (token) =>
-        Ok({ deletedDocumentIds: token.kind === "file" ? [token.nodeId] : [] }),
+      commitRecursiveDelete: vi.fn(async (command) =>
+        Ok({
+          deletedDocumentIds: command.root.kind === "file" ? [command.root.nodeId] : [],
+          availabilityGeneration: "7",
+        }),
       ),
     },
   } as unknown as ContextSchemeAdapter;
@@ -103,13 +106,13 @@ describe("context router deletion receipts", () => {
       ok: false,
       error: { code: "stale_target", uri: `manuscript://${path}` },
     });
-    expect(adapter.tree?.commitPreparedDelete).not.toHaveBeenCalled();
+    expect(adapter.tree?.commitRecursiveDelete).not.toHaveBeenCalled();
   });
 
   it("reports a replacement that wins after inspection as a stale target", async () => {
     const adapter = writableAdapter("manuscript");
     if (!adapter.tree) throw new Error("writable test adapter must provide tree mutations");
-    vi.spyOn(adapter.tree, "commitPreparedDelete").mockResolvedValueOnce(
+    vi.spyOn(adapter.tree, "commitRecursiveDelete").mockResolvedValueOnce(
       Err({ code: "stale_source" }),
     );
     const port = createContextPortRouter({
@@ -142,6 +145,7 @@ describe("context router deletion receipts", () => {
       value: {
         status: "deleted",
         deletedDocumentIds: ["document-old"],
+        availabilityGeneration: "7",
       },
     });
   });
@@ -159,6 +163,7 @@ describe("context router deletion receipts", () => {
       value: {
         status: "deleted",
         deletedDocumentIds: [],
+        availabilityGeneration: "7",
       },
     });
   });

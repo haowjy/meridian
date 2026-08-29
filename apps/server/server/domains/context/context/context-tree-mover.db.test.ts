@@ -39,8 +39,11 @@ function dispatch(input: {
       commitPreparedMove: vi.fn(async (prepared) =>
         Ok({ movedNodeId: prepared.source.nodeId, path: prepared.destinationPath }),
       ),
-      commitPreparedDelete: vi.fn(async (token) =>
-        Ok({ deletedDocumentIds: token.kind === "file" ? [token.nodeId] : [] }),
+      commitRecursiveDelete: vi.fn(async (command) =>
+        Ok({
+          deletedDocumentIds: command.root.kind === "file" ? [command.root.nodeId] : [],
+          availabilityGeneration: "7",
+        }),
       ),
     },
   } as unknown as ContextSchemeAdapter;
@@ -124,7 +127,7 @@ describe("ContextTreeMover result-aware command ownership", () => {
       Ok({ movedNodeId: "document-1", destinationPath: "draft.md" }),
     );
     if (!target.adapter.tree) throw new Error("test adapter must own tree commands");
-    vi.mocked(target.adapter.tree.commitPreparedDelete).mockResolvedValueOnce(
+    vi.mocked(target.adapter.tree.commitRecursiveDelete).mockResolvedValueOnce(
       Err({ code: "stale_source" }),
     );
     await expect(

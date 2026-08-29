@@ -7,7 +7,10 @@ import { runInDrizzleTransaction } from "../../../../shared/drizzle-transaction.
 import { Ok } from "../../../../shared/result.js";
 import { truncateDrizzleTables } from "../../../../test-support/drizzle-reset.js";
 import { useRollbackTestDatabase } from "../../../../test-support/rollback-test-database.js";
+import { createInMemoryEventSink } from "../../../observability/index.js";
 import { type ContextTreeDispatch, ContextTreeMover } from "../../context/context-tree-mover.js";
+import { createDrizzleContextCatalog } from "../context-catalog.js";
+import { createDrizzleProjectContextAvailability } from "../project-context-availability.js";
 import { ContextFS } from "./context-fs.js";
 import {
   type ContextDocumentMembershipObserver,
@@ -389,10 +392,13 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       const deleteToken = await tree.inspect(SOURCE_ID, "delete-me.md");
       expect(deleteToken?.kind).toBe("file");
       await expect(
-        tree.commitDelete(deleteToken as NonNullable<typeof deleteToken>),
+        tree.commitRecursiveDelete({
+          root: deleteToken as NonNullable<typeof deleteToken>,
+          mode: "recursive",
+        }),
       ).resolves.toEqual({
         ok: true,
-        value: { deletedDocumentIds: [DOC_DELETE_ID] },
+        value: { deletedDocumentIds: [DOC_DELETE_ID], availabilityGeneration: "0" },
       });
       const moveSource = await tree.inspect(SOURCE_ID, "move-source.md");
       const moveTarget = await tree.inspect(SOURCE_ID, "move-target.md");
@@ -424,34 +430,103 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       ]);
     });
 
-    it("returns no document identities for an empty folder and rejects a non-empty folder", async () => {
+    it("deletes empty and populated folders with exact content identities", async () => {
+      const nestedFolderId = "00000000-0000-4000-8000-000000000731";
+      const binaryId = "00000000-0000-4000-8000-000000000732";
+      const customId = "00000000-0000-4000-8000-000000000733";
+      const nestedId = "00000000-0000-4000-8000-000000000734";
+      const manifestId = "00000000-0000-4000-8000-000000000735";
       await db.insert(folders).values([
         { id: EMPTY_FOLDER_ID, contextSourceId: SOURCE_ID, name: "empty" },
         { id: NON_EMPTY_FOLDER_ID, contextSourceId: SOURCE_ID, name: "occupied" },
+        {
+          id: nestedFolderId,
+          contextSourceId: SOURCE_ID,
+          parentId: NON_EMPTY_FOLDER_ID,
+          name: "nested",
+        },
       ]);
-      await db.insert(documents).values({
-        id: DOC_DELETE_ID,
-        contextSourceId: SOURCE_ID,
-        folderId: NON_EMPTY_FOLDER_ID,
-        name: "child",
-        extension: "md",
-        fileType: "markdown",
-        markdownProjection: "child",
+      await db.insert(documents).values([
+        {
+          id: DOC_DELETE_ID,
+          contextSourceId: SOURCE_ID,
+          folderId: NON_EMPTY_FOLDER_ID,
+          name: "tracked",
+          extension: "md",
+          fileType: "markdown",
+        },
+        {
+          id: binaryId,
+          contextSourceId: SOURCE_ID,
+          folderId: NON_EMPTY_FOLDER_ID,
+          name: "binary",
+          extension: "pdf",
+          fileType: "pdf",
+          storageUrl: "s3://binary",
+        },
+        {
+          id: customId,
+          contextSourceId: SOURCE_ID,
+          folderId: NON_EMPTY_FOLDER_ID,
+          name: "custom",
+          extension: "svg",
+          fileType: "svg",
+        },
+        {
+          id: nestedId,
+          contextSourceId: SOURCE_ID,
+          folderId: nestedFolderId,
+          name: "nested",
+          extension: "md",
+          fileType: "markdown",
+        },
+        {
+          id: manifestId,
+          kind: "manifest",
+          contextSourceId: SOURCE_ID,
+          folderId: nestedFolderId,
+          name: ".manifest",
+          extension: "json",
+          fileType: "json",
+        },
+      ]);
+      const availability = createDrizzleProjectContextAvailability(db);
+      const catalog = createDrizzleContextCatalog(db, undefined, {
+        availabilityMutations: availability,
       });
-      const tree = new DrizzleContextTreeMutationStore(db);
+      await catalog.refreshSources([SOURCE_ID]);
+      const tree = new DrizzleContextTreeMutationStore(db, undefined, catalog, availability);
       const empty = await tree.inspect(SOURCE_ID, "empty");
       const occupied = await tree.inspect(SOURCE_ID, "occupied");
       if (!empty || !occupied) throw new Error("expected folder tokens");
 
-      await expect(tree.commitDelete(empty)).resolves.toEqual({
+      const emptyResult = await tree.commitRecursiveDelete({ root: empty, mode: "recursive" });
+      expect(emptyResult).toMatchObject({ ok: true, value: { deletedDocumentIds: [] } });
+      const scope = { kind: "project", projectId: PROJECT_ID } as const;
+      const beforePopulated = await catalog.snapshot(scope);
+      const populatedResult = await tree.commitRecursiveDelete({
+        root: occupied,
+        mode: "recursive",
+      });
+      expect(populatedResult).toMatchObject({
         ok: true,
-        value: { deletedDocumentIds: [] },
+        value: { deletedDocumentIds: [DOC_DELETE_ID, binaryId, customId, nestedId].sort() },
       });
-      await expect(tree.commitDelete(occupied)).resolves.toEqual({
-        ok: false,
-        error: { code: "invalid_operation" },
+      if (!emptyResult.ok || !populatedResult.ok) throw new Error("expected recursive receipts");
+      expect(BigInt(populatedResult.value.availabilityGeneration)).toBeGreaterThan(
+        BigInt(emptyResult.value.availabilityGeneration),
+      );
+      await expect(catalog.changes(scope, beforePopulated.cursor)).resolves.toMatchObject({
+        kind: "delta",
+        commits: [expect.objectContaining({ changes: expect.any(Array) })],
       });
-      await expect(tree.inspect(SOURCE_ID, "occupied")).resolves.toEqual(occupied);
+      await expect(tree.inspect(SOURCE_ID, "occupied")).resolves.toBeNull();
+      const tombstones = await db
+        .select({ deletedAt: documents.deletedAt })
+        .from(documents)
+        .where(eq(documents.contextSourceId, SOURCE_ID));
+      expect(tombstones).toHaveLength(5);
+      expect(new Set(tombstones.map((row) => row.deletedAt?.toISOString()))).toHaveLength(1);
     });
 
     it("returns no receipt when delete CAS becomes stale or the transaction rolls back", async () => {
@@ -466,16 +541,20 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         .update(documents)
         .set({ name: "moved-before-delete" })
         .where(eq(documents.id, DOC_STALE_DELETE_ID));
-      await expect(tree.commitDelete(stale)).resolves.toEqual({
-        ok: false,
-        error: { code: "stale_source" },
-      });
+      await expect(tree.commitRecursiveDelete({ root: stale, mode: "recursive" })).resolves.toEqual(
+        {
+          ok: false,
+          error: { code: "stale_source" },
+        },
+      );
 
       const rollbackFailure = new Error("abort destructive write");
       tree.setBeforeDestructiveWrite(() => {
         throw rollbackFailure;
       });
-      await expect(tree.commitDelete(rollbackToken)).rejects.toBe(rollbackFailure);
+      await expect(
+        tree.commitRecursiveDelete({ root: rollbackToken, mode: "recursive" }),
+      ).rejects.toBe(rollbackFailure);
       const [rolledBack] = await db
         .select({ deletedAt: documents.deletedAt })
         .from(documents)
@@ -483,24 +562,67 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       expect(rolledBack?.deletedAt).toBeNull();
     });
 
-    it("does not return a successful result when post-commit membership delivery fails", async () => {
-      await insertDocument(DOC_CALLBACK_FAILURE_ID, "callback-failure");
-      const callbackFailure = new Error("membership delivery failed");
-      const tree = new DrizzleContextTreeMutationStore(db, {
-        documentCreated: () => undefined,
-        documentDeleted: () => {
-          throw callbackFailure;
-        },
+    it("keeps the committed receipt when post-commit membership delivery fails", async () => {
+      const callbackFolderId = "00000000-0000-4000-8000-000000000736";
+      const successfulCallbackId = "00000000-0000-4000-8000-000000000737";
+      await db.insert(folders).values({
+        id: callbackFolderId,
+        contextSourceId: SOURCE_ID,
+        name: "callback-folder",
       });
-      const token = await tree.inspect(SOURCE_ID, "callback-failure.md");
+      await db.insert(documents).values([
+        {
+          id: DOC_CALLBACK_FAILURE_ID,
+          contextSourceId: SOURCE_ID,
+          folderId: callbackFolderId,
+          name: "callback-failure",
+        },
+        {
+          id: successfulCallbackId,
+          contextSourceId: SOURCE_ID,
+          folderId: callbackFolderId,
+          name: "callback-success",
+        },
+      ]);
+      const callbackFailure = new Error("membership delivery failed");
+      const evidence = createInMemoryEventSink();
+      const callbacks: string[] = [];
+      const tree = new DrizzleContextTreeMutationStore(
+        db,
+        {
+          documentCreated: () => undefined,
+          documentDeleted: (documentId) => {
+            callbacks.push(documentId);
+            if (documentId === DOC_CALLBACK_FAILURE_ID) throw callbackFailure;
+          },
+        },
+        undefined,
+        undefined,
+        evidence,
+      );
+      const token = await tree.inspect(SOURCE_ID, "callback-folder");
       if (!token) throw new Error("expected file token");
 
-      await expect(tree.commitDelete(token)).rejects.toBe(callbackFailure);
-      const [committed] = await db
+      const receipt = await tree.commitRecursiveDelete({ root: token, mode: "recursive" });
+      expect(receipt).toMatchObject({
+        ok: true,
+        value: { deletedDocumentIds: [DOC_CALLBACK_FAILURE_ID, successfulCallbackId].sort() },
+      });
+      expect(callbacks).toEqual([DOC_CALLBACK_FAILURE_ID, successfulCallbackId].sort());
+      const committed = await db
         .select({ deletedAt: documents.deletedAt })
         .from(documents)
-        .where(eq(documents.id, DOC_CALLBACK_FAILURE_ID));
-      expect(committed?.deletedAt).toBeInstanceOf(Date);
+        .where(eq(documents.folderId, callbackFolderId));
+      expect(committed.every((row) => row.deletedAt instanceof Date)).toBe(true);
+      expect(evidence.events).toHaveLength(1);
+      expect(evidence.events[0]).toMatchObject({
+        name: "PostCommitCallbackFailure",
+        payload: {
+          callbackKind: "documentDeleted",
+          documentId: DOC_CALLBACK_FAILURE_ID,
+          commandId: expect.any(String),
+        },
+      });
     });
 
     it("defers document-create observers until the ambient transaction commits", async () => {
@@ -549,9 +671,14 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
 
       await expect(
         runInDrizzleTransaction(db, async () => {
-          await expect(tree.commitDelete(token as NonNullable<typeof token>)).resolves.toEqual({
+          await expect(
+            tree.commitRecursiveDelete({
+              root: token as NonNullable<typeof token>,
+              mode: "recursive",
+            }),
+          ).resolves.toEqual({
             ok: true,
-            value: { deletedDocumentIds: [DOC_AMBIENT_DELETE_ID] },
+            value: { deletedDocumentIds: [DOC_AMBIENT_DELETE_ID], availabilityGeneration: "0" },
           });
           expect(events).toEqual([]);
           throw new Error("outer rollback");
@@ -567,10 +694,13 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       const retryToken = await tree.inspect(SOURCE_ID, "ambient-delete.md");
       await runInDrizzleTransaction(db, async () => {
         await expect(
-          tree.commitDelete(retryToken as NonNullable<typeof retryToken>),
+          tree.commitRecursiveDelete({
+            root: retryToken as NonNullable<typeof retryToken>,
+            mode: "recursive",
+          }),
         ).resolves.toEqual({
           ok: true,
-          value: { deletedDocumentIds: [DOC_AMBIENT_DELETE_ID] },
+          value: { deletedDocumentIds: [DOC_AMBIENT_DELETE_ID], availabilityGeneration: "0" },
         });
         expect(events).toEqual([]);
       });

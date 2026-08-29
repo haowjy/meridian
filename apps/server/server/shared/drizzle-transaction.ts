@@ -146,18 +146,11 @@ export function runOutsideDrizzleTransaction<T>(operation: () => T): T {
 }
 
 async function dispatchAfterCommit(callbacks: Array<() => void | Promise<void>>): Promise<void> {
-  const errors: unknown[] = [];
-  for (const callback of callbacks) {
-    try {
-      await runOutsideDrizzleTransaction(callback);
-    } catch (cause) {
-      errors.push(cause);
-    }
-  }
-  if (errors.length === 1) throw errors[0];
-  if (errors.length > 1) {
-    throw new AggregateError(errors, `${errors.length} after-commit callbacks failed`);
-  }
+  await Promise.allSettled(
+    callbacks.map((callback) =>
+      Promise.resolve().then(() => runOutsideDrizzleTransaction(() => callback())),
+    ),
+  );
 }
 
 async function dispatchAfterRollback(

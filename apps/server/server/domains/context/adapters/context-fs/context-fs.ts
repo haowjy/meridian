@@ -50,6 +50,7 @@ import type {
 } from "../../ports/context-port.js";
 import type {
   ContextLocationToken,
+  ContextTreeDeleteCommand,
   ContextTreeMutationError,
   ContextTreeMutationStore,
   PreparedContextMove,
@@ -174,7 +175,7 @@ export class ContextFS implements ContextSchemeAdapter {
     inspectMovable: (path) => this.inspectMovable(path),
     commitProvisionalGraduation: (source) => this.commitProvisionalGraduation(source),
     commitPreparedMove: (prepared) => this.commitPreparedMove(prepared),
-    commitPreparedDelete: (token) => this.commitPreparedDelete(token),
+    commitRecursiveDelete: (command) => this.commitRecursiveDelete(command),
   };
 
   constructor(deps: ContextFSDeps) {
@@ -979,15 +980,16 @@ export class ContextFS implements ContextSchemeAdapter {
     return Ok(undefined);
   }
 
-  private async commitPreparedDelete(
-    token: ContextLocationToken,
+  private async commitRecursiveDelete(
+    command: ContextTreeDeleteCommand,
   ): Promise<Result<AdapterDeleteResult, AdapterFault>> {
-    if (token.kind === "file" && !(await this.isVisibleDocument(token.nodeId)))
+    if (command.root.kind === "file" && !(await this.isVisibleDocument(command.root.nodeId)))
       return Err({ code: "invalid_operation" });
-    const committed = await this.mutationStore.commitDelete(token);
+    const committed = await this.mutationStore.commitRecursiveDelete(command);
     if (!committed.ok) return Err(this.mutationFault(committed.error));
     return Ok({
       deletedDocumentIds: committed.value.deletedDocumentIds,
+      availabilityGeneration: committed.value.availabilityGeneration,
     });
   }
 }

@@ -118,6 +118,7 @@ export type RenameContextEntryResult = RenameContextEntrySuccess | RenameContext
 export type DeleteContextEntryResult = {
   status: "deleted";
   deletedDocumentIds: string[];
+  availabilityGeneration: string;
 };
 
 export type DeleteContextEntryRequest =

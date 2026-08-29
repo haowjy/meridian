@@ -1,4 +1,6 @@
 /** Drizzle ContextDocumentStore for one Meridian context source. */
+
+import { randomUUID } from "node:crypto";
 import type { DocumentFileType, Filetype } from "@meridian/contracts/protocol";
 import type { Database } from "@meridian/database";
 import {
@@ -7,6 +9,7 @@ import {
   contextSources,
   documents,
   folders,
+  projects,
   works,
 } from "@meridian/database/schema";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
@@ -18,6 +21,7 @@ import {
   runOutsideDrizzleTransaction,
 } from "../../../../shared/drizzle-transaction.js";
 import { Err, Ok, type Result } from "../../../../shared/result.js";
+import { type EventSink, emitEvent, unknownToEventPayload } from "../../../observability/index.js";
 import { parseFilename, renderFilename, splitPath } from "../../context/paths.js";
 import type { ContextCatalogMutationPort } from "../../ports/context-catalog.js";
 import type {
@@ -32,12 +36,14 @@ import {
   CONTEXT_ROOT_DIRECTORY_ID,
   type ContextLocationToken,
   type ContextTargetExpectation,
+  type ContextTreeDeleteCommand,
   type ContextTreeDeleteResult,
   type ContextTreeMoveCommand,
   type ContextTreeMutationError,
   type ContextTreeMutationResult,
   type ContextTreeMutationStore,
 } from "../../ports/context-tree-mutation-store.js";
+import type { ProjectContextAvailabilityMutationPort } from "../../ports/project-context-availability.js";
 
 type FolderRow = typeof folders.$inferSelect;
 type DocumentRow = typeof documents.$inferSelect;
@@ -110,19 +116,32 @@ export async function notifyMembershipObserver(
 async function dispatchMembershipEvents(
   observer: ContextDocumentMembershipObserver | undefined,
   events: readonly ContextDocumentMembershipEvent[],
+  commandId: string,
+  eventSink?: EventSink,
 ): Promise<void> {
   if (!observer) return;
-  const errors: unknown[] = [];
-  for (const event of events) {
-    try {
-      await runOutsideDrizzleTransaction(() => observer[event.method](event.documentId));
-    } catch (cause) {
-      errors.push(cause);
-    }
-  }
-  if (errors.length === 1) throw errors[0];
-  if (errors.length > 1) {
-    throw new AggregateError(errors, `${errors.length} membership observer callbacks failed`);
+  const settled = await Promise.allSettled(
+    events.map((event) =>
+      Promise.resolve().then(() =>
+        runOutsideDrizzleTransaction(() => observer[event.method](event.documentId)),
+      ),
+    ),
+  );
+  for (const [index, outcome] of settled.entries()) {
+    if (outcome.status === "fulfilled") continue;
+    const event = events[index];
+    if (!event || !eventSink) continue;
+    emitEvent(eventSink, {
+      level: "error",
+      source: "context-tree-mutation",
+      name: "PostCommitCallbackFailure",
+      payload: {
+        commandId,
+        callbackKind: event.method,
+        documentId: event.documentId,
+        ...unknownToEventPayload(outcome.reason),
+      },
+    });
   }
 }
 
@@ -455,6 +474,8 @@ export class DrizzleContextTreeMutationStore implements ContextTreeMutationStore
     private readonly db: Database,
     private readonly membershipObserver?: ContextDocumentMembershipObserver,
     private readonly catalogMutations?: ContextCatalogMutationPort,
+    private readonly availabilityMutations?: ProjectContextAvailabilityMutationPort,
+    private readonly eventSink?: EventSink,
   ) {}
 
   /** Test hook: runs after CAS rechecks, immediately before destructive writes. */
@@ -472,12 +493,15 @@ export class DrizzleContextTreeMutationStore implements ContextTreeMutationStore
     ) => Promise<Result<T, ContextTreeMutationError>>,
   ): Promise<Result<T, ContextTreeMutationError>> {
     const events: ContextDocumentMembershipEvent[] = [];
+    const commandId = randomUUID();
     let result: Result<T, ContextTreeMutationError>;
     try {
       result = await runInDrizzleSavepoint(this.db, async () => {
         const mutationResult = await operation(events);
         if (mutationResult.ok && events.length > 0) {
-          runAfterDrizzleCommit(() => dispatchMembershipEvents(this.membershipObserver, events));
+          runAfterDrizzleCommit(() =>
+            dispatchMembershipEvents(this.membershipObserver, events, commandId, this.eventSink),
+          );
         }
         return mutationResult;
       });
@@ -877,10 +901,37 @@ export class DrizzleContextTreeMutationStore implements ContextTreeMutationStore
     });
   }
 
-  async commitDelete(
-    token: ContextLocationToken,
+  private async advanceAvailabilityForSource(sourceId: string): Promise<string> {
+    if (!this.availabilityMutations) return "0";
+    const [ownership] = await currentDrizzleDb(this.db)
+      .select({
+        projectId: contextSources.projectId,
+        sourceSlug: contextSources.slug,
+        projectUserId: projects.userId,
+        projectIsPersonal: projects.isPersonal,
+        workProjectId: works.projectId,
+      })
+      .from(contextSources)
+      .leftJoin(projects, eq(contextSources.projectId, projects.id))
+      .leftJoin(works, eq(contextSources.workId, works.id))
+      .where(eq(contextSources.id, sourceId))
+      .limit(1);
+    const projectId = ownership?.projectId ?? ownership?.workProjectId;
+    if (!projectId) throw new Error(`Context source authority is inconsistent: ${sourceId}`);
+    return this.availabilityMutations.advance({
+      projectIds: [projectId],
+      userIds:
+        ownership.sourceSlug === "user" && ownership.projectIsPersonal && ownership.projectUserId
+          ? [ownership.projectUserId]
+          : [],
+    });
+  }
+
+  async commitRecursiveDelete(
+    command: ContextTreeDeleteCommand,
   ): Promise<Result<ContextTreeDeleteResult, ContextTreeMutationError>> {
     return this.withMutationTransaction(async (events) => {
+      const token = command.root;
       await this.lockSources([token.sourceId]);
       if (token.nodeId === CONTEXT_ROOT_DIRECTORY_ID) return Err({ code: "invalid_operation" });
       const current = await this.inspect(token.sourceId, token.path);
@@ -903,70 +954,73 @@ export class DrizzleContextTreeMutationStore implements ContextTreeMutationStore
           .returning({ id: documents.id });
         const [deletedDocument] = deleted;
         if (!deletedDocument || deleted.length !== 1) rollback("stale_source");
-        events.push({ method: "documentDeleted", documentId: token.nodeId });
-        await this.catalogMutations?.refreshSources([token.sourceId]);
-        return Ok({ deletedDocumentIds: [deletedDocument.id] });
+        events.push({ method: "documentDeleted", documentId: deletedDocument.id });
+        await this.catalogMutations?.refreshSources([token.sourceId], [token.nodeId]);
+        const availabilityGeneration = await this.advanceAvailabilityForSource(token.sourceId);
+        return Ok({ deletedDocumentIds: [deletedDocument.id], availabilityGeneration });
       }
 
-      const [childFolder] = await currentDrizzleDb(this.db)
-        .select({ id: folders.id })
-        .from(folders)
-        .where(
-          and(
-            eq(folders.contextSourceId, token.sourceId),
-            eq(folders.parentId, token.nodeId),
-            isNull(folders.deletedAt),
-          ),
+      const folderClosure = await currentDrizzleDb(this.db).execute<{ id: string }>(sql`
+        WITH RECURSIVE subtree AS (
+          SELECT id FROM folders
+          WHERE id = ${token.nodeId}
+            AND context_source_id = ${token.sourceId}
+            AND deleted_at IS NULL
+          UNION ALL
+          SELECT child.id FROM folders child
+          JOIN subtree parent ON child.parent_id = parent.id
+          WHERE child.context_source_id = ${token.sourceId}
+            AND child.deleted_at IS NULL
         )
-        .limit(1);
-      if (childFolder) return Err({ code: "invalid_operation" });
-
-      const [childDocument] = await currentDrizzleDb(this.db)
-        .select({ id: documents.id })
+        SELECT id::text FROM subtree ORDER BY id
+      `);
+      const folderIds = folderClosure.map((row) => row.id);
+      if (!folderIds.includes(token.nodeId)) rollback("stale_source");
+      const documentClosure = await currentDrizzleDb(this.db)
+        .select({ id: documents.id, kind: documents.kind })
         .from(documents)
         .where(
           and(
             eq(documents.contextSourceId, token.sourceId),
-            contentDocumentPredicate(),
-            eq(documents.folderId, token.nodeId),
+            inArray(documents.folderId, folderIds as never),
             isNull(documents.deletedAt),
           ),
-        )
-        .limit(1);
-      if (childDocument) return Err({ code: "invalid_operation" });
+        );
+      const deletedDocumentIds = documentClosure
+        .filter((row) => row.kind === "content")
+        .map((row) => row.id)
+        .sort();
 
       await this.runBeforeDestructiveWrite();
-      const deleted = await currentDrizzleDb(this.db)
+      if (documentClosure.length > 0) {
+        await currentDrizzleDb(this.db)
+          .update(documents)
+          .set({ deletedAt: now, updatedAt: now })
+          .where(
+            inArray(
+              documents.id,
+              documentClosure.map((row) => row.id),
+            ),
+          );
+      }
+      const deletedFolders = await currentDrizzleDb(this.db)
         .update(folders)
         .set({ deletedAt: now, updatedAt: now })
         .where(
           and(
-            eq(folders.id, token.nodeId),
             eq(folders.contextSourceId, token.sourceId),
+            inArray(folders.id, folderIds as never),
             isNull(folders.deletedAt),
-            sql`NOT EXISTS (
-              SELECT 1 FROM folders AS child_folders
-              WHERE child_folders.parent_id = ${token.nodeId}
-                AND child_folders.context_source_id = ${token.sourceId}
-                AND child_folders.deleted_at IS NULL
-            )`,
-            sql`NOT EXISTS (
-              SELECT 1 FROM documents AS child_documents
-              WHERE child_documents.folder_id = ${token.nodeId}
-                AND child_documents.context_source_id = ${token.sourceId}
-                AND ${contentDocumentKindSql("child_documents")}
-                AND child_documents.deleted_at IS NULL
-            )`,
           ),
         )
         .returning({ id: folders.id });
-      if (deleted.length !== 1) {
-        const still = await this.inspect(token.sourceId, token.path);
-        if (!sameLocation(still, token)) rollback("stale_source");
-        rollback("invalid_operation");
+      if (deletedFolders.length !== folderIds.length) rollback("stale_source");
+      for (const documentId of deletedDocumentIds) {
+        events.push({ method: "documentDeleted", documentId });
       }
-      await this.catalogMutations?.refreshSources([token.sourceId]);
-      return Ok({ deletedDocumentIds: [] });
+      await this.catalogMutations?.refreshSources([token.sourceId], [token.nodeId]);
+      const availabilityGeneration = await this.advanceAvailabilityForSource(token.sourceId);
+      return Ok({ deletedDocumentIds, availabilityGeneration });
     });
   }
 }

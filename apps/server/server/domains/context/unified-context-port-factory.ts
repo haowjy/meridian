@@ -16,6 +16,7 @@ import type { Database } from "@meridian/database";
 import { runInDrizzleTransaction } from "../../shared/drizzle-transaction.js";
 import type { DocumentCreationAggregate, MarkdownDocumentStore } from "../collab/index.js";
 import { createInMemoryCollabDomain } from "../collab/index.js";
+import type { EventSink } from "../observability/index.js";
 import { ContextFS } from "./adapters/context-fs/context-fs.js";
 import {
   type ContextDocumentMembershipObserver,
@@ -37,6 +38,7 @@ import type {
   ProjectContextFsScheme,
   WorkScopedContextFsScheme,
 } from "./ports/context-port.js";
+import type { ProjectContextAvailabilityMutationPort } from "./ports/project-context-availability.js";
 import {
   createInMemoryUnifiedContextStoreRegistry,
   getInMemoryContextTreeMutationStore,
@@ -309,6 +311,8 @@ function createProductionStoreResolvers(
   db: Database,
   manifestMembership: ManifestMembershipPort,
   catalogMutations?: ContextCatalogMutationPort,
+  availabilityMutations?: ProjectContextAvailabilityMutationPort,
+  eventSink?: EventSink,
 ): ContextStoreResolvers {
   const membershipObserverFor = (
     manifestView: ManifestView,
@@ -349,6 +353,8 @@ function createProductionStoreResolvers(
         db,
         manifestView ? membershipObserverFor(manifestView) : undefined,
         catalogMutations,
+        availabilityMutations,
+        eventSink,
       );
     },
   };
@@ -395,11 +401,15 @@ export function createProductionUnifiedContextPortFactory(options: {
   documentSync: MarkdownDocumentStore & DocumentCreationAggregate;
   manifestMembership: ManifestMembershipPort;
   catalogMutations?: ContextCatalogMutationPort;
+  availabilityMutations?: ProjectContextAvailabilityMutationPort;
+  eventSink?: EventSink;
 }): UnifiedContextPortFactory {
   const storeResolvers = createProductionStoreResolvers(
     options.db,
     options.manifestMembership,
     options.catalogMutations,
+    options.availabilityMutations,
+    options.eventSink,
   );
 
   return {

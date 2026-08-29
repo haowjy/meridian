@@ -24,6 +24,7 @@ import {
   runInRootDrizzleTransaction,
   setDrizzleTransactionLocal,
 } from "../../../shared/drizzle-transaction.js";
+import { type EventSink, emitEvent } from "../../observability/index.js";
 import type {
   ProjectContextAvailabilityMutationPort,
   ProjectContextAvailabilityPort,
@@ -52,6 +53,7 @@ function userKey(userId: string) {
 
 export function createDrizzleProjectContextAvailability(
   db: Database,
+  eventSink?: EventSink,
 ): ProjectContextAvailabilityPort & ProjectContextAvailabilityMutationPort {
   return {
     async advance(input) {
@@ -147,13 +149,24 @@ export function createDrizzleProjectContextAvailability(
             const row = byId.get(documentId);
             if (!row) return { kind: "not-visible", documentId, checkedGeneration } as never;
             const { document, source, sourceProject, work } = row;
-            if (!source) {
+            const indeterminate = (): ProjectContextIdentityResolution => {
+              if (eventSink) {
+                emitEvent(eventSink, {
+                  level: "error",
+                  source: "context-availability",
+                  name: "ProjectContextIdentityInconsistent",
+                  payload: { documentId, projectId: input.projectId },
+                });
+              }
               return {
                 kind: "indeterminate",
                 documentId,
                 checkedGeneration,
                 reason: "identity_inconsistent",
               } as never;
+            };
+            if (!source) {
+              return indeterminate();
             }
             let scope: CatalogScope;
             let authority: ProjectContextAuthority;
@@ -223,22 +236,12 @@ export function createDrizzleProjectContextAvailability(
             let folderId = document.folderId;
             while (folderId) {
               if (visited.has(folderId)) {
-                return {
-                  kind: "indeterminate",
-                  documentId,
-                  checkedGeneration,
-                  reason: "identity_inconsistent",
-                } as never;
+                return indeterminate();
               }
               visited.add(folderId);
               const folder = foldersById.get(folderId);
               if (!folder || folder.contextSourceId !== source.id || folder.deletedAt) {
-                return {
-                  kind: "indeterminate",
-                  documentId,
-                  checkedGeneration,
-                  reason: "identity_inconsistent",
-                } as never;
+                return indeterminate();
               }
               parentPath.unshift(folder.name);
               folderId = folder.parentId;
@@ -259,12 +262,7 @@ export function createDrizzleProjectContextAvailability(
                 }),
               } as never;
             } catch {
-              return {
-                kind: "indeterminate",
-                documentId,
-                checkedGeneration,
-                reason: "identity_inconsistent",
-              } as never;
+              return indeterminate();
             }
           });
           return { projectId: input.projectId, resolutionId: randomUUID(), resolutions } as never;

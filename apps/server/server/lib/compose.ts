@@ -329,7 +329,7 @@ export async function createProductionAppPorts(input: {
   const documentAccess = createDrizzleDocumentAccess(db);
   const notices = createDrizzleNoticePort(db);
   const contextCatalogWakeHub = createContextCatalogWakeHub();
-  const projectContextAvailability = createDrizzleProjectContextAvailability(db);
+  const projectContextAvailability = createDrizzleProjectContextAvailability(db, eventSink);
   const contextCatalog = createDrizzleContextCatalog(db, contextCatalogWakeHub, {
     availabilityMutations: projectContextAvailability,
   });
@@ -389,6 +389,8 @@ export async function createProductionAppPorts(input: {
     documentSync,
     manifestMembership: documentSync,
     catalogMutations: contextCatalog,
+    availabilityMutations: projectContextAvailability,
+    eventSink,
   });
   // Upload creates the asset as a context document, so the service needs the
   // context ports; it feeds each new path straight back into the resolver the

@@ -217,15 +217,21 @@ export class ContextTreeMover {
     const result = await callAdapter(
       target.canonical,
       () =>
-        target.adapter.tree?.commitPreparedDelete(token.value as ContextLocationToken) ??
-        Promise.resolve(Err({ code: "permission_denied" } as const)),
+        target.adapter.tree?.commitRecursiveDelete({
+          root: token.value as ContextLocationToken,
+          mode: "recursive",
+        }) ?? Promise.resolve(Err({ code: "permission_denied" } as const)),
     );
     if (!result.ok) {
       return result.error.code === "stale_source"
         ? Err({ code: "stale_target", uri: target.canonical })
         : result;
     }
-    return Ok({ status: "deleted", deletedDocumentIds: result.value.deletedDocumentIds });
+    return Ok({
+      status: "deleted",
+      deletedDocumentIds: result.value.deletedDocumentIds,
+      availabilityGeneration: result.value.availabilityGeneration,
+    });
   }
 
   private async prepareMove(

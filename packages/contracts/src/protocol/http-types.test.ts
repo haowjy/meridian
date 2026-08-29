@@ -19,6 +19,7 @@ describe("context deletion result", () => {
     expectTypeOf<DeleteContextEntryResult>().toEqualTypeOf<{
       status: "deleted";
       deletedDocumentIds: string[];
+      availabilityGeneration: string;
     }>();
   });
 });

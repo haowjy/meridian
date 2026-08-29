@@ -77,13 +77,15 @@ describe("InMemoryContextDocumentStore", () => {
     const folderToken = await tree.inspect(SOURCE_ID, "hidden");
     expect(folderToken).toEqual(expect.objectContaining({ kind: "directory" }));
     if (!folderToken) throw new Error("expected hidden folder token");
-    await expect(tree.commitDelete(folderToken)).resolves.toEqual({
+    await expect(
+      tree.commitRecursiveDelete({ root: folderToken, mode: "recursive" }),
+    ).resolves.toEqual({
       ok: true,
-      value: { deletedDocumentIds: [] },
+      value: { deletedDocumentIds: [], availabilityGeneration: "1" },
     });
   });
 
-  it("returns only a deleted file identity and keeps non-empty folders rejected", async () => {
+  it("recursively deletes populated folders and returns exact content identities", async () => {
     const backing = createInMemoryContextDocumentStoreBacking();
     const store = new InMemoryContextDocumentStore({ sourceId: SOURCE_ID, backing });
     const folder = await store.createFolder(null, "chapters");
@@ -100,13 +102,11 @@ describe("InMemoryContextDocumentStore", () => {
     const fileToken = await tree.inspect(SOURCE_ID, "chapters/chapter.md");
     if (!folderToken || !fileToken) throw new Error("expected tree tokens");
 
-    await expect(tree.commitDelete(folderToken)).resolves.toEqual({
-      ok: false,
-      error: { code: "invalid_operation" },
-    });
-    await expect(tree.commitDelete(fileToken)).resolves.toEqual({
+    await expect(
+      tree.commitRecursiveDelete({ root: folderToken, mode: "recursive" }),
+    ).resolves.toEqual({
       ok: true,
-      value: { deletedDocumentIds: [DOC_ID] },
+      value: { deletedDocumentIds: [DOC_ID], availabilityGeneration: "1" },
     });
   });
 });

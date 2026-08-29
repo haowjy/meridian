@@ -91,7 +91,11 @@ describe("wired write tool", () => {
         }
         const deletedDocumentId = occupant;
         occupant = null;
-        return Ok({ status: "deleted" as const, deletedDocumentIds: [deletedDocumentId] });
+        return Ok({
+          status: "deleted" as const,
+          deletedDocumentIds: [deletedDocumentId],
+          availabilityGeneration: "0",
+        });
       }),
     } satisfies ContextPort;
     const lifecycle = createAgentEditResponseWriteLifecycle({
@@ -501,7 +505,7 @@ function contextPortFor(documentId: string, filePath: string): ContextPort {
     }),
     delete: async () => ({
       ok: true,
-      value: { status: "deleted", deletedDocumentIds: [documentId] },
+      value: { status: "deleted", deletedDocumentIds: [documentId], availabilityGeneration: "0" },
     }),
     list: async () => ({ ok: true, value: [] }),
     search: async () => ({ ok: true, value: [] }),

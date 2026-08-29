@@ -124,29 +124,31 @@ it("routes every current first-touch ContextFS mutation through the command owne
     scheme: "manuscript",
   });
 
-  await expect(context.write("written.md", "one")).resolves.toMatchObject({ ok: true });
-  await expect(context.createTrackedDocument("created.md", "two")).resolves.toMatchObject({
-    ok: true,
-  });
-  await expect(
+  async function expectOneTransaction(operation: () => Promise<unknown>): Promise<void> {
+    const before = transactionEntries;
+    await operation();
+    expect(transactionEntries - before).toBe(1);
+  }
+
+  await expectOneTransaction(() => context.write("written.md", "one"));
+  await expectOneTransaction(() => context.createTrackedDocument("created.md", "two"));
+  await expectOneTransaction(() =>
     context.createUntitledDocument("", {
       documentId: UNTITLED_ID,
       origin: { type: "system" },
     }),
-  ).resolves.toMatchObject({ ok: true });
-  await expect(context.ensureTrackedDocument("ensured.md")).resolves.toMatchObject({ ok: true });
-  await expect(
+  );
+  await expectOneTransaction(() => context.ensureTrackedDocument("ensured.md"));
+  await expectOneTransaction(() =>
     context.edit("written.md", { kind: "append", content: " updated" }),
-  ).resolves.toMatchObject({ ok: true });
-  await expect(
+  );
+  await expectOneTransaction(() =>
     context.writeBinary("image.png", {
       fileType: "image",
       storageUrl: "s3://bucket/image.png",
       mimeType: "image/png",
       sizeBytes: 42,
     }),
-  ).resolves.toMatchObject({ ok: true });
-  await expect(context.mkdir("folder")).resolves.toEqual(Ok(undefined));
-
-  expect(transactionEntries).toBe(7);
+  );
+  await expectOneTransaction(() => context.mkdir("folder"));
 });
