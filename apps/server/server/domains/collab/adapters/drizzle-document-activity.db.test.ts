@@ -38,7 +38,10 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     const workProjection = createWorkProjectionMutation({
       db,
       availability,
-      catalog: { async refreshProject() {} },
+      catalog: {
+        async refreshProject() {},
+        async upsertWorkAuthorities() {},
+      },
     });
 
     async function truncateAll(): Promise<void> {

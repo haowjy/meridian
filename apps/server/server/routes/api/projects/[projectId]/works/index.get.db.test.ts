@@ -2,6 +2,7 @@
 
 import { sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createTestWorkProjectionMutation } from "../../../../../test-support/work-projection.js";
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS === "1" || process.env.RUN_DB_TESTS === "true";
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -97,6 +98,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         workRepo: createDrizzleProjectWorkRepository({
           db,
           hasUnreviewedDraft: async () => false,
+          projectionMutation: createTestWorkProjectionMutation(db),
         }),
         preferences,
         documentSync: createWorkDraftPending(createDrizzleWorkDraftPendingStore(db)),

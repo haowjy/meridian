@@ -359,6 +359,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       const repository = createDrizzleProjectRepository({
         db,
         catalogLifecycle: {
+          async upsertWorkAuthorities() {},
           async refreshProject(projectId) {
             await catalog.refreshProject(projectId);
             throw new Error("catalog failure");
@@ -418,6 +419,9 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
           catalog: {
             async refreshProject(projectId) {
               await catalog.refreshProject(projectId);
+            },
+            async upsertWorkAuthorities(workIds) {
+              await catalog.upsertWorkAuthorities(workIds);
               throw new Error("catalog failure");
             },
           },

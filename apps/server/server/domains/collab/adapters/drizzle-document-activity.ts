@@ -45,7 +45,7 @@ export function createDrizzleDocumentProjectionEffects(
           );
       }
       if (scope?.workId) {
-        await workProjection?.advanceWorks([scope.workId], input.at);
+        await workProjection?.touchWorks([scope.workId], input.at);
       }
       const projectId = scope?.sourceProjectId ?? scope?.workProjectId;
       if (projectId) {
@@ -67,7 +67,7 @@ export function createDrizzleDocumentProjectionEffects(
         .set({ lastTouchedAt: input.at })
         .where(eq(threadDocuments.documentId, input.documentId));
       if (input.workId) {
-        await workProjection?.advanceWorks([input.workId], input.at);
+        await workProjection?.touchWorks([input.workId], input.at);
       }
       const [scope] = await activeDb
         .select({ projectId: contextSources.projectId })

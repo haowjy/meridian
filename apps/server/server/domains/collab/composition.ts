@@ -119,7 +119,7 @@ type CollabDomainDeps = {
   eventSink?: EventSink;
   notices?: NoticePort;
   workAuthorityResolver: ProjectWorkAuthorityResolver;
-  workProjectionMutation?: WorkProjectionMutation;
+  workProjectionMutation: WorkProjectionMutation;
 };
 
 export function createCollabDomain(deps: CollabDomainDeps): CollabDomain {

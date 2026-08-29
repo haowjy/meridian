@@ -78,15 +78,11 @@ export interface DrizzleWorkRepositoryDeps {
   db: Database;
   /** Canonical collab-domain predicate for reviewable Work draft content. */
   hasUnreviewedDraft(workId: WorkId): Promise<boolean>;
-  projectionMutation?: WorkProjectionMutation;
+  projectionMutation: WorkProjectionMutation;
 }
 export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): WorkRepository {
   const { db, hasUnreviewedDraft } = deps;
-  const projectionMutation = deps.projectionMutation ?? {
-    async advanceProjects() {},
-    async advanceWorks() {},
-    async advanceBranches() {},
-  };
+  const projectionMutation = deps.projectionMutation;
 
   async function lockProjectWorkCreation(projectId: ProjectId): Promise<void> {
     await currentDrizzleDb(db).execute(
@@ -109,7 +105,7 @@ export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): Wo
         .where(and(eq(works.id, id), isNull(works.deletedAt)))
         .returning();
       if (!row) throw new Error(`Work not found: ${id}`);
-      await projectionMutation.advanceProjects([row.projectId]);
+      await projectionMutation.publishWorks([row.id]);
       return mapWork(row);
     });
   }
@@ -165,7 +161,7 @@ export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): Wo
           throw cause;
         }
         if (!row) throw new Error("Failed to create work");
-        await projectionMutation.advanceProjects([row.projectId]);
+        await projectionMutation.publishWorks([row.id]);
         return mapWork(row);
       });
     },
@@ -291,7 +287,7 @@ export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): Wo
             updatedAt: new Date(),
           })
           .where(and(eq(works.id, id), isNull(works.deletedAt)));
-        await projectionMutation.advanceProjects([existing.projectId]);
+        await projectionMutation.publishWorks([id]);
       });
     },
     async restore(id: WorkId): Promise<Work> {
@@ -311,7 +307,7 @@ export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): Wo
             .where(eq(works.id, id))
             .returning();
           if (!row) throw new Error(`Work not found: ${id}`);
-          await projectionMutation.advanceProjects([row.projectId]);
+          await projectionMutation.publishWorks([row.id]);
           return mapWork(row);
         });
       } catch (cause) {
@@ -329,7 +325,7 @@ export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): Wo
       const activeDb = currentDrizzleDb(db);
       const [existing] = await activeDb.select().from(works).where(eq(works.id, id)).limit(1);
       if (!existing || existing.deletedAt) return;
-      await projectionMutation.advanceWorks([id], new Date());
+      await projectionMutation.touchWorks([id], new Date());
     },
   };
 }

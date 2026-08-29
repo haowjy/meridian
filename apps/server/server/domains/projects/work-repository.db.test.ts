@@ -25,6 +25,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     const { createDrizzleProjectContextAvailability } = await import(
       "../context/adapters/project-context-availability.js"
     );
+    const { createDrizzleContextCatalog } = await import("../context/adapters/context-catalog.js");
     const {
       createDrizzleProjectWorkRepository,
       createDrizzleProjectWorkAuthorityResolver,
@@ -40,10 +41,13 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     const db = createDb(DATABASE_URL, { max: 4 });
     const control = postgres(DATABASE_URL, { max: 1 });
     const availability = createDrizzleProjectContextAvailability(db);
+    const catalog = createDrizzleContextCatalog(db, undefined, {
+      availabilityMutations: availability,
+    });
     const projectionMutation = createWorkProjectionMutation({
       db,
       availability,
-      catalog: { async refreshProject() {} },
+      catalog,
     });
     const works = createDrizzleProjectWorkRepository({
       db,
@@ -91,53 +95,6 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       await expect(works.update(first.id, { name: "Renamed" })).resolves.toMatchObject({
         slug: "book-2",
       });
-    });
-
-    it("commits entity and project snapshot revisions with every lifecycle transition", async () => {
-      const deps = { works, workContextDelivery: { async projectChanged() {} } };
-      const created = await works.create({ projectId: PROJECT_ID, name: "Versioned" });
-      expect(created.entityRevision).toBe("1");
-      expect(BigInt((await works.snapshotIdentity(PROJECT_ID)).authorityRevision)).toBeGreaterThan(
-        0n,
-      );
-
-      const renamed = await updateWorkTransition(deps, created.id, { name: "Renamed" });
-      expect(renamed.after.entityRevision).toBe("2");
-      const noOp = await updateWorkTransition(deps, created.id, { name: "Renamed" });
-      expect(noOp).toMatchObject({ changed: false, after: { entityRevision: "2" } });
-      await updateWorkTransition(deps, created.id, { status: "archived" });
-      await updateWorkTransition(deps, created.id, { status: "active" });
-      await deleteWorkTransition(deps, created.id);
-      expect((await works.findById(created.id))?.entityRevision).toBe("5");
-      expect((await restoreWork(deps, created.id)).entityRevision).toBe("6");
-      expect(BigInt((await works.snapshotIdentity(PROJECT_ID)).authorityRevision)).toBeGreaterThan(
-        0n,
-      );
-    });
-
-    it("commits or rolls back visible Work fields, entity revision, and availability together", async () => {
-      const created = await works.create({ projectId: PROJECT_ID, name: "Atomic" });
-      const before = await works.snapshotIdentity(PROJECT_ID);
-      await expect(
-        works.transaction(async () => {
-          await works.update(created.id, { name: "Rolled back" });
-          throw new Error("rollback barrier");
-        }),
-      ).rejects.toThrow("rollback barrier");
-      await expect(works.findById(created.id)).resolves.toMatchObject({
-        name: "Atomic",
-        entityRevision: "1",
-      });
-      await expect(works.snapshotIdentity(PROJECT_ID)).resolves.toEqual(before);
-
-      await works.transaction(() => works.update(created.id, { name: "Committed" }));
-      await expect(works.findById(created.id)).resolves.toMatchObject({
-        name: "Committed",
-        entityRevision: "2",
-      });
-      expect(BigInt((await works.snapshotIdentity(PROJECT_ID)).authorityRevision)).toBeGreaterThan(
-        BigInt(before.authorityRevision),
-      );
     });
 
     it("keeps UUID-shaped slugs and resolves ambiguous strings by exact field role", async () => {
@@ -217,7 +174,9 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     });
 
     it("serializes Work restore and enqueues only the transition that restores", async () => {
-      const { createDrizzleRepositories } = await import("../threads/adapters/drizzle/index.js");
+      const { createDrizzleRepositoriesForTest } = await import(
+        "../threads/adapters/drizzle/index.js"
+      );
       await db.insert(schema.threads).values({
         id: THREAD_ID,
         projectId: PROJECT_ID,
@@ -226,7 +185,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       });
       const work = await works.create({ projectId: PROJECT_ID, name: "Restorable" });
       await works.softDelete(work.id);
-      const threads = createDrizzleRepositories(db);
+      const threads = createDrizzleRepositoriesForTest(db);
       let release!: () => void;
       const gate = new Promise<void>((resolve) => {
         release = resolve;

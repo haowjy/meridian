@@ -197,67 +197,75 @@ export function createDrizzlePushCommitStore(
   notices?: NoticePort,
   workProjection?: WorkProjectionMutation,
 ): PushCommitStore {
+  const mutatePending = <T>(branchIds: readonly string[], operation: () => Promise<T>) =>
+    workProjection ? workProjection.mutatePendingBranches(branchIds, operation) : operation();
   return {
     async commitPush(input) {
-      return runInDrizzleTransaction(db, async () => {
-        const txDb = currentDrizzleDb(db);
-        const existing = await findLineage(txDb, input.idempotencyKey);
-        if (existing) return { status: "conflict" as const, push: existing };
-        const now = new Date();
-        const lineage = await commitPreparedPush(txDb, input, now);
-        const push = mapLineage(lineage);
-        await persistRequiredTrail(changeTrails, input, push, notices);
-        await stagePendingSettlementWithinTx(txDb, input, push);
-        await workProjection?.advanceBranches([input.branch.branchId]);
-        return {
-          status: "inserted" as const,
-          push,
-        };
-      });
+      return runInDrizzleTransaction(db, () =>
+        mutatePending([input.branch.branchId], async () => {
+          const txDb = currentDrizzleDb(db);
+          const existing = await findLineage(txDb, input.idempotencyKey);
+          if (existing) return { status: "conflict" as const, push: existing };
+          const now = new Date();
+          const lineage = await commitPreparedPush(txDb, input, now);
+          const push = mapLineage(lineage);
+          await persistRequiredTrail(changeTrails, input, push, notices);
+          await stagePendingSettlementWithinTx(txDb, input, push);
+          return {
+            status: "inserted" as const,
+            push,
+          };
+        }),
+      );
     },
 
     async commitDiscard(input) {
-      return runInDrizzleTransaction(db, async () => {
-        await commitPreparedDiscard(currentDrizzleDb(db), input, new Date());
-        await workProjection?.advanceBranches([input.branch.branchId]);
-      });
+      return runInDrizzleTransaction(db, () =>
+        mutatePending([input.branch.branchId], () =>
+          commitPreparedDiscard(currentDrizzleDb(db), input, new Date()),
+        ),
+      );
     },
 
     async commitTurnRedo(input) {
       return runWithActiveWorkDrafts(
         db,
         { branchIds: input.journalRows.map((row) => row.branchId) },
-        async () => {
-          await commitPreparedRedo(currentDrizzleDb(db), input, new Date());
-          await workProjection?.advanceBranches([input.branch.branchId]);
-          await changeTrails.reopenOwners(trailOwnersForRows(input.journalRows));
-        },
+        () =>
+          mutatePending([input.branch.branchId], async () => {
+            await commitPreparedRedo(currentDrizzleDb(db), input, new Date());
+            await changeTrails.reopenOwners(trailOwnersForRows(input.journalRows));
+          }),
       );
     },
 
     async commitPushBatch(input) {
-      return runInDrizzleTransaction(db, async () => {
-        const txDb = currentDrizzleDb(db);
-        const pushes = sortPushesByDocumentId(input.pushes);
-        for (const push of pushes) {
-          const existing = await findLineage(txDb, push.idempotencyKey);
-          if (existing) throw new BranchPushCommitConflictError(push.branch.branchId);
-        }
-        const now = new Date();
-        const rows = [];
-        for (const push of pushes) {
-          const lineage = await commitPreparedPush(txDb, push, now);
-          rows.push(lineage);
-          const mapped = mapLineage(lineage);
-          await persistRequiredTrail(changeTrails, push, mapped, notices);
-          await stagePendingSettlementWithinTx(txDb, push, mapped);
-        }
-        await workProjection?.advanceBranches(pushes.map(({ branch }) => branch.branchId));
-        const mappedPushes = rows.map(mapLineage);
-        return {
-          pushes: mappedPushes,
-        };
-      });
+      return runInDrizzleTransaction(db, () =>
+        mutatePending(
+          input.pushes.map(({ branch }) => branch.branchId),
+          async () => {
+            const txDb = currentDrizzleDb(db);
+            const pushes = sortPushesByDocumentId(input.pushes);
+            for (const push of pushes) {
+              const existing = await findLineage(txDb, push.idempotencyKey);
+              if (existing) throw new BranchPushCommitConflictError(push.branch.branchId);
+            }
+            const now = new Date();
+            const rows = [];
+            for (const push of pushes) {
+              const lineage = await commitPreparedPush(txDb, push, now);
+              rows.push(lineage);
+              const mapped = mapLineage(lineage);
+              await persistRequiredTrail(changeTrails, push, mapped, notices);
+              await stagePendingSettlementWithinTx(txDb, push, mapped);
+            }
+            const mappedPushes = rows.map(mapLineage);
+            return {
+              pushes: mappedPushes,
+            };
+          },
+        ),
+      );
     },
 
     async markRollbackPending(input) {
@@ -305,9 +313,7 @@ export function createDrizzleWorkPushPolicyStore(
           })
           .where(and(eq(works.id, workId), ne(works.aiWriteMode, aiWriteModeProjection(policy))))
           .returning({ projectId: works.projectId });
-        if (changed) {
-          await workProjection?.advanceProjects([changed.projectId]);
-        }
+        if (changed) await workProjection?.publishWorks([workId]);
       });
     },
   };

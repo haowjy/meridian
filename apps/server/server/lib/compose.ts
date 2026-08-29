@@ -321,14 +321,6 @@ export async function createProductionAppPorts(input: {
     }),
   });
   const db = input.db;
-  const threadRepos = createDrizzleRepositories(db);
-  const runOwnership = createDrizzleThreadRunOwnership(db);
-  const activeDocuments = createActiveDocumentResolver(threadRepos);
-  const journalReader = createDrizzleEventJournalReader(db);
-  const journalWriter = createDrizzleEventJournalWriter(db);
-  const { objectStore, localObjectStore } = createObjectStoreFromEnv();
-  const documentAccess = createDrizzleDocumentAccess(db);
-  const notices = createDrizzleNoticePort(db);
   const contextCatalogWakeHub = createContextCatalogWakeHub();
   const projectContextAvailability = createDrizzleProjectContextAvailability(db, eventSink);
   const contextCatalog = createDrizzleContextCatalog(db, contextCatalogWakeHub, {
@@ -339,6 +331,14 @@ export async function createProductionAppPorts(input: {
     availability: projectContextAvailability,
     catalog: contextCatalog,
   });
+  const threadRepos = createDrizzleRepositories(db, workProjectionMutation);
+  const runOwnership = createDrizzleThreadRunOwnership(db);
+  const activeDocuments = createActiveDocumentResolver(threadRepos);
+  const journalReader = createDrizzleEventJournalReader(db);
+  const journalWriter = createDrizzleEventJournalWriter(db);
+  const { objectStore, localObjectStore } = createObjectStoreFromEnv();
+  const documentAccess = createDrizzleDocumentAccess(db);
+  const notices = createDrizzleNoticePort(db);
   const projectRepo = createDrizzleProjectRepository({ db, catalogLifecycle: contextCatalog });
   const workAuthorityResolver = createDrizzleProjectWorkAuthorityResolver(db);
   let contextPorts: UnifiedContextPortFactory;

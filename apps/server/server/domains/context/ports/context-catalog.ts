@@ -27,6 +27,11 @@ export interface ContextCatalogMutationPort {
   refreshProject(projectId: string): Promise<void>;
 }
 
+export interface WorkAuthorityCatalogMutationPort {
+  /** Upsert only the named Work authority signals in their project scopes. */
+  upsertWorkAuthorities(workIds: readonly string[]): Promise<void>;
+}
+
 export interface ContextCatalogWakePort {
   publish(hint: CatalogWakeHint): void | Promise<void>;
 }

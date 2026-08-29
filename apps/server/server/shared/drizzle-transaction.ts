@@ -77,20 +77,9 @@ export async function runInRootDrizzleReadSnapshot<T>(
   db: DrizzleDatabase,
   operation: () => Promise<T>,
 ): Promise<T> {
-  return transactionStorage.exit(async () => {
-    const context: DrizzleTransactionContext = {
-      db,
-      afterCommit: [],
-      afterRollback: [],
-      locals: new Map(),
-    };
-    return db.transaction(
-      (tx) => {
-        context.db = tx;
-        return transactionStorage.run(context, operation);
-      },
-      { isolationLevel: "repeatable read", accessMode: "read only" },
-    );
+  return runInRootDrizzleTransaction(db, operation, {
+    isolationLevel: "repeatable read",
+    accessMode: "read only",
   });
 }
 

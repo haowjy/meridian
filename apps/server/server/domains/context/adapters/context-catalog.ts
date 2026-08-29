@@ -36,6 +36,7 @@ import type {
   ContextCatalog,
   ContextCatalogMutationPort,
   ContextCatalogWakePort,
+  WorkAuthorityCatalogMutationPort,
 } from "../ports/context-catalog.js";
 import type { ProjectContextAvailabilityMutationPort } from "../ports/project-context-availability.js";
 import { catalogSourceAuthority, mapAuthoritativeFile } from "./catalog-file-mapper.js";
@@ -338,7 +339,7 @@ export function createDrizzleContextCatalog(
     retainedCommitsPerScope?: number;
     availabilityMutations?: ProjectContextAvailabilityMutationPort;
   } = {},
-): ContextCatalog & ContextCatalogMutationPort {
+): ContextCatalog & ContextCatalogMutationPort & WorkAuthorityCatalogMutationPort {
   const availabilityMutations =
     options.availabilityMutations ?? createDrizzleProjectContextAvailability(db);
   const retainedCommitsPerScope = Math.max(
@@ -620,6 +621,125 @@ export function createDrizzleContextCatalog(
       )) {
         await refreshScope(scope, [], commitId);
       }
+    },
+    async upsertWorkAuthorities(workIds) {
+      const unique = [...new Set(workIds)].sort();
+      if (unique.length === 0) return;
+      await runInDrizzleTransaction(db, async () => {
+        const tx = currentDrizzleDb(db) as Database;
+        const rows = await tx
+          .select({
+            id: works.id,
+            projectId: works.projectId,
+            slug: works.slug,
+            name: works.name,
+            status: works.status,
+            deletedAt: works.deletedAt,
+            entityRevision: works.entityRevision,
+          })
+          .from(works)
+          .where(inArray(works.id, unique as never));
+        const byProject = new Map<string, typeof rows>();
+        for (const row of rows) {
+          const projectRows = byProject.get(row.projectId) ?? [];
+          projectRows.push(row);
+          byProject.set(row.projectId, projectRows);
+        }
+        for (const [projectId, projectRows] of [...byProject].sort(([left], [right]) =>
+          left.localeCompare(right),
+        )) {
+          const scope = { kind: "project" as const, projectId };
+          const initialHead = await ensureHead(tx, scope);
+          await tx.execute(
+            sql`select 1 from ${contextCatalogScopeHeads} where ${contextCatalogScopeHeads.scopeKey} = ${initialHead.scopeKey} for update`,
+          );
+          const [head] = await tx
+            .select()
+            .from(contextCatalogScopeHeads)
+            .where(eq(contextCatalogScopeHeads.scopeKey, initialHead.scopeKey))
+            .limit(1);
+          if (!head) throw new Error(`Catalog head disappeared: ${initialHead.scopeKey}`);
+          const changes: CatalogChange[] = [];
+          const entries: CatalogEntry[] = [];
+          const existingRows = await tx
+            .select({ entryId: contextCatalogEntries.entryId, entry: contextCatalogEntries.entry })
+            .from(contextCatalogEntries)
+            .where(
+              and(
+                eq(contextCatalogEntries.scopeKey, head.scopeKey),
+                inArray(
+                  contextCatalogEntries.entryId,
+                  projectRows.map(({ id }) => id),
+                ),
+              ),
+            );
+          const existingById = new Map(existingRows.map(({ entryId, entry }) => [entryId, entry]));
+          for (const work of projectRows.sort((left, right) => left.id.localeCompare(right.id))) {
+            const slug = decodeWorkSlug(work.slug);
+            if (!slug) continue;
+            const entry: CatalogEntry = {
+              kind: "authority",
+              entryId: work.id,
+              scope,
+              authority: { kind: "work", workId: work.id, workSlug: slug },
+              name: work.name,
+              available: work.deletedAt === null && work.status === "active",
+              entityRevision: String(work.entityRevision),
+            };
+            const existing = existingById.get(work.id);
+            if (existing && stableJson(existing) === stableJson(entry)) continue;
+            entries.push(entry);
+            changes.push({ operation: "upsert", ordinal: changes.length, entry });
+          }
+          if (changes.length === 0) continue;
+          const revision = head.headRevision + 1;
+          await tx
+            .insert(contextCatalogEntries)
+            .values(
+              entries.map((entry) => ({
+                scopeKey: head.scopeKey,
+                entryId: entry.entryId,
+                entry,
+              })),
+            )
+            .onConflictDoUpdate({
+              target: [contextCatalogEntries.scopeKey, contextCatalogEntries.entryId],
+              set: { entry: sql`excluded.entry` },
+            });
+          await tx.insert(contextCatalogCommits).values({
+            commitId: randomUUID(),
+            scopeKey: head.scopeKey,
+            firstRevision: revision,
+            lastRevision: revision,
+            changes,
+          });
+          const oldestRevision = Math.max(1, revision - retainedCommitsPerScope + 1);
+          await tx
+            .update(contextCatalogScopeHeads)
+            .set({ headRevision: revision, oldestRevision, updatedAt: new Date() })
+            .where(eq(contextCatalogScopeHeads.scopeKey, head.scopeKey));
+          await tx
+            .delete(contextCatalogCommits)
+            .where(
+              and(
+                eq(contextCatalogCommits.scopeKey, head.scopeKey),
+                lt(contextCatalogCommits.lastRevision, oldestRevision),
+              ),
+            );
+          runAfterDrizzleCommit(async () => {
+            if (!wakePort) return;
+            try {
+              await wakePort.publish({
+                type: "context-catalog-hint",
+                scope,
+                headRevision: String(revision),
+              });
+            } catch {
+              // Wake hints are explicitly lossy. Pull-on-focus/poll repairs delivery.
+            }
+          });
+        }
+      });
     },
   };
 }

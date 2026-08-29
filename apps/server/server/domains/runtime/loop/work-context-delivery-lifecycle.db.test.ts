@@ -3,6 +3,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 import postgres from "postgres";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { createTestWorkProjectionMutation } from "../../../test-support/work-projection.js";
 import { testWorkSlug } from "../../../test-support/work-slug.js";
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS === "1" || process.env.RUN_DB_TESTS === "true";
@@ -39,7 +40,9 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       deleteOwnedThreadToTrash,
       restoreOwnedThreadFromTrash,
     } = await import("../../threads/index.js");
-    const { createDrizzleRepositories } = await import("../../threads/adapters/drizzle/index.js");
+    const { createDrizzleRepositoriesForTest } = await import(
+      "../../threads/adapters/drizzle/index.js"
+    );
     const { truncateDrizzleTables } = await import("../../../test-support/drizzle-reset.js");
     const { createWorkContextDelivery } = await import("./work-context-delivery.js");
     const { createDrizzleThreadRunOwnership } = await import(
@@ -100,7 +103,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     }
 
     function delivery(
-      repos: ReturnType<typeof createDrizzleRepositories>,
+      repos: ReturnType<typeof createDrizzleRepositoriesForTest>,
       eventWriter = createDrizzleEventJournalWriter(db),
       runOwnership = sharedRunOwnership,
     ) {
@@ -133,7 +136,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     }
 
     it("rolls enqueue back with its transaction and coalesces repeated requests", async () => {
-      const repos = createDrizzleRepositories(db);
+      const repos = createDrizzleRepositoriesForTest(db);
       await expect(
         repos.transaction(async () => {
           await repos.workContextDeliveries.enqueueProject(PROJECT_ID);
@@ -172,7 +175,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         .update(schema.threads)
         .set({ deletedAt: new Date() })
         .where(eq(schema.threads.id, OTHER_THREAD_ID));
-      const repos = createDrizzleRepositories(db);
+      const repos = createDrizzleRepositoriesForTest(db);
 
       await expect(repos.workContextDeliveries.enqueueThread(OTHER_THREAD_ID)).resolves.toEqual([]);
       await expect(repos.workContextDeliveries.enqueueThread(HIDDEN_THREAD_ID)).resolves.toEqual(
@@ -192,7 +195,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     });
 
     it("parks obligations across thread deletion and resumes one current delivery after restore", async () => {
-      const repos = createDrizzleRepositories(db);
+      const repos = createDrizzleRepositoriesForTest(db);
       await repos.workContextDeliveries.enqueueProject(PROJECT_ID);
       await db
         .update(schema.threads)
@@ -226,7 +229,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     });
 
     it("parks obligations across project deletion and resumes after restore", async () => {
-      const repos = createDrizzleRepositories(db);
+      const repos = createDrizzleRepositoriesForTest(db);
       await repos.workContextDeliveries.enqueueThread(THREAD_ID);
       await db
         .update(schema.projects)
@@ -250,7 +253,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     });
 
     it("targets a restored thread when Work changed only while it was hidden", async () => {
-      const repos = createDrizzleRepositories(db);
+      const repos = createDrizzleRepositoriesForTest(db);
       await db
         .update(schema.threads)
         .set({ deletedAt: new Date() })
@@ -276,7 +279,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     });
 
     it("makes sequential restore retries one visibility transition and one delivery", async () => {
-      const repos = createDrizzleRepositories(db);
+      const repos = createDrizzleRepositoriesForTest(db);
       await db
         .update(schema.threads)
         .set({ deletedAt: new Date() })
@@ -302,8 +305,8 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     });
 
     it("serializes concurrent restores into one visibility transition and one delivery", async () => {
-      const first = createDrizzleRepositories(db);
-      const second = createDrizzleRepositories(db);
+      const first = createDrizzleRepositoriesForTest(db);
+      const second = createDrizzleRepositoriesForTest(db);
       await db
         .update(schema.threads)
         .set({ deletedAt: new Date() })
@@ -328,8 +331,8 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     });
 
     it("serializes delete after an in-flight restore without losing delete intent", async () => {
-      const restoringRepos = createDrizzleRepositories(db);
-      const deletingRepos = createDrizzleRepositories(db);
+      const restoringRepos = createDrizzleRepositoriesForTest(db);
+      const deletingRepos = createDrizzleRepositoriesForTest(db);
       await db
         .update(schema.threads)
         .set({ deletedAt: new Date() })
@@ -390,7 +393,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     });
 
     it("applies sequential delete and restore desired states idempotently", async () => {
-      const repos = createDrizzleRepositories(db);
+      const repos = createDrizzleRepositoriesForTest(db);
       const deps = {
         repos,
         projects,
@@ -410,7 +413,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     });
 
     it("restores an exact available archived primary from deleted-thread history", async () => {
-      const repos = createDrizzleRepositories(db);
+      const repos = createDrizzleRepositoriesForTest(db);
       await db.insert(schema.works).values({
         id: HISTORICAL_WORK_ID,
         projectId: PROJECT_ID,
@@ -449,7 +452,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     });
 
     it("demotes only a deleted historical primary and never substitutes a reclaimed slug", async () => {
-      const repos = createDrizzleRepositories(db);
+      const repos = createDrizzleRepositoriesForTest(db);
       await db.insert(schema.works).values({
         id: HISTORICAL_WORK_ID,
         projectId: PROJECT_ID,
@@ -499,10 +502,11 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     });
 
     it("restores to no-Work when Work deletion wins the lifecycle lock", async () => {
-      const repos = createDrizzleRepositories(db);
+      const repos = createDrizzleRepositoriesForTest(db);
       const works = createDrizzleProjectWorkRepository({
         db,
         hasUnreviewedDraft: async () => false,
+        projectionMutation: createTestWorkProjectionMutation(db),
       });
       await db.insert(schema.works).values({
         id: HISTORICAL_WORK_ID,
@@ -560,10 +564,11 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     });
 
     it("blocks Work deletion when thread restore wins the lifecycle lock", async () => {
-      const repos = createDrizzleRepositories(db);
+      const repos = createDrizzleRepositoriesForTest(db);
       const works = createDrizzleProjectWorkRepository({
         db,
         hasUnreviewedDraft: async () => false,
+        projectionMutation: createTestWorkProjectionMutation(db),
       });
       await db.insert(schema.works).values({
         id: HISTORICAL_WORK_ID,
@@ -626,7 +631,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     });
 
     it("conceals a deleted thread from non-owners without changing lifecycle state", async () => {
-      const repos = createDrizzleRepositories(db);
+      const repos = createDrizzleRepositoriesForTest(db);
       await db
         .update(schema.threads)
         .set({ deletedAt: new Date() })
@@ -667,7 +672,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     });
 
     it("rolls deletion and obligation state back when restore enqueue fails", async () => {
-      const repos = createDrizzleRepositories(db);
+      const repos = createDrizzleRepositoriesForTest(db);
       await db
         .update(schema.threads)
         .set({ deletedAt: new Date() })
@@ -700,7 +705,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     });
 
     it("parks an archived obligation, resumes after unarchive, and cascades on hard deletion", async () => {
-      const repos = createDrizzleRepositories(db);
+      const repos = createDrizzleRepositoriesForTest(db);
       await repos.workContextDeliveries.enqueueThread(THREAD_ID);
       await repos.threads.updateStatus(THREAD_ID, "archived");
 
