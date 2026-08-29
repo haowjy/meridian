@@ -217,16 +217,6 @@ export function useContextCatalogView(
 ) {
   const scope = contextCatalogScope(projectId, scheme, options.workId);
   const queryClient = useQueryClient();
-  const transport = useOptionalThreadTransport();
-  useEffect(
-    () =>
-      projectId
-        ? transport?.subscribeCatalog(projectId, (hint) =>
-            pullContextCatalogOnHint(queryClient, projectId, hint),
-          )
-        : undefined,
-    [projectId, queryClient, transport],
-  );
   const query = useQuery({
     ...contextCatalogQueryOptions(queryClient, projectId, scope),
     enabled: options.enabled ?? true,
@@ -246,17 +236,22 @@ export function useContextCatalogView(
 
 export function useContextCatalogScope(projectId: string, scope: CatalogScope, enabled = true) {
   const queryClient = useQueryClient();
+  return useQuery({ ...contextCatalogQueryOptions(queryClient, projectId, scope), enabled });
+}
+
+/** Own the project's single live wake subscription above every catalog consumer. */
+export function useContextCatalogWake(projectId: string): void {
+  const queryClient = useQueryClient();
   const transport = useOptionalThreadTransport();
   useEffect(
     () =>
-      enabled && projectId
+      projectId
         ? transport?.subscribeCatalog(projectId, (hint) =>
             pullContextCatalogOnHint(queryClient, projectId, hint),
           )
         : undefined,
-    [enabled, projectId, queryClient, transport],
+    [projectId, queryClient, transport],
   );
-  return useQuery({ ...contextCatalogQueryOptions(queryClient, projectId, scope), enabled });
 }
 
 /** Duplicate-tolerant wake hint handler; the hint never mutates cache state itself. */

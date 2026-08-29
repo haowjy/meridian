@@ -15,6 +15,7 @@ import type { ProjectContextTreeScheme, Work } from "@meridian/contracts/protoco
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import type { ProjectRouteData } from "@/client/query/project-route-data";
+import { useContextCatalogWake } from "@/client/query/useContextCatalog";
 import { useWorks } from "@/client/query/useWorks";
 import { useContextTabsStore } from "@/client/stores";
 import {
@@ -113,6 +114,7 @@ export type ProjectViewProps = {
 };
 
 export function ProjectView(props: ProjectViewProps) {
+  useContextCatalogWake(props.projectId);
   // The route keys ProjectView by projectId. This initializer therefore runs
   // before any gated child for each project entry; the driver makes a strict-
   // mode replay of the same loader revision an adoption no-op.
