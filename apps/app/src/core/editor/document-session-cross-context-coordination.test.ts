@@ -185,6 +185,22 @@ class FailAccessLockOnce implements CrossContextLockManager {
   }
 }
 
+class FailDocumentProofOnce implements CrossContextLockManager {
+  private failed = false;
+  constructor(private readonly delegate: FifoWebLocks) {}
+  request<T>(
+    name: string,
+    options: { mode?: "shared" | "exclusive"; ifAvailable?: boolean; signal?: AbortSignal },
+    callback: (lock: unknown | null) => T | PromiseLike<T>,
+  ): Promise<T> {
+    if (!this.failed && options.mode === "exclusive" && name.includes("document-lifecycle")) {
+      this.failed = true;
+      return Promise.reject(new Error("injected terminal owner crash"));
+    }
+    return this.delegate.request(name, options, callback);
+  }
+}
+
 class ChromiumShapeWebLocks implements CrossContextLockManager {
   readonly requests: Array<{
     name: string;
@@ -240,7 +256,9 @@ function coordinator(
 }
 
 afterEach(async () => {
-  await Promise.all(coordinators.splice(0).map((coordinator) => coordinator.close()));
+  await Promise.allSettled(coordinators.splice(0).map((coordinator) => coordinator.close()));
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("document session cross-context coordination", () => {
@@ -620,5 +638,66 @@ describe("document session cross-context coordination", () => {
     await a.value.reconcilePending("focus");
     await expect(revoking).resolves.toEqual({ revokedThrough: "7", persistence: "cleared" });
     expect(a.local.leases.size).toBe(0);
+  });
+
+  it.each([
+    "timer",
+    "pageshow",
+    "visible",
+  ] as const)("recovers a dropped wake through the %s lifecycle trigger", async (trigger) => {
+    const testWindow = new EventTarget();
+    const testDocument = new EventTarget() as EventTarget & { visibilityState: string };
+    testDocument.visibilityState = "visible";
+    vi.stubGlobal("window", testWindow);
+    vi.stubGlobal("document", testDocument);
+    const locks = new FifoWebLocks();
+    const droppedWake = new WakeBus(false);
+    const holder = coordinator(
+      `account-${trigger}-recovery`,
+      locks,
+      new LocalAuthority(),
+      droppedWake,
+    );
+    const revoker = coordinator(
+      `account-${trigger}-recovery`,
+      locks,
+      new LocalAuthority(),
+      droppedWake,
+    );
+    await holder.value.admit("project", "doc", "7");
+    const revoking = revoker.value.revokeDocument("project", "doc", "7", `terminal-${trigger}`);
+    await droppedWake.posted;
+    if (trigger === "pageshow") testWindow.dispatchEvent(new Event("pageshow"));
+    else if (trigger === "visible") testDocument.dispatchEvent(new Event("visibilitychange"));
+    await expect(revoking).resolves.toEqual({ revokedThrough: "7", persistence: "cleared" });
+    expect(holder.local.leases.size).toBe(0);
+  });
+
+  it("lets a later operation owner help a terminal revoker that crashed during proof", async () => {
+    const locks = new FifoWebLocks();
+    const crashed = createDocumentSessionCrossContextCoordination({
+      accountId: "account-terminal-help",
+      idb: indexedDB,
+      locks: new FailDocumentProofOnce(locks),
+      local: new LocalAuthority(),
+      secureContext: true,
+      createWakeChannel: null,
+    });
+    coordinators.push(crashed);
+    await expect(crashed.revokeDocument("project", "doc", "5", "terminal-5")).rejects.toThrow(
+      "injected terminal owner crash",
+    );
+
+    const helper = coordinator("account-terminal-help", locks);
+    await expect(helper.value.admit("project", "doc", "5")).rejects.toMatchObject({
+      kind: "generation-revoked",
+    });
+    expect(helper.local.destroyed).toBe(0);
+    expect(
+      locks.history.filter(
+        ({ event, mode, name }) =>
+          event === "grant" && mode === "exclusive" && name.includes("document-lifecycle"),
+      ),
+    ).toHaveLength(1);
   });
 });
