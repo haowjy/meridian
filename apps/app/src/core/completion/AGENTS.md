@@ -27,6 +27,18 @@ judgment remains narrow — a menu is open only while it has rows, the highlight
 sits on the first row the host will accept, and a row the host refuses is stepped
 over rather than handed a key that does nothing.
 
+**Transitions are serialized events.** An accepted open, update, or close first
+installs its captured snapshot, then calls its lifecycle callback, then notifies
+menu subscribers. A synchronous reentrant transition waits in the lifecycle's
+FIFO until that event is complete, while still returning its reserved identity
+or acceptance immediately. Close consumes the full session/generation ticket;
+session ID alone never proves ownership.
+
+**Keys describe actions, not hosts.** A lane may register ArrowUp, ArrowDown,
+Home, End, Enter, Tab, and Escape through the injected arbiter. The shared menu
+owns edge movement, Enter-versus-Tab choice intent, and Escape backtracking; an
+unhandled action returns false so the host keeps its normal arbitration.
+
 **The catalog offers what the resolver can find.** Rows rank titles and aliases
 because that is what `POST …/links/resolve` matches on, and names normalize the
 way the server normalizes them. A host that offers a document the resolver has no

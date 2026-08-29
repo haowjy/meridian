@@ -14,13 +14,13 @@ export type SuggestionGeneration = Readonly<{
   generation: number;
 }>;
 export type SuggestionSelectionPolicy = "reset" | "preserve-active";
+export type SuggestionChoiceAction = "enter" | "tab";
+export type SuggestionKey = "ArrowDown" | "ArrowUp" | "Home" | "End" | "Enter" | "Tab" | "Escape";
+export type SuggestionKeyBindings = Readonly<Partial<Record<SuggestionKey, () => boolean>>>;
 
 /** The only key capability a suggestion host supplies to its adapter. */
 export type KeyArbiter = {
-  register: (input: {
-    id: string;
-    bindings: Readonly<Record<"ArrowDown" | "ArrowUp" | "Enter", () => boolean>>;
-  }) => () => void;
+  register: (input: { id: string; bindings: SuggestionKeyBindings }) => () => void;
 };
 
 export type SuggestionMenuSnapshot<TItem, TMeta = null> = {
@@ -43,15 +43,22 @@ export type SuggestionSession<TItem, TMeta = null> = {
   anchorRect: () => DOMRect | null;
   label: string;
   meta: TMeta;
-  choose: (item: TItem) => void;
+  choose: (item: TItem, action: SuggestionChoiceAction) => void;
   choosable?: (item: TItem) => boolean;
+  /** Handles Escape within a hierarchical session; false hands it back to the host. */
+  backtrack?: () => boolean;
   dismiss: () => void;
 };
 
 export type SuggestionLifecycleCallbacks<TItem, TMeta = null> = {
+  /**
+   * Accepted transitions publish in FIFO order: install their captured
+   * snapshot, invoke their lifecycle callback, then notify menu subscribers.
+   * A synchronous reentrant transition begins only after all three complete.
+   */
   open?: (identity: SuggestionGeneration, snapshot: SuggestionMenuSnapshot<TItem, TMeta>) => void;
   update?: (identity: SuggestionGeneration, snapshot: SuggestionMenuSnapshot<TItem, TMeta>) => void;
-  close?: (sessionId: SuggestionSessionId) => void;
+  close?: (identity: SuggestionGeneration) => void;
 };
 
 export type SuggestionMenu<TItem, TMeta = null> = {
@@ -60,8 +67,10 @@ export type SuggestionMenu<TItem, TMeta = null> = {
   setActiveId: (rowId: string) => void;
   setActiveIndex: (index: number) => void;
   move: (delta: number) => boolean;
-  choose: (index: number) => boolean;
-  chooseActive: () => boolean;
+  moveTo: (edge: "first" | "last") => boolean;
+  choose: (index: number, action?: SuggestionChoiceAction) => boolean;
+  chooseActive: (action?: SuggestionChoiceAction) => boolean;
+  backtrack: () => boolean;
   dismiss: () => void;
 };
 
@@ -77,7 +86,7 @@ export type SuggestionLifecycle<TItem, TMeta = null> = {
     selection: SuggestionSelectionPolicy,
   ) => boolean;
   /** A stale host cannot close a newer session. */
-  close: (sessionId: SuggestionSessionId) => boolean;
+  close: (identity: SuggestionGeneration) => boolean;
 };
 
 let nextSuggestionSession = 0;
@@ -97,6 +106,12 @@ export function closedSuggestionMenu<TItem, TMeta = null>(): SuggestionMenuSnaps
   return CLOSED as SuggestionMenuSnapshot<TItem, TMeta>;
 }
 
+const sameIdentity = (left: SuggestionGeneration | null, right: SuggestionGeneration | null) =>
+  left !== null &&
+  right !== null &&
+  left.sessionId === right.sessionId &&
+  left.generation === right.generation;
+
 export function createSuggestionLifecycle<TItem, TMeta = null>(
   callbacks: SuggestionLifecycleCallbacks<TItem, TMeta> = {},
 ): {
@@ -108,6 +123,9 @@ export function createSuggestionLifecycle<TItem, TMeta = null>(
   let session: SuggestionSession<TItem, TMeta> | null = null;
   let activeId: string | null = null;
   let snapshot: SuggestionMenuSnapshot<TItem, TMeta> = closedSuggestionMenu();
+  let projectedIdentity: SuggestionGeneration | null = null;
+  const transitions: Array<() => void> = [];
+  let publishing = false;
 
   const indexOf = (rowId: string | null) =>
     rowId === null || !session
@@ -128,7 +146,7 @@ export function createSuggestionLifecycle<TItem, TMeta = null>(
     return null;
   };
 
-  const publish = () => {
+  const publishSnapshot = () => {
     snapshot = session
       ? {
           open: session.items.length > 0,
@@ -141,7 +159,28 @@ export function createSuggestionLifecycle<TItem, TMeta = null>(
           meta: session.meta,
         }
       : closedSuggestionMenu();
+  };
+  const notify = () => {
     for (const listener of listeners) listener();
+  };
+  const publish = () => {
+    publishSnapshot();
+    notify();
+  };
+
+  // A transition publishes its lifecycle callback and subscribers completely
+  // before a synchronous reentrant transition begins. Reentrant calls still
+  // return against the projected FIFO state, so their identity is immediately
+  // usable even though their mutation waits for the current event to finish.
+  const enqueue = (transition: () => void) => {
+    transitions.push(transition);
+    if (publishing) return;
+    publishing = true;
+    try {
+      while (transitions.length > 0) transitions.shift()?.();
+    } finally {
+      publishing = false;
+    }
   };
 
   const menu: SuggestionMenu<TItem, TMeta> = {
@@ -175,14 +214,30 @@ export function createSuggestionLifecycle<TItem, TMeta = null>(
       }
       return false;
     },
-    choose(index) {
+    moveTo(edge) {
+      const count = session?.items.length ?? 0;
+      const start = edge === "first" ? 0 : count - 1;
+      const step = edge === "first" ? 1 : -1;
+      for (let index = start; index >= 0 && index < count; index += step) {
+        const item = session?.items[index];
+        if (item === undefined || !choosable(index)) continue;
+        activeId = session?.rowId(item) ?? null;
+        publish();
+        return true;
+      }
+      return false;
+    },
+    choose(index, action = "enter") {
       const item = session?.items[index];
       if (!session || item === undefined || !choosable(index)) return false;
-      session.choose(item);
+      session.choose(item, action);
       return true;
     },
-    chooseActive() {
-      return menu.choose(indexOf(activeId));
+    chooseActive(action = "enter") {
+      return menu.choose(indexOf(activeId), action);
+    },
+    backtrack() {
+      return session?.backtrack?.() ?? false;
     },
     dismiss() {
       session?.dismiss();
@@ -191,47 +246,63 @@ export function createSuggestionLifecycle<TItem, TMeta = null>(
 
   const lifecycle: SuggestionLifecycle<TItem, TMeta> = {
     open(next) {
-      if (identity) callbacks.close?.(identity.sessionId);
-      session = next;
-      identity = Object.freeze({
+      const opened = Object.freeze({
         sessionId: `suggestion-${++nextSuggestionSession}`,
         generation: 0,
       });
-      activeId = firstChoosableId();
-      publish();
-      callbacks.open?.(identity, snapshot);
-      return identity;
+      projectedIdentity = opened;
+      enqueue(() => {
+        const replaced = identity;
+        session = next;
+        identity = opened;
+        activeId = firstChoosableId();
+        publishSnapshot();
+        if (replaced) callbacks.close?.(replaced);
+        callbacks.open?.(opened, snapshot);
+        notify();
+      });
+      return opened;
     },
     nextGeneration(sessionId) {
-      if (!identity || identity.sessionId !== sessionId) return null;
-      identity = Object.freeze({ sessionId, generation: identity.generation + 1 });
-      return identity;
+      if (!projectedIdentity || projectedIdentity.sessionId !== sessionId) return null;
+      const advanced = Object.freeze({
+        sessionId,
+        generation: projectedIdentity.generation + 1,
+      });
+      projectedIdentity = advanced;
+      enqueue(() => {
+        identity = advanced;
+      });
+      return advanced;
     },
     update(candidate, next, selection) {
-      if (
-        !identity ||
-        candidate.sessionId !== identity.sessionId ||
-        candidate.generation !== identity.generation
-      ) {
+      if (!sameIdentity(candidate, projectedIdentity)) {
         return false;
       }
-      const previousActiveId = activeId;
-      session = next;
-      activeId =
-        selection === "preserve-active" && choosable(indexOf(previousActiveId))
-          ? previousActiveId
-          : firstChoosableId();
-      publish();
-      callbacks.update?.(identity, snapshot);
+      enqueue(() => {
+        const previousActiveId = activeId;
+        session = next;
+        activeId =
+          selection === "preserve-active" && choosable(indexOf(previousActiveId))
+            ? previousActiveId
+            : firstChoosableId();
+        publishSnapshot();
+        callbacks.update?.(candidate, snapshot);
+        notify();
+      });
       return true;
     },
-    close(sessionId) {
-      if (!identity || identity.sessionId !== sessionId) return false;
-      session = null;
-      identity = null;
-      activeId = null;
-      publish();
-      callbacks.close?.(sessionId);
+    close(candidate) {
+      if (!sameIdentity(candidate, projectedIdentity)) return false;
+      projectedIdentity = null;
+      enqueue(() => {
+        session = null;
+        identity = null;
+        activeId = null;
+        publishSnapshot();
+        callbacks.close?.(candidate);
+        notify();
+      });
       return true;
     },
   };

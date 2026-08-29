@@ -6,8 +6,9 @@
 ## [Unreleased]
 
 - `apps/app`: deepen the shared suggestion menu into a host-independent,
-  generation-fenced lifecycle with stable-row refresh selection and injected
-  key arbitration while preserving the `/` and `[[` editor lanes.
+  generation-fenced and reentrancy-safe lifecycle with stable-row refresh
+  selection, full hierarchical key actions, and injected key arbitration while
+  preserving the `/` and `[[` editor lanes.
 
 - `apps/app`: separate ordinary Editor screen continuity from atomic Work
   supersession, keep guarded deleted routes out of obligation settlement and

@@ -47,13 +47,13 @@ describe("suggestion lifecycle", () => {
     expect(lifecycle.update(generation, session(ROWS.slice(1), { query: "q" }), "reset")).toBe(
       true,
     );
-    expect(lifecycle.close(identity.sessionId)).toBe(true);
+    expect(lifecycle.close(generation)).toBe(true);
     expect(callbacks.open).toHaveBeenCalledWith(identity, expect.objectContaining({ open: true }));
     expect(callbacks.update).toHaveBeenCalledWith(
       generation,
       expect.objectContaining({ query: "q" }),
     );
-    expect(callbacks.close).toHaveBeenCalledWith(identity.sessionId);
+    expect(callbacks.close).toHaveBeenCalledWith(generation);
     expect(menu.snapshot().open).toBe(false);
   });
 
@@ -108,10 +108,72 @@ describe("suggestion lifecycle", () => {
     const second = lifecycle.open(session([{ id: "second" }]));
     listener.mockClear();
     expect(lifecycle.update(currentGeneration, session([{ id: "old" }]), "reset")).toBe(false);
-    expect(lifecycle.close(first.sessionId)).toBe(false);
+    expect(lifecycle.close(currentGeneration)).toBe(false);
     expect(listener).not.toHaveBeenCalled();
     expect(menu.snapshot().activeId).toBe("second");
     expect(second.sessionId).not.toBe(first.sessionId);
+  });
+
+  it("refuses an older generation of the current session from closing it", () => {
+    const { menu, lifecycle } = createSuggestionLifecycle<Row>();
+    const opened = lifecycle.open(session([{ id: "current" }]));
+    const stale = nextGeneration(lifecycle, opened.sessionId);
+    const current = nextGeneration(lifecycle, opened.sessionId);
+
+    expect(lifecycle.close(stale)).toBe(false);
+    expect(menu.snapshot().open).toBe(true);
+    expect(lifecycle.close(current)).toBe(true);
+    expect(menu.snapshot().open).toBe(false);
+  });
+
+  it("finishes an open event before a callback's reentrant open", () => {
+    const events: string[] = [];
+    let innerSessionId = "";
+    let lifecycle!: ReturnType<typeof createSuggestionLifecycle<Row>>["lifecycle"];
+    const created = createSuggestionLifecycle<Row>({
+      open: (identity, published) => {
+        events.push(`callback:${identity.sessionId}:${published.activeId}`);
+        if (published.activeId === "outer") {
+          const inner = lifecycle.open(session([{ id: "inner" }]));
+          innerSessionId = inner.sessionId;
+          events.push(`returned:${inner.sessionId}`);
+        }
+      },
+    });
+    lifecycle = created.lifecycle;
+    created.menu.subscribe(() => events.push(`subscriber:${created.menu.snapshot().activeId}`));
+
+    const outer = lifecycle.open(session([{ id: "outer" }]));
+
+    expect(events).toEqual([
+      `callback:${outer.sessionId}:outer`,
+      `returned:${innerSessionId}`,
+      "subscriber:outer",
+      `callback:${innerSessionId}:inner`,
+      "subscriber:inner",
+    ]);
+    expect(created.menu.snapshot().activeId).toBe("inner");
+  });
+
+  it("finishes an update event before a subscriber's reentrant close", () => {
+    const callbacks = { update: vi.fn(), close: vi.fn() };
+    const { menu, lifecycle } = createSuggestionLifecycle<Row>(callbacks);
+    const opened = lifecycle.open(session([{ id: "before" }]));
+    const current = nextGeneration(lifecycle, opened.sessionId);
+    const publications: string[] = [];
+    menu.subscribe(() => {
+      publications.push(menu.snapshot().activeId ?? "closed");
+      if (menu.snapshot().activeId === "after") lifecycle.close(current);
+    });
+
+    expect(lifecycle.update(current, session([{ id: "after" }]), "reset")).toBe(true);
+    expect(callbacks.update).toHaveBeenCalledWith(
+      current,
+      expect.objectContaining({ activeId: "after", open: true }),
+    );
+    expect(callbacks.close).toHaveBeenCalledWith(current);
+    expect(publications).toEqual(["after", "closed"]);
+    expect(menu.snapshot().open).toBe(false);
   });
 });
 
@@ -125,7 +187,23 @@ describe("menu movement and choice", () => {
     expect(menu.move(1)).toBe(true);
     expect(menu.snapshot()).toMatchObject({ activeId: "code", activeIndex: 3 });
     expect(menu.chooseActive()).toBe(true);
-    expect(choose).toHaveBeenCalledWith(ROWS[3]);
+    expect(choose).toHaveBeenCalledWith(ROWS[3], "enter");
+  });
+
+  it("supports edge movement, distinct choice actions, and Escape backtracking", () => {
+    const choose = vi.fn();
+    const backtrack = vi.fn(() => true);
+    const { menu, lifecycle } = createSuggestionLifecycle<Row>();
+    lifecycle.open(session(ROWS, { choose, choosable: choosableRow, backtrack }));
+
+    expect(menu.moveTo("last")).toBe(true);
+    expect(menu.snapshot().activeId).toBe("code");
+    expect(menu.moveTo("first")).toBe(true);
+    expect(menu.snapshot().activeId).toBe("quote");
+    expect(menu.chooseActive("tab")).toBe(true);
+    expect(choose).toHaveBeenCalledWith(ROWS[1], "tab");
+    expect(menu.backtrack()).toBe(true);
+    expect(backtrack).toHaveBeenCalledOnce();
   });
 
   it("hands keys back when every visible row refuses", () => {

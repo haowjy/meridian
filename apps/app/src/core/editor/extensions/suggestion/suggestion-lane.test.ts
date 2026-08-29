@@ -21,6 +21,7 @@ type WordItem = { word: string };
 type WordEntry = WordItem & { tooLong: boolean };
 
 const CATALOG: WordCatalog = { title: "Offer a word", words: ["ember", "emberling", "quill"] };
+const backtrackWordLane = vi.fn(() => true);
 
 /**
  * A lane with every optional field exercised: a projection that reads the
@@ -47,6 +48,16 @@ const wordLane = createSuggestionLane<WordCatalog, WordItem, WordEntry, { title:
   choose: ({ editor, range, entry }) => {
     editor.commands.insertContentAt(range, entry.word);
   },
+  backtrack: () => backtrackWordLane(),
+  keyBindings: (menu) => ({
+    ArrowDown: () => menu.move(1),
+    ArrowUp: () => menu.move(-1),
+    Home: () => menu.moveTo("first"),
+    End: () => menu.moveTo("last"),
+    Enter: () => menu.chooseActive("enter"),
+    Tab: () => menu.chooseActive("tab"),
+    Escape: () => menu.backtrack(),
+  }),
 });
 
 let editor: Editor | null = null;
@@ -116,8 +127,29 @@ describe("a lane declared as a spec", () => {
       }),
     );
     const registration = registerKeymap.mock.calls.at(-1)?.[0];
-    expect(registration?.bindings.ArrowDown()).toBe(true);
+    expect(registration?.bindings.ArrowDown?.()).toBe(true);
     expect(wordLane.getMenu(instance)?.snapshot().activeIndex).toBe(0);
+  });
+
+  it("registers the full hierarchical key contract through the shared menu", async () => {
+    const instance = mount();
+    await type(instance, "%emb");
+    const bindings = registerKeymap.mock.calls.at(-1)?.[0].bindings;
+
+    expect(Object.keys(bindings ?? {})).toEqual([
+      "ArrowDown",
+      "ArrowUp",
+      "Home",
+      "End",
+      "Enter",
+      "Tab",
+      "Escape",
+    ]);
+    expect(bindings?.End?.()).toBe(true);
+    expect(wordLane.getMenu(instance)?.snapshot().activeId).toBe("ember");
+    expect(bindings?.Home?.()).toBe(true);
+    expect(bindings?.Escape?.()).toBe(true);
+    expect(backtrackWordLane).toHaveBeenCalledOnce();
   });
 
   it("writes what the lane's choice writes, over the trigger's own range", async () => {

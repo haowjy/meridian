@@ -41,7 +41,9 @@ import Suggestion, { exitSuggestion, type SuggestionProps } from "@tiptap/sugges
 import {
   createSuggestionLifecycle,
   type KeyArbiter,
+  type SuggestionChoiceAction,
   type SuggestionGeneration,
+  type SuggestionKeyBindings,
   type SuggestionLifecycle,
   type SuggestionMenu,
   type SuggestionSession,
@@ -109,7 +111,20 @@ export type SuggestionLaneSpec<TCatalog, TItem, TEntry extends TItem = TItem, TM
   /** What the menu needs that a row does not carry. Absent means nothing. */
   meta?: (catalog: TCatalog) => TMeta;
   /** What a choice writes into the document, over the trigger's own range. */
-  choose: (input: { editor: Editor; catalog: TCatalog; range: Range; entry: TEntry }) => void;
+  choose: (input: {
+    editor: Editor;
+    catalog: TCatalog;
+    range: Range;
+    entry: TEntry;
+    action: SuggestionChoiceAction;
+  }) => void;
+  /**
+   * Overrides the current three-key behavior for a richer lane. The menu owns
+   * navigation and action intent; the host only registers the returned chords.
+   */
+  keyBindings?: (menu: SuggestionMenu<TEntry, TMeta>) => SuggestionKeyBindings;
+  /** Escape backtracking for a hierarchical lane. False falls through to dismissal. */
+  backtrack?: (input: { editor: Editor; catalog: TCatalog; range: Range }) => boolean;
 };
 
 export type SuggestionLane<TCatalog, TEntry, TMeta = null> = {
@@ -167,8 +182,21 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
           anchorRect: props.clientRect ?? (() => null),
           label: spec.label(catalog),
           meta: (spec.meta?.(catalog) ?? null) as TMeta,
-          choose: (entry) => props.command(entry),
+          choose: (entry, action) => {
+            const catalog = options.catalog();
+            if (!catalog) return;
+            spec.choose({ editor, catalog, range: props.range, entry, action });
+          },
           choosable: spec.choosable,
+          backtrack: spec.backtrack
+            ? () => {
+                const currentCatalog = options.catalog();
+                return currentCatalog
+                  ? (spec.backtrack?.({ editor, catalog: currentCatalog, range: props.range }) ??
+                      false)
+                  : false;
+              }
+            : undefined,
           dismiss: () => exitSuggestion(editor.view, pluginKey),
         };
       };
@@ -199,7 +227,7 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
               exitSuggestion(target.view, pluginKey);
               return;
             }
-            spec.choose({ editor: target, catalog, range, entry: props });
+            spec.choose({ editor: target, catalog, range, entry: props, action: "enter" });
           },
           render: () => {
             let releaseKeymap: (() => void) | null = null;
@@ -218,10 +246,10 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
                 releaseKeymap =
                   options.keyArbiter(editor)?.register({
                     id: spec.keymapId,
-                    bindings: {
+                    bindings: spec.keyBindings?.(menu) ?? {
                       ArrowDown: () => menu.move(1),
                       ArrowUp: () => menu.move(-1),
-                      Enter: () => menu.chooseActive(),
+                      Enter: () => menu.chooseActive("enter"),
                     },
                   }) ?? null;
               },
@@ -238,7 +266,7 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
               onExit() {
                 releaseKeymap?.();
                 releaseKeymap = null;
-                if (identity) lifecycle.close(identity.sessionId);
+                if (identity) lifecycle.close(identity);
                 identity = null;
               },
             };
