@@ -13,7 +13,7 @@ import {
   users,
   works,
 } from "@meridian/database/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
   currentDrizzleDb,
@@ -44,6 +44,10 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     const USER_SOURCE = "00000000-0000-4000-8000-000000000919";
     const FOREIGN_SOURCE = "00000000-0000-4000-8000-000000000920";
     const WORK = "00000000-0000-4000-8000-000000000921";
+    const PROJECT_AUTHORITY_KEY = `project:${PROJECT}`;
+    const FOREIGN_PROJECT_AUTHORITY_KEY = `project:${FOREIGN_PROJECT}`;
+    const USER_AUTHORITY_KEY = `user:${USER}`;
+    const OTHER_AUTHORITY_KEY = `user:${OTHER}`;
     const DOCS = [
       "00000000-0000-4000-8000-000000000922",
       "00000000-0000-4000-8000-000000000923",
@@ -143,15 +147,30 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         expect(b).toBe(a);
         return a;
       });
-      const before = await db.select().from(contextAvailabilityHeads);
-      expect(before).toHaveLength(2);
+      const ownedAuthorityKeys = [
+        PROJECT_AUTHORITY_KEY,
+        FOREIGN_PROJECT_AUTHORITY_KEY,
+        USER_AUTHORITY_KEY,
+      ];
+      const before = await db
+        .select()
+        .from(contextAvailabilityHeads)
+        .where(inArray(contextAvailabilityHeads.authorityKey, ownedAuthorityKeys));
+      expect(before.map(({ authorityKey }) => authorityKey).sort()).toEqual(
+        [PROJECT_AUTHORITY_KEY, USER_AUTHORITY_KEY].sort(),
+      );
       await expect(
         runInDrizzleTransaction(db, async () => {
           await availability.advance({ projectIds: [FOREIGN_PROJECT], userIds: [] });
           throw new Error("rollback");
         }),
       ).rejects.toThrow("rollback");
-      expect(await db.select().from(contextAvailabilityHeads)).toEqual(before);
+      expect(
+        await db
+          .select()
+          .from(contextAvailabilityHeads)
+          .where(inArray(contextAvailabilityHeads.authorityKey, ownedAuthorityKeys)),
+      ).toEqual(before);
       const next = await availability.advance({ projectIds: [PROJECT], userIds: [] });
       expect(BigInt(next)).toBeGreaterThan(BigInt(first));
     });
@@ -165,15 +184,17 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         await availability.advance({ projectIds: [FOREIGN_PROJECT], userIds: [OTHER, USER] }),
       ]);
       expect(new Set(generations)).toHaveLength(1);
-      const heads = await db.select().from(contextAvailabilityHeads);
-      expect(heads.map(({ authorityKey }) => authorityKey).sort()).toEqual(
-        [
-          `project:${FOREIGN_PROJECT}`,
-          `project:${PROJECT}`,
-          `user:${OTHER}`,
-          `user:${USER}`,
-        ].sort(),
-      );
+      const authorityKeys = [
+        FOREIGN_PROJECT_AUTHORITY_KEY,
+        PROJECT_AUTHORITY_KEY,
+        OTHER_AUTHORITY_KEY,
+        USER_AUTHORITY_KEY,
+      ];
+      const heads = await db
+        .select()
+        .from(contextAvailabilityHeads)
+        .where(inArray(contextAvailabilityHeads.authorityKey, authorityKeys));
+      expect(heads.map(({ authorityKey }) => authorityKey).sort()).toEqual(authorityKeys.sort());
       expect(new Set(heads.map(({ generation }) => generation))).toEqual(
         new Set([BigInt(generations[0] ?? "0")]),
       );
@@ -201,14 +222,22 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         await availability.advance({ projectIds: [], userIds: [OTHER] });
       });
       const heads = new Map(
-        (await db.select().from(contextAvailabilityHeads)).map((row) => [
-          row.authorityKey,
-          row.generation,
-        ]),
+        (
+          await db
+            .select()
+            .from(contextAvailabilityHeads)
+            .where(
+              inArray(contextAvailabilityHeads.authorityKey, [
+                PROJECT_AUTHORITY_KEY,
+                FOREIGN_PROJECT_AUTHORITY_KEY,
+                OTHER_AUTHORITY_KEY,
+              ]),
+            )
+        ).map((row) => [row.authorityKey, row.generation]),
       );
-      expect(heads.get(`project:${PROJECT}`)).toBeGreaterThanOrEqual(BigInt(generation));
-      expect(heads.get(`project:${FOREIGN_PROJECT}`)).toBe(BigInt(generation));
-      expect(heads.get(`user:${OTHER}`)).toBe(heads.get(`project:${PROJECT}`));
+      expect(heads.get(PROJECT_AUTHORITY_KEY)).toBeGreaterThanOrEqual(BigInt(generation));
+      expect(heads.get(FOREIGN_PROJECT_AUTHORITY_KEY)).toBe(BigInt(generation));
+      expect(heads.get(OTHER_AUTHORITY_KEY)).toBe(heads.get(PROJECT_AUTHORITY_KEY));
     });
 
     it("serializes same-head publishers before allocating their generations", async () => {

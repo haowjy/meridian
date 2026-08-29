@@ -31,6 +31,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
   describe("Drizzle ContextTreeMutationStore (postgres)", () => {
     const USER_ID = "00000000-0000-4000-8000-000000000701";
     const PROJECT_ID = "00000000-0000-4000-8000-000000000702";
+    const PROJECT_SCOPE_KEY = `project:${PROJECT_ID}`;
     const SOURCE_ID = "00000000-0000-4000-8000-000000000703";
     const DOC_DELETE_ID = "00000000-0000-4000-8000-000000000705";
     const DOC_AMBIENT_DELETE_ID = "00000000-0000-4000-8000-000000000710";
@@ -277,14 +278,29 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         .where(eq(folders.id, folderId));
       expect(document?.deletedAt).toBeNull();
       expect(folder?.deletedAt).toBeNull();
-      expect(await db.select().from(contextCatalogScopeHeads)).toEqual([]);
-      expect(await db.select().from(contextCatalogEntries)).toEqual([]);
-      expect(await db.select().from(contextCatalogCommits)).toEqual([]);
+      expect(
+        await db
+          .select()
+          .from(contextCatalogScopeHeads)
+          .where(eq(contextCatalogScopeHeads.scopeKey, PROJECT_SCOPE_KEY)),
+      ).toEqual([]);
+      expect(
+        await db
+          .select()
+          .from(contextCatalogEntries)
+          .where(eq(contextCatalogEntries.scopeKey, PROJECT_SCOPE_KEY)),
+      ).toEqual([]);
+      expect(
+        await db
+          .select()
+          .from(contextCatalogCommits)
+          .where(eq(contextCatalogCommits.scopeKey, PROJECT_SCOPE_KEY)),
+      ).toEqual([]);
       expect(
         await db
           .select()
           .from(contextAvailabilityHeads)
-          .where(eq(contextAvailabilityHeads.authorityKey, `project:${PROJECT_ID}`)),
+          .where(eq(contextAvailabilityHeads.authorityKey, PROJECT_SCOPE_KEY)),
       ).toEqual([]);
       expect(callbacks).toEqual([]);
       expect(publish).not.toHaveBeenCalled();
