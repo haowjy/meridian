@@ -432,6 +432,14 @@ class Coordination implements DocumentSessionCrossContextCoordination {
   }
 
   private async finishClose(): Promise<void> {
+    const errors: unknown[] = [];
+    const settle = async (stage: () => void | Promise<void>) => {
+      try {
+        await stage();
+      } catch (error) {
+        errors.push(error);
+      }
+    };
     let available = false;
     try {
       await this.readiness;
@@ -440,15 +448,13 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       // Failed readiness still owns the same local teardown barrier.
     }
     if (available && !this.versionChanged) {
-      try {
-        await this.reconcilePending("account-close");
-      } catch {
-        // Account teardown still invalidates every local room and releases its proof holds.
-      }
+      await settle(() => this.reconcilePending("account-close"));
     }
-    await this.local.invalidateAll();
-    await this.releaseAllHolds();
-    await this.store.close();
+    await settle(() => this.local.invalidateAll());
+    await settle(() => this.releaseAllHolds());
+    await settle(() => this.store.close());
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) throw new AggregateError(errors, "Document authority teardown failed");
   }
 
   private async requireReady(): Promise<void> {
@@ -759,10 +765,23 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     const holds = [...this.holds.values()];
     this.holds.clear();
     this.admissions.clear();
+    const errors: unknown[] = [];
     for (const document of holds) {
-      for (const access of document.projects.values()) await access.release();
-      await document.document.release();
+      for (const access of document.projects.values()) {
+        try {
+          await access.release();
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+      try {
+        await document.document.release();
+      } catch (error) {
+        errors.push(error);
+      }
     }
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) throw new AggregateError(errors, "Lifecycle hold release failed");
   }
 
   private assertOpen(): void {

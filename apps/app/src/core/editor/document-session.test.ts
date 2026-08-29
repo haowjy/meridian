@@ -717,6 +717,37 @@ describe("DocumentSession status derivation", () => {
     expect(session.getSnapshot().status).toBe("destroyed");
   });
 
+  it("retains one destroy barrier and completes later teardown after transport rejection", async () => {
+    let rejectTransport!: (error: Error) => void;
+    const transportDestroy = new Promise<void>((_resolve, reject) => {
+      rejectTransport = reject;
+    });
+    const session = new DocumentSession({
+      roomKey: "doc-destroy-rejection",
+      enableIndexedDb: false,
+      transportFactory: () => ({
+        synced: false,
+        subscribeStatus: () => () => undefined,
+        destroy: () => transportDestroy,
+      }),
+    });
+    const awarenessDestroy = vi.spyOn(session.awareness, "destroy");
+    const documentDestroy = vi.spyOn(session.document, "destroy");
+
+    const first = session.destroy();
+    const joined = session.destroy();
+    expect(joined).toBe(first);
+    expect(session.getSnapshot().status).toBe("destroyed");
+    expect(awarenessDestroy).not.toHaveBeenCalled();
+
+    const failure = new Error("provider destroy failed");
+    rejectTransport(failure);
+    await expect(first).rejects.toBe(failure);
+    expect(awarenessDestroy).toHaveBeenCalled();
+    expect(documentDestroy).toHaveBeenCalledOnce();
+    expect(session.destroy()).toBe(first);
+  });
+
   it("without a transport, remains detached after local persistence loads", () => {
     const session = new DocumentSession({
       roomKey: "doc-local",

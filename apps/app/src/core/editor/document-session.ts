@@ -205,6 +205,7 @@ export class DocumentSession {
   private unsubscribeTransportStatus: (() => void) | null = null;
   private unsubscribeChangeEvents: (() => void) | null = null;
   private destroyed = false;
+  private destroyPromise: Promise<void> | null = null;
   private localPersistenceSynced = false;
   /** True after the transport's first `whenSynced` — blocks empty-local false `synced`. */
   private transportInitialSyncComplete = false;
@@ -503,29 +504,58 @@ export class DocumentSession {
    * TipTap editor first, then calls this method so providers can detach before
    * the Y.Doc is destroyed.
    */
-  async destroy(options: { clearPersistence?: boolean } = {}): Promise<void> {
-    if (this.destroyed) return;
+  destroy(options: { clearPersistence?: boolean } = {}): Promise<void> {
+    if (this.destroyPromise) return this.destroyPromise;
+    let resolveDestroy!: () => void;
+    let rejectDestroy!: (error: unknown) => void;
+    this.destroyPromise = new Promise<void>((resolve, reject) => {
+      resolveDestroy = resolve;
+      rejectDestroy = reject;
+    });
     this.destroyed = true;
     this.resolveTransportAttached();
     this.resolveLifecycleCompleted();
     this.status = "destroyed";
-    this.emit();
-    this.markerStore.clear();
-
-    this.localPresence.release();
-    removeAwarenessStates(this.awareness, [this.document.clientID], "document-session-destroy");
-
-    this.unsubscribeTransportStatus?.();
-    this.unsubscribeChangeEvents?.();
-    await this.transportProvider?.destroy();
-    if (options.clearPersistence) {
-      await this.persistence?.clearData();
-    } else {
-      await this.persistence?.destroy();
+    const errors: unknown[] = [];
+    try {
+      this.emit();
+    } catch (error) {
+      errors.push(error);
     }
-    this.awareness.destroy();
-    this.document.destroy();
-    this.listeners.clear();
+    try {
+      this.markerStore.clear();
+    } catch (error) {
+      errors.push(error);
+    }
+
+    const teardown = async () => {
+      const settle = async (stage: () => void | Promise<void>) => {
+        try {
+          await stage();
+        } catch (error) {
+          errors.push(error);
+        }
+      };
+
+      await settle(() => this.localPresence.release());
+      await settle(() =>
+        removeAwarenessStates(this.awareness, [this.document.clientID], "document-session-destroy"),
+      );
+      await settle(() => this.unsubscribeTransportStatus?.());
+      await settle(() => this.unsubscribeChangeEvents?.());
+      await settle(() => this.transportProvider?.destroy());
+      await settle(() =>
+        options.clearPersistence ? this.persistence?.clearData() : this.persistence?.destroy(),
+      );
+      await settle(() => this.awareness.destroy());
+      await settle(() => this.document.destroy());
+      await settle(() => this.listeners.clear());
+
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1) throw new AggregateError(errors, "Document session teardown failed");
+    };
+    void teardown().then(resolveDestroy, rejectDestroy);
+    return this.destroyPromise;
   }
 
   private async watchLocalPersistence(): Promise<void> {

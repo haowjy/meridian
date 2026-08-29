@@ -66,6 +66,7 @@ export class DocumentSessionRegistry
   private accountTransition: Promise<void> = Promise.resolve();
   private accountTransitionVersion = 0;
   private authorityFailure: unknown = null;
+  private invalidationPromise: Promise<void> | null = null;
   private readonly liveRooms = new Map<DocumentId, LiveRoomState>();
   private readonly unleasedRooms = new Map<string, UnleasedRoomState>();
   private readonly retainedByOwner = new Map<string, Map<DocumentId, RetainedLiveDocument>>();
@@ -257,11 +258,15 @@ export class DocumentSessionRegistry
     this.accountId = userId;
     this.coordination = null;
     this.authorityFailure = null;
-    const closePrevious = previous?.close() ?? this.invalidateAll();
+    const closePrevious = (previous?.close() ?? this.invalidateAll()).then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
     const transition = this.accountTransition
       .catch(() => undefined)
       .then(async () => {
-        await closePrevious;
+        const closed = await closePrevious;
+        if (!closed.ok) throw closed.error;
         if (this.accountId !== userId || this.accountTransitionVersion !== transitionVersion)
           return;
         try {
@@ -277,7 +282,10 @@ export class DocumentSessionRegistry
     this.accountTransitionVersion += 1;
     const captured = this.coordination;
     this.coordination = null;
-    const capturedClose = captured?.close();
+    const capturedClose = captured?.close().then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
     this.accountTransition = this.accountTransition
       .catch(() => undefined)
       .then(async () => {
@@ -287,11 +295,17 @@ export class DocumentSessionRegistry
           await current.close();
           return;
         }
-        await (capturedClose ?? this.invalidateAll());
+        if (capturedClose) {
+          const closed = await capturedClose;
+          if (!closed.ok) throw closed.error;
+        } else {
+          await this.invalidateAll();
+        }
       });
   }
 
-  async invalidateAll(): Promise<void> {
+  invalidateAll(): Promise<void> {
+    if (this.invalidationPromise) return this.invalidationPromise;
     this.retainedByOwner.clear();
     this.unleasedRetainedByOwner.clear();
     this.liveDocCapWarningEmitted = false;
@@ -303,7 +317,22 @@ export class DocumentSessionRegistry
     ];
     this.liveRooms.clear();
     this.unleasedRooms.clear();
-    await Promise.all(sessions.map((session) => session.destroy()));
+    const invalidation = async () => {
+      const results = await Promise.allSettled(sessions.map((session) => session.destroy()));
+      const errors = results.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1) throw new AggregateError(errors, "Session registry teardown failed");
+    };
+    const pending = invalidation();
+    this.invalidationPromise = pending;
+    void pending
+      .finally(() => {
+        if (this.invalidationPromise === pending) this.invalidationPromise = null;
+      })
+      .catch(() => undefined);
+    return pending;
   }
 
   private async configuredCoordination(): Promise<DocumentSessionCrossContextCoordination> {

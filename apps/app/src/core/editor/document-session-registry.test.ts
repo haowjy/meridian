@@ -81,7 +81,7 @@ async function admit(
 }
 
 class TestLocks {
-  private active = new Map<string, { shared: number; exclusive: boolean }>();
+  readonly active = new Map<string, { shared: number; exclusive: boolean }>();
   private queues = new Map<string, Array<() => void>>();
   request<T>(
     name: string,
@@ -123,6 +123,10 @@ class TestLocks {
       };
       attempt();
     });
+  }
+
+  activeFor(accountId: string): string[] {
+    return [...this.active.keys()].filter((name) => name.includes(accountId));
   }
 }
 
@@ -422,6 +426,50 @@ describe("DocumentSessionRegistry live authority", () => {
     await expect(admit(registry, "project", "doc", "1")).resolves.toMatchObject({
       accountId: "account-recovered",
     });
+  });
+
+  it("holds later accounts behind rejected provider teardown and recovers without old holds", async () => {
+    const locks = new TestLocks();
+    vi.stubGlobal("navigator", { ...navigator, locks });
+    const registry = await registryFor("account-poison-a");
+    const lease = await admit(registry, "project", "doc-poison", "1");
+    const session = registry.get(lease);
+    await session.whenSynced();
+    expect(locks.activeFor("account-poison-a")).toHaveLength(2);
+
+    let rejectDestroy!: (error: Error) => void;
+    const destroyBarrier = new Promise<void>((_resolve, reject) => {
+      rejectDestroy = reject;
+    });
+    providers[0]?.destroy.mockReturnValue(destroyBarrier);
+    registry.setOwnUserId("account-poison-b");
+    const failedOld = admit(registry, "project", "doc-poison", "1");
+    const failedOldExpectation = expect(failedOld).rejects.toThrow();
+    registry.setOwnUserId("account-poison-c");
+    const recovered = admit(registry, "project", "doc-poison", "1");
+    const recoveryDiagnostic = expect(recovered).rejects.toThrow("provider destroy failed");
+    let recoveredSettled = false;
+    void recovered.then(
+      () => {
+        recoveredSettled = true;
+      },
+      () => {
+        recoveredSettled = true;
+      },
+    );
+    await vi.waitFor(() => expect(providers[0]?.destroy).toHaveBeenCalledOnce());
+    expect(recoveredSettled).toBe(false);
+    expect(locks.activeFor("account-poison-a")).toHaveLength(2);
+
+    rejectDestroy(new Error("provider destroy failed"));
+    await failedOldExpectation;
+    await recoveryDiagnostic;
+    expect(locks.activeFor("account-poison-a")).toEqual([]);
+    registry.setOwnUserId("account-poison-d");
+    await expect(admit(registry, "project", "doc-poison", "1")).resolves.toMatchObject({
+      accountId: "account-poison-d",
+    });
+    registry.destroyAll();
   });
 
   it("keeps branch generations separate from live authority and IndexedDB", async () => {
