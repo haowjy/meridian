@@ -77,6 +77,7 @@ export function workingSetRouteEquals(
 ): boolean {
   return (
     left !== undefined &&
+    left.documentId === right.documentId &&
     left.scheme === right.scheme &&
     left.path === right.path &&
     left.workId === right.workId

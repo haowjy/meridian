@@ -6,9 +6,26 @@ import {
   DeviceWorkingSetStore,
   reconcileSnapshotContextRoutes,
   type WorkingSetSnapshot,
+  workingSetRouteEquals,
 } from "./store";
 
 describe("atomic context-route reconciliation", () => {
+  it("treats stable identity as part of full equality and adopts the replacement identity", () => {
+    const oldRoute = { documentId: "old", scheme: "kb" as const, path: "/shared.md" };
+    const newRoute = { documentId: "new", scheme: "kb" as const, path: "/shared.md" };
+    const store = new DeviceWorkingSetStore({
+      getItem: () => null,
+      setItem: () => undefined,
+      removeItem: () => undefined,
+    });
+    store.setUser("user-a");
+    store.adopt("project-1", { recentRoutes: [oldRoute], lastThreadId: null });
+
+    expect(workingSetRouteEquals(oldRoute, newRoute)).toBe(false);
+    store.adopt("project-1", { recentRoutes: [newRoute], lastThreadId: null });
+    expect(store.read("project-1")?.snapshot.recentRoutes).toEqual([newRoute]);
+  });
+
   it("removes only unowned locators and promotes in one snapshot result", () => {
     const same = { documentId: "same", scheme: "kb" as const, path: "/same.md" };
     const removed = { documentId: "removed", scheme: "kb" as const, path: "/removed.md" };
