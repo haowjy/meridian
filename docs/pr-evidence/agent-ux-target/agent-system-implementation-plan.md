@@ -172,6 +172,7 @@ flowchart TD
 - Add a Mars adapter at the composition root; domains depend only on ports.
 - Persist immutable installed package artifacts, definition revisions, compatibility, provenance, and activation state.
 - Install updates as candidates, derive Flow activation impact, collect any required acknowledgement, then switch the future-binding activation pointer atomically.
+- Establish the Agents management boundary for definition/package inventory, detail, compatibility, versions, install/update, and provenance. It exposes no chat/run launch action.
 - Keep package/definition enable/disable/revocation/emergency-stop controls separate from immutable content; ordinary revocation blocks later reservations, while only emergency stop blocks new dispatch in an active run.
 - Bind a new chat to an exact definition revision and launch-bundle snapshot.
 - Create the thread, initial writer message, `thread_works` relation, and thread-agent binding immutably in one transaction; reference the existing Project/Work and installed definition/host projection and snapshot the exact launch bundle. Mutable new-chat Agent/Work selection remains draft state and never creates an empty bound thread. Continue/replay never consults current package defaults.
@@ -211,7 +212,11 @@ Names and exact roster remain product copy decisions; the important acceptance c
 
 ### Flow changes
 
-- Derive catalog and picker copy from current compatibility and effective capabilities.
+- Derive New Chat readiness copy from current compatibility and effective capabilities; publish the full effective-capability projection only in Agents detail and package review.
+- Keep Agent and Work selection inside the existing New Chat composer. Use compact footer controls and a bounded purpose/readiness picker; the ordinary first Send commits the message and binding without a separate launch or binding-review surface.
+- Add the Agents management destination: flat definition/package inventory plus inspectable definition detail. It supports source/version/readiness understanding and future-default management but never starts a chat or run.
+- Remove or move Home Agent Package cards that currently create package-shaped projects; packages are installed and maintained in Agents.
+- Render bound Agent/Work in an existing chat as quiet non-interactive facts with no caret, picker, switch, or launch affordance.
 - Enforce user invocability in a domain resolver shared by picker and every direct API.
 - Create a chat with selected agent and fixed Work; never change either in place.
 - Stream through the common run executor.
@@ -225,6 +230,7 @@ Names and exact roster remain product copy decisions; the important acceptance c
 - A package update affects only new bindings.
 - Browser/runtime probes cover supported/degraded/incompatible contract states; ready/blocked launchability with multiple blocking and unavailable-optional reasons; replay, failure, and undo.
 - Browser/accessibility probes cover the target experience at desktop and 390px, semantic picker rows and focus return, keyboard order, no-hover operation, reduced motion, throttled live-region announcements, and fixed Agent/Work copy.
+- Browser probes prove New Chat is the only Agent/Work selection boundary; Agents exposes management only; Home has no package launch cards; existing chats expose no selector.
 - Root writer questions and scoped external confirmations survive restart/reconnect without transient prompt state; native writes never enter this path.
 - **Stop** if writer-facing capability copy and dispatchable operations differ.
 
@@ -261,9 +267,9 @@ Names and exact roster remain product copy decisions; the important acceptance c
 ### Flow changes
 
 - Project the run journal into stable root and child receipts.
-- Before launch: purpose, effective capabilities, setup needs, package/source, and delegation graph.
-- During launch: compact states and collapsed child task cards; auto-expand only durable requests or failures under Needs attention.
-- After launch: report first, then changed documents/undo, sources/external effects, children consulted, model/cost/duration, warnings, and definition revision.
+- Before a new chat: name, purpose, and honest readiness only. Agents detail and package review own effective capabilities, setup, package/source, and delegation facts.
+- During a run: compact states and child activity as collapsed disclosures inside the originating assistant turn; auto-expand only durable requests or failures under Needs attention.
+- After a run: report first, then changed documents/undo, sources/external effects, children consulted, model/cost/duration, warnings, and definition revision.
 - Separate native writing evidence from external-action approval. External publishing, purchase, or destructive remote mutations may require literal action-time confirmation.
 - Bind each external confirmation to an exact canonical call/account/scope hash, expiry, policy version, and single use; recheck checkpoint-aware controls/grants immediately before dispatch.
 - For every external consequential effect, CAS its stable `effectId` from authorized to dispatching, create the unique attempt/idempotency key, and append the dispatch event in one transaction before the adapter call. The writer-confirmed branch also consumes the grant; the policy-authorized branch uses the same effect claim without a grant.
@@ -283,6 +289,7 @@ Names and exact roster remain product copy decisions; the important acceptance c
 
 - Create a writer-owned/private package source and provenance class.
 - Structured editor writes normative Mars profile fields and Markdown body.
+- Put structured create/edit/fork/export and revision history inside Agents. Its New Chat wording preview is read-only and carries no Choose, Start chat, Run, or Test action.
 - Forking a built-in/package profile records its source coordinate and revision.
 - Save, import, update, and export use the same Mars validation, compatibility, install, definition-policy/activation-impact, and revision pipeline.
 - Exported packages run in CLI and any compatible host.
@@ -362,7 +369,9 @@ The Flow foundation may require one intentionally large schema/domain PR because
 
 ### Browser probes
 
-- Agent selection and capability states
+- compact New Chat Agent/Work selection, defaults, blocked recovery, and atomic first send
+- Agents inventory/detail/editor/package install/update with no launch actions
+- quiet immutable Agent/Work facts in existing chats and removal of Home package launch cards
 - contract degradation/incompatibility and live readiness explanations
 - primary and child progress
 - report-first receipt inspection

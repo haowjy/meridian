@@ -6,249 +6,271 @@
 
 ## Decision
 
-Agents are collaborators bound to a new chat, not modes that can be switched on an existing chat. The writer chooses one by purpose and effective abilities, supervises only exceptional root or helper needs, and receives a report whose first proof is what changed and how to undo it.
-
-The experience is one lifecycle with five surfaces:
+Agent launch is a small choice inside **New Chat**. Agent management is a separate **Agents** destination. Existing chats show their bound Agent and Work as quiet facts, and execution evidence stays inside the assistant turn.
 
 ```mermaid
 flowchart LR
-    C[Choose collaborator] --> B[Bind new chat]
-    B --> R[Run in transcript]
-    R --> P[Report and receipt]
-    I[Install or author] --> C
-    R -->|exception only| A[Needs attention]
-    A --> R
+    M[Agents
+manage definitions and packages] --> N[New Chat
+choose Agent and Work]
+    N --> C[Existing chat
+immutable identity]
+    C --> T[Assistant turn
+activity report receipt]
 ```
 
-The UX extends Flow's existing chat rather than adding an agent dashboard. Assistant work remains prose in the transcript. Activity remains a quiet disclosure. Native document changes remain trusted Yjs writes with receipts and undo, never approval gates.
+The relationship is deliberately one-way. A definition/version may become a chat binding only through New Chat. An existing binding never becomes a selector. The Agents area never becomes a launchpad or live-run dashboard.
 
-## Writer contract
+## Surface ownership
 
-The interface must answer four questions without exposing host machinery:
-
-1. **Who is this collaborator for?** Name and purpose.
-2. **What can it do here?** Effective abilities and unavailable limits, evaluated for this host and writer now.
-3. **What is happening?** Durable run state, one readable activity line, and exceptional root or helper needs.
-4. **What happened?** Report, changed documents, undo, unresolved attention, then evidence.
-
-`Agent definition`, `agent revision`, `host projection`, `thread binding`, and `agent run` remain distinct system objects. The product may call all of them “agent” in context, but it must never make their mutability or authority appear interchangeable.
-
-## Information hierarchy
-
-| Surface | First | Second | On demand |
+| Surface | Owns | First question answered | Must not contain |
 |---|---|---|---|
-| Choose | name, purpose, availability, choose/setup action | up to three effective ability facts | boundaries, helpers, package source, revision |
-| Bind | Agent, Work, fixed-for-chat notice | first instruction | revision and full capabilities |
-| Run | current activity, elapsed time, cancel/background controls | helper summary and needs attention | technical activity, sources, costs |
-| Report | outcome, report, changed documents, undo | unresolved next attention | sources/effects, helper reports, run details |
-| Install/update | source, version, purpose, included agents, material changes | host impact and existing-chat behavior | complete policy/dependency/provenance diff |
-| Author | identity, purpose, abilities, boundaries, validation | helper graph, behavior, picker preview | Mars YAML and advanced contract fields |
+| **New Chat** | draft Agent, draft Work, first instruction, atomic first send | “Who should begin this chat, and in which Work?” | package management, definition editing, a launch gallery, or a separate start-agent CTA |
+| **Agents** | installed packages, agent definitions/revisions, compatibility, authoring, import/export, install/update/activation | “What collaborators are available, what do they do, and how do I maintain them?” | Start chat, Run agent, live runs, queues, helper activity, or receipts |
+| **Existing chat** | immutable Agent and Work identity, ordinary conversation | “Which collaborator and context does this chat use?” | selectors, switch controls, package settings, or launch actions |
+| **Assistant turn** | run state, exceptional attention, report, changes, undo, evidence | “What is happening or what changed?” | task-center chrome, global progress, raw tool transcripts, or native-write approval |
+| **Install/update review** | future package configuration and trust | “What will become available for new chats?” | live-run permission prompts or retroactive chat changes |
 
-Raw tool names, schemas, provider payloads, hidden context, prompts, and chain-of-thought are not normal writer-facing evidence. The durable evidence surface is capabilities, sources, effects, changes, lineage, cost, revision, and journal-derived status.
+A package, agent definition, active definition revision, thread binding, and run are distinct concepts. Writer copy may use “agent” for a collaborator, but management UI must name package/source/version facts separately from definition/purpose/behavior facts.
 
-## 1. Choose a collaborator
+## 1. New Chat is the only launch boundary
 
-The composer opens a viewport-bound **Choose a collaborator** picker before a thread exists. It is searchable and purpose-first. The new-chat draft also exposes an explicit Work selector; Agent and Work remain mutable draft facts until the initial writer instruction and binding transaction succeed together.
-
-### Ordering and states
-
-1. Ready and fully supported.
-2. Ready with optional abilities unavailable.
-3. Blocked by a solvable live prerequisite.
-4. Incompatible definitions behind **Show unavailable agents**.
-
-| State | Writer language | Behavior |
-|---|---|---|
-| Ready | “Ready to start a chat.” | selectable |
-| Ready with limits | “Available with limits. Research search is unavailable here.” | selectable; missing optional ability remains visible |
-| Blocked | “Needs setup: connect a research account.” | opens recovery; does not preselect or create a chat |
-| Incompatible | “Not available in Meridian Flow. It requires terminal control.” | discoverable only through explicit disclosure |
-| Disabled/revoked | not shown in ordinary discovery | a deep link explains unavailability without a stale Choose action |
-
-An agent row is a semantic list item or article, not one large interactive container. It contains name, one-sentence purpose, no more than three practical ability facts, then its availability sentence and sibling controls: the state-specific primary action and **View details**. Each control has an agent-specific accessible name. Opening details moves focus into the viewport-bound sheet; closing it returns focus to the invoking control. “Can” means effective and dispatchable now. “Cannot” is a hard definition boundary. “Unavailable here” means an optional ability is missing. “Needs setup” means a required live prerequisite blocks launch.
-
-Do not claim “fast,” “cheap,” or “safe” without a measurable product definition. Do not translate capabilities into raw tool inventory.
-
-### Details
-
-Agent details disclose, in order:
-
-1. What it can do.
-2. What it cannot do.
-3. What is available with limits.
-4. Helpers it can consult.
-5. Package details.
-
-## 2. Bind a new chat
-
-Agent and Work are chosen together before the initial send and frozen atomically with the thread.
+The writer arrives at a normal blank transcript and composer, ready to type. Agent and Work selection stay in the composer footer, using the existing quiet control position and popover grammar.
 
 ```text
-New chat
-Agent: Writer
-Work: Book One
-First instruction: Strengthen the confrontation without changing its outcome.
-
-This choice is fixed for this chat.
-To use another agent or Work later, start a new chat.
+┌────────────────────────────────────────────────────────────┐
+│ What would you like to work on?                             │
+│                                                            │
+│ Writer ▾       Book One ▾          Draft            Send   │
+└────────────────────────────────────────────────────────────┘
+             Agent and Work are fixed after the first send.
 ```
 
-The draft composer holds the temporary Agent, Work, and first writer instruction. **Send and start chat** creates the thread, persists the initial writer message, and creates the `thread_works` relation and `thread_agent_binding` in one transaction. The binding references an already-installed definition revision and host projection and snapshots the exact launch bundle. No empty bound chat exists. The root run may be reserved after that transaction commits. A late readiness failure returns to binding review with the draft intact and the actual reason. It never substitutes another definition, revision, Work, model route, or capability set.
+- A sensible ready definition and the current/default Work are preselected and always named.
+- There is no full-page collaborator chooser, binding review dialog, or **Send and start chat** ceremony.
+- The normal Send action persists the initial writer message and creates the thread, `thread_works`, and exact definition binding atomically. Draft selection creates no empty thread.
+- A single low-contrast sentence communicates immutability before first send. It does not repeat after the chat exists.
+- A late readiness failure preserves the message, Agent, and Work and places the concrete recovery beside the Agent control. It never substitutes a definition, revision, Work, model route, or capability set.
 
-Existing chats display identity as a fact: **Writer in Book One**. The action is **Start new chat**, never “Switch agent.” A new chat may carry an explicitly selected summary or documents as ordinary starting context, but it does not mutate the original binding.
+### Agent picker
 
-## 3. Run inside the transcript
+The Agent control opens a composer-anchored, viewport-bounded popover. It contains selectable installed definitions, not packages.
 
-The active run occupies the normal assistant turn position. It is not a modal, task center, or permanently open inspector.
+Each row contains only:
 
-### Primary run surface
+1. name;
+2. one-sentence purpose;
+3. honest current availability.
 
-- agent name and durable state;
-- one concrete activity line such as “Revising Chapter 12” or “Consulting Continuity”;
-- elapsed time;
-- **Cancel run** while queued, preparing, or running;
-- **Continue in background** while running;
-- helper count and any attention state.
+Rows are whole-row selection targets without nested buttons. Search appears when the inventory needs it. Management-grade facts—capability inventory, boundaries, source, versions, helpers, instructions, dependencies, and provenance—belong in Agents.
 
-The durable execution lifecycle is `queued → preparing → running → finalizing → terminal`, with `cancelling` as the stop path. **Needs input** is a derived presentation, not an `agent_runs` lifecycle value. A blocking durable action request suspends its recorded continuation and makes that continuation ineligible for worker reconciliation until a wake event resolves the request. Connectivity is another separate presentation condition. A disconnected client says **Still working. Reconnect to see live progress.** It never invents completion.
+```text
+Search agents
 
-Cancellation submits intent immediately. Its confirmation says **Stop this run? Work already recorded will remain in the report.** The resulting state is **Stopping after current work is recorded.** A terminal result may win before cancellation. Partial work still receives a receipt.
+Writer
+Develops and revises your serial
+Ready
 
-**Continue in background** changes presentation, not authority. It closes the foreground run surface, preserves an in-app indicator, and does not alter the run, its budget, or its effects.
+Continuity
+Checks story facts across this Work
+Available with limits: research is unavailable
 
-### Attention and helper supervision
+Researcher
+Needs setup: connect a research account
 
-A transcript-native **Needs attention** block follows the live activity frontier whenever the root run has an outstanding request. The same block is nested under and attributed to a helper when a child run owns the request. Root and child requests use the same question, scope, expiry, and response controls; a root request never needs a synthetic helper card.
+Manage agents…
+```
 
-Helper work is a bounded child task, not another peer chat. A collapsed helper row contains helper name, task, state, elapsed time or duration, and reserved/actual credits. Successful helpers collapse under **Helpers consulted**.
+- Ready and ready-with-limits rows select and close the popover.
+- A blocked row opens the direct setup destination without creating a chat.
+- Incompatible definitions are hidden behind **Show unavailable agents**.
+- **Manage agents…** navigates to Agents; it does not select or launch anything.
+- When no selectable definition exists, retain the draft, disable Send, and provide a concrete setup/install route.
 
-Only exceptional conditions auto-expand and move under **Needs attention**:
+### Work picker
 
-- a writer question;
-- a consequential external effect requiring scoped confirmation;
-- failure;
-- an unknown non-idempotent external effect;
-- approaching the run-tree credit limit;
-- exhausted credits when more work is required.
+Work uses the same compact popover grammar. It lists Works the new chat may bind and does not create or edit Works. Work management remains its own product concern. Agent and Work draft choices remain independent until the first send commits both.
 
-Native manuscript edits never enter confirmation. External confirmation is literal and scoped to one proposed effect, target, account, and expiry. A failed child retry creates a new child run and reservation. An unknown non-idempotent effect is checked, not automatically retried.
+## 2. Agents is an inventory and workshop
 
-The budget warning begins at an 80% forecast. It remains informational unless completion requires more credits. Any increase action shows the exact addition and new total.
+The Agents destination is a calm management surface, not a gallery of launch cards. On desktop it uses a flat list/detail layout descended from Flow’s shelf and Settings patterns. On mobile it becomes a routed list → detail → editor/review stack.
 
-## 4. Report first, receipt as proof
+### Top-level structure
 
-Terminal runs replace live activity with a report-first receipt in this order:
+```text
+Agents                                  [Install package] [New agent]
+[Search agents]
 
-1. Outcome banner only for stopped, incomplete, failed, unknown-effect, or warning outcomes that change the writer's next action.
-2. Writer-facing report.
-3. **Changed in this run**, with one row per document or context artifact.
-4. **Next attention**, when unresolved work exists.
-5. Disclosures for Sources and effects, Helpers consulted, and Run details.
+YOUR AGENTS
+  Writer                         Ready
+  Scene Partner                  Draft
 
-Each changed-document row contains the document name, a concrete description, **View change**, and **Undo changes**. Undo requests the recorded change receipt. It is recovery, not approval. When concurrent changes make the precise undo unavailable, the interface says what cannot be undone and navigates to the recorded change rather than reverting a broader document state.
+FROM PACKAGES
+  Continuity                     Storycraft Essentials
+  Critic                         Storycraft Essentials
 
-Sources and effects expand by default only when an external effect occurred, failed, or is unknown. Helpers expand by default only when attention or failure remains. Run details contain model route, credits, duration, warnings, capability losses, exact revision, and provenance.
+PACKAGES
+  Storycraft Essentials          2.4.0        Update available
+```
 
-## 5. Install and update
+- Agent definitions are the primary list because they are what writers understand and what New Chat selects.
+- Package stewardship remains visible as a separate grouped list/view because packages own distribution, source, version, dependencies, and included definitions.
+- Search spans agent names, purposes, and package names. Filters may cover ownership, availability, and updates, never running/queued execution.
+- **New agent**, **Install package**, and optional **Import Mars YAML** are management actions. None creates a chat or run.
+- The current Home **Agent Packages** launch cards move into this management/discovery area or are deleted. Home must not launch package-shaped projects.
 
-Install and update are package trust/configuration decisions. They do not grant live run authority and do not mutate existing chats.
+### Agent definition detail
 
-The review shows source and publisher, version, included agents and purposes, required and optional abilities, external connections, delegation summary, compatibility, and the host-owned activation impact.
+Selecting an agent opens its stable detail pane. The header gives identity and management actions, not launch:
 
-Updates group material changes as **Abilities**, **Helpers**, **How it works**, **Dependencies**, and **Source**. The key fixed sentence is **Existing chats keep their current version.** A policy expansion or provenance change requires one acknowledgement beside the visible change: **I reviewed the new abilities and source.** Ordinary compatible updates do not add ceremony.
+```text
+Writer                                      [Edit] [Duplicate] [Export]
+Develops and revises your serial.
+From My agents, revision 4. Used by new chats.
+```
 
-Rollback means **Use version [x] for new chats**. Failed validation leaves the current active version unchanged.
+Information order:
 
-## 6. Author and distribute a custom agent
+1. **Purpose and availability**: ready, available with limits, needs setup, or incompatible with the exact reason.
+2. **What it can do**: effective writer-language abilities.
+3. **What it cannot do**: declared boundaries and unavailable optional abilities.
+4. **Helpers**: bounded definitions it may consult and their limits.
+5. **Behavior**: instructions and attached skills, summarized before source detail.
+6. **Versions and source**: active revision for new chats, lineage, package, publisher/provenance, validation.
 
-A writer-owned agent follows the same Mars package, validation, compatibility, activation, revision, and binding path as every other agent. Flow does not create a parallel database-only agent type.
+Actions:
 
-The default authoring experience is structured:
+- **Edit** for writer-owned definitions; saving creates an immutable revision.
+- **Duplicate** for a writer-owned fork with visible lineage, including package-provided definitions.
+- **Export** produces package-compatible Mars YAML.
+- **Use revision [x] for new chats** changes only the future activation pointer.
+- **Set as default for new chats** is permitted as management of the New Chat default. It is not a launch action.
+
+There is no **Start chat**, **Run**, **Test agent**, or interactive picker preview. A read-only preview may show how name, purpose, and availability will appear in New Chat, without a Choose action.
+
+### Structured authoring
+
+New/edit agent uses a structured form:
 
 1. Identity: name and purpose.
-2. Abilities: required and optional capabilities in writer language.
-3. Boundaries: explicit denied abilities and scopes.
-4. Helpers: bounded child definitions and budgets.
-5. Behavior: instructions and attached skills.
-6. Advanced: routes, execution hints, source, import/export.
+2. Abilities: required and optional portable capabilities in writer language.
+3. Boundaries: denied abilities and scopes.
+4. Helpers: declared child definitions and budgets.
+5. Behavior: instructions and skills.
+6. Advanced: route/hints, Mars source, import/export.
 
-Validation is continuous. A picker preview shows how availability and abilities will be communicated. Save creates an immutable revision; activation changes only the future default. **Fork** creates writer-owned source lineage. **Export Mars YAML** is the exchange/distribution action, not the primary editor.
+Validation is continuous and saving creates an immutable revision. Flow does not create a database-only custom agent path. Mars YAML remains the exchange/distribution medium, not the default editor.
+
+### Package detail, install, and update
+
+Package views are source/version-first and show:
+
+- publisher/source and proposed/installed version;
+- included agent definitions and their purposes;
+- required/optional capabilities;
+- external connections and dependencies;
+- delegation summary;
+- compatibility and setup state;
+- provenance and validation.
+
+Install/update review belongs inside Agents as a focused dialog, sheet, or routed review. It never appears in New Chat or a transcript.
+
+Updates group material changes under **Abilities**, **Helpers**, **How it works**, **Dependencies**, and **Source**, followed by host impact. The fixed sentence is **Existing chats keep their current agent version.** Authority or provenance expansion requires one acknowledgement beside the visible changed facts. Compatible routine updates add no ceremony. Rollback reads **Use version [x] for new chats**.
+
+## 3. Existing chats remain quiet
+
+### Bound identity
+
+Reuse the existing behavior: the composer’s Agent control becomes a non-interactive fact after first send. Remove caret/button chrome so it does not resemble a disabled broken selector. Where space permits, chat context may show one quiet line such as **Writer in Book One**.
+
+- No agent selector appears in the chat header, context dock, receipt, or assistant turn.
+- The normal **New chat** action may carry the current Work as a draft default, but it never mutates the existing chat.
+- Definition/package inspection navigates to Agents as a secondary information route; it never carries a launch action back into the chat.
+
+### Active run
+
+A run remains inside the originating assistant turn and reuses Flow’s low-contrast activity disclosure:
+
+```text
+Read Chapter 12, edited 1
+  Revising the confrontation
+  Consulting Continuity
+```
+
+- Show one durable state or concrete activity frontier, not a card/dashboard.
+- Detailed activity is collapsed by default.
+- **Cancel** appears only while meaningful. **Continue in background** is a quiet text action, not a persistent global status system.
+- Successful helpers resolve into compact activity/report evidence.
+- Only a durable writer question, scoped external confirmation, failure/unknown effect, or blocking credit boundary expands one transcript-native **Needs attention** block.
+- Native manuscript edits never enter confirmation.
+
+Needs input remains presentation derived from durable action requests and suspended continuations, not an `agent_runs` lifecycle state. Root and child requests use the same action-request boundary; child attribution does not create a second chat surface.
+
+### Report and receipt
+
+The assistant’s unboxed report leads. Flow’s existing compact edit receipt follows:
+
+```text
+The confrontation now turns on Lian’s withheld oath; the outcome is unchanged.
+
+Edited 1 document                                      Undo
+Chapter 12: tightened the confrontation
+
+Sources and effects
+Helpers consulted
+Run details
+```
+
+Changed documents and precise undo stay immediately discoverable. Sources/effects, helpers, model route, credits, duration, warnings, revision, and provenance are progressive disclosures. Expand sources/effects only for external, failed, or unknown outcomes; expand helper evidence only when attention/failure remains. An outcome banner appears only when it changes the writer’s next action.
 
 ## Visual system
 
-### Preserve from Flow
+### Preserve from current Flow
 
-- viewport-locked writing desk with shelf, paper transcript, and context dock;
-- 48rem desktop reading column and 1rem mobile gutters;
-- warm tonal boundaries rather than heavy separators;
-- unboxed assistant prose and lightly outlined user prompts;
-- quiet activity timeline and compact edit receipts;
-- pinned manuscript-toned composer;
-- one warm ink, jade for focus/live/primary action, and scarce cinnabar for destructive or negative evidence.
+- viewport-locked writing desk, warm tonal shell, 48rem reading column, and 16px mobile gutters;
+- pinned manuscript-toned composer and its subordinate left-side control position;
+- current compact `AgentPicker`/thread-switcher popover scale, searchable bounded list, neutral row selection, focus return, and loading/error/empty states;
+- disabled existing-chat agent fact, assistant prose, quiet activity disclosure, and compact change receipt with Undo;
+- Settings’ list/detail/form language for management, while fixing its current mobile width defect;
+- jade only for live/focus/primary management action and scarce cinnabar for destructive/negative evidence.
 
-### New patterns
+### Delete from the rejected direction
 
-| Pattern | Role | Boundary |
+- full-page or large modal **Choose a collaborator** launch surfaces;
+- separate binding-review dialog and **Send and start chat** CTA;
+- agent launch actions in Agents, packages, existing chats, receipts, or context dock;
+- Home package cards that create projects/chats;
+- large active-run headers, helper card stacks, global run indicators, or task-center rails;
+- management-grade capability/version/provenance content inside New Chat;
+- interactive “picker preview” actions inside agent authoring;
+- desktop-width dialogs or offscreen popovers preserved on mobile.
+
+## Responsive behavior
+
+| Surface | Desktop | Narrow/mobile |
 |---|---|---|
-| Composer-attached collaborator picker | choose before binding | viewport-bound; never rendered offscreen |
-| Binding review strip | make immutable Agent + Work explicit | present before first send only |
-| Run frontier | show one current activity and controls | transcript-native; no nested scroller |
-| Helper disclosure | bounded child supervision | compact by default; exception expands |
-| Attention block | answer or confirm an exceptional root or child need | not used for native writes |
-| Report receipt | result plus recovery/evidence | report and changes lead; mechanics fold away |
-| Package review | install/update diff and host impact | configuration surface, not run permission prompt |
-| Structured agent editor | author portable Mars profile | YAML behind Advanced/import/export |
+| New Chat Agent/Work | compact composer-anchored popovers | bottom sheet or full-width picker above keyboard; 44px targets; returns focus to footer control |
+| Agents inventory | flat list plus detail pane | routed list → detail with preserved search/scroll |
+| Definition editor | detail pane/full page with stable actions | full-width route and safe-area save bar |
+| Package review | content pane or fitting dialog | full-width routed review or true viewport-bounded sheet |
+| Existing identity | quiet composer/header fact | one compact text line or details disclosure; no carets |
+| Run/receipt | inline in reading column | same one-column hierarchy; controls wrap semantically |
 
-### Responsive rules
-
-At 390px, the transcript remains full width with 16px gutters. Pickers and review surfaces become viewport-bound sheets or full-width routed views. Controls wrap into meaningful rows; no desktop dialog survives wider than the viewport. Navigation/context drawers must not be copied as clipping behavior. Every status has text and every action is reachable without hover.
-
-## Required durable additions
-
-The visual design depends on a durable action-request boundary. Add an `agent_run_action_requests` concept and journal events rather than deriving attention from transient stream text. A request records:
-
-- run and optional child run;
-- type: writer input, external confirmation, budget increase, or outcome check;
-- literal question or proposed effect;
-- for external confirmation, the immutable proposed `effectId`, capability operation, canonical argument/resource hash, target, account/connection, scope, policy version, and expiry;
-- whether the parent may progress independently;
-- a suspended continuation/checkpoint reference and wake condition when the request blocks execution;
-- pending, answered, declined, expired, or resolved state;
-- response evidence, actor, and resulting approval grant or effect reference.
-
-The action request is the source of truth for the derived **Needs input** presentation. A blocking request releases the worker lease only after its continuation checkpoint is durable; ordinary reconciliation cannot resume it. Answer, decline, or expiry appends one compare-and-set wake outcome. An answer resumes only when the run remains nonterminal and uncancelled. Cancellation can close a pending request without waiting for an answer, and terminal finalization closes any remaining requests. If answer, expiry, cancellation, or terminal result race, one request-state revision wins and the journal explains the outcome.
-
-Multiple requests remain individually visible. A run presents **Needs input** while any blocking request is pending. It resumes a continuation only after that continuation's required requests resolve. A parent presents **Waiting for your answer** only when a required child request blocks the parent; other root or sibling work may continue.
-
-An external-confirmation answer compare-and-sets the exact request and creates, or moves, its proposal-specific approval grant to **granted**. The resumed executor consumes that still-live grant only inside the later effect `authorized → dispatching` claim transaction. Any change to arguments, resource, target, account, scope, policy version, or expiry closes the old request and creates a new proposal/request. This preserves reconnect, background execution, audit, and exact confirmation scope.
+Every status has text, controls remain keyboard reachable, sheets trap and return focus, live regions announce only throttled meaningful state changes, and reduced motion preserves every state. No surface may horizontally overflow at 390px.
 
 ## Acceptance criteria
 
-- A writer can distinguish ready, limited, blocked, and incompatible agents without seeing tools or schemas.
-- A new chat makes its Agent and Work binding explicit and immutable.
-- The writer can explicitly change either draft selection before **Send and start chat** atomically persists the initial message and binding; no empty bound chat is created.
-- The active run remains understandable with one line and survives backgrounding/reconnect.
-- Native writes happen without approval and always resolve into durable receipts when recorded.
-- Exceptional root and helper needs are visible without turning every helper into a second chat.
-- A terminal result leads with the report and changed documents; undo is immediately discoverable.
-- Install/update copy distinguishes static package policy, host impact, and existing-chat immutability.
-- A custom agent exports/imports through Mars rather than a Flow-only definition path.
-- Desktop and mobile use the same hierarchy without clipping, nested transcript scroll, or hover-only meaning.
-- Picker sheets trap focus while open and return it to the invoker; keyboard order follows the visual hierarchy and rows never contain nested interactive controls.
-- Live regions announce throttled meaningful state changes, not every activity token; reduced-motion preserves every state and action without animation.
-
-## Settled tradeoffs
-
-| Decision | Rejected alternative | Why |
-|---|---|---|
-| Fixed per-chat binding | switch agent in place | preserves reproducibility, Work semantics, and receipt identity |
-| Effective ability language | raw tool/permission list | accurate across hosts and meaningful to writers |
-| Transcript-native run | separate agent operations dashboard | preserves writing focus and one conversation locus |
-| Exception-only helper attention | expose every child transcript | supports supervision without babysitting |
-| Report-first receipt | activity/audit first | answers the writer's question before implementation evidence |
-| Structured authoring with YAML exchange | YAML-only editor or DB-only custom agent | portable without making source syntax the product UX |
-| Durable action request | transient prompt card | supports reconnect, audit, background work, and scoped confirmation |
+- New Chat is the only surface that chooses an Agent or Work and the normal first Send commits both with the initial message.
+- Agent choice is subordinate to writing: the default blank composer is primary and the picker stays compact.
+- Agents contains no launch/run actions and fully supports inspect, edit/fork, revision management, import/export, package install/update, and truthful capability/readiness understanding.
+- Home no longer presents package cards as project/chat launchers.
+- Existing chats show immutable Agent/Work identity without selectable or disabled-button affordance.
+- Active runs and helper attention remain inside the assistant turn; no global task center or management-page runtime UI exists.
+- Native document writes happen without approval and produce current-style receipts with precise undo.
+- Package/version changes state that they affect new chats only.
+- Custom agents use the normal Mars package/revision path.
+- Desktop and 390px screenshots demonstrate the same ownership and hierarchy without clipping, nested transcript scroll, or hover-only meaning.
 
 ## Evidence
 
-The `implement-agents` design work item retains the Flow pattern audit, behavior research specification, live visual baseline, and UX consistency audit used to derive this target. This PR commits the converged design and rendered acceptance evidence rather than duplicating the research corpus.
+This PR packages the reviewed target rather than the work item's investigation logs. The target was grounded in a multi-file source map, a live desktop/mobile probe of current Flow, a Flow pattern audit, and the recorded correction that separates management from launch. Their implementation-relevant findings are carried into this specification and the replacement inventory in the [implementation plan](agent-system-implementation-plan.md).

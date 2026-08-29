@@ -1,54 +1,105 @@
-# Agent experience design target
+# Quiet agent management and New Chat selection
 
-This folder is the visual and behavioral acceptance target for Meridian Flow's agent implementation. It deliberately contains no product implementation. The implementation may choose different component boundaries, but it should preserve the hierarchy, states, copy truth, and responsive behavior shown here and in [the agent experience](agent-ux-spec.md).
+This folder is the visual and behavioral acceptance target for Meridian Flow's agent implementation. It contains design evidence, not product implementation.
 
-## The target in one sentence
+## The target
 
-A writer chooses a collaborator for a new chat, sees the abilities and limits that apply now, lets it work without approving native manuscript edits, supervises only exceptional root or helper needs, and receives a report whose first proof is what changed and how to undo it.
+**New Chat is the only place a writer chooses an Agent and Work. Agents is where definitions and packages are understood and maintained. Existing chats show their immutable identity as a quiet fact.**
+
+```mermaid
+flowchart LR
+    A[Agents<br/>inspect and maintain] --> N[New Chat<br/>choose Agent and Work]
+    N --> C[Existing chat<br/>immutable identity]
+    C --> R[Assistant turn<br/>activity report receipt]
+```
+
+The implementation may choose different component boundaries, but it must preserve this ownership, information hierarchy, copy truth, and responsive behavior.
+
+## Surface ownership
+
+| Surface | Owns | Does not own |
+|---|---|---|
+| **New Chat** | compact draft Agent and Work controls, first instruction, atomic first send | package management, definition editing, launch gallery, separate start-agent ceremony |
+| **Agents** | inventory, detail, readiness, edit, duplicate, export, revisions, defaults, package install and update | starting chats, starting runs, live runs, helpers, queues, receipts |
+| **Existing chat** | visible immutable Agent and Work identity, ordinary conversation | selectors, switch controls, package settings |
+| **Assistant turn** | current activity, exceptional attention, report, changes, evidence, undo | global task-center or management-page run UI |
+
+The Home package cards that currently create package-shaped projects or chats are not part of the target. Package discovery and maintenance belongs in Agents.
 
 ## Design set
 
-1. [Agent system design](agent-system-design.md) defines the vocabulary, boundaries, authority model, and target architecture.
+1. [Agent system design](agent-system-design.md) defines vocabulary, boundaries, authority, and target architecture.
 2. [Agent system data model](agent-system-data-model.md) defines Mars exchange objects and Flow persistence/domain records.
-3. [Agent system implementation plan](agent-system-implementation-plan.md) defines the cross-repository delivery order and gates.
-4. [Agent experience](agent-ux-spec.md) defines writer-facing behavior, information hierarchy, responsive rules, and visual patterns.
-
-## Required journey
-
-1. **Choose:** purpose-first discovery distinguishes ready, available-with-limits, blocked, and incompatible definitions.
-2. **Bind:** Agent and Work are explicit and fixed when a new chat begins.
-3. **Run:** one readable activity frontier supports cancel, backgrounding, reconnect, and bounded helper supervision.
-4. **Report:** the result leads; changed documents and undo are immediately visible; mechanics are secondary.
-5. **Trust and author:** install/update shows material policy and source changes; custom agents use structured authoring and Mars YAML for exchange.
+3. [Agent system implementation plan](agent-system-implementation-plan.md) defines cross-repository delivery order, gates, and replacement inventory.
+4. [Agent experience](agent-ux-spec.md) defines surface ownership, writer-facing behavior, responsive rules, and visual patterns.
 
 ## Visual evidence
 
-The screenshots in this folder are rendered at 1440 × 1000 for desktop and 390 × 844 for mobile. They extend Flow's current warm paper transcript, compact activity disclosure, and edit receipt patterns. They are not intended as pixel-perfect production code; they are the interaction and hierarchy target.
+Every state is rendered without prototype navigation at 1440 × 1000 and 390 × 844. The target extends Flow's current warm writing desk, pinned composer, compact popover, settings list/detail, assistant prose, activity disclosure, and edit receipt patterns.
 
-| Surface | Desktop | Narrow |
-|---|---|---|
-| Choose | [![Desktop collaborator picker](screenshots/picker-1440x1000.png)](screenshots/picker-1440x1000.png) | [![Narrow collaborator picker](screenshots/picker-390x844.png)](screenshots/picker-390x844.png) |
-| Show unavailable | [![Desktop unavailable collaborator disclosure](screenshots/picker-unavailable-1440x1000.png)](screenshots/picker-unavailable-1440x1000.png) | [![Narrow unavailable collaborator disclosure](screenshots/picker-unavailable-390x844.png)](screenshots/picker-unavailable-390x844.png) |
-| Bind | [![Desktop binding review](screenshots/binding-review-1440x1000.png)](screenshots/binding-review-1440x1000.png) | [![Narrow binding review](screenshots/binding-review-390x844.png)](screenshots/binding-review-390x844.png) |
-| Run | [![Desktop active run](screenshots/run-1440x1000.png)](screenshots/run-1440x1000.png) | [![Narrow active run](screenshots/run-390x844.png)](screenshots/run-390x844.png) |
-| Report | [![Desktop report receipt](screenshots/receipt-1440x1000.png)](screenshots/receipt-1440x1000.png) | [![Narrow report receipt](screenshots/receipt-390x844.png)](screenshots/receipt-390x844.png) |
-| Update | [![Desktop update review](screenshots/update-1440x1000.png)](screenshots/update-1440x1000.png) | [![Narrow update review](screenshots/update-390x844.png)](screenshots/update-390x844.png) |
-| Update decision | See the complete update review above. | [![Narrow update host impact and activation decision](screenshots/update-decision-390x844.png)](screenshots/update-decision-390x844.png) |
-| Author | [![Desktop custom agent authoring](screenshots/author-1440x1000.png)](screenshots/author-1440x1000.png) | [![Narrow custom agent authoring](screenshots/author-390x844.png)](screenshots/author-390x844.png) |
+### New Chat stays writing-first
+
+The blank transcript and ordinary composer remain primary. Agent and Work are small draft controls; the ordinary Send action creates the first message and immutable binding together.
+
+| Desktop | Narrow |
+|---|---|
+| [![Desktop quiet New Chat](screenshots/new-chat-1440x1000.png)](screenshots/new-chat-1440x1000.png) | [![Narrow quiet New Chat](screenshots/new-chat-390x844.png)](screenshots/new-chat-390x844.png) |
+
+### Agent choice stays compact
+
+The picker answers only who the collaborator is, what it is for, and whether it is currently available. Deeper understanding and maintenance routes to Agents.
+
+| Desktop | Narrow |
+|---|---|
+| [![Desktop composer Agent picker](screenshots/new-chat-picker-1440x1000.png)](screenshots/new-chat-picker-1440x1000.png) | [![Narrow composer Agent picker](screenshots/new-chat-picker-390x844.png)](screenshots/new-chat-picker-390x844.png) |
+
+### Agents is a management workspace
+
+Definitions are primary because they are what writers select. Package ownership and updates remain visible without turning the area into a store or launcher. There is no Start, Run, or Test action.
+
+| Desktop | Narrow |
+|---|---|
+| [![Desktop Agents inventory and detail](screenshots/agents-1440x1000.png)](screenshots/agents-1440x1000.png) | [![Narrow Agents inventory](screenshots/agents-390x844.png)](screenshots/agents-390x844.png) |
+
+### Editing is structured; Mars remains portable
+
+The default editor is organized around identity, abilities, boundaries, helpers, and behavior. Saving creates an immutable revision. Mars YAML remains the exchange and distribution format rather than the default authoring interface.
+
+| Desktop | Narrow |
+|---|---|
+| [![Desktop structured Agent editor](screenshots/agent-editor-1440x1000.png)](screenshots/agent-editor-1440x1000.png) | [![Narrow structured Agent editor](screenshots/agent-editor-390x844.png)](screenshots/agent-editor-390x844.png) |
+
+### Package changes affect future chats
+
+Install and update review lives inside Agents. It explains material abilities, helpers, source, compatibility, and host impact, including the fixed promise that existing chats keep their current version.
+
+| Desktop | Narrow |
+|---|---|
+| [![Desktop package update](screenshots/package-update-1440x1000.png)](screenshots/package-update-1440x1000.png) | [![Narrow package update](screenshots/package-update-390x844.png)](screenshots/package-update-390x844.png) |
+
+### Existing chats remain quiet
+
+The bound identity is inert text rather than disabled selector chrome. Activity and helpers remain compact inside the originating assistant turn. The unboxed report leads and the current edit receipt keeps changed documents and Undo immediately discoverable.
+
+| Desktop | Narrow |
+|---|---|
+| [![Desktop existing chat with inert identity and receipt](screenshots/existing-chat-1440x1000.png)](screenshots/existing-chat-1440x1000.png) | [![Narrow existing chat with inert identity and receipt](screenshots/existing-chat-390x844.png)](screenshots/existing-chat-390x844.png) |
 
 ## Non-negotiable behavior
 
-- Existing chats do not switch Agent or Work. A different collaborator starts a new chat.
-- Draft Agent, Work, and first-instruction selections create no empty thread. **Send and start chat** persists the message and immutable binding together.
-- Availability language reflects the effective capabilities for this host and writer, not a raw tool manifest.
-- Native Yjs document writes do not ask for approval. Receipts and precise undo preserve writer control.
-- Writer questions, scoped external confirmations, budget increases, and outcome checks are durable action requests that survive backgrounding and reconnect.
-- External confirmation applies to one literal proposed action, target, account, scope, and expiry.
-- Child helpers remain collapsed unless they fail or need attention.
-- Reports lead with the answer and changes. Sources, effects, helpers, models, credits, duration, revision, and provenance remain inspectable behind disclosures.
-- Custom agents are ordinary Mars package profiles, not a Flow-only definition type. YAML is the exchange format, not the default editor.
-- Mobile recomposes into viewport-bound sheets and full-width routes. It must not preserve clipped desktop dialogs or hover-only meaning.
+- New Chat is the only Agent and Work choice boundary. Draft selection creates no empty thread.
+- The normal first Send atomically persists the writer message, thread, Work relation, and exact Agent definition binding.
+- Existing chats never switch Agent or Work.
+- Agents supports understanding and maintenance but contains no chat or run launch action.
+- Availability language reflects effective capabilities for this host and writer, not a raw tool manifest.
+- Native Yjs manuscript writes happen without approval and remain recoverable through receipts and precise undo.
+- Writer questions, scoped external confirmations, budget increases, and outcome checks use durable action requests that survive backgrounding and reconnect.
+- Reports lead with the result and changes. Sources, effects, helpers, model, credits, duration, revision, and provenance remain behind progressive disclosures.
+- Custom agents are ordinary Mars package profiles, not a Flow-only definition type.
+- Mobile uses viewport-bounded pickers and routed management views without horizontal clipping or hover-only meaning.
 
 ## Implementation boundary
 
-The target names product/domain responsibilities, not React files. Keep the agent catalog, immutable thread binding, run lifecycle, action-request records, receipt projection, package install/update, and structured authoring as separate ownership boundaries. UI state derives from durable domain state rather than optimistic stream messages.
+Keep catalog/install state, immutable thread binding, run lifecycle, durable action requests, receipt projection, package install/update, and structured authoring as separate ownership boundaries. UI state derives from durable domain state rather than optimistic stream messages.
+
+Current Flow source is evidence for reusable visual patterns and explicit deletions, not a compatibility target. No Agents destination currently ships; implementing this design creates it as a management surface rather than preserving the incomplete Home package-launch behavior.

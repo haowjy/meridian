@@ -439,25 +439,26 @@ Show:
 - compatibility/degraded reasons
 - static policy changes and host activation impact since the installed version
 
-### Agent selection
+### New Chat selection
 
-Lead with purpose, then distinguishing effective capabilities:
+Keep selection subordinate to writing. Each row contains only the Agent name, one-sentence purpose, and honest current readiness:
 
 ```text
 Critic
 Reviews pacing, causality, dialogue, and emotional turns.
-
-Can read this Work
-Cannot edit manuscript text
-Can be consulted by Muse
+Ready
 ```
 
-Do not lead with raw tool names. Capability copy is generated from the Flow semantic-tool registry and the current host/context compatibility result.
+The readiness line is generated from the Flow semantic-tool registry and the current host/context compatibility result, so it may state a concrete limit or setup need. Do not put the capability inventory, boundaries, helpers, source, version, instructions, dependencies, provenance, or raw tool names in New Chat. Those are management facts.
+
+### Agent detail
+
+Agents is the understanding and maintenance boundary. Definition detail shows the effective capabilities and boundaries that distinguish the collaborator, including what it can and cannot do, readiness/setup, helpers, behavior, source, and revision. Package install/update review adds dependencies, connections, provenance, and activation impact. New Chat uses the same resolution result only to derive its compact readiness sentence; it does not duplicate this detail.
 
 ### During a run
 
 - compact state: preparing, writing, consulting Critic, waiting, failed
-- child task cards are collapsed by default and show name, task, state, and cost
+- child activity stays inside the originating assistant turn as a compact collapsed disclosure showing name, task, state, and cost; it never creates a global rail or management dashboard
 - external action approvals show the literal action, target, account, and duration/scope
 - ordinary manuscript edits never stop for approval
 
