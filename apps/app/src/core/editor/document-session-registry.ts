@@ -3,10 +3,15 @@ import type {
   LiveDocumentSessionAuthority,
   LiveDocumentSessionLease,
 } from "@meridian/contracts/protocol";
-import type { DocumentId, UserId } from "@meridian/contracts/runtime";
+import type { DocumentId, ProjectId, UserId } from "@meridian/contracts/runtime";
 
 import type { DocumentSession, DocumentSessionSnapshot } from "./document-session";
 import { DocumentSessionRegistry } from "./document-session-registry-implementation";
+
+export type RetainedLiveDocumentReference = Readonly<{
+  projectId: ProjectId;
+  documentId: DocumentId;
+}>;
 
 export interface LiveDocumentSessionRegistry extends LiveDocumentSessionAuthority {
   get(lease: LiveDocumentSessionLease): DocumentSession;
@@ -19,6 +24,9 @@ export interface LiveDocumentSessionRegistry extends LiveDocumentSessionAuthorit
     options?: { detachedDocumentIds?: Iterable<DocumentId> },
   ): void;
   release(ownerId: string): void;
+  observeRetainedLiveDocuments(
+    observer: (snapshot: readonly RetainedLiveDocumentReference[]) => void,
+  ): () => void;
   peekLive(lease: LiveDocumentSessionLease): DocumentSession | undefined;
   hasLive(lease: LiveDocumentSessionLease): boolean;
   observeLive(

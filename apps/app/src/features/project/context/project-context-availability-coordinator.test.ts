@@ -43,13 +43,17 @@ describe("ProjectContextAvailabilityCoordinator", () => {
     const batches: ProjectDocumentAvailabilityCommand[][] = [];
     const coordinator = new ProjectContextAvailabilityCoordinator({
       lookup,
+      repairProjectCatalog: async () => undefined,
       apply: (commands) => {
         batches.push([...commands]);
       },
     });
     const ids = Array.from({ length: 257 }, (_, index) => id(257 - index));
     const lease = coordinator.attachProject("project-1");
-    lease.watch("tabs", ids);
+    lease.watch(
+      "tabs",
+      ids.map((documentId) => ({ documentId })),
+    );
     await coordinator.recheck("project-1", ids);
     expect(calls.map((call) => call.length)).toEqual([128, 128, 1]);
     expect(calls.flat()).toEqual([...ids].sort());
@@ -78,13 +82,14 @@ describe("ProjectContextAvailabilityCoordinator", () => {
           })),
         );
       },
+      repairProjectCatalog: async () => undefined,
       apply: (commands) => {
         batches.push([...commands]);
       },
       retryDelayMs: 0,
     });
     const lease = coordinator.attachProject("project-1");
-    lease.watch("tabs", [id(1)]);
+    lease.watch("tabs", [{ documentId: id(1) }]);
     await coordinator.recheck("project-1", [id(1)]);
     expect(calls).toEqual([[id(1)], [id(1)]]);
     expect(batches[0]?.[0]?.commandId).toBe(`availability/v1/terminal-remove/project-1/${id(1)}/8`);
@@ -95,12 +100,13 @@ describe("ProjectContextAvailabilityCoordinator", () => {
     const pending: Array<(value: ProjectContextIdentityLookupResult) => void> = [];
     const coordinator = new ProjectContextAvailabilityCoordinator({
       lookup: (_projectId, _documentIds) => new Promise((resolve) => pending.push(resolve)),
+      repairProjectCatalog: async () => undefined,
       apply: (commands) => {
         batches.push([...commands]);
       },
     });
     const lease = coordinator.attachProject("project-1");
-    lease.watch("tabs", [id(1)]);
+    lease.watch("tabs", [{ documentId: id(1) }]);
     const old = coordinator.recheck("project-1", [id(1)]);
     const newer = coordinator.recheck("project-1", [id(1)]);
     pending[1]?.(
@@ -167,12 +173,13 @@ describe("ProjectContextAvailabilityCoordinator", () => {
     );
     const coordinator = new ProjectContextAvailabilityCoordinator({
       lookup,
+      repairProjectCatalog: async () => undefined,
       apply: () => undefined,
     });
     const lease = coordinator.attachProject("project-1");
     await coordinator.coldScopeHint("project-1", "work-cold");
     expect(lookup).not.toHaveBeenCalled();
-    lease.watch("tabs", [id(1)], { workId: "work-cold" });
+    lease.watch("tabs", [{ documentId: id(1), sourceWorkId: "work-cold" }]);
     await coordinator.coldScopeHint("project-1", "work-cold");
     expect(lookup).toHaveBeenCalledWith("project-1", [id(1)]);
   });

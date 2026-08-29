@@ -25,6 +25,7 @@ import {
   type DocumentSessionCrossContextCoordination,
   type LocalSessionAuthority,
 } from "./document-session-cross-context-coordination";
+import type { RetainedLiveDocumentReference } from "./document-session-registry";
 import { readSchemaFenceQuarantine, writeSchemaFenceQuarantine } from "./schema-fence";
 
 const LIVE_DOC_SOFT_CAP = 50;
@@ -70,6 +71,9 @@ export class DocumentSessionRegistry
   private readonly liveRooms = new Map<DocumentId, LiveRoomState>();
   private readonly unleasedRooms = new Map<string, UnleasedRoomState>();
   private readonly retainedByOwner = new Map<string, Map<DocumentId, RetainedLiveDocument>>();
+  private readonly retainedObservers = new Set<
+    (snapshot: readonly RetainedLiveDocumentReference[]) => void
+  >();
   private readonly unleasedRetainedByOwner = new Map<
     string,
     { roomKeys: Set<string>; detachedRoomKeys: Set<string> }
@@ -192,11 +196,21 @@ export class DocumentSessionRegistry
     }
     this.retainedByOwner.set(ownerId, retained);
     this.reconcileRetainedSessions();
+    this.publishRetainedLiveDocuments();
   }
 
   release(ownerId: string): void {
-    this.retainedByOwner.delete(ownerId);
+    if (!this.retainedByOwner.delete(ownerId)) return;
     this.reconcileRetainedSessions();
+    this.publishRetainedLiveDocuments();
+  }
+
+  observeRetainedLiveDocuments(
+    observer: (snapshot: readonly RetainedLiveDocumentReference[]) => void,
+  ): () => void {
+    this.retainedObservers.add(observer);
+    this.notifyRetainedObserver(observer, this.retainedSnapshot());
+    return () => this.retainedObservers.delete(observer);
   }
 
   retainBranchRooms(ownerId: string, roomKeys: Iterable<string>): void {
@@ -312,6 +326,7 @@ export class DocumentSessionRegistry
   invalidateAll(): Promise<void> {
     if (this.invalidationPromise) return this.invalidationPromise;
     this.retainedByOwner.clear();
+    this.publishRetainedLiveDocuments();
     this.unleasedRetainedByOwner.clear();
     this.liveDocCapWarningEmitted = false;
     for (const timer of this.pendingTeardownTimers.values()) clearTimeout(timer);
@@ -417,7 +432,11 @@ export class DocumentSessionRegistry
     const state = this.liveRooms.get(input.documentId);
     if (!state || state.persistenceGeneration !== input.incarnation) return;
     this.cancelPendingTeardown(input.documentId);
-    for (const retained of this.retainedByOwner.values()) retained.delete(input.documentId);
+    let retainedChanged = false;
+    for (const retained of this.retainedByOwner.values()) {
+      retainedChanged = retained.delete(input.documentId) || retainedChanged;
+    }
+    if (retainedChanged) this.publishRetainedLiveDocuments();
     this.liveRooms.delete(input.documentId);
     await state.session?.destroy();
   }
@@ -431,7 +450,9 @@ export class DocumentSessionRegistry
     const state = this.liveRooms.get(input.documentId);
     if (!state || state.persistenceGeneration !== input.incarnation) return "locally-empty";
     state.leases.delete(input.projectId);
-    this.removeRetainedProjectLease(input.projectId, input.documentId);
+    if (this.removeRetainedProjectLease(input.projectId, input.documentId)) {
+      this.publishRetainedLiveDocuments();
+    }
     if (state.leases.size > 0) return "other-local-project-remains";
     this.cancelPendingTeardown(input.documentId);
     this.liveRooms.delete(input.documentId);
@@ -514,9 +535,50 @@ export class DocumentSessionRegistry
     );
   }
 
-  private removeRetainedProjectLease(projectId: ProjectId, documentId: DocumentId): void {
+  private removeRetainedProjectLease(projectId: ProjectId, documentId: DocumentId): boolean {
+    let changed = false;
     for (const retained of this.retainedByOwner.values()) {
-      if (retained.get(documentId)?.lease.projectId === projectId) retained.delete(documentId);
+      if (retained.get(documentId)?.lease.projectId === projectId) {
+        retained.delete(documentId);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  private retainedSnapshot(): readonly RetainedLiveDocumentReference[] {
+    const references = new Map<string, RetainedLiveDocumentReference>();
+    for (const retained of this.retainedByOwner.values()) {
+      for (const { lease } of retained.values()) {
+        const reference = Object.freeze({
+          projectId: lease.projectId,
+          documentId: lease.documentId,
+        });
+        references.set(`${lease.projectId}\0${lease.documentId}`, reference);
+      }
+    }
+    return Object.freeze(
+      [...references.values()].sort(
+        (left, right) =>
+          left.projectId.localeCompare(right.projectId) ||
+          left.documentId.localeCompare(right.documentId),
+      ),
+    );
+  }
+
+  private publishRetainedLiveDocuments(): void {
+    const snapshot = this.retainedSnapshot();
+    for (const observer of this.retainedObservers) this.notifyRetainedObserver(observer, snapshot);
+  }
+
+  private notifyRetainedObserver(
+    observer: (snapshot: readonly RetainedLiveDocumentReference[]) => void,
+    snapshot: readonly RetainedLiveDocumentReference[],
+  ): void {
+    try {
+      observer(snapshot);
+    } catch {
+      // A diagnostic observer cannot interrupt the registry's lease transaction.
     }
   }
 

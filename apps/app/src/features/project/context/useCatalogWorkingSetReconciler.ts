@@ -1,17 +1,40 @@
 /** Project-lifetime bridge from authoritative catalog transitions to working-set owners. */
 
-import type { WorkingSetRoute } from "@meridian/contracts/protocol";
+import {
+  isWorkScopedProjectContextScheme,
+  type WorkingSetRoute,
+} from "@meridian/contracts/protocol";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import type { CatalogCacheView } from "@/client/query/context-catalog-cache";
 import { isProjectContextCatalogKey } from "@/client/query/project-query-keys";
 import { observeWorksAvailability } from "@/client/query/works-availability-observer";
 import { useContextTabsStore } from "@/client/stores";
+import type { ContextTab } from "@/client/stores/context-tabs-store/context-tabs-store";
 import { readRecentRoutes } from "@/client/working-set";
 import {
   useContextRemovalCoordinator,
   useProjectContextAvailabilityCoordinator,
 } from "./ContextRemovalAccountProvider";
+import type { AvailabilityWatchRecord } from "./project-context-availability-coordinator";
+
+function routeWatchRecord(route: WorkingSetRoute): AvailabilityWatchRecord {
+  return {
+    documentId: route.documentId,
+    ...(isWorkScopedProjectContextScheme(route.scheme) && route.workId
+      ? { sourceWorkId: route.workId }
+      : {}),
+  };
+}
+
+function tabWatchRecord(tab: Exclude<ContextTab, { kind: "new" }>): AvailabilityWatchRecord {
+  return {
+    documentId: tab.documentId,
+    ...(isWorkScopedProjectContextScheme(tab.scheme) && tab.workId
+      ? { sourceWorkId: tab.workId }
+      : {}),
+  };
+}
 
 function visibleFileIds(view: CatalogCacheView): Set<string> {
   return new Set(
@@ -59,43 +82,27 @@ export function useCatalogWorkingSetReconciler(projectId: string): void {
   const removal = useContextRemovalCoordinator();
 
   useEffect(() => {
-    const lease = availability.attachProject(projectId, {
-      onIndeterminate: () =>
-        queryClient.invalidateQueries({ queryKey: ["projects", projectId, "context-catalog"] }),
-    });
-    let reportedWorkIds = new Set<string>();
+    const lease = availability.attachProject(projectId);
     const reportWatches = () => {
       const slice = useContextTabsStore.getState().byProject[projectId];
       const tabs = (slice?.tabs ?? []).filter((tab) => tab.kind !== "new");
-      lease.watch(
-        "server-tabs",
-        tabs.map((tab) => tab.documentId),
-      );
-      const nextWorkIds = new Set(tabs.flatMap((tab) => (tab.workId ? [tab.workId] : [])));
-      for (const workId of reportedWorkIds) {
-        if (!nextWorkIds.has(workId)) lease.watch(`work:${workId}`, []);
-      }
-      for (const workId of nextWorkIds) {
-        lease.watch(
-          `work:${workId}`,
-          tabs.filter((tab) => tab.workId === workId).map((tab) => tab.documentId),
-          { workId },
-        );
-      }
-      reportedWorkIds = nextWorkIds;
+      lease.watch("server-tabs", tabs.map(tabWatchRecord));
       const selection = removal.getProjectSnapshot(projectId).selection;
       lease.watch(
         "route-selection",
         selection.status === "bound" && selection.identity.kind === "server"
-          ? [selection.identity.documentId]
+          ? [
+              {
+                documentId: selection.identity.documentId,
+                ...(isWorkScopedProjectContextScheme(selection.locator.scheme) &&
+                selection.locator.workId
+                  ? { sourceWorkId: selection.locator.workId }
+                  : {}),
+              },
+            ]
           : [],
-        {
-          ...(selection.status === "bound" && selection.locator.workId
-            ? { workId: selection.locator.workId }
-            : {}),
-        },
       );
-      lease.watch("recent-routes", recentWatchedDocumentIds(readRecentRoutes(projectId)));
+      lease.watch("recent-routes", readRecentRoutes(projectId).slice(0, 64).map(routeWatchRecord));
     };
     reportWatches();
     const stopTabs = useContextTabsStore.subscribe(reportWatches);
@@ -131,14 +138,7 @@ export function useCatalogWorkingSetReconciler(projectId: string): void {
         void availability.coldScopeHint(projectId, workId);
       }
     });
-    const repair = () => void availability.recheck(projectId);
-    window.addEventListener("focus", repair);
-    window.addEventListener("online", repair);
-    const poll = window.setInterval(repair, 60_000);
     return () => {
-      window.clearInterval(poll);
-      window.removeEventListener("focus", repair);
-      window.removeEventListener("online", repair);
       stopTabs();
       stopSelection();
       stopWorksObservation();

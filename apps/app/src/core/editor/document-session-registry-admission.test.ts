@@ -22,6 +22,31 @@ describe("DocumentSessionRegistry authority admission", () => {
     expect(registry.temporaryPeek("doc")).toBeUndefined();
   });
 
+  it("publishes immutable retained identities and isolates observer failures", async () => {
+    const registry = await registryFor("account-retained-observer");
+    const snapshots: Array<readonly { projectId: string; documentId: string }[]> = [];
+    registry.observeRetainedLiveDocuments(() => {
+      throw new Error("observer failure");
+    });
+    const stop = registry.observeRetainedLiveDocuments((snapshot) => snapshots.push(snapshot));
+    const b = await admit(registry, "project-b", "doc-b", "1");
+    const a = await admit(registry, "project-a", "doc-a", "1");
+
+    expect(() => registry.retain("owner", [b, a])).not.toThrow();
+    expect(snapshots.at(-1)).toEqual([
+      { projectId: "project-a", documentId: "doc-a" },
+      { projectId: "project-b", documentId: "doc-b" },
+    ]);
+    expect(Object.isFrozen(snapshots.at(-1))).toBe(true);
+
+    await registry.revokeAccess("project-a", "doc-a", "1", "access-a-1");
+    expect(snapshots.at(-1)).toEqual([{ projectId: "project-b", documentId: "doc-b" }]);
+    registry.release("owner");
+    expect(snapshots.at(-1)).toEqual([]);
+    stop();
+    registry.destroyAll();
+  });
+
   it("shares one room, Y.Doc, and first persistence generation across project leases", async () => {
     const registry = await registryFor("account-shared");
     const a = await admit(registry, "project-a", "doc-shared", "10");

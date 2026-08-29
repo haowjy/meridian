@@ -45,20 +45,20 @@ type Lookup = (
   documentIds: readonly string[],
 ) => Promise<ProjectContextIdentityLookupResult>;
 
-type WatchRecord = { documentId: string; workId?: string };
+export type AvailabilityWatchRecord = Readonly<{ documentId: string; sourceWorkId?: string }>;
+type AggregatedWatchRecord = { documentId: string; sourceWorkIds: Set<string> };
 type ProjectState = {
   leases: number;
-  watches: Map<string, ReadonlyMap<string, WatchRecord>>;
+  watches: Map<string, ReadonlyMap<string, AvailabilityWatchRecord>>;
   requestGeneration: Map<string, number>;
   highestAuthorityGeneration: Map<string, bigint>;
   admittedAuthority: Map<string, ProjectContextAuthority>;
   inFlight: number;
   slotWaiters: Array<() => void>;
-  indeterminateHandlers: Map<string, () => void | Promise<void>>;
 };
 
 export type ProjectAvailabilityLease = {
-  watch(producer: string, documentIds: readonly string[], options?: { workId?: string }): void;
+  watch(producer: string, records: readonly AvailabilityWatchRecord[]): void;
   release(): void;
 };
 
@@ -87,40 +87,35 @@ export class ProjectContextAvailabilityCoordinator {
   constructor(
     private readonly dependencies: {
       lookup: Lookup;
-      apply(commands: readonly ProjectDocumentAvailabilityCommand[]): void | Promise<void>;
+      apply(commands: readonly ProjectDocumentAvailabilityCommand[]): unknown;
+      repairProjectCatalog(projectId: string): Promise<void>;
       retryDelayMs?: number;
       onIndeterminate?: (projectId: string, documentId: string) => void;
     },
   ) {}
 
-  attachProject(
-    projectId: string,
-    options: { onIndeterminate?: () => void | Promise<void> } = {},
-  ): ProjectAvailabilityLease {
+  attachProject(projectId: string): ProjectAvailabilityLease {
     const state = this.project(projectId);
     state.leases += 1;
     const prefix = `lease:${++this.nextLeaseId}:`;
-    if (options.onIndeterminate) state.indeterminateHandlers.set(prefix, options.onIndeterminate);
     let held = true;
     return {
-      watch: (producer, documentIds, options) => {
+      watch: (producer, records) => {
         if (!held) return;
+        const before = new Set(this.watchedRecords(state).map((record) => record.documentId));
         state.watches.set(
           `${prefix}${producer}`,
-          new Map(
-            [...new Set(documentIds)].map((documentId) => [
-              documentId,
-              { documentId, ...(options?.workId ? { workId: options.workId } : {}) },
-            ]),
-          ),
+          new Map(records.map((record) => [record.documentId, Object.freeze({ ...record })])),
         );
+        this.fenceLostWatches(state, before);
       },
       release: () => {
         if (!held) return;
         held = false;
+        const before = new Set(this.watchedRecords(state).map((record) => record.documentId));
         for (const key of state.watches.keys())
           if (key.startsWith(prefix)) state.watches.delete(key);
-        state.indeterminateHandlers.delete(prefix);
+        this.fenceLostWatches(state, before);
         state.leases -= 1;
         if (state.leases === 0) this.projects.delete(projectId);
       },
@@ -136,9 +131,13 @@ export class ProjectContextAvailabilityCoordinator {
     const state = this.projects.get(projectId);
     if (!state) return;
     const ids = this.watchedRecords(state)
-      .filter((record) => record.workId === workId)
+      .filter((record) => record.sourceWorkIds.has(workId))
       .map((record) => record.documentId);
     if (ids.length > 0) await this.recheck(projectId, ids);
+  }
+
+  async recheckWatchedProjects(): Promise<void> {
+    await Promise.all([...this.projects.keys()].sort().map((projectId) => this.recheck(projectId)));
   }
 
   watchedDocumentIds(projectId: string): string[] {
@@ -284,11 +283,30 @@ export class ProjectContextAvailabilityCoordinator {
     return null;
   }
 
-  private watchedRecords(state: ProjectState): WatchRecord[] {
-    const records = new Map<string, WatchRecord>();
-    for (const watch of state.watches.values())
-      for (const record of watch.values()) records.set(record.documentId, record);
+  private watchedRecords(state: ProjectState): AggregatedWatchRecord[] {
+    const records = new Map<string, AggregatedWatchRecord>();
+    for (const watch of state.watches.values()) {
+      for (const record of watch.values()) {
+        const aggregate = records.get(record.documentId) ?? {
+          documentId: record.documentId,
+          sourceWorkIds: new Set<string>(),
+        };
+        if (record.sourceWorkId) aggregate.sourceWorkIds.add(record.sourceWorkId);
+        const admitted = state.admittedAuthority.get(record.documentId);
+        if (admitted?.kind === "work") aggregate.sourceWorkIds.add(admitted.workId);
+        records.set(record.documentId, aggregate);
+      }
+    }
     return [...records.values()];
+  }
+
+  private fenceLostWatches(state: ProjectState, before: ReadonlySet<string>): void {
+    const after = new Set(this.watchedRecords(state).map((record) => record.documentId));
+    for (const documentId of before) {
+      if (!after.has(documentId)) {
+        state.requestGeneration.set(documentId, (state.requestGeneration.get(documentId) ?? 0) + 1);
+      }
+    }
   }
 
   private async withLookupSlot<T>(state: ProjectState, run: () => Promise<T>): Promise<T> {
@@ -308,7 +326,7 @@ export class ProjectContextAvailabilityCoordinator {
     state: ProjectState,
   ): Promise<ProjectContextIdentityResolution | null> {
     this.dependencies.onIndeterminate?.(projectId, documentId);
-    await Promise.all([...state.indeterminateHandlers.values()].map((handler) => handler()));
+    await this.dependencies.repairProjectCatalog(projectId);
     try {
       const retry = await this.withLookupSlot(state, () =>
         this.dependencies.lookup(projectId, [documentId]),
@@ -335,7 +353,6 @@ export class ProjectContextAvailabilityCoordinator {
         admittedAuthority: new Map(),
         inFlight: 0,
         slotWaiters: [],
-        indeterminateHandlers: new Map(),
       };
       this.projects.set(projectId, state);
     }

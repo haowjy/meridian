@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, StrictMode, useLayoutEffect, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { useContextTabsStore } from "@/client/stores";
@@ -8,6 +9,15 @@ import {
   useContextRemovalCoordinator,
 } from "./ContextRemovalAccountProvider";
 import type { ContextRemovalCoordinator } from "./context-removal-coordinator";
+
+const providerQueryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function TestAccountProvider(props: React.ComponentProps<typeof ContextRemovalAccountProvider>) {
+  return (
+    <QueryClientProvider client={providerQueryClient}>
+      <ContextRemovalAccountProvider {...props} />
+    </QueryClientProvider>
+  );
+}
 
 function tracked(documentId: string, path: string) {
   return {
@@ -39,9 +49,9 @@ describe("ContextRemovalAccountProvider", () => {
     }
     await withReactRoot(
       <StrictMode>
-        <ContextRemovalAccountProvider accountId="account-a">
+        <TestAccountProvider accountId="account-a">
           <Child />
-        </ContextRemovalAccountProvider>
+        </TestAccountProvider>
       </StrictMode>,
       async () => {
         expect(instances).toHaveLength(2);
@@ -97,9 +107,9 @@ describe("ContextRemovalAccountProvider", () => {
       const [accountId, updateAccount] = useState("account-a");
       setAccount = updateAccount;
       return (
-        <ContextRemovalAccountProvider key={accountId} accountId={accountId}>
+        <TestAccountProvider key={accountId} accountId={accountId}>
           <Child accountId={accountId} />
-        </ContextRemovalAccountProvider>
+        </TestAccountProvider>
       );
     }
     useContextTabsStore.setState({
@@ -165,9 +175,9 @@ describe("ContextRemovalAccountProvider", () => {
       const [accountId, updateAccount] = useState("account-a");
       setAccount = updateAccount;
       return (
-        <ContextRemovalAccountProvider key={accountId} accountId={accountId}>
+        <TestAccountProvider key={accountId} accountId={accountId}>
           <Child />
-        </ContextRemovalAccountProvider>
+        </TestAccountProvider>
       );
     }
 
@@ -233,9 +243,9 @@ describe("ContextRemovalAccountProvider", () => {
       const [accountId, updateAccount] = useState("account-a");
       setAccount = updateAccount;
       return (
-        <ContextRemovalAccountProvider key={accountId} accountId={accountId}>
+        <TestAccountProvider key={accountId} accountId={accountId}>
           <Child accountId={accountId} />
-        </ContextRemovalAccountProvider>
+        </TestAccountProvider>
       );
     }
 
