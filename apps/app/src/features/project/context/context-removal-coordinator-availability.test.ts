@@ -1,5 +1,9 @@
 /** Existing-owner integration for project-final availability command batches. */
-import type { CatalogFileEntry, LiveDocumentSessionAuthority } from "@meridian/contracts/protocol";
+import type {
+  CatalogFileEntry,
+  LiveDocumentSessionAuthority,
+  WorkingSetRoute,
+} from "@meridian/contracts/protocol";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useContextTabsStore } from "@/client/stores";
 import type { ProjectSearch } from "../routing/project-route";
@@ -210,6 +214,172 @@ describe("ContextRemovalCoordinator availability batches", () => {
 });
 
 describe("availability owner batch publication and settlement", () => {
+  it("reuses routed-removal continuity and publishes only the adjacent final state", async () => {
+    const adjacentId = "00000000-0000-4000-8000-000000000002";
+    useContextTabsStore.setState({
+      byProject: {
+        [projectId]: {
+          tabs: [
+            {
+              kind: "tracked",
+              documentId,
+              scheme: "manuscript",
+              path: "Active.md",
+              name: "Active.md",
+              editable: true,
+              filetype: "markdown",
+              schemaType: "document",
+            },
+            {
+              kind: "tracked",
+              documentId: adjacentId,
+              scheme: "manuscript",
+              path: "Adjacent.md",
+              name: "Adjacent.md",
+              editable: true,
+              filetype: "markdown",
+              schemaType: "document",
+            },
+          ],
+          selectedTabIdByWork: { "work-1": documentId },
+        },
+      },
+      _deskHydrated: true,
+    });
+    let search: ProjectSearch = {
+      screen: "context",
+      scheme: "manuscript",
+      path: "Active.md",
+      work: "work-1",
+    };
+    let routes: WorkingSetRoute[] = [
+      { documentId, scheme: "manuscript" as const, path: "Active.md" },
+      { documentId: adjacentId, scheme: "manuscript" as const, path: "Adjacent.md" },
+    ];
+    const route = {
+      readSearch: () => search,
+      updateSearch: (_projectId: string, update: (value: ProjectSearch) => ProjectSearch) => {
+        search = update(search);
+      },
+    };
+    const coordinator = new ContextRemovalCoordinator("account-1", {
+      route,
+      workingSet: {
+        readRecentRoutes: () => routes,
+        replaceRecentRoutes: (_projectId, next) => {
+          routes = [...next];
+          return routes;
+        },
+        reconcileContextRoutes: () => routes,
+      },
+    });
+    coordinator.registerRoutePort(projectId, route, "work-1");
+    const revision = coordinator.beginRouteSelection(projectId, {
+      scheme: "manuscript",
+      path: "Active.md",
+      workId: "work-1",
+    });
+    coordinator.bindRouteSelection(projectId, revision, { kind: "server", documentId });
+    const publications: string[][] = [];
+    const stop = useContextTabsStore.subscribe((state) => {
+      publications.push(state.byProject[projectId]?.tabs.map((tab) => tab.documentId) ?? []);
+    });
+
+    coordinator.reconcileDocumentAvailability([
+      {
+        kind: "terminal-remove",
+        commandId: `availability/v1/terminal-remove/${projectId}/${documentId}/8`,
+        projectId,
+        documentId,
+        generation: "8",
+        cause: "document-deleted",
+      },
+    ]);
+    stop();
+
+    expect(publications).toEqual([[adjacentId]]);
+    expect(useContextTabsStore.getState().byProject[projectId]).toMatchObject({
+      selectedTabIdByWork: { "work-1": adjacentId },
+    });
+    expect(routes).toEqual([{ documentId: adjacentId, scheme: "manuscript", path: "Adjacent.md" }]);
+    expect(search).toEqual({
+      screen: "context",
+      scheme: "manuscript",
+      path: "Adjacent.md",
+      work: "work-1",
+    });
+    expect(coordinator.getProjectSnapshot(projectId)).toMatchObject({
+      selection: { status: "bound", identity: { documentId: adjacentId } },
+      admitted: { scheme: "manuscript", path: "Adjacent.md", workId: "work-1" },
+      removalFence: { removedDocumentIds: [documentId] },
+    });
+  });
+
+  it("clears routed continuity when terminal availability removes the final tab", () => {
+    useContextTabsStore.setState({
+      byProject: {
+        [projectId]: {
+          tabs: [
+            {
+              kind: "tracked",
+              documentId,
+              scheme: "manuscript",
+              path: "Only.md",
+              name: "Only.md",
+              editable: true,
+              filetype: "markdown",
+              schemaType: "document",
+            },
+          ],
+          selectedTabIdByWork: { "work-1": documentId },
+        },
+      },
+      _deskHydrated: true,
+    });
+    let search: ProjectSearch = {
+      screen: "context",
+      scheme: "manuscript",
+      path: "Only.md",
+      work: "work-1",
+    };
+    const route = {
+      readSearch: () => search,
+      updateSearch: (_projectId: string, update: (value: ProjectSearch) => ProjectSearch) => {
+        search = update(search);
+      },
+    };
+    const coordinator = new ContextRemovalCoordinator("account-1", { route });
+    coordinator.registerRoutePort(projectId, route, "work-1");
+    const revision = coordinator.beginRouteSelection(projectId, {
+      scheme: "manuscript",
+      path: "Only.md",
+      workId: "work-1",
+    });
+    coordinator.bindRouteSelection(projectId, revision, { kind: "server", documentId });
+
+    coordinator.reconcileDocumentAvailability([
+      {
+        kind: "terminal-remove",
+        commandId: `availability/v1/terminal-remove/${projectId}/${documentId}/28`,
+        projectId,
+        documentId,
+        generation: "28",
+        cause: "document-deleted",
+      },
+    ]);
+
+    expect(useContextTabsStore.getState().byProject[projectId]).toEqual({
+      tabs: [],
+      selectedTabIdByWork: {},
+    });
+    expect(search).toEqual({ screen: "context", work: "work-1" });
+    expect(coordinator.getProjectSnapshot(projectId)).toMatchObject({
+      selection: { status: "none" },
+      admitted: null,
+      removalFence: { removedDocumentIds: [documentId] },
+    });
+  });
+
   it("publishes one final Zustand desk state for two commands", async () => {
     const secondId = "00000000-0000-4000-8000-000000000002";
     useContextTabsStore.setState({
@@ -420,5 +590,36 @@ describe("availability Work authority and retry", () => {
     expect(sessions.revokeDocument).toHaveBeenCalledTimes(2);
     expect(replay.replayedCommandIds).toEqual([command.commandId]);
     stop();
+  });
+
+  it("joins an equal in-flight replay without orphaning its pending record", async () => {
+    let resolve!: () => void;
+    const deferred = new Promise<void>((settle) => {
+      resolve = settle;
+    });
+    const sessions = {
+      revokeDocument: vi.fn(() => deferred),
+      revokeAccess: vi.fn(),
+    } as unknown as LiveDocumentSessionAuthority;
+    const coordinator = new ContextRemovalCoordinator("account-1", { sessions });
+    const command = {
+      kind: "terminal-remove" as const,
+      commandId: `availability/v1/terminal-remove/${projectId}/${documentId}/18`,
+      projectId,
+      documentId,
+      generation: "18",
+      cause: "document-deleted" as const,
+    };
+
+    const first = coordinator.reconcileDocumentAvailability([command]);
+    const replay = coordinator.reconcileDocumentAvailability([command]);
+    expect(sessions.revokeDocument).toHaveBeenCalledOnce();
+    resolve();
+    await Promise.all([first.sessionSettlement, replay.sessionSettlement]);
+    expect(await coordinator.retryPendingSessionEffects()).toEqual([]);
+    expect(sessions.revokeDocument).toHaveBeenCalledOnce();
+
+    await coordinator.reconcileDocumentAvailability([command]).sessionSettlement;
+    expect(sessions.revokeDocument).toHaveBeenCalledTimes(2);
   });
 });

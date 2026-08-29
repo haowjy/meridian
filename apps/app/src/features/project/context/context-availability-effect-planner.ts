@@ -4,8 +4,13 @@ import {
   type WorkingSetRoute,
 } from "@meridian/contracts/protocol";
 import type { ContextTab, ProjectTabsSlice } from "@/client/stores";
-import { buildWorkingSetRoute, workingSetRouteIdentityEquals } from "@/client/working-set";
 import {
+  buildWorkingSetRoute,
+  reconcileSnapshotContextRoutes,
+  workingSetRouteIdentityEquals,
+} from "@/client/working-set";
+import {
+  applyContextRepairIfCurrent,
   type ContextRouteTarget,
   openContextRouteSearch,
   type ProjectSearch,
@@ -14,7 +19,14 @@ import type {
   AppliedAvailabilityCommand,
   ContextRemovalProjectSnapshot,
 } from "./context-removal-coordinator";
-import type { ContextRouteSelection } from "./context-removal-protocol";
+import { planContextRemoval, routeTargetForTab } from "./context-removal-planner";
+import {
+  beginSelection,
+  bindSelection,
+  type ContextRouteSelection,
+  leaveSelection,
+  reduceRepresentedRemoval,
+} from "./context-removal-protocol";
 import type { ProjectDocumentAvailabilityCommand } from "./project-context-availability-coordinator";
 
 export type ContextAvailabilityLocalBatchPlan = Readonly<{
@@ -24,6 +36,8 @@ export type ContextAvailabilityLocalBatchPlan = Readonly<{
   selectedTabIdByWork: Readonly<Record<string, string>>;
   selection: ContextRouteSelection;
   admitted: ContextRouteTarget | null;
+  removalFence: ContextRemovalProjectSnapshot["removalFence"];
+  transitionRevision: number;
   recentRoutes: readonly WorkingSetRoute[];
   routeSearch: ProjectSearch | null;
   generationRecords: readonly (AppliedAvailabilityCommand & { documentId: string })[];
@@ -59,6 +73,8 @@ export function planContextAvailabilityBatch(
   const selectedTabIdByWork = { ...input.tabs.selectedTabIdByWork };
   let selection = input.project.selection;
   let admitted = input.project.admitted;
+  let removalFence = input.project.removalFence;
+  let transitionRevision = input.project.transitionRevision;
   let recentRoutes = [...input.recentRoutes];
   let routeSearch = input.routeSearch;
   const generationRecords: Array<AppliedAvailabilityCommand & { documentId: string }> = [];
@@ -156,22 +172,101 @@ export function planContextAvailabilityBatch(
       continue;
     }
 
-    const removable = new Set(
-      tabs.flatMap((tab) =>
-        tab.kind !== "new" && !tab.draftOnly && tab.documentId === id ? [tab.documentId] : [],
-      ),
-    );
-    tabs = tabs.filter((tab) => !removable.has(tab.documentId));
+    const intent = {
+      cause:
+        command.kind === "terminal-remove"
+          ? ("catalog-unavailable" as const)
+          : ("authority-unavailable" as const),
+      documentIds: [id],
+    };
+    const transition = reduceRepresentedRemoval(selection, tabs, intent, command.commandId);
+    selection = transition.selection;
+    const selectedTabId = input.project.activeWorkId
+      ? (selectedTabIdByWork[input.project.activeWorkId] ?? null)
+      : null;
+    const removal = planContextRemoval({
+      activeWorkId: input.project.activeWorkId,
+      tabs,
+      selectedTabId,
+      admitted,
+      route: {
+        cleanup: transition.planning.cleanup,
+        current: transition.planning.current,
+      },
+      intent,
+    });
+    if (removal.outcome.kind !== "noop") tabs = [...removal.outcome.remaining];
     for (const [workId, selected] of Object.entries(selectedTabIdByWork)) {
       if (selected === id) delete selectedTabIdByWork[workId];
     }
-    recentRoutes = recentRoutes.filter((route) => route.documentId !== id);
-    if (
-      selection.status === "bound" &&
-      selection.identity.kind === "server" &&
-      selection.identity.documentId === id
-    ) {
-      admitted = null;
+    if (input.project.activeWorkId && removal.nextSelectedTabId) {
+      selectedTabIdByWork[input.project.activeWorkId] = removal.nextSelectedTabId;
+    }
+    const exactRecentRoutes = recentRoutes.filter((route) => route.documentId === id);
+    const workingSet = {
+      ...removal.workingSet,
+      removedLocators: [...removal.workingSet.removedLocators, ...exactRecentRoutes],
+      survivingOwnedLocators: removal.workingSet.survivingOwnedLocators.filter(
+        (route) => route.documentId !== id,
+      ),
+      promote: removal.workingSet.promote?.documentId === id ? null : removal.workingSet.promote,
+    };
+    recentRoutes = reconcileSnapshotContextRoutes(
+      { recentRoutes, lastThreadId: null },
+      workingSet,
+    ).recentRoutes;
+    admitted = removal.admitted;
+    if (removal.outcome.kind !== "noop") {
+      transitionRevision += 1;
+      const current = transition.planning.current;
+      const routedContinuity =
+        current.kind !== "none" && removal.outcome.routedDocumentRemoved ? current : null;
+      removalFence = {
+        selectionRevision: routedContinuity
+          ? routedContinuity.revision
+          : (removalFence?.selectionRevision ?? selection.revision),
+        transitionRevision,
+        locator: routedContinuity ? routedContinuity.locator : (removalFence?.locator ?? null),
+        removedDocumentIds: [...new Set([...(removalFence?.removedDocumentIds ?? []), id])],
+      };
+    }
+    const repairTarget = removal.routeRepairTarget;
+    if (routeSearch && repairTarget && transition.planning.current.kind === "proven-removed") {
+      const current = transition.planning.current;
+      routeSearch = applyContextRepairIfCurrent(
+        {
+          expectedSearch: {
+            screen: "context",
+            work: routeSearch.work,
+            scheme: current.locator.scheme,
+            path: current.locator.path,
+          },
+          expectedSelection: {
+            kind: "removed-binding",
+            revision: current.revision,
+            documentId: current.identity.documentId,
+          },
+          next: repairTarget,
+        },
+        routeSearch,
+      );
+    }
+    if (repairTarget && transition.planning.current.kind === "proven-removed") {
+      if ("kind" in repairTarget) {
+        selection = leaveSelection(selection).selection;
+      } else {
+        const candidate = beginSelection(selection, repairTarget).selection;
+        const fallback = tabs.find((tab) =>
+          sameTarget(routeTargetForTab(tab, input.project.activeWorkId), repairTarget),
+        );
+        const bound = fallback
+          ? bindSelection(candidate, candidate.revision, {
+              kind: fallback.kind === "new" ? "local" : "server",
+              documentId: fallback.documentId,
+            })
+          : null;
+        selection = bound?.selection ?? candidate;
+      }
     }
     sessionEffects.push({
       commandId: command.commandId,
@@ -189,6 +284,8 @@ export function planContextAvailabilityBatch(
     selectedTabIdByWork,
     selection,
     admitted,
+    removalFence,
+    transitionRevision,
     recentRoutes,
     routeSearch,
     generationRecords,

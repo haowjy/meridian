@@ -555,6 +555,8 @@ export class ContextRemovalCoordinator {
       this.workingSet.replaceRecentRoutes(projectId, plan.recentRoutes);
       state.selection = plan.selection;
       state.admitted = plan.admitted;
+      state.removalFence = plan.removalFence;
+      state.transitionRevision = plan.transitionRevision;
       for (const record of plan.generationRecords) {
         this.appliedAvailability.set(`${projectId}/${record.documentId}`, {
           generation: record.generation,
@@ -571,8 +573,12 @@ export class ContextRemovalCoordinator {
     }
 
     const replayEffects = replayed.flatMap((command) => availabilitySessionEffect(command));
-    const effects = [...(plan?.sessionEffects ?? []), ...replayEffects];
-    for (const effect of effects) this.pendingSessionEffects.set(effect.commandId, effect);
+    const effects = [...(plan?.sessionEffects ?? []), ...replayEffects].map((effect) => {
+      const pending = this.pendingSessionEffects.get(effect.commandId);
+      if (pending) return pending;
+      this.pendingSessionEffects.set(effect.commandId, effect);
+      return effect;
+    });
     const runs = effects.map((effect) => this.startSessionEffect(effect));
     return {
       committedCommandIds: committed.map((command) => command.commandId),
