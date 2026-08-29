@@ -144,6 +144,33 @@ describe("DocumentSessionRegistry live authority", () => {
     });
   });
 
+  it("applies the same exact command ordering to project access fences", async () => {
+    const registry = await registryFor("account-access-order");
+    const lease = await admit(registry, "project", "doc", "10");
+    registry.get(lease);
+
+    await expect(registry.revokeAccess("project", "doc", "9", "access-9")).rejects.toEqual(
+      expectAuthorityError("older-command"),
+    );
+    await expect(registry.revokeAccess("project", "doc", "10", "access-10")).resolves.toEqual({
+      revokedThrough: "10",
+      persistence: "cleared",
+    });
+    await expect(registry.revokeAccess("project", "doc", "10", "access-10")).resolves.toEqual({
+      revokedThrough: "10",
+      persistence: "cleared",
+    });
+    await expect(registry.revokeAccess("project", "doc", "10", "other-10")).rejects.toEqual(
+      expectAuthorityError("command-collision"),
+    );
+    const newer = await admit(registry, "project", "doc", "11");
+    expect(registry.get(newer).getSnapshot().status).not.toBe("destroyed");
+    await expect(registry.revokeAccess("project", "doc", "12", "access-12")).resolves.toEqual({
+      revokedThrough: "12",
+      persistence: "cleared",
+    });
+  });
+
   it("refuses barrier-released stale get, restart, and retain without recreating persistence", async () => {
     const registry = await registryFor("account-barrier");
     const lease = await admit(registry, "project", "doc", "2");

@@ -444,7 +444,7 @@ export class DocumentSessionRegistry implements LiveDocumentSessionAuthority {
           this.temporaryGetLive(documentId, retained.detachedRoomKeys.has(documentId));
       }
     }
-    for (const [documentId, owner] of keep) {
+    for (const owner of keep.values()) {
       const state = this.requireLease(owner.lease);
       this.getOrCreateLiveSession(owner.lease, state, !owner.detached);
     }
