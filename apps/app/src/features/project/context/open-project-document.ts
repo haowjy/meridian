@@ -1,4 +1,17 @@
+import type {
+  AvailabilityGeneration,
+  CatalogFileEntry,
+  LiveDocumentSessionLease,
+  ProjectContextIdentityResolution,
+} from "@meridian/contracts/protocol";
+import type { DocumentId, ProjectId } from "@meridian/contracts/runtime";
 import type { CatalogFile } from "@/client/query/context-catalog-projection";
+import type { DocumentSession } from "@/core/editor/document-session";
+import type { LiveDocumentSessionRegistry } from "@/core/editor/document-session-registry";
+import type {
+  LocalDocumentSessionAdoptionPort,
+  LocalDocumentSessionHandoff,
+} from "@/core/editor/local-document-session-adoption";
 /**
  * Opening a project document by id — the app's one answer to "take me there".
  *
@@ -26,6 +39,136 @@ import { lookupContextCatalogFile } from "@/client/query/useContextCatalog";
 import { useContextTabsActions } from "@/client/stores";
 import { useProjectContextRoute } from "../routing/ProjectContextRoute";
 import { contextTabFromFile } from "./context-tab-from-file";
+
+export interface LiveDocumentBinding {
+  readonly projectId: ProjectId;
+  readonly documentId: DocumentId;
+  readonly generation: AvailabilityGeneration;
+  readonly session: DocumentSession;
+  release(): void;
+}
+
+export interface AdmittedLiveDocument {
+  readonly projectId: ProjectId;
+  readonly documentId: DocumentId;
+  readonly generation: AvailabilityGeneration;
+  bind(ownerId: string): Promise<LiveDocumentBinding>;
+}
+
+export type ProjectDocumentLiveOpenResult =
+  | { kind: "opened"; document: CatalogFileEntry; admission: AdmittedLiveDocument }
+  | { kind: "cancelled" }
+  | { kind: "not-editable"; document: CatalogFileEntry }
+  | {
+      kind: "unavailable";
+      reason: "deleted" | "authority-unavailable" | "not-visible" | "indeterminate" | "failed";
+    };
+
+export type ProjectDocumentLiveOpenRequest =
+  | { source: "server"; projectId: ProjectId; documentId: DocumentId; signal?: AbortSignal }
+  | {
+      source: "local-untitled";
+      projectId: ProjectId;
+      documentId: DocumentId;
+      handoff: LocalDocumentSessionHandoff;
+      signal?: AbortSignal;
+    };
+
+type ExactOpenResolution = ProjectContextIdentityResolution | { kind: "failed" | "malformed" };
+
+/** Exact-resolution application operation, independent from navigation effects. */
+export class ProjectDocumentLiveOpener {
+  constructor(
+    private readonly dependencies: {
+      availability: {
+        resolveForOpen(projectId: ProjectId, documentId: DocumentId): Promise<ExactOpenResolution>;
+      };
+      registry: Pick<LiveDocumentSessionRegistry, "admit" | "retain" | "get" | "release">;
+      adoption: LocalDocumentSessionAdoptionPort;
+      epochSignal: AbortSignal;
+    },
+  ) {}
+
+  async open(input: ProjectDocumentLiveOpenRequest): Promise<ProjectDocumentLiveOpenResult> {
+    if (input.signal?.aborted || this.dependencies.epochSignal.aborted)
+      return { kind: "cancelled" };
+    let resolution: ExactOpenResolution;
+    try {
+      resolution = await this.dependencies.availability.resolveForOpen(
+        input.projectId,
+        input.documentId,
+      );
+    } catch {
+      return { kind: "unavailable", reason: "failed" };
+    }
+    if (input.signal?.aborted || this.dependencies.epochSignal.aborted)
+      return { kind: "cancelled" };
+    if (resolution.kind !== "available") {
+      const reason =
+        resolution.kind === "malformed" || resolution.kind === "failed"
+          ? "failed"
+          : resolution.kind;
+      return { kind: "unavailable", reason };
+    }
+    if (resolution.documentId !== input.documentId)
+      return { kind: "unavailable", reason: "failed" };
+    if (!resolution.entry.editable) return { kind: "not-editable", document: resolution.entry };
+    if (input.signal?.aborted || this.dependencies.epochSignal.aborted)
+      return { kind: "cancelled" };
+
+    let lease: LiveDocumentSessionLease;
+    if (input.source === "server") {
+      lease = await this.dependencies.registry.admit(
+        input.projectId,
+        input.documentId,
+        resolution.generation,
+      );
+    } else {
+      const adopted = await this.dependencies.adoption.admitAndAdopt({
+        projectId: input.projectId,
+        documentId: input.documentId,
+        generation: resolution.generation,
+        handoff: input.handoff,
+      });
+      lease = adopted.lease;
+    }
+    return {
+      kind: "opened",
+      document: resolution.entry,
+      admission: this.capability(lease),
+    };
+  }
+
+  private capability(lease: LiveDocumentSessionLease): AdmittedLiveDocument {
+    const registry = this.dependencies.registry;
+    return Object.freeze({
+      projectId: lease.projectId,
+      documentId: lease.documentId,
+      generation: lease.generation,
+      async bind(ownerId: string): Promise<LiveDocumentBinding> {
+        registry.retain(ownerId, [lease]);
+        try {
+          const session = registry.get(lease);
+          let released = false;
+          return Object.freeze({
+            projectId: lease.projectId,
+            documentId: lease.documentId,
+            generation: lease.generation,
+            session,
+            release() {
+              if (released) return;
+              released = true;
+              registry.release(ownerId);
+            },
+          });
+        } catch (error) {
+          registry.release(ownerId);
+          throw error;
+        }
+      },
+    });
+  }
+}
 
 /** Where a document may live. Work-scoped schemes need the work to look in. */
 const NAVIGABLE_SCHEMES = ["manuscript", "kb", "user", "scratch"] as const;

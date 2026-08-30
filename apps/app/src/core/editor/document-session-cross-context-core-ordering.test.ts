@@ -13,6 +13,39 @@ import {
 } from "./document-session-cross-context-coordination.test-support";
 
 describe("document session cross-context coordination", () => {
+  it("keeps the original operation lock through the local adoption callback", async () => {
+    const locks = new FifoWebLocks();
+    const { value } = coordinator("account-original-operation", locks);
+    let continueAdoption!: () => void;
+    const adoptionBarrier = new Promise<void>((resolve) => {
+      continueAdoption = resolve;
+    });
+    let callbackEntered = false;
+    const adoption = value.admitAndRun?.("project", "doc", "5", async () => {
+      callbackEntered = true;
+      await adoptionBarrier;
+      return "adopted";
+    });
+    await vi.waitFor(() => expect(callbackEntered).toBe(true));
+    const revoke = value.revokeDocument("project", "doc", "5", "terminal-5");
+    await Promise.resolve();
+    expect(
+      locks.history.filter(
+        ({ event, name }) =>
+          event === "grant" && name === "meridian:f1d:v1:operation/account-original-operation/doc",
+      ),
+    ).toHaveLength(1);
+    continueAdoption();
+    await expect(adoption).resolves.toMatchObject({ value: "adopted" });
+    await expect(revoke).resolves.toMatchObject({ revokedThrough: "5" });
+    expect(
+      locks.history.filter(
+        ({ event, name }) =>
+          event === "grant" && name === "meridian:f1d:v1:operation/account-original-operation/doc",
+      ),
+    ).toHaveLength(3);
+  });
+
   it("fails closed before authority storage or local admission when capabilities are absent", async () => {
     const local = new LocalAuthority();
     expect(() =>

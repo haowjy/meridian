@@ -91,6 +91,17 @@ export interface DocumentSessionCrossContextCoordination {
     documentId: DocumentId,
     generation: AvailabilityGeneration,
   ): Promise<LiveDocumentSessionLease & { persistenceGeneration: AvailabilityGeneration }>;
+  admitAndRun?<T>(
+    projectId: ProjectId,
+    documentId: DocumentId,
+    generation: AvailabilityGeneration,
+    run: (
+      admitted: LiveDocumentSessionLease & { persistenceGeneration: AvailabilityGeneration },
+    ) => Promise<T>,
+  ): Promise<{
+    admitted: LiveDocumentSessionLease & { persistenceGeneration: AvailabilityGeneration };
+    value: T;
+  }>;
   revokeDocument(
     projectId: ProjectId,
     documentId: DocumentId,
@@ -294,6 +305,21 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     documentId: DocumentId,
     generation: AvailabilityGeneration,
   ): Promise<LiveDocumentSessionLease & { persistenceGeneration: AvailabilityGeneration }> {
+    const result = await this.admitAndRun(projectId, documentId, generation, async () => undefined);
+    return result.admitted;
+  }
+
+  async admitAndRun<T>(
+    projectId: ProjectId,
+    documentId: DocumentId,
+    generation: AvailabilityGeneration,
+    run: (
+      admitted: LiveDocumentSessionLease & { persistenceGeneration: AvailabilityGeneration },
+    ) => Promise<T>,
+  ): Promise<{
+    admitted: LiveDocumentSessionLease & { persistenceGeneration: AvailabilityGeneration };
+    value: T;
+  }> {
     await this.requireReady();
     this.assertAdmissionOpen();
     for (;;) {
@@ -301,6 +327,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       let installed:
         | (LiveDocumentSessionLease & { persistenceGeneration: AvailabilityGeneration })
         | null = null;
+      let value: T | undefined;
       await this.withOperation(documentId, async () => {
         await this.helpPendingUnderOperation(documentId);
         this.assertAdmissionOpen();
@@ -308,6 +335,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
         this.assertAdmissionOpen();
         this.local.validateAdmission({ documentId, projectId, generation });
         const acquired = await this.ensureSharedHolds(documentId, projectId);
+        let durableAdmitted = false;
         try {
           const decision = await this.store.admit({ documentId, projectId, generation });
           if (decision.kind === "generation-revoked") {
@@ -332,6 +360,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
             generation,
             persistenceGeneration: decision.persistenceGeneration,
           });
+          durableAdmitted = true;
           let projects = this.admissions.get(documentId);
           if (!projects) {
             projects = new Map();
@@ -342,14 +371,15 @@ class Coordination implements DocumentSessionCrossContextCoordination {
             incarnation: decision.persistenceGeneration,
           });
           installed = { ...lease, persistenceGeneration: decision.persistenceGeneration };
+          value = await run(installed);
         } catch (error) {
-          await this.releaseNewHolds(documentId, projectId, acquired);
+          if (!durableAdmitted) await this.releaseNewHolds(documentId, projectId, acquired);
           throw error;
         }
       });
       if (installed) {
         this.scheduleScan();
-        return installed;
+        return { admitted: installed, value: value as T };
       }
       if (!barrier || !(await this.runPurgeWorker(documentId))) {
         throw new DocumentSessionCoordinationError(

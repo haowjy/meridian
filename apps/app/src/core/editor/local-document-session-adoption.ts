@@ -14,6 +14,10 @@ export type LocalDocumentSessionTransfer = Readonly<{
   documentId: DocumentId;
   session: DocumentSession;
   ownerRevision: number;
+  /** Throws before the durable ownership transition if the owner record moved. */
+  prepareCommit(): void;
+  /** Nonthrowing synchronous convergence after the durable phase write. */
+  commit(): void;
 }>;
 
 export type LocalDocumentSessionHandoff = Readonly<{

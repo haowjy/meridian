@@ -50,6 +50,13 @@ type RetainedLiveDocument = { lease: LiveDocumentSessionLease; detached: boolean
 
 type UnleasedRoomState = { session: DocumentSession; detached: boolean };
 
+type LocalTransferReservation = {
+  handoff: LocalDocumentSessionHandoff;
+  transfer: LocalDocumentSessionTransfer;
+  settled: Promise<void>;
+  settle(): void;
+};
+
 export class DocumentSessionAuthorityError extends Error {
   constructor(
     readonly kind:
@@ -94,6 +101,7 @@ export class DocumentSessionRegistry
     { roomKeys: Set<string>; detachedRoomKeys: Set<string> }
   >();
   private readonly admissionReservations = new Map<DocumentId, number>();
+  private readonly localTransferReservations = new Map<DocumentId, LocalTransferReservation>();
   private readonly pendingTeardownTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private liveDocCapWarningEmitted = false;
   private readonly sessionObservers = new Map<
@@ -128,6 +136,8 @@ export class DocumentSessionRegistry
     compareAvailabilityGeneration(generation, generation);
     this.reserveAdmission(documentId);
     try {
+      await this.localTransferReservations.get(documentId)?.settled;
+      this.requireAccountRuntimeOpen();
       const coordination = await this.configuredCoordination();
       const admitted = await this.translateCoordination(() =>
         coordination.admit(projectId, documentId, generation),
@@ -300,24 +310,111 @@ export class DocumentSessionRegistry
     });
   }
 
-  reserve(_transfer: LocalDocumentSessionTransfer): LocalDocumentSessionHandoff {
+  reserve(transfer: LocalDocumentSessionTransfer): LocalDocumentSessionHandoff {
     this.requireAccountRuntimeOpen();
-    throw new Error("Local document reservation is not installed until F1-I1");
+    const existing = this.localTransferReservations.get(transfer.documentId);
+    if (existing) {
+      if (
+        existing.transfer.session === transfer.session &&
+        existing.transfer.projectId === transfer.projectId &&
+        existing.transfer.ownerRevision === transfer.ownerRevision
+      ) {
+        return existing.handoff;
+      }
+      throw new Error("A different local transfer already reserves this document");
+    }
+    let settle!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    const handoff = Object.freeze({}) as LocalDocumentSessionHandoff;
+    this.localTransferReservations.set(transfer.documentId, {
+      handoff,
+      transfer,
+      settled,
+      settle,
+    });
+    return handoff;
   }
 
-  async admitAndAdopt(_input: {
+  async admitAndAdopt(input: {
     projectId: ProjectId;
     documentId: DocumentId;
     generation: AvailabilityGeneration;
     handoff: LocalDocumentSessionHandoff;
   }): Promise<{ lease: LiveDocumentSessionLease; session: DocumentSession }> {
     this.requireAccountRuntimeOpen();
-    throw new Error("Local document adoption is not installed until F1-I1");
+    compareAvailabilityGeneration(input.generation, input.generation);
+    const reservation = this.localTransferReservations.get(input.documentId);
+    if (
+      !reservation ||
+      reservation.handoff !== input.handoff ||
+      reservation.transfer.projectId !== input.projectId ||
+      reservation.transfer.documentId !== input.documentId
+    ) {
+      throw new Error("Local document handoff does not own this reservation");
+    }
+    const coordination = await this.configuredCoordination();
+    if (!coordination.admitAndRun)
+      throw new Error("Cross-context coordination cannot adopt a local session");
+    const cleanup: { closePrevious?: () => Promise<void> } = {};
+    const result = await this.translateCoordination(
+      () =>
+        coordination.admitAndRun?.(
+          input.projectId,
+          input.documentId,
+          input.generation,
+          async (admitted) => {
+            this.requireAccountRuntimeOpen();
+            if (this.localTransferReservations.get(input.documentId) !== reservation)
+              throw new Error("Local document reservation changed during admission");
+            const state = this.liveRooms.get(input.documentId);
+            if (!state || state.session) throw new Error("A different live session won adoption");
+            const stage = await reservation.transfer.session.stageIndexedDbPersistence(
+              documentSessionPersistenceKey(
+                this.accountId as AccountId,
+                input.documentId,
+                admitted.persistenceGeneration,
+              ),
+            );
+            try {
+              this.requireAccountRuntimeOpen();
+              if (
+                this.localTransferReservations.get(input.documentId) !== reservation ||
+                this.liveRooms.get(input.documentId) !== state ||
+                state.session
+              ) {
+                throw new Error("Local adoption lost its exact reservation");
+              }
+              reservation.transfer.prepareCommit();
+              const stageCleanup = stage.commit();
+              cleanup.closePrevious = stageCleanup.closePrevious;
+              state.session = reservation.transfer.session;
+              state.persistenceGeneration = admitted.persistenceGeneration;
+              reservation.transfer.commit();
+              this.localTransferReservations.delete(input.documentId);
+              reservation.settle();
+            } catch (error) {
+              await stage.abort();
+              throw error;
+            }
+          },
+        ) as Promise<{
+          admitted: LiveDocumentSessionLease & { persistenceGeneration: AvailabilityGeneration };
+          value: undefined;
+        }>,
+    );
+    const session = reservation.transfer.session;
+    this.attachSessionTransport(session);
+    await cleanup.closePrevious?.();
+    return { lease: result.admitted, session };
   }
 
   beginCloseAccountRuntime(): void {
     if (this.accountRuntimeState === "closing") return;
     this.accountRuntimeState = "closing";
+    for (const reservation of this.localTransferReservations.values()) reservation.settle();
+    this.localTransferReservations.clear();
     this.coordination?.beginClose();
   }
 

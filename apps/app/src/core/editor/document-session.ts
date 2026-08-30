@@ -40,7 +40,7 @@ import {
 } from "@meridian/prosemirror-schema";
 import { IndexeddbPersistence } from "y-indexeddb";
 import { Awareness, removeAwarenessStates } from "y-protocols/awareness";
-import type * as Y from "yjs";
+import * as Y from "yjs";
 
 import type { ConnectionState } from "@/core/transport/ThreadTransport";
 
@@ -69,6 +69,16 @@ export function roomSessionPersistenceKey(roomKey: string): string {
 const PERSISTENCE_KEY_PREFIX = "meridian:document:v";
 /** Give normal IndexedDB replay priority without letting blocked storage hold collaboration offline. */
 const LOCAL_PERSISTENCE_TRANSPORT_TIMEOUT_MS = 1_000;
+
+function deleteIndexedDb(name: string): Promise<void> {
+  if (typeof indexedDB === "undefined") return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(name);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => reject(new Error(`IndexedDB deletion blocked: ${name}`));
+  });
+}
 
 /** Best-effort delete of obsolete schema-partitioned IndexedDB entries for one document. */
 export function deleteStaleVersionedIndexedDb(
@@ -185,15 +195,15 @@ export type DocumentSessionOptions = {
 type Listener = (snapshot: DocumentSessionSnapshot) => void;
 
 export class DocumentSession {
-  readonly roomKey: string;
-  readonly room: YjsRoomName;
-  readonly documentId: string;
+  roomKey: string;
+  room: YjsRoomName;
+  documentId: string;
   readonly document: Y.Doc;
   readonly awareness: Awareness;
   readonly fragmentName = PROSEMIRROR_FRAGMENT_NAME;
   readonly markerStore: SessionMarkerStore;
 
-  private readonly persistence: IndexeddbPersistence | null;
+  private persistence: IndexeddbPersistence | null;
   private transportProvider: DocumentSessionTransportProvider | null = null;
   private transportAttachmentPending = false;
   private readonly listeners = new Set<Listener>();
@@ -464,6 +474,69 @@ export class DocumentSession {
       transaction.onerror = () => reject(transaction.error);
       transaction.onabort = () => reject(transaction.error ?? new Error("IndexedDB flush aborted"));
     });
+  }
+
+  /**
+   * Prepare a second persistence namespace on this exact Y.Doc. The returned
+   * commit is deliberately synchronous so ownership can converge while the
+   * caller still holds the cross-context operation lock.
+   */
+  async stageIndexedDbPersistence(key: string): Promise<{
+    commit(): { closePrevious(): Promise<void> };
+    abort(): Promise<void>;
+  }> {
+    if (this.destroyed) throw new Error("Cannot stage persistence for a destroyed session");
+    const staged = new IndexeddbPersistence(key, this.document);
+    try {
+      await staged.whenSynced;
+      const db = staged.db;
+      if (!db) throw new Error("Canonical IndexedDB did not open");
+      await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction("updates", "readwrite");
+        transaction.objectStore("updates").add(Y.encodeStateAsUpdate(this.document));
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () =>
+          reject(transaction.error ?? new Error("Canonical IndexedDB staging aborted"));
+      });
+    } catch (error) {
+      await staged.destroy().catch(() => undefined);
+      throw error;
+    }
+    let settled = false;
+    return {
+      commit: () => {
+        if (settled) throw new Error("Persistence stage is already settled");
+        settled = true;
+        const previous = this.persistence;
+        this.persistence = staged;
+        return { closePrevious: () => previous?.destroy() ?? Promise.resolve() };
+      },
+      abort: async () => {
+        if (settled) return;
+        settled = true;
+        await staged.destroy();
+      },
+    };
+  }
+
+  /** Local-only same-session identity change used by conflict remint. */
+  async reidentifyDetached(documentId: string, persistenceKey: string): Promise<void> {
+    if (this.transportProvider || this.status !== "detached")
+      throw new Error("Only a detached local session may be reminted");
+    const room = parseYjsRoomName(documentId);
+    if (room?.kind !== "live") throw new Error("Invalid reminted document identity");
+    const previousKey = this.persistence?.name;
+    const stage = await this.stageIndexedDbPersistence(persistenceKey);
+    const cleanup = stage.commit();
+    this.roomKey = documentId;
+    this.room = room;
+    this.documentId = documentId;
+    await cleanup.closePrevious();
+    if (previousKey && previousKey !== persistenceKey) {
+      await deleteIndexedDb(previousKey).catch(() => undefined);
+    }
+    this.emit();
   }
 
   /**

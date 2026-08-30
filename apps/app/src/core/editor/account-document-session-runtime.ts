@@ -1,5 +1,9 @@
 /** Immutable account epoch and narrowed facets over one private session core. */
 import type { AccountId } from "@meridian/contracts/protocol";
+import {
+  createLocalUntitledCrossContextLeasePort,
+  type LocalUntitledCrossContextLeasePort,
+} from "./document-session-cross-context-coordination";
 import type {
   LiveDocumentSessionRegistry,
   LocalUntitledDocumentSessionFactory,
@@ -17,6 +21,7 @@ export interface AccountDocumentSessionRuntime {
   readonly localReservation: LocalDocumentSessionReservationPort;
   readonly localAdoption: LocalDocumentSessionAdoptionPort;
   readonly localConstruction: LocalUntitledDocumentSessionFactory;
+  readonly localLifetime: LocalUntitledCrossContextLeasePort;
   beginClose(): void;
   finishClose(): Promise<void>;
 }
@@ -28,6 +33,7 @@ export interface AccountDocumentSessionCore {
   readonly localReservation: LocalDocumentSessionReservationPort;
   readonly localAdoption: LocalDocumentSessionAdoptionPort;
   readonly localConstruction: LocalUntitledDocumentSessionFactory;
+  readonly localLifetime?: LocalUntitledCrossContextLeasePort;
   beginClose(): void;
   finishClose(): Promise<void>;
 }
@@ -45,6 +51,7 @@ function createCore(accountId: AccountId): AccountDocumentSessionCore {
     localReservation: registry,
     localAdoption: registry,
     localConstruction: registry,
+    localLifetime: createLocalUntitledCrossContextLeasePort({ accountId }),
     beginClose: () => registry.beginCloseAccountRuntime(),
     finishClose: () => registry.closeAccountRuntime(),
   });
@@ -104,6 +111,8 @@ export function createAccountDocumentSessionRuntime(
       return core.localConstruction.createDetached(request);
     },
   };
+  const localLifetime =
+    core.localLifetime ?? createLocalUntitledCrossContextLeasePort({ accountId: input.accountId });
 
   const beginClose = () => {
     if (state !== "open") return;
@@ -118,6 +127,7 @@ export function createAccountDocumentSessionRuntime(
     localReservation,
     localAdoption,
     localConstruction,
+    localLifetime,
     beginClose,
     finishClose() {
       if (finishPromise) return finishPromise;

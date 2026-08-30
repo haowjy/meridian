@@ -62,6 +62,10 @@ export type ProjectAvailabilityLease = {
   release(): void;
 };
 
+export type ProjectDocumentOpenResolution =
+  | ProjectContextIdentityResolution
+  | { kind: "failed" | "malformed" };
+
 const MAX_IDS = 128;
 const MAX_ATTEMPTS = 2;
 
@@ -147,6 +151,53 @@ export class ProjectContextAvailabilityCoordinator {
           .map((record) => record.documentId)
           .sort()
       : [];
+  }
+
+  /** One exact-ID authority resolution with its own short-lived project lease. */
+  async resolveForOpen(
+    projectId: string,
+    documentId: string,
+  ): Promise<ProjectDocumentOpenResolution> {
+    const lease = this.attachProject(projectId);
+    const state = this.project(projectId);
+    const requestGeneration = (state.requestGeneration.get(documentId) ?? 0) + 1;
+    state.requestGeneration.set(documentId, requestGeneration);
+    try {
+      let response: ProjectContextIdentityLookupResult;
+      try {
+        response = await this.withLookupSlot(state, () =>
+          this.dependencies.lookup(projectId, [documentId]),
+        );
+      } catch {
+        return { kind: "failed" };
+      }
+      if (
+        state.requestGeneration.get(documentId) !== requestGeneration ||
+        response.resolutions.length !== 1 ||
+        response.resolutions[0]?.documentId !== documentId
+      ) {
+        return { kind: "malformed" };
+      }
+      const resolution = response.resolutions[0];
+      const generation = BigInt(authorityGeneration(resolution));
+      if (generation < (state.highestAuthorityGeneration.get(documentId) ?? -1n))
+        return { kind: "malformed" };
+      const command = this.classify(projectId, resolution, state);
+      if (command) this.dependencies.apply([command]);
+      state.highestAuthorityGeneration.set(documentId, generation);
+      if (resolution.kind === "available") {
+        state.admittedAuthority.set(documentId, resolution.authority);
+      } else if (
+        resolution.kind === "deleted" ||
+        resolution.kind === "authority-unavailable" ||
+        (resolution.kind === "not-visible" && command)
+      ) {
+        state.admittedAuthority.delete(documentId);
+      }
+      return resolution;
+    } finally {
+      lease.release();
+    }
   }
 
   async recheck(projectId: string, candidateIds?: readonly string[]): Promise<void> {
