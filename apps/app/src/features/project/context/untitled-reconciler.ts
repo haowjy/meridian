@@ -19,6 +19,7 @@ import { isProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import * as Y from "yjs";
 import type { DocumentSession, DocumentSessionSnapshot } from "@/core/editor/document-session";
 import type { DesiredIdentity } from "./identity-location";
+import type { ProjectDocumentLiveOpenResult } from "./open-project-document";
 
 const STORAGE_KEY = "meridian:pending-untitled";
 const RETRY_BASE_MS = 1_000;
@@ -129,6 +130,31 @@ export type UntitledReconcilerDeps = {
   api: ApiPort;
   sessions: SessionRegistryPort;
   newDocumentId: () => string;
+  /** F1-I owner path; the legacy session port remains only for compatibility tests. */
+  localOwner?: {
+    get(projectId: string, documentId: string): ReconcilerSession | null;
+    restore(
+      projectId: string,
+      documentId: string,
+    ): Promise<{ session: ReconcilerSession; documentId: string }>;
+    retain(ownerId: string, projectId: string, documentId: string): void;
+    release(ownerId: string): void;
+    revision(projectId: string, documentId: string): number | null;
+    prepare(
+      projectId: string,
+      documentId: string,
+      revision: number,
+    ): Promise<import("@/core/editor/local-document-session-adoption").LocalDocumentSessionHandoff>;
+    open(input: {
+      source: "server" | "local-untitled";
+      projectId: string;
+      documentId: string;
+      handoff?: import("@/core/editor/local-document-session-adoption").LocalDocumentSessionHandoff;
+    }): Promise<ProjectDocumentLiveOpenResult>;
+    remint(projectId: string, from: string, to: string): Promise<ReconcilerSession>;
+    abandon(projectId: string, documentId: string, revision: number): Promise<void>;
+    phase(projectId: string, documentId: string): "local-pending" | "adopted-live" | null;
+  };
 };
 
 export function resolveUntitledHome(activeWorkId: string | null): UntitledHome | null {
@@ -333,6 +359,11 @@ export class UntitledReconciler {
       home: UntitledHome;
     };
 
+    if (this.deps.localOwner) {
+      await this.reconcileOwned(resolvedEntry);
+      return;
+    }
+
     const owner = `untitled-reconciler:${documentId}`;
     const session = this.deps.sessions.getDetached(documentId);
     this.deps.sessions.retain(owner, [documentId]);
@@ -394,6 +425,134 @@ export class UntitledReconciler {
       this.deps.sessions.release(owner);
       this.deps.sessions.releaseAdmitted(owner);
     }
+  }
+
+  private async reconcileOwned(entry: PendingUntitled & { home: UntitledHome }): Promise<void> {
+    const local = this.deps.localOwner;
+    if (!local) return;
+    const documentId = entry.documentId;
+    const ownerId = `untitled-reconciler:${documentId}`;
+    const phase = local.phase(entry.projectId, documentId);
+    if (phase === "adopted-live") {
+      const opened = await local.open({ source: "server", ...entry });
+      if (opened.kind !== "opened") throw new Error("Adopted Untitled could not reopen live");
+      const binding = await opened.admission.bind(ownerId);
+      try {
+        await binding.session.waitForDurableSync();
+        if (binding.session.getSnapshot().status !== "synced")
+          throw syncFailure(binding.session.getSnapshot());
+        const record = this.pendingRecord(documentId);
+        if (record) this.drain(documentId, record.revision);
+      } finally {
+        binding.release();
+      }
+      return;
+    }
+    let session = local.get(entry.projectId, documentId);
+    if (!session) {
+      const restored = await local.restore(entry.projectId, documentId);
+      if (restored.documentId !== documentId) {
+        this.redirectOwnedRecord(entry, restored.documentId);
+        return;
+      }
+      session = restored.session;
+    }
+    local.retain(ownerId, entry.projectId, documentId);
+    try {
+      await session.whenLocalPersistenceSynced();
+      let record = this.pendingRecord(documentId);
+      if (!record) return;
+      const empty = untitledDocumentIsEmpty(session.document.getXmlFragment(session.fragmentName));
+      if (empty && !record.desiredIdentity && !this.candidates.has(documentId)) {
+        const checkedRevision = record.revision;
+        if (!(await this.deps.api.serverDocumentExists(entry))) {
+          local.release(ownerId);
+          await local.abandon(
+            entry.projectId,
+            documentId,
+            local.revision(entry.projectId, documentId) ?? -1,
+          );
+          this.drain(documentId, checkedRevision);
+          return;
+        }
+      }
+
+      const ownerRevision = local.revision(entry.projectId, documentId);
+      if (ownerRevision === null) throw new Error("Local Untitled owner record disappeared");
+      const handoff = await local.prepare(entry.projectId, documentId, ownerRevision);
+      const result = await this.deps.api.create(entry);
+      if (result.status === "conflict") {
+        await this.remintOwned(entry);
+        return;
+      }
+      record = this.pendingRecord(documentId);
+      if (!record) return;
+      const identity = await this.applyDesiredIdentity(entry, result);
+      const receipt = { result: identity.result, identity: identity.identity };
+      const candidate = this.candidates.get(documentId);
+      if (candidate) this.publishMaterialization(candidate, receipt);
+      else this.rememberMaterializationReceipt(documentId, receipt);
+
+      const opened = await local.open({
+        source: "local-untitled",
+        projectId: entry.projectId,
+        documentId,
+        handoff,
+      });
+      if (opened.kind !== "opened") throw new Error("Materialized Untitled was not admitted");
+      const binding = await opened.admission.bind(ownerId);
+      try {
+        await binding.session.waitForDurableSync();
+        const snapshot = binding.session.getSnapshot();
+        if (snapshot.status !== "synced") throw syncFailure(snapshot);
+        this.drain(documentId, identity.revision);
+      } finally {
+        binding.release();
+      }
+    } finally {
+      local.release(ownerId);
+    }
+  }
+
+  private async remintOwned(entry: PendingUntitled & { home: UntitledHome }): Promise<void> {
+    const local = this.deps.localOwner;
+    if (!local) return;
+    let replacementId = this.deps.newDocumentId();
+    let replacement: ReconcilerSession;
+    for (;;) {
+      try {
+        replacement = await local.remint(entry.projectId, entry.documentId, replacementId);
+        break;
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes("owned elsewhere")) throw error;
+        replacementId = this.deps.newDocumentId();
+      }
+    }
+    await replacement.flushLocalPersistence();
+    this.redirectOwnedRecord(entry, replacementId);
+  }
+
+  private redirectOwnedRecord(
+    entry: PendingUntitled & { home: UntitledHome },
+    replacementId: string,
+  ): void {
+    const record = this.records.get(entry.documentId);
+    if (!record) return;
+    const candidate = this.candidates.get(entry.documentId);
+    this.records.delete(entry.documentId);
+    this.records.set(replacementId, {
+      ...record,
+      documentId: replacementId,
+      revision: record.revision + 1,
+      materialization: {
+        phase: "pending",
+        entry: { ...entry, documentId: replacementId },
+      },
+    });
+    this.candidates.delete(entry.documentId);
+    if (candidate) this.candidates.set(replacementId, candidate);
+    this.persistAndEmit();
+    candidate?.onReminted(replacementId);
   }
 
   private async applyDesiredIdentity(

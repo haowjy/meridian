@@ -26,6 +26,8 @@ import { createSchemaRepairWitness, type SchemaRepairEvent } from "./schema-repa
 
 type EditorMountBase = {
   documentId: string;
+  /** Stable local binding identity across a pre-authority remint. */
+  bindingKey?: string;
   /** Asset image rendering resolves `asset:` refs against the owning project. */
   projectId?: string;
   schemaType: YjsTrackedSchemaType;
@@ -68,10 +70,10 @@ export function editorRoomKey(identity: EditorMountIdentity): string {
 
 /** React key that owns the editor's lifetime. Equal keys keep the instance. */
 export function editorMountKey(identity: EditorMountIdentity): string {
-  const shared = `${identity.documentId}|${identity.projectId ?? ""}|${identity.schemaType}|${identity.collaborationDecorations}`;
+  const shared = `${identity.bindingKey ?? identity.documentId}|${identity.projectId ?? ""}|${identity.schemaType}|${identity.collaborationDecorations}`;
   return identity.surface === "review"
     ? `review|${identity.roomName}|${identity.draftId}|${shared}`
-    : `live|${identity.documentId}|${identity.detached}|${shared}`;
+    : `live|${shared}`;
 }
 
 export type MountedEditorInput = {

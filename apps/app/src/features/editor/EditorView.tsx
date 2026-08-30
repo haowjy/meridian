@@ -62,6 +62,10 @@ import "./editor.css";
 
 export type EditorViewProps = {
   documentId: string;
+  /** Already-owned local session; bypasses the transitional ID lookup. */
+  session?: DocumentSession;
+  /** Stable editor lifetime across local identity remint/materialization. */
+  bindingKey?: string;
   /** Keep a not-yet-materialized live document off server transport. */
   detached?: boolean;
   projectId?: string;
@@ -109,6 +113,7 @@ let editorSessionOwnerSequence = 0;
 function mountIdentity(props: EditorViewProps): EditorMountIdentity {
   const shared = {
     documentId: props.documentId,
+    bindingKey: props.bindingKey,
     projectId: props.projectId,
     schemaType: props.schemaType ?? "document",
     collaborationDecorations: props.showCollaborationDecorations ?? true,
@@ -133,6 +138,10 @@ export function EditorView(props: EditorViewProps) {
   sessionOwnerIdRef.current ??= `editor-view:${++editorSessionOwnerSequence}`;
 
   useEffect(() => {
+    if (props.session) {
+      setBoundSession(props.session);
+      return;
+    }
     // The app-level registry owns teardown. This view only contributes the room
     // it is currently bound to so short-lived draft sessions are reclaimed when
     // inline review exits.
@@ -145,7 +154,7 @@ export function EditorView(props: EditorViewProps) {
     const session = detached ? registry.getDetached(roomKey) : registry.getRoom(roomKey);
     setBoundSession(session);
     return () => registry.release(ownerId);
-  }, [detached, roomKey]);
+  }, [detached, roomKey, props.session]);
 
   useEffect(() => {
     if (!inReview || boundSession?.roomKey !== roomKey) return;
@@ -161,7 +170,7 @@ export function EditorView(props: EditorViewProps) {
     });
   }, [boundSession, props.onReviewSessionUnavailable, inReview, roomKey]);
 
-  const session = boundSession?.roomKey === roomKey ? boundSession : null;
+  const session = props.session ?? (boundSession?.roomKey === roomKey ? boundSession : null);
 
   if (!session) return <PendingEditorShell {...props} />;
 

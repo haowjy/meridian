@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 import type { DocumentSession } from "@/core/editor/document-session";
-import { LocalUntitledOwner } from "./local-untitled-owner";
+import { type LocalUntitledIdentityRedirect, LocalUntitledOwner } from "./local-untitled-owner";
 import type { LocalUntitledKey, LocalUntitledRecord } from "./local-untitled-record-store";
 
 const key = (documentId = "document-a"): LocalUntitledKey => ({
@@ -23,6 +23,7 @@ function fixture() {
     }),
     whenLocalPersistenceSynced: vi.fn(async () => undefined),
     flushLocalPersistence: vi.fn(async () => undefined),
+    reidentifyDetached: vi.fn(async () => undefined),
     destroy: vi.fn(async () => undefined),
   } as unknown as DocumentSession;
   return {
@@ -87,5 +88,44 @@ describe("LocalUntitledOwner", () => {
     await f.owner.destroyAll();
     expect(f.records.has("document-a")).toBe(true);
     expect(f.releases).toEqual(["document-a"]);
+  });
+
+  it("remints the same session while the old HL remains held and records deterministic lineage", async () => {
+    const f = fixture();
+    const opened = await f.owner.create(key());
+    expect(opened.kind).toBe("opened");
+    const replacement = await f.owner.remint(key(), key("document-b"));
+    expect(replacement.session).toBe(f.session);
+    expect(f.releases).toEqual(["document-a"]);
+    expect(f.records.get("document-a")).toMatchObject({ active: false });
+    expect(f.records.get("document-b")).toMatchObject({
+      active: true,
+      lineageId: "lineage-a",
+      lineageRevision: 2,
+    });
+  });
+
+  it("preserves the old identity and words when replacement HL is unavailable", async () => {
+    const f = fixture();
+    await f.owner.create(key());
+    vi.mocked(f.owner.dependencies.lifetime.tryAcquire).mockResolvedValueOnce(null);
+    await expect(f.owner.remint(key(), key("document-b"))).rejects.toThrow("owned elsewhere");
+    expect(f.owner.getDetached(key())?.session).toBe(f.session);
+    expect(f.records.has("document-b")).toBe(false);
+    expect(f.releases).toEqual([]);
+  });
+
+  it("redirects a stale crash-restored identity to the highest active lineage revision", async () => {
+    const f = fixture();
+    await f.owner.create(key());
+    await f.owner.remint(key(), key("document-b"));
+    await f.owner.destroyAll();
+    const restored = new LocalUntitledOwner(f.owner.dependencies);
+    await expect(restored.restore(key())).rejects.toEqual(
+      expect.objectContaining<Partial<LocalUntitledIdentityRedirect>>({
+        name: "LocalUntitledIdentityRedirect",
+        key: key("document-b"),
+      }),
+    );
   });
 });

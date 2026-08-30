@@ -26,11 +26,19 @@ export type LocalUntitledOpenResult =
   | { kind: "opened"; value: LocalUntitledSession }
   | { kind: "owned-elsewhere" };
 
+export class LocalUntitledIdentityRedirect extends Error {
+  constructor(readonly key: LocalUntitledKey) {
+    super(`Local Untitled identity moved to ${key.documentId}`);
+    this.name = "LocalUntitledIdentityRedirect";
+  }
+}
+
 type Owned = {
   value: LocalUntitledSession;
   lease: LocalUntitledCrossContextLease;
   revision: number;
   transferring: boolean;
+  handoff: LocalDocumentSessionHandoff | null;
 };
 
 export type LocalUntitledOwnerDependencies = {
@@ -77,6 +85,11 @@ export class LocalUntitledOwner {
     this.requireQualified(key);
     const owned = this.owned.get(key.documentId);
     return owned && sameKey(owned.value.key, key) ? owned.value : null;
+  }
+
+  recordRevision(key: LocalUntitledKey): number | null {
+    this.requireQualified(key);
+    return this.dependencies.records.read(key)?.revision ?? null;
   }
 
   retain(ownerId: string, keys: Iterable<LocalUntitledKey>): void {
@@ -133,11 +146,14 @@ export class LocalUntitledOwner {
     const record = this.dependencies.records.read(key);
     if (record?.phase !== "local-pending" || record.revision !== expectedRevision)
       throw new Error("Local Untitled materialization revision is stale");
-    if (owned.transferring) throw new Error("Local Untitled transfer is already prepared");
+    if (owned.transferring) {
+      if (owned.handoff) return owned.handoff;
+      throw new Error("Local Untitled transfer is already preparing");
+    }
     owned.transferring = true;
     try {
       await owned.value.session.flushLocalPersistence();
-      return this.dependencies.reservations.reserve({
+      const handoff = this.dependencies.reservations.reserve({
         projectId: key.projectId,
         documentId: key.documentId,
         session: owned.value.session,
@@ -158,6 +174,8 @@ export class LocalUntitledOwner {
           void owned.lease.release().catch(() => undefined);
         },
       });
+      owned.handoff = handoff;
+      return handoff;
     } catch (error) {
       owned.transferring = false;
       throw error;
@@ -192,6 +210,7 @@ export class LocalUntitledOwner {
     try {
       await old.value.session.reidentifyDetached(to.documentId, localUntitledPersistenceKey(to));
       this.dependencies.records.write(replacement);
+      this.dependencies.records.write({ ...current, active: false });
       this.owned.delete(from.documentId);
       const value = { key: to, session: old.value.session };
       this.owned.set(to.documentId, {
@@ -199,6 +218,7 @@ export class LocalUntitledOwner {
         lease: replacementLease,
         revision: nextRevision,
         transferring: false,
+        handoff: null,
       });
       await old.lease.release();
       return value;
@@ -234,6 +254,25 @@ export class LocalUntitledOwner {
   ): Promise<LocalUntitledOpenResult> {
     this.requireQualified(key);
     if (this.closing) throw new Error("Local Untitled owner is closing");
+    if (mode === "restore") {
+      const requested = this.dependencies.records.read(key);
+      if (requested) {
+        const winner = this.dependencies.records
+          .list(key.accountId)
+          .filter(
+            (record) =>
+              record.key.projectId === key.projectId &&
+              record.lineageId === requested.lineageId &&
+              record.active !== false,
+          )
+          .sort(
+            (left, right) =>
+              (right.lineageRevision ?? right.revision) - (left.lineageRevision ?? left.revision),
+          )[0];
+        if (winner && !sameKey(winner.key, key))
+          throw new LocalUntitledIdentityRedirect(winner.key);
+      }
+    }
     const existing = this.getDetached(key);
     if (existing) return { kind: "opened", value: existing };
     const lease = await this.dependencies.lifetime.tryAcquire(key.projectId, key.documentId);
@@ -267,6 +306,7 @@ export class LocalUntitledOwner {
         lease,
         revision: record.revision,
         transferring: false,
+        handoff: null,
       });
       return { kind: "opened", value };
     } catch (error) {

@@ -11,6 +11,9 @@ import {
 } from "@/core/editor/document-session-registry";
 import type { ContextIdentityMutationService } from "./context-identity-mutation";
 import type { DesiredIdentity } from "./identity-location";
+import type { LocalUntitledOwner } from "./local-untitled-owner";
+import { LocalUntitledIdentityRedirect } from "./local-untitled-owner";
+import type { ProjectDocumentLiveOpener } from "./open-project-document";
 import {
   type PendingUntitled,
   type QueuedIdentityFailure,
@@ -19,9 +22,18 @@ import {
   type UntitledReconcilerDeps,
 } from "./untitled-reconciler";
 
-function browserDeps(identityMutations: ContextIdentityMutationService): UntitledReconcilerDeps {
+function browserDeps(
+  identityMutations: ContextIdentityMutationService,
+  localOwner?: LocalUntitledOwner,
+  opener?: ProjectDocumentLiveOpener,
+): UntitledReconcilerDeps {
   const registry = getDocumentSessionRegistry();
   const liveRegistry = getLiveDocumentSessionRegistry();
+  const localKey = (projectId: string, documentId: string) => ({
+    accountId: localOwner?.dependencies.accountId ?? "",
+    projectId,
+    documentId,
+  });
   return {
     storage: localStorage,
     scheduler: {
@@ -46,6 +58,59 @@ function browserDeps(identityMutations: ContextIdentityMutationService): Untitle
       releaseAdmitted: (owner) => liveRegistry.release(owner),
     },
     newDocumentId: () => crypto.randomUUID(),
+    ...(localOwner && opener
+      ? {
+          localOwner: {
+            get: (projectId: string, documentId: string) =>
+              localOwner.getDetached(localKey(projectId, documentId))?.session ?? null,
+            async restore(projectId: string, documentId: string) {
+              let result: Awaited<ReturnType<LocalUntitledOwner["restore"]>>;
+              try {
+                result = await localOwner.restore(localKey(projectId, documentId));
+              } catch (error) {
+                if (!(error instanceof LocalUntitledIdentityRedirect)) throw error;
+                result = await localOwner.restore(error.key);
+              }
+              if (result.kind !== "opened")
+                throw new Error("Local Untitled is owned in another browser tab");
+              return {
+                session: result.value.session,
+                documentId: result.value.key.documentId,
+              };
+            },
+            retain(ownerId: string, projectId: string, documentId: string) {
+              localOwner.retain(ownerId, [localKey(projectId, documentId)]);
+            },
+            release: (ownerId: string) => localOwner.release(ownerId),
+            revision: (projectId: string, documentId: string) =>
+              localOwner.recordRevision(localKey(projectId, documentId)),
+            prepare: (projectId: string, documentId: string, revision: number) =>
+              localOwner.prepareMaterialization(localKey(projectId, documentId), revision),
+            open: (input) =>
+              input.source === "local-untitled" && input.handoff
+                ? opener.open({ ...input, source: "local-untitled", handoff: input.handoff })
+                : opener.open({
+                    source: "server",
+                    projectId: input.projectId,
+                    documentId: input.documentId,
+                  }),
+            async remint(projectId: string, from: string, to: string) {
+              return (await localOwner.remint(localKey(projectId, from), localKey(projectId, to)))
+                .session;
+            },
+            async abandon(projectId: string, documentId: string, revision: number) {
+              const result = await localOwner.abandon({
+                key: localKey(projectId, documentId),
+                expectedRevision: revision,
+                evidence: "server-row-absent",
+              });
+              if (result !== "abandoned") throw new Error(`Local abandon was ${result}`);
+            },
+            phase: (projectId: string, documentId: string) =>
+              localOwner.dependencies.records.read(localKey(projectId, documentId))?.phase ?? null,
+          },
+        }
+      : {}),
     api: {
       resolveHome: resolveUntitledCatalogHome,
       async create(entry) {
@@ -100,13 +165,25 @@ export async function resolveUntitledCatalogHome(_projectId: string) {
 }
 
 let shared: UntitledReconciler | null = null;
+const accountReconcilers = new WeakMap<LocalUntitledOwner, UntitledReconciler>();
 const noopSubscribe = () => () => {};
 
 export function getUntitledReconciler(
   identityMutations?: ContextIdentityMutationService,
+  localOwner?: LocalUntitledOwner,
+  opener?: ProjectDocumentLiveOpener,
 ): UntitledReconciler {
+  if (localOwner && identityMutations && opener && typeof window !== "undefined") {
+    let account = accountReconcilers.get(localOwner);
+    if (!account) {
+      account = new UntitledReconciler(browserDeps(identityMutations, localOwner, opener));
+      accountReconcilers.set(localOwner, account);
+    }
+    shared = account;
+    return account;
+  }
   if (!shared && typeof window !== "undefined" && identityMutations) {
-    shared = new UntitledReconciler(browserDeps(identityMutations));
+    shared = new UntitledReconciler(browserDeps(identityMutations, localOwner, opener));
   }
   if (!shared) throw new Error("Untitled reconciler is browser-only");
   return shared;

@@ -509,8 +509,14 @@ export class DocumentSession {
         if (settled) throw new Error("Persistence stage is already settled");
         settled = true;
         const previous = this.persistence;
+        const previousName = previous?.name;
         this.persistence = staged;
-        return { closePrevious: () => previous?.destroy() ?? Promise.resolve() };
+        return {
+          closePrevious: async () => {
+            await previous?.destroy();
+            if (previousName && previousName !== key) await deleteIndexedDb(previousName);
+          },
+        };
       },
       abort: async () => {
         if (settled) return;

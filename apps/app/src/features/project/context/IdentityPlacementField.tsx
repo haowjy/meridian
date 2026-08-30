@@ -17,6 +17,7 @@ import { IconButton } from "@/components/ui/icon-button";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
 import { cn } from "@/lib/utils";
+import { useLocalUntitledOwner } from "./ContextRemovalAccountProvider";
 import { invalidContextEntryNameReason } from "./context-entry-name";
 import { schemeLabel } from "./context-schemes";
 import {
@@ -65,6 +66,10 @@ export function IdentityPlacementField({
   onExit: (reason: ExitReason) => void;
   onOpenExisting: (scheme: ProjectContextTreeScheme, path: string) => void;
 }) {
+  const localUntitled = useLocalUntitledOwner();
+  const localSessionRef = useRef<import("@/core/editor/document-session").DocumentSession | null>(
+    null,
+  );
   const provisionalPlacement =
     location.provisional && location.scheme === "scratch" && location.parentPath === "/";
   const inputRef = useRef<HTMLInputElement>(null);
@@ -103,7 +108,16 @@ export function IdentityPlacementField({
 
   useEffect(() => {
     if (!provisionalPlacement) return;
-    const session = getDocumentSessionRegistry().getDetached(tab.documentId);
+    const local = localUntitled.getDetached({
+      accountId: localUntitled.dependencies.accountId,
+      projectId,
+      documentId: tab.documentId,
+    });
+    if (local) localSessionRef.current = local.session;
+    const session =
+      local?.session ??
+      localSessionRef.current ??
+      getDocumentSessionRegistry().getDetached(tab.documentId);
     const fragment = session.document.getXmlFragment(session.fragmentName);
     const refresh = () => {
       if (suggestionTimer.current !== null) window.clearTimeout(suggestionTimer.current);
@@ -117,7 +131,7 @@ export function IdentityPlacementField({
       fragment.unobserveDeep(refresh);
       if (suggestionTimer.current !== null) window.clearTimeout(suggestionTimer.current);
     };
-  }, [provisionalPlacement, tab]);
+  }, [localUntitled, projectId, provisionalPlacement, tab]);
 
   const suggestionOptions = useMemo(
     () => ({

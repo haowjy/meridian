@@ -154,7 +154,7 @@ type PendingSessionAvailabilityEffect = ContextAvailabilityLocalBatchPlan["sessi
 export type ContextRemovalLifetimeLease = {
   suspend(): void;
   resume(): void;
-  disposeIfSuspended(): void;
+  disposeIfSuspended(): boolean;
 };
 
 const EMPTY_SLICE: ProjectTabsSlice = { tabs: [], selectedTabIdByWork: {} };
@@ -248,7 +248,9 @@ export class ContextRemovalCoordinator {
         this.suspended = false;
       },
       disposeIfSuspended: () => {
-        if (!held) this.dispose();
+        if (held) return false;
+        this.dispose();
+        return true;
       },
     };
   }

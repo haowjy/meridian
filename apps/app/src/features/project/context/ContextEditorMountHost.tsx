@@ -29,13 +29,15 @@
  * the same `documentId`, so subscribe/unsubscribe stay paired.
  */
 import { Trans } from "@lingui/react/macro";
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
-import type { ContextTab } from "@/client/stores";
+import { type ContextTab, useContextTabsActions } from "@/client/stores";
 import { Button } from "@/components/ui/button";
 import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
 import { useDraftReview } from "@/features/chat/DraftReviewProvider";
 import { cn } from "@/lib/utils";
+import { useLocalUntitledOwner } from "./ContextRemovalAccountProvider";
+import { LocalUntitledIdentityRedirect } from "./local-untitled-owner";
 import { untitledDocumentIsEmpty } from "./untitled-reconciler";
 
 const EditorView = lazy(() =>
@@ -93,6 +95,8 @@ export function ContextEditorMountHost({
   active,
   onUntitledBecameNonEmpty,
 }: ContextEditorMountHostProps) {
+  const localOwner = useLocalUntitledOwner();
+  const { remintNewTab } = useContextTabsActions();
   const { controller, reviewRoomNameForDraft, setActiveEditorDocumentId } = useDraftReview();
   // Track the focused tracked editor even when Context is parked in the dock —
   // lineage chip freshness listens on this id, not on `?screen=context`.
@@ -104,6 +108,24 @@ export function ContextEditorMountHost({
   // we never mutate state during render. The eviction policy reads from this
   // every render to pick which tabs stay mounted.
   const lruRef = useRef<string[]>([]);
+  const localSessionsRef = useRef(new Map<string, ReturnType<typeof localOwner.getDetached>>());
+  const bindingKeysRef = useRef(new WeakMap<object, string>());
+  const [, rerenderAfterRestore] = useState(0);
+  const [ownedElsewhere, setOwnedElsewhere] = useState<Set<string>>(() => new Set());
+  for (const tab of trackedTabs) {
+    if (tab.kind !== "new") continue;
+    const key = {
+      accountId: localOwner.dependencies.accountId,
+      projectId,
+      documentId: tab.documentId,
+    };
+    const local = localOwner.getDetached(key);
+    if (local) localSessionsRef.current.set(tab.documentId, local);
+  }
+  const knownIds = new Set(trackedTabs.map((tab) => tab.documentId));
+  for (const id of localSessionsRef.current.keys()) {
+    if (!knownIds.has(id)) localSessionsRef.current.delete(id);
+  }
 
   // Bring the active tab to the front of the LRU stack whenever it changes.
   useEffect(() => {
@@ -118,8 +140,37 @@ export function ContextEditorMountHost({
   // parent render (the array identity is fresh each time).
   const trackedIds = trackedTabs.map((t) => t.documentId);
   const untitledIds = trackedTabs.filter((tab) => tab.kind === "new").map((tab) => tab.documentId);
+  const serverIds = trackedIds.filter((id) => !localSessionsRef.current.has(id));
   const trackedIdsKey = trackedIds.join("|");
   const untitledIdsKey = untitledIds.join("|");
+  useEffect(() => {
+    let active = true;
+    for (const documentId of untitledIds) {
+      if (localSessionsRef.current.has(documentId)) continue;
+      void localOwner
+        .restore({
+          accountId: localOwner.dependencies.accountId,
+          projectId,
+          documentId,
+        })
+        .then((result) => {
+          if (!active) return;
+          if (result.kind === "opened") {
+            localSessionsRef.current.set(documentId, result.value);
+            rerenderAfterRestore((value) => value + 1);
+            return;
+          }
+          setOwnedElsewhere((current) => new Set(current).add(documentId));
+        })
+        .catch((error) => {
+          if (!active || !(error instanceof LocalUntitledIdentityRedirect)) return;
+          remintNewTab(projectId, documentId, error.key.documentId);
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [localOwner, projectId, remintNewTab, untitledIdsKey]);
   useEffect(() => {
     const known = new Set(trackedIds);
     lruRef.current = lruRef.current.filter((id) => known.has(id));
@@ -130,16 +181,23 @@ export function ContextEditorMountHost({
   // longer tears down Yjs); they are reclaimed when their document closes
   // (drops out of `trackedTabs`) or when this host unmounts entirely.
   useEffect(() => {
-    getDocumentSessionRegistry().retain(DESKTOP_CONTEXT_EDITOR_OWNER, trackedIds, {
-      detachedRoomKeys: untitledIds,
-    });
-  }, [trackedIdsKey, untitledIdsKey]);
+    getDocumentSessionRegistry().retain(DESKTOP_CONTEXT_EDITOR_OWNER, serverIds);
+    localOwner.retain(
+      DESKTOP_CONTEXT_EDITOR_OWNER,
+      untitledIds.map((documentId) => ({
+        accountId: localOwner.dependencies.accountId,
+        projectId,
+        documentId,
+      })),
+    );
+  }, [trackedIdsKey, untitledIdsKey, localOwner, projectId]);
 
   useEffect(() => {
     return () => {
       getDocumentSessionRegistry().release(DESKTOP_CONTEXT_EDITOR_OWNER);
+      localOwner.release(DESKTOP_CONTEXT_EDITOR_OWNER);
     };
-  }, []);
+  }, [localOwner]);
 
   const activeReviewDocumentId =
     active && activeTabId && controller.inlineReview?.documentId === activeTabId
@@ -169,9 +227,18 @@ export function ContextEditorMountHost({
             : null;
           const reviewDraftId = reviewRoomName ? selectedReviewDraftId : null;
           const waitingForReviewRoom = Boolean(selectedReviewDraftId && !reviewRoomName);
+          const local = localSessionsRef.current.get(tab.documentId);
+          let bindingKey: string | undefined;
+          if (local) {
+            bindingKey = bindingKeysRef.current.get(local.session);
+            if (!bindingKey) {
+              bindingKey = `local-editor:${crypto.randomUUID()}`;
+              bindingKeysRef.current.set(local.session, bindingKey);
+            }
+          }
           return (
             <div
-              key={tab.documentId}
+              key={bindingKey ?? tab.documentId}
               data-context-editor-document-id={tab.documentId}
               className={cn(
                 // Each editor fills the host's frame; only the active one is
@@ -182,15 +249,23 @@ export function ContextEditorMountHost({
               // Defensive: aria-hidden hides background editors from AT.
               aria-hidden={!isActive}
             >
-              {tab.kind === "new" && onUntitledBecameNonEmpty ? (
+              {ownedElsewhere.has(tab.documentId) ? (
+                <div className="grid h-full place-items-center text-muted-foreground text-sm">
+                  <Trans>This document is open in another tab</Trans>
+                </div>
+              ) : null}
+              {tab.kind === "new" && local && onUntitledBecameNonEmpty ? (
                 <UntitledInputObserver
                   documentId={tab.documentId}
+                  session={local.session}
                   onBecameNonEmpty={onUntitledBecameNonEmpty}
                 />
               ) : null}
               {/* Filename chrome is host-owned: the context tab strip names the
                   active file, so EditorView renders no redundant header bar. */}
-              {waitingForReviewRoom && controller.reviewRoomError ? (
+              {ownedElsewhere.has(tab.documentId) ||
+              (tab.kind === "new" && !local) ? null : waitingForReviewRoom &&
+                controller.reviewRoomError ? (
                 <div className="flex min-h-0 flex-1 items-center justify-center p-6">
                   <div className="surface-card max-w-sm space-y-3 rounded-lg border border-border-subtle p-4 text-center shadow-sm">
                     <p className="font-medium text-foreground text-sm">
@@ -230,6 +305,8 @@ export function ContextEditorMountHost({
                   projectId={projectId}
                   workId={workId}
                   documentId={tab.documentId}
+                  session={local?.session}
+                  bindingKey={bindingKey}
                   // A warm editor is hidden, not gone. Its chrome portals to
                   // the body, where `hidden` on an ancestor means nothing.
                   active={isActive}
@@ -251,13 +328,14 @@ export function ContextEditorMountHost({
 
 function UntitledInputObserver({
   documentId,
+  session,
   onBecameNonEmpty,
 }: {
   documentId: string;
+  session: import("@/core/editor/document-session").DocumentSession;
   onBecameNonEmpty: (documentId: string) => void;
 }) {
   useEffect(() => {
-    const session = getDocumentSessionRegistry().getDetached(documentId);
     const fragment = session.document.getXmlFragment(session.fragmentName);
     let armed = true;
     let observing = true;
@@ -275,6 +353,6 @@ function UntitledInputObserver({
       armed = false;
       if (observing) fragment.unobserveDeep(observe);
     };
-  }, [documentId, onBecameNonEmpty]);
+  }, [documentId, onBecameNonEmpty, session]);
   return null;
 }

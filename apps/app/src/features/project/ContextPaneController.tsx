@@ -13,15 +13,16 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useContextCatalogView } from "@/client/query/useContextCatalog";
 import { useContextTabs, useContextTabsActions, useContextTabsStore } from "@/client/stores";
-import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
-import { useContextRemovalCoordinator } from "./context/ContextRemovalAccountProvider";
+import {
+  useContextRemovalCoordinator,
+  useLocalUntitledOwner,
+} from "./context/ContextRemovalAccountProvider";
 import { ContextViewer } from "./context/ContextViewer";
 import { deriveContextPaneState } from "./context/context-pane-state";
 import { routeTargetForTab } from "./context/context-removal-planner";
 import { resolveDeskRoute } from "./context/context-route-desk-owner";
 import { contextTabFromFile } from "./context/context-tab-from-file";
 import { contextTabRouteKey } from "./context/context-tab-identity";
-import { untitledDocumentIsEmpty } from "./context/untitled-reconciler";
 import { appendPendingUntitled, isUntitledPending } from "./context/untitled-reconciler-browser";
 import { useContextRemovalProject } from "./context/use-context-removal-project";
 import { identityCommitMayNavigate } from "./context/use-identity-commit";
@@ -60,6 +61,7 @@ export function ContextViewerSurfaceController({
 }: ContextViewerSurfaceControllerProps) {
   const routeWorkId = editorWorkId;
   const contextRemoval = useContextRemovalCoordinator();
+  const localUntitled = useLocalUntitledOwner();
 
   const { tabs, selectedTabIdByWork } = useContextTabs(projectId);
   const selectedDocumentId = routeWorkId ? selectedTabIdByWork[routeWorkId] : undefined;
@@ -336,14 +338,26 @@ export function ContextViewerSurfaceController({
 
   function handleCloseTab(documentId: string) {
     const tab = tabs.find((candidate) => candidate.documentId === documentId);
-    void contextRemoval.writerClose(projectId, documentId);
     if (tab?.kind === "new" && !isUntitledPending(documentId)) {
-      const registry = getDocumentSessionRegistry();
-      const session = registry.getDetached(documentId);
-      if (untitledDocumentIsEmpty(session.document.getXmlFragment(session.fragmentName))) {
-        void registry.destroyRoom(documentId, { clearPersistence: true });
-      }
+      const key = {
+        accountId: localUntitled.dependencies.accountId,
+        projectId,
+        documentId,
+      };
+      const revision = localUntitled.recordRevision(key);
+      contextRemoval.writerClose(projectId, documentId);
+      void (async () => {
+        if (revision === null) return;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await localUntitled.abandon({
+          key,
+          expectedRevision: revision,
+          evidence: "writer-empty-close",
+        });
+      })();
+      return;
     }
+    void contextRemoval.writerClose(projectId, documentId);
   }
 
   function handleResumeDocument() {
@@ -438,10 +452,23 @@ export function ContextViewerSurfaceController({
       onNewDocument={() => {
         if (!routeWorkId) return;
         const documentId = crypto.randomUUID();
-        getDocumentSessionRegistry().getDetached(documentId);
-        openTab(projectId, { kind: "new", documentId, name: "Untitled", workId: routeWorkId });
-        selectTab(projectId, routeWorkId, documentId);
-        onSelectContextPath("", "scratch");
+        void localUntitled
+          .create({
+            accountId: localUntitled.dependencies.accountId,
+            projectId,
+            documentId,
+          })
+          .then((opened) => {
+            if (opened.kind !== "opened") return;
+            openTab(projectId, {
+              kind: "new",
+              documentId,
+              name: "Untitled",
+              workId: routeWorkId,
+            });
+            selectTab(projectId, routeWorkId, documentId);
+            onSelectContextPath("", "scratch");
+          });
       }}
       onUntitledBecameNonEmpty={handleUntitledBecameNonEmpty}
       onCommitted={(documentId, next, ownership) => {
