@@ -29,6 +29,7 @@ import type {
   LocalUntitledDocumentSessionFactory,
   RetainedLiveDocumentReference,
 } from "./document-session-registry";
+import { DocumentSessionTeardownOwner } from "./document-session-teardown-owner";
 import type {
   LocalDocumentSessionAdoptionPort,
   LocalDocumentSessionHandoff,
@@ -96,8 +97,15 @@ export class DocumentSessionRegistry
   private accountId: AccountId | null = null;
   private coordination: DocumentSessionCrossContextCoordination | null = null;
   private authorityFailure: unknown = null;
-  private accountRuntimeState: "open" | "closing" = "open";
-  private invalidationPromise: Promise<void> | null = null;
+  private accountRuntimeState: "open" | "closing" | "closed" = "open";
+  private accountCloseAttempt: Promise<void> | null = null;
+  private readonly teardownOwner = new DocumentSessionTeardownOwner(
+    (key) =>
+      new DocumentSessionAuthorityError(
+        "authority-unavailable",
+        `${key.kind === "live" ? "Live" : "Branch"} session teardown is unfinished`,
+      ),
+  );
   private readonly liveRooms = new Map<DocumentId, LiveRoomState>();
   private readonly branchRooms = new Map<string, DocumentSession>();
   private readonly retainedByOwner = new Map<string, Map<DocumentId, RetainedLiveDocument>>();
@@ -280,18 +288,16 @@ export class DocumentSessionRegistry
     if (room?.kind !== "branch")
       throw new Error(`Branch session requires a branch room: ${roomKey}`);
     this.cancelPendingTeardown(roomKey);
+    this.teardownOwner.assertAvailable({ kind: "branch", roomKey });
     const existing = this.branchRooms.get(roomKey);
     if (existing) return existing;
     const session = this.createSession(roomKey, { kind: "none" });
     this.attachSessionTransport(session);
     session.subscribe((snapshot) => {
       if (snapshot.connectionState?.kind !== "reset") return;
-      void session
-        .destroy()
-        .finally(() => {
-          if (this.branchRooms.get(roomKey) === session) this.branchRooms.delete(roomKey);
-        })
-        .catch(() => undefined);
+      if (this.branchRooms.get(roomKey) !== session) return;
+      this.branchRooms.delete(roomKey);
+      void this.teardownOwner.retire({ kind: "branch", roomKey }, session).catch(() => undefined);
     });
     this.branchRooms.set(roomKey, session);
     return session;
@@ -451,7 +457,7 @@ export class DocumentSessionRegistry
   }
 
   beginCloseAccountRuntime(): void {
-    if (this.accountRuntimeState === "closing") return;
+    if (this.accountRuntimeState !== "open") return;
     this.accountRuntimeState = "closing";
     for (const reservation of this.localTransferReservations.values()) reservation.settle();
     this.localTransferReservations.clear();
@@ -460,11 +466,21 @@ export class DocumentSessionRegistry
 
   closeAccountRuntime(): Promise<void> {
     this.beginCloseAccountRuntime();
-    return this.retryAdoptionFinalizers().then(async () => {
+    if (this.accountRuntimeState === "closed") return Promise.resolve();
+    if (this.accountCloseAttempt) return this.accountCloseAttempt;
+    const attempt = this.retryAdoptionFinalizers().then(async () => {
       const coordination = this.coordination;
       await (coordination?.close() ?? this.invalidateAll());
       if (this.coordination === coordination) this.coordination = null;
+      this.accountRuntimeState = "closed";
     });
+    this.accountCloseAttempt = attempt;
+    void attempt
+      .finally(() => {
+        if (this.accountCloseAttempt === attempt) this.accountCloseAttempt = null;
+      })
+      .catch(() => undefined);
+    return attempt;
   }
 
   peekLive(lease: LiveDocumentSessionLease): DocumentSession | undefined {
@@ -484,34 +500,29 @@ export class DocumentSessionRegistry
   }
 
   invalidateAll(): Promise<void> {
-    if (this.invalidationPromise) return this.invalidationPromise;
     this.clearRetainedLiveDocuments();
     this.retainedBranchRoomsByOwner.clear();
     this.liveDocCapWarningEmitted = false;
     for (const timer of this.pendingTeardownTimers.values()) clearTimeout(timer);
     this.pendingTeardownTimers.clear();
-    const sessions = [
-      ...[...this.liveRooms.values()].flatMap(({ session }) => (session ? [session] : [])),
-      ...this.branchRooms.values(),
-    ];
+    const liveSessions = [...this.liveRooms.entries()].flatMap(([documentId, { session }]) =>
+      session ? [{ documentId, session }] : [],
+    );
+    const branchSessions = [...this.branchRooms.entries()].map(([roomKey, session]) => ({
+      roomKey,
+      session,
+    }));
     this.liveRooms.clear();
     this.branchRooms.clear();
-    const invalidation = async () => {
-      const results = await Promise.allSettled(sessions.map((session) => session.destroy()));
-      const errors = results.flatMap((result) =>
-        result.status === "rejected" ? [result.reason] : [],
-      );
-      if (errors.length === 1) throw errors[0];
-      if (errors.length > 1) throw new AggregateError(errors, "Session registry teardown failed");
-    };
-    const pending = invalidation();
-    this.invalidationPromise = pending;
-    void pending
-      .finally(() => {
-        if (this.invalidationPromise === pending) this.invalidationPromise = null;
-      })
-      .catch(() => undefined);
-    return pending;
+    for (const { documentId, session } of liveSessions) {
+      void this.teardownOwner
+        .retire({ kind: "live", roomKey: documentId }, session)
+        .catch(() => undefined);
+    }
+    for (const { roomKey, session } of branchSessions) {
+      void this.teardownOwner.retire({ kind: "branch", roomKey }, session).catch(() => undefined);
+    }
+    return this.teardownOwner.drain();
   }
 
   private clearRetainedLiveDocuments(): void {
@@ -558,6 +569,7 @@ export class DocumentSessionRegistry
     projectId: ProjectId;
     generation: AvailabilityGeneration;
   }): void {
+    this.teardownOwner.assertAvailable({ kind: "live", roomKey: input.documentId });
     const existing = this.liveRooms.get(input.documentId)?.leases.get(input.projectId);
     if (existing && compareAvailabilityGeneration(input.generation, existing.generation) < 0) {
       throw new DocumentSessionAuthorityError(
@@ -574,6 +586,7 @@ export class DocumentSessionRegistry
     persistenceGeneration: AvailabilityGeneration;
   }): void {
     this.requireAccountRuntimeOpen();
+    this.teardownOwner.assertAvailable({ kind: "live", roomKey: input.documentId });
     if (!this.accountId) return;
     const lease = {
       accountId: this.accountId,
@@ -605,7 +618,9 @@ export class DocumentSessionRegistry
     }
     if (retainedChanged) this.publishRetainedLiveDocuments();
     this.liveRooms.delete(input.documentId);
-    await state.session?.destroy();
+    if (state.session) {
+      await this.teardownOwner.retire({ kind: "live", roomKey: input.documentId }, state.session);
+    }
   }
 
   async drainAccess(input: {
@@ -623,7 +638,9 @@ export class DocumentSessionRegistry
     if (state.leases.size > 0) return "other-local-project-remains";
     this.cancelPendingTeardown(input.documentId);
     this.liveRooms.delete(input.documentId);
-    await state.session?.destroy();
+    if (state.session) {
+      await this.teardownOwner.retire({ kind: "live", roomKey: input.documentId }, state.session);
+    }
     return "locally-empty";
   }
 
@@ -664,6 +681,7 @@ export class DocumentSessionRegistry
     attach: boolean,
   ): DocumentSession {
     this.cancelPendingTeardown(lease.documentId);
+    this.teardownOwner.assertAvailable({ kind: "live", roomKey: lease.documentId });
     if (state.session) {
       if (attach && state.session.getSnapshot().status === "detached") {
         this.attachSessionTransport(state.session);
@@ -827,13 +845,13 @@ export class DocumentSessionRegistry
         if (this.isRetained(roomKey)) return;
         const session = state.session;
         state.session = null;
-        void session.destroy().catch(() => undefined);
+        void this.teardownOwner.retire({ kind: "live", roomKey }, session).catch(() => undefined);
         return;
       }
       const branch = this.branchRooms.get(roomKey);
       if (!branch || this.isBranchRetained(roomKey)) return;
       this.branchRooms.delete(roomKey);
-      void branch.destroy().catch(() => undefined);
+      void this.teardownOwner.retire({ kind: "branch", roomKey }, branch).catch(() => undefined);
     }, this.teardownGraceMs);
     this.pendingTeardownTimers.set(roomKey, timer);
   }
