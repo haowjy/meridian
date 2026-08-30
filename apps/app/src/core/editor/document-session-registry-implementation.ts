@@ -461,8 +461,8 @@ export class DocumentSessionRegistry
     this.beginCloseAccountRuntime();
     return this.retryAdoptionFinalizers().then(async () => {
       const coordination = this.coordination;
-      this.coordination = null;
       await (coordination?.close() ?? this.invalidateAll());
+      if (this.coordination === coordination) this.coordination = null;
     });
   }
 
@@ -667,7 +667,7 @@ export class DocumentSessionRegistry
       if (attach && state.session.getSnapshot().status === "detached") {
         this.attachSessionTransport(state.session);
       }
-      void this.retryAdoptionFinalizers();
+      void this.retryAdoptionFinalizers().catch(() => undefined);
       return state.session;
     }
     state.persistenceGeneration ??= lease.generation;
