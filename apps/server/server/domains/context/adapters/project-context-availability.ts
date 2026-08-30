@@ -295,7 +295,7 @@ export function createDrizzleProjectContextAvailability(
           const resolutions: ProjectContextIdentityResolution[] = ids.map((documentId) => {
             const row = byId.get(documentId);
             if (!row) return { kind: "not-visible", documentId, checkedGeneration } as never;
-            const { document, source, work } = row;
+            const { document, source, sourceProject, work } = row;
             const indeterminate = (): ProjectContextIdentityResolution => {
               if (eventSink) {
                 emitEvent(eventSink, {
@@ -325,7 +325,7 @@ export function createDrizzleProjectContextAvailability(
             }
             if (classification.kind === "inconsistent") return indeterminate();
             const { scope, authority, scheme, generation, parentPath } = classification.identity;
-            if (requestProject.deletedAt) {
+            if (requestProject.deletedAt || sourceProject?.deletedAt) {
               return {
                 kind: "authority-unavailable",
                 documentId,

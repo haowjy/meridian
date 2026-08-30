@@ -9,7 +9,7 @@ import type {
   CatalogSnapshot,
 } from "@meridian/contracts/protocol";
 import { catalogScopeKey } from "@meridian/contracts/protocol";
-import type { ContextCatalog } from "../ports/context-catalog.js";
+import { type ContextCatalog, normalizeCatalogChangesLimit } from "../ports/context-catalog.js";
 
 type State = {
   generation: string;
@@ -86,7 +86,11 @@ export class InMemoryContextCatalog implements ContextCatalog {
     };
   }
 
-  async changes(scope: CatalogScope, cursor: string, limit = 100): Promise<CatalogChanges> {
+  async changes(
+    scope: CatalogScope,
+    cursor: string,
+    requestedLimit?: number,
+  ): Promise<CatalogChanges> {
     const state = this.state(scope);
     const prefix = `${catalogScopeKey(scope)}:${state.generation}:`;
     if (!cursor.startsWith(prefix)) {
@@ -100,7 +104,8 @@ export class InMemoryContextCatalog implements ContextCatalog {
       return { kind: "reset-required", scope, reason: "expired" };
     }
     const remaining = state.commits.filter((commit) => Number(commit.firstRevision) > revision);
-    const commits = remaining.slice(0, Math.max(1, limit));
+    const limit = normalizeCatalogChangesLimit(requestedLimit);
+    const commits = remaining.slice(0, limit);
     const next = Number(commits.at(-1)?.lastRevision ?? revision);
     return {
       kind: "delta",

@@ -15,6 +15,16 @@ with a single unified `ContextPort` that resolves durable project schemes
   `ContextTreeMover` owns full preflight-through-CAS tree transactions. Lazy
   sources and Drizzle stores join those boundaries. Wake hints run only after
   commit and cannot fail a mutation.
+  Catalog replay limits are positive safe integers at HTTP boundaries and are
+  defensively capped by the shared domain policy. Work catalog IDs pass through
+  the canonical request-ID parser before authority resolution.
+
+- **Project-final availability** — stable-ID lookup classifies current
+  project/no-Work/Work/user authority from authoritative rows and advances
+  generation heads with mutations. A deleted request project or deleted backing
+  source project returns `authority-unavailable/project_deleted`; restoring the
+  backing project makes the same identity available again. Foreign identities
+  remain indistinguishable from missing IDs.
 
 - **Unified `ContextPort`** — single port interface (`ports/context-port.ts`)
   providing `stat`/`read`/`write`/`writeBinary`/`mkdir`/`list`/`search` for all
