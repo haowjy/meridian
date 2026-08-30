@@ -140,7 +140,11 @@ export function ContextEditorMountHost({
   // parent render (the array identity is fresh each time).
   const trackedIds = trackedTabs.map((t) => t.documentId);
   const untitledIds = trackedTabs.filter((tab) => tab.kind === "new").map((tab) => tab.documentId);
-  const serverIds = trackedIds.filter((id) => !localSessionsRef.current.has(id));
+  // A materialized tab becomes registry-owned while the mounted editor keeps
+  // using the transferred local session object. Classify by tab authority,
+  // not by that deliberately stable object reference, so the desktop host
+  // retains the adopted live lease before the reconciler releases its bind.
+  const serverIds = trackedTabs.filter((tab) => tab.kind !== "new").map((tab) => tab.documentId);
   const trackedIdsKey = trackedIds.join("|");
   const untitledIdsKey = untitledIds.join("|");
   useEffect(() => {
