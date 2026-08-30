@@ -33,7 +33,12 @@ import {
   type DraftReviewContextValue,
   useDraftReviewScopeValue,
 } from "@/features/chat/DraftReviewProvider";
+import { inlineReviewFromState } from "@/features/chat/draft-review-session";
 import { useReviewProseFocus } from "@/features/chat/review-prose-focus";
+import {
+  type DraftReviewStateOwner,
+  useDraftReviewStateOwner,
+} from "@/features/chat/useDraftReviewController";
 import { usePhoneShell } from "@/hooks/use-phone-shell";
 import { ChatPaneController } from "./ChatPaneController";
 import { ContextViewerSurfaceController } from "./ContextPaneController";
@@ -268,19 +273,8 @@ function HydratedReviewScopes({
   chatThreadId,
   ...props
 }: ResolvedProjectViewProps & { chatWorkId: string | null; chatThreadId: string | null }) {
-  const chatReview = useDraftReviewScopeValue({
-    projectId: props.projectId,
-    workId: chatWorkId,
-    owningWorkLabel: props.chatWork?.name ?? null,
-    threadId: chatThreadId,
-  });
-  const editorReview = useDraftReviewScopeValue({
-    projectId: props.projectId,
-    workId: props.editorWorkId,
-    owningWorkLabel:
-      props.availableWorks.find((work) => work.id === props.editorWorkId)?.name ?? null,
-    threadId: null,
-  });
+  const chatReviewState = useDraftReviewStateOwner();
+  const editorReviewState = useDraftReviewStateOwner();
   const usePhone = usePhoneShell();
   const { tabs } = useContextTabs(props.projectId);
   const workLabels = useMemo(
@@ -298,10 +292,9 @@ function HydratedReviewScopes({
           return [tab.documentId];
         });
   const inlineDocumentIds = [
-    chatReview.controller.inlineReview?.documentId,
-    editorReview.controller.inlineReview?.documentId,
+    inlineReviewFromState(chatReviewState.state)?.documentId,
+    inlineReviewFromState(editorReviewState.state)?.documentId,
   ].filter((documentId): documentId is string => Boolean(documentId));
-  const scopedProps = { ...props, chatReview, editorReview };
   return (
     <ProjectDraftApplyRecoveryExecutor
       projectId={props.projectId}
@@ -313,9 +306,49 @@ function HydratedReviewScopes({
       desktopHostDocumentIds={desktopHostDocumentIds}
       workLabels={workLabels}
     >
-      {usePhone ? <MobileProject {...scopedProps} /> : <DesktopProject {...scopedProps} />}
+      <HydratedReviewControllers
+        {...props}
+        chatWorkId={chatWorkId}
+        chatThreadId={chatThreadId}
+        chatReviewState={chatReviewState}
+        editorReviewState={editorReviewState}
+        usePhone={usePhone}
+      />
     </ProjectDraftApplyRecoveryExecutor>
   );
+}
+
+function HydratedReviewControllers({
+  chatWorkId,
+  chatThreadId,
+  chatReviewState,
+  editorReviewState,
+  usePhone,
+  ...props
+}: ResolvedProjectViewProps & {
+  chatWorkId: string | null;
+  chatThreadId: string | null;
+  chatReviewState: DraftReviewStateOwner;
+  editorReviewState: DraftReviewStateOwner;
+  usePhone: boolean;
+}) {
+  const chatReview = useDraftReviewScopeValue({
+    projectId: props.projectId,
+    workId: chatWorkId,
+    owningWorkLabel: props.chatWork?.name ?? null,
+    stateOwner: chatReviewState,
+    threadId: chatThreadId,
+  });
+  const editorReview = useDraftReviewScopeValue({
+    projectId: props.projectId,
+    workId: props.editorWorkId,
+    owningWorkLabel:
+      props.availableWorks.find((work) => work.id === props.editorWorkId)?.name ?? null,
+    stateOwner: editorReviewState,
+    threadId: null,
+  });
+  const scopedProps = { ...props, chatReview, editorReview };
+  return usePhone ? <MobileProject {...scopedProps} /> : <DesktopProject {...scopedProps} />;
 }
 
 /** A PaneHeader expand control derived from a stable surface id. */

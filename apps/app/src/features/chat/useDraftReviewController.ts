@@ -10,6 +10,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/core";
 import {
+  type Dispatch,
   useCallback,
   useEffect,
   useMemo,
@@ -40,6 +41,16 @@ import {
 } from "./draft-review-session";
 
 export type { DraftReviewSelection, InlineDraftReview, InlineReviewMessageCode };
+
+export type DraftReviewStateOwner = Readonly<{
+  state: typeof EMPTY_DRAFT_REVIEW_STATE;
+  dispatch: Dispatch<Parameters<typeof draftReviewReducer>[1]>;
+}>;
+
+export function useDraftReviewStateOwner(): DraftReviewStateOwner {
+  const [state, dispatch] = useReducer(draftReviewReducer, EMPTY_DRAFT_REVIEW_STATE);
+  return { state, dispatch };
+}
 
 /**
  * The single review-runtime claim: the mounted editor a review card can scroll
@@ -110,6 +121,7 @@ export function useDraftReviewController(
   workId: string,
   threadId: string | null = null,
   owningWorkLabel: string | null = null,
+  stateOwner?: DraftReviewStateOwner,
 ): DraftReviewController {
   const queryClient = useQueryClient();
   const accountId = usePostApplyAccountId();
@@ -117,7 +129,8 @@ export function useDraftReviewController(
   const contextRemoval = useContextRemovalCoordinator();
   const applyMutation = useApplyDraft();
   const discardMutation = useDiscardDraft();
-  const [state, dispatch] = useReducer(draftReviewReducer, EMPTY_DRAFT_REVIEW_STATE);
+  const localStateOwner = useDraftReviewStateOwner();
+  const { state, dispatch } = stateOwner ?? localStateOwner;
   const commandPortsRef = useRef<DraftReviewCommandPorts | null>(null);
   const reviewSession = useMemo(
     () =>

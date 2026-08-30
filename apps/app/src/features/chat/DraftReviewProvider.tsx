@@ -36,7 +36,11 @@ import {
   usePostApplySnapshot,
 } from "@/features/project/draft-apply-recovery/DraftApplyRecoveryProvider";
 import { projectPostApplyDraftGroups } from "@/features/project/draft-apply-recovery/draft-group-projections";
-import { type DraftReviewController, useDraftReviewController } from "./useDraftReviewController";
+import {
+  type DraftReviewController,
+  type DraftReviewStateOwner,
+  useDraftReviewController,
+} from "./useDraftReviewController";
 
 export type DraftReviewContextValue = {
   controller: DraftReviewController;
@@ -61,6 +65,7 @@ export type DraftReviewProviderProps = {
   projectId: string | null;
   workId: string | null;
   owningWorkLabel?: string | null;
+  stateOwner?: DraftReviewStateOwner;
   /** Focused thread, when this review surface is thread-owned; threads cache invalidation. */
   threadId?: string | null;
   children: ReactNode;
@@ -70,10 +75,17 @@ export function DraftReviewProvider({
   projectId,
   workId,
   owningWorkLabel = null,
+  stateOwner,
   threadId = null,
   children,
 }: DraftReviewProviderProps) {
-  const value = useDraftReviewScopeValue({ projectId, workId, owningWorkLabel, threadId });
+  const value = useDraftReviewScopeValue({
+    projectId,
+    workId,
+    owningWorkLabel,
+    stateOwner,
+    threadId,
+  });
   return <DraftReviewBoundary value={value}>{children}</DraftReviewBoundary>;
 }
 
@@ -91,9 +103,10 @@ export function useDraftReviewScopeValue({
   projectId,
   workId,
   owningWorkLabel = null,
+  stateOwner,
   threadId = null,
 }: Omit<DraftReviewProviderProps, "children">): DraftReviewContextValue {
-  return useDraftReviewScopeOwner(projectId, workId, owningWorkLabel ?? null, threadId);
+  return useDraftReviewScopeOwner(projectId, workId, owningWorkLabel ?? null, threadId, stateOwner);
 }
 
 function useDraftReviewScopeOwner(
@@ -101,6 +114,7 @@ function useDraftReviewScopeOwner(
   workId: string | null,
   owningWorkLabel: string | null,
   threadId: string | null,
+  stateOwner?: DraftReviewStateOwner,
 ): DraftReviewContextValue {
   const queryClient = useQueryClient();
   const contextRemoval = useContextRemovalCoordinator();
@@ -133,6 +147,7 @@ function useDraftReviewScopeOwner(
     effectiveWorkId,
     threadId,
     owningWorkLabel,
+    stateOwner,
   );
 
   useEffect(() => {
