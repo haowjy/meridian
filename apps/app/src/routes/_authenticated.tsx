@@ -27,11 +27,11 @@ import {
 } from "@/features/account/SettingsDialog";
 import { installTraceCapture } from "@/features/debug/trace/install-trace-capture";
 import {
-  ContextRemovalAccountProvider,
+  AccountFeatureComposition,
   useLocalUntitledOwner,
   useProjectContextAvailabilityCoordinator,
   useProjectDocumentLiveOpener,
-} from "@/features/project/context/ContextRemovalAccountProvider";
+} from "@/features/project/context/account-feature-context";
 import { createContextIdentityMutationService } from "@/features/project/context/context-identity-mutation";
 import {
   getUntitledReconciler,
@@ -109,7 +109,7 @@ export const Route = createFileRoute("/_authenticated")({
         ...authMe.user,
         workingSetSyncEnabled: settings?.workingSetSyncEnabled ?? null,
       };
-      return { user: currentUser, projects: null, now };
+      return { user: currentUser, projects: null, now, authSubject: workosUser.id };
     }
 
     const [authMe, [settingsResult, projectsResult]] = await Promise.all([
@@ -130,6 +130,7 @@ export const Route = createFileRoute("/_authenticated")({
       user: currentUser,
       projects: projectsResult.status === "fulfilled" ? projectsResult.value : null,
       now,
+      authSubject: workosUser.id,
     };
   },
   staleTime: 60_000,
@@ -137,7 +138,7 @@ export const Route = createFileRoute("/_authenticated")({
 });
 
 function AuthenticatedLayout() {
-  const { projects, now, user } = Route.useLoaderData();
+  const { projects, now, user, authSubject } = Route.useLoaderData();
   configureWorkingSetSync(user.userId, user.workingSetSyncEnabled === true);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
 
@@ -147,7 +148,12 @@ function AuthenticatedLayout() {
   // ThreadStoreProvider during light↔workspace transitions.
   return (
     <AppQueryProvider initialProjects={projects}>
-      <AuthenticatedAccountProviderTree now={now} pathname={pathname} user={user} />
+      <AuthenticatedAccountProviderTree
+        authSubject={authSubject}
+        now={now}
+        pathname={pathname}
+        user={user}
+      />
     </AppQueryProvider>
   );
 }
@@ -156,10 +162,12 @@ function AuthenticatedAccountProviderTree({
   now,
   pathname,
   user,
+  authSubject,
 }: {
   now: number;
   pathname: string;
   user: { userId: string; workingSetSyncEnabled: boolean | null };
+  authSubject: string;
 }) {
   const queryClient = useQueryClient();
   const repairProjectCatalog = useCallback(
@@ -170,14 +178,15 @@ function AuthenticatedAccountProviderTree({
     [queryClient],
   );
   return (
-    <ContextRemovalAccountProvider
+    <AccountFeatureComposition
+      authSubject={authSubject}
       accountId={user.userId}
       repairProjectCatalog={repairProjectCatalog}
     >
       <DraftApplyRecoveryProvider accountId={user.userId}>
         <AuthenticatedProviderTree now={now} pathname={pathname} user={user} />
       </DraftApplyRecoveryProvider>
-    </ContextRemovalAccountProvider>
+    </AccountFeatureComposition>
   );
 }
 

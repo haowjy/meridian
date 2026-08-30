@@ -29,7 +29,7 @@ import type { DocumentSession } from "@/core/editor/document-session";
 import {
   useContextRemovalCoordinator,
   useLiveDocumentSessionRegistry,
-} from "@/features/project/context/ContextRemovalAccountProvider";
+} from "@/features/project/context/account-feature-context";
 import {
   usePostApplyAccountId,
   usePostApplyDispositionOwner,

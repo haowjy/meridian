@@ -3,18 +3,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, StrictMode, useCallback, useLayoutEffect, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { useContextTabsStore } from "@/client/stores";
-import { withReactRoot } from "@/test-support/react-dom-harness";
 import {
-  ContextRemovalAccountProvider,
+  AccountFeatureTestProvider,
   useContextRemovalCoordinator,
-} from "./ContextRemovalAccountProvider";
+} from "@/test-support/account-feature-provider";
+import { withReactRoot } from "@/test-support/react-dom-harness";
 import type { ContextRemovalCoordinator } from "./context-removal-coordinator";
 
 const providerQueryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-function TestAccountProvider(props: React.ComponentProps<typeof ContextRemovalAccountProvider>) {
+function TestAccountProvider(props: React.ComponentProps<typeof AccountFeatureTestProvider>) {
   return (
     <QueryClientProvider client={providerQueryClient}>
-      <ContextRemovalAccountProvider {...props} />
+      <AccountFeatureTestProvider {...props} />
     </QueryClientProvider>
   );
 }
@@ -32,7 +32,7 @@ function tracked(documentId: string, path: string) {
   };
 }
 
-describe("ContextRemovalAccountProvider", () => {
+describe("AccountFeatureTestProvider", () => {
   it("keeps the account coordinator across an ordinary composition rerender", async () => {
     const instances: ContextRemovalCoordinator[] = [];
     let rerender: (() => void) | null = null;

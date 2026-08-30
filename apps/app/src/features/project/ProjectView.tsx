@@ -45,7 +45,7 @@ import { ContextViewerSurfaceController } from "./ContextPaneController";
 import { resolveCatalogWork } from "./catalog-work-resolution";
 import { type ChatPlacement, ChatSurface } from "./chat/ChatSurface";
 import { useResolvedChatThread } from "./chat/chat-thread-resolution";
-import { useProjectContextAvailabilityCoordinator } from "./context/ContextRemovalAccountProvider";
+import { useProjectContextAvailabilityCoordinator } from "./context/account-feature-context";
 import type { ContextRemovalRoutePort } from "./context/context-removal-coordinator";
 import { ProjectContextRemovalController } from "./context/ProjectContextRemovalController";
 import { TreeCreationProvider } from "./context/TreeCreationProvider";

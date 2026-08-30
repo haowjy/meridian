@@ -1,6 +1,6 @@
 /** Account-epoch authorization evidence without opening a document session. */
 import { useEffect, useState } from "react";
-import { useOptionalProjectContextAvailabilityCoordinator } from "./ContextRemovalAccountProvider";
+import { useOptionalProjectContextAvailabilityCoordinator } from "./account-feature-context";
 
 let evidenceProducerSequence = 0;
 

@@ -22,7 +22,7 @@ vi.mock("@/client/change-trails", async (importOriginal) => ({
 vi.mock("@/features/project/context/open-project-document", () => ({
   useProjectDocumentNavigationProjectId: () => "project-1",
 }));
-vi.mock("@/features/project/context/ContextRemovalAccountProvider", () => ({
+vi.mock("@/features/project/context/account-feature-context", () => ({
   useOptionalProjectContextAvailabilityCoordinator: () => ({
     attachProject: () => ({
       observeAuthorizationLoss: (_producer: string, _records: unknown, observer: () => void) => {

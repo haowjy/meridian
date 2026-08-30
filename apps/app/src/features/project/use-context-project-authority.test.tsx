@@ -10,11 +10,11 @@ import {
   reconcileContextRoutes,
 } from "@/client/working-set/driver";
 import { DeviceWorkingSetStore, WORKING_SET_STORAGE_KEY } from "@/client/working-set/store";
-import { withReactRoot } from "@/test-support/react-dom-harness";
 import {
-  ContextRemovalAccountProvider,
+  AccountFeatureTestProvider,
   useContextRemovalCoordinator,
-} from "./context/ContextRemovalAccountProvider";
+} from "@/test-support/account-feature-provider";
+import { withReactRoot } from "@/test-support/react-dom-harness";
 import type { ContextRemovalCoordinator } from "./context/context-removal-coordinator";
 import { ProjectContextRemovalController } from "./context/ProjectContextRemovalController";
 import { useContextRemovalProject } from "./context/use-context-removal-project";
@@ -222,9 +222,9 @@ it("keeps a fulfilled bootstrap removal authoritative when the explicit live rou
 
   try {
     await withReactRoot(
-      <ContextRemovalAccountProvider accountId="bootstrap-account">
+      <AccountFeatureTestProvider accountId="bootstrap-account">
         <Harness />
-      </ContextRemovalAccountProvider>,
+      </AccountFeatureTestProvider>,
       async () => {
         expect(document.querySelector("[data-phase]")?.textContent).toBe("withheld");
         expect(useContextTabsStore.getState().byProject.project?.tabs).toHaveLength(2);

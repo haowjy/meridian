@@ -5,8 +5,8 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { MeridianApiError } from "@/client/api/http-client";
 import { projectQueryKeys } from "@/client/query/project-query-keys";
 import { useContextTabsStore } from "@/client/stores";
+import { AccountFeatureTestProvider } from "@/test-support/account-feature-provider";
 import { withReactRoot } from "@/test-support/react-dom-harness";
-import { ContextRemovalAccountProvider } from "./ContextRemovalAccountProvider";
 
 const { deleted } = vi.hoisted(() => ({
   deleted: vi.fn(async () => ({
@@ -82,9 +82,9 @@ it("submits the Work captured when delete confirmation was requested", async () 
   });
   await withReactRoot(
     <QueryClientProvider client={queryClient}>
-      <ContextRemovalAccountProvider accountId="account-1">
+      <AccountFeatureTestProvider accountId="account-1">
         <Harness />
-      </ContextRemovalAccountProvider>
+      </AccountFeatureTestProvider>
     </QueryClientProvider>,
     async () => {
       act(() =>
@@ -131,9 +131,9 @@ it("keeps a stale-target confirmation open with a retry error", async () => {
   });
   await withReactRoot(
     <QueryClientProvider client={queryClient}>
-      <ContextRemovalAccountProvider accountId="account-1">
+      <AccountFeatureTestProvider accountId="account-1">
         <Harness />
-      </ContextRemovalAccountProvider>
+      </AccountFeatureTestProvider>
     </QueryClientProvider>,
     async () => {
       act(() =>

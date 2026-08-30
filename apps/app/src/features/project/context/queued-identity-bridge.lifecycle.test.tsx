@@ -8,13 +8,13 @@ import { afterEach, expect, it, vi } from "vitest";
 import { type ContextTab, rehydrateContextDesks, useContextTabsStore } from "@/client/stores";
 import { DeviceContextDeskStore } from "@/client/stores/context-tabs-store/context-desk-storage";
 import { configureWorkingSetSync, hydrateWorkingSet, readRecentRoutes } from "@/client/working-set";
+import {
+  AccountFeatureTestProvider,
+  useContextRemovalCoordinator,
+} from "@/test-support/account-feature-provider";
 import { withReactRoot } from "@/test-support/react-dom-harness";
 import { ContextViewerSurfaceController } from "../ContextPaneController";
 import type { ProjectSearch } from "../routing/project-route";
-import {
-  ContextRemovalAccountProvider,
-  useContextRemovalCoordinator,
-} from "./ContextRemovalAccountProvider";
 import type { ContextRemovalCoordinator } from "./context-removal-coordinator";
 import { ProjectContextRemovalController } from "./ProjectContextRemovalController";
 import type { UntitledLifecycleRig as Rig } from "./test-support/UntitledLifecycleRig";
@@ -177,7 +177,7 @@ it.each([
       setRoute(search);
     };
     return (
-      <ContextRemovalAccountProvider accountId={accountId}>
+      <AccountFeatureTestProvider accountId={accountId}>
         <CaptureCoordinator />
         <ProjectContextRemovalController
           projectId="project-1"
@@ -204,7 +204,7 @@ it.each([
           onSelectContextPath={updateRoute}
           onOpenContextTarget={(target) => updateRoute(target.path, target.scheme)}
         />
-      </ContextRemovalAccountProvider>
+      </AccountFeatureTestProvider>
     );
   }
 

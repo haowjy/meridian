@@ -23,7 +23,7 @@ import { getDraftPreview } from "@/client/api/drafts-api";
 import { projectQueryKeys } from "@/client/query/project-query-keys";
 import { useApplyDraft, useDiscardDraft } from "@/client/query/useDraftReviewMutations";
 import { useContextTabsStore } from "@/client/stores";
-import { useContextRemovalCoordinator } from "@/features/project/context/ContextRemovalAccountProvider";
+import { useContextRemovalCoordinator } from "@/features/project/context/account-feature-context";
 import { usePostApplyAccountId } from "@/features/project/draft-apply-recovery/DraftApplyRecoveryProvider";
 import { useProjectDraftApplyRecovery } from "@/features/project/draft-apply-recovery/ProjectDraftApplyRecoveryExecutor";
 import {

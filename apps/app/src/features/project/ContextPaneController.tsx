@@ -16,7 +16,7 @@ import { useContextTabs, useContextTabsActions, useContextTabsStore } from "@/cl
 import {
   useContextRemovalCoordinator,
   useLocalUntitledOwner,
-} from "./context/ContextRemovalAccountProvider";
+} from "./context/account-feature-context";
 import { ContextViewer } from "./context/ContextViewer";
 import { deriveContextPaneState } from "./context/context-pane-state";
 import { routeTargetForTab } from "./context/context-removal-planner";

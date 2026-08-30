@@ -79,7 +79,7 @@ vi.mock("@/client/stores", () => ({
     }),
   },
 }));
-vi.mock("@/features/project/context/ContextRemovalAccountProvider", () => ({
+vi.mock("@/features/project/context/account-feature-context", () => ({
   useContextRemovalCoordinator: () => ({
     applyDraftMetadata: applyDraftMetadataMock,
     discardDraft: discardDraftMock,

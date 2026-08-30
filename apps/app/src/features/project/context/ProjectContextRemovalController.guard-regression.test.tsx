@@ -11,12 +11,12 @@ import {
   reconcileContextRoutes,
 } from "@/client/working-set/driver";
 import { DeviceWorkingSetStore, WORKING_SET_STORAGE_KEY } from "@/client/working-set/store";
+import {
+  AccountFeatureTestProvider,
+  useContextRemovalCoordinator,
+} from "@/test-support/account-feature-provider";
 import { withReactRoot } from "@/test-support/react-dom-harness";
 import type { ProjectSearch } from "../routing/project-route";
-import {
-  ContextRemovalAccountProvider,
-  useContextRemovalCoordinator,
-} from "./ContextRemovalAccountProvider";
 import type { ContextRemovalCoordinator } from "./context-removal-coordinator";
 import { ProjectContextRemovalController } from "./ProjectContextRemovalController";
 import { useContextRemovalProject } from "./use-context-removal-project";
@@ -113,7 +113,7 @@ it("keeps a terminally guarded production entry absent until replacement identit
     }>({ screen: "home", path: null });
     setEntry = updateEntry;
     return (
-      <ContextRemovalAccountProvider accountId={accountId}>
+      <AccountFeatureTestProvider accountId={accountId}>
         <SeedWorkingSet />
         <Capture />
         <ProjectContextRemovalController
@@ -124,7 +124,7 @@ it("keeps a terminally guarded production entry absent until replacement identit
           editorWorkId={workId}
           route={productionRoute}
         />
-      </ContextRemovalAccountProvider>
+      </AccountFeatureTestProvider>
     );
   }
 
@@ -379,7 +379,7 @@ it("never restamps a Work-scoped route candidate during a production Work transi
       setWorkId("work-1");
     };
     return (
-      <ContextRemovalAccountProvider accountId={accountId}>
+      <AccountFeatureTestProvider accountId={accountId}>
         <SeedWorkingSet />
         <Capture />
         <ProjectContextRemovalController
@@ -391,7 +391,7 @@ it("never restamps a Work-scoped route candidate during a production Work transi
           route={route}
         />
         {workId === "work-1" ? <RejectingMaterializer projectId={projectId} /> : null}
-      </ContextRemovalAccountProvider>
+      </AccountFeatureTestProvider>
     );
   }
 

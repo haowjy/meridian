@@ -15,7 +15,7 @@ import { readRecentRoutes } from "@/client/working-set";
 import {
   useContextRemovalCoordinator,
   useProjectContextAvailabilityCoordinator,
-} from "./ContextRemovalAccountProvider";
+} from "./account-feature-context";
 import type { AvailabilityWatchRecord } from "./project-context-availability-coordinator";
 
 function routeWatchRecord(route: WorkingSetRoute): AvailabilityWatchRecord {
