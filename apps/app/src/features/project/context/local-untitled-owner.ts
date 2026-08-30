@@ -236,23 +236,25 @@ export class LocalUntitledOwner {
   }
 
   async remint(from: LocalUntitledKey, to: LocalUntitledKey): Promise<LocalUntitledSession> {
+    this.requireOpen();
     await this.settleKey(from);
+    this.requireOpen();
     await this.settleKey(to);
+    this.requireOpen();
     const old = this.requireOwned(from);
     this.requireQualified(to);
     if (from.projectId !== to.projectId || from.documentId === to.documentId)
       throw new Error("Local Untitled remint requires a new ID in the same project");
+    const current = this.dependencies.records.read(from);
+    if (!current || current.revision !== old.revision || current.active === false)
+      throw new Error("Local Untitled remint revision is stale");
+    this.requireRemintAuthority(from, to, old, current, null);
     const replacementLease = await this.dependencies.lifetime.tryAcquire(
       to.projectId,
       to.documentId,
     );
     if (!replacementLease)
       throw new Error("Replacement local Untitled identity is owned elsewhere");
-    const current = this.dependencies.records.read(from);
-    if (!current || current.revision !== old.revision) {
-      await replacementLease.release();
-      throw new Error("Local Untitled remint revision is stale");
-    }
     const nextRevision = current.revision + 1;
     const replacement: LocalUntitledRecord = {
       ...current,
@@ -262,60 +264,74 @@ export class LocalUntitledOwner {
       active: true,
       createSettlement: { kind: "ready" },
     };
-    const prepared = await old.value.session.prepareDetachedReidentity(
-      to.documentId,
-      localUntitledPersistenceKey(to),
-    );
-    let cleanup: { closePrevious(): Promise<void> };
+    let prepared: Awaited<ReturnType<DocumentSession["prepareDetachedReidentity"]>> | null = null;
+    let handoff: LocalDocumentSessionHandoff | null = null;
+    let finalizer: PendingFinalizer | null = null;
+    let committed = false;
     try {
+      this.requireRemintAuthority(from, to, old, current, null);
+      prepared = await old.value.session.prepareDetachedReidentity(
+        to.documentId,
+        localUntitledPersistenceKey(to),
+      );
+      this.requireRemintAuthority(from, to, old, current, null);
       if (old.handoff) {
         this.dependencies.reservations.abort(old.handoff);
         old.handoff = null;
         old.transferring = false;
       }
       this.dependencies.records.write({ ...replacement, active: false });
+      const value = { key: to, session: old.value.session };
+      const next: Owned = {
+        value,
+        lease: replacementLease,
+        revision: nextRevision,
+        transferring: true,
+        handoff: null,
+      };
+      handoff = this.reserveTransfer(to, next, nextRevision);
+      next.handoff = handoff;
+      this.requireRemintAuthority(from, to, old, current, { ...replacement, active: false });
+
+      let cleanup: { closePrevious(): Promise<void> } | null = null;
+      finalizer = {
+        key: encodeLocalUntitledKey(from),
+        closeProvider: () => cleanup?.closePrevious() ?? Promise.resolve(),
+        lease: old.lease,
+        providerClosed: false,
+        leaseReleased: false,
+        inFlight: null,
+        afterSettled: () => {
+          this.dependencies.records.remove(from, current.revision);
+        },
+      };
+      this.pendingFinalizers.set(finalizer.key, finalizer);
       this.dependencies.records.write(replacement);
       cleanup = prepared.commit();
+      committed = true;
+      try {
+        this.dependencies.records.write({ ...current, active: false });
+      } catch {
+        // The higher active lineage revision is already authoritative.
+      }
+      this.owned.delete(encodeLocalUntitledKey(from));
+      this.owned.set(encodeLocalUntitledKey(to), next);
     } catch (error) {
-      await prepared.abort();
+      if (!committed) {
+        if (handoff) this.dependencies.reservations.abort(handoff);
+        if (finalizer) this.pendingFinalizers.delete(finalizer.key);
+        this.dependencies.records.remove(to, nextRevision);
+        await prepared?.abort();
+      }
       await replacementLease.release();
       throw error;
     }
-    try {
-      this.dependencies.records.write({ ...current, active: false });
-    } catch {
-      // The higher active lineage revision is already authoritative.
-    }
-    this.owned.delete(encodeLocalUntitledKey(from));
-    const value = { key: to, session: old.value.session };
-    this.owned.set(encodeLocalUntitledKey(to), {
-      value,
-      lease: replacementLease,
-      revision: nextRevision,
-      transferring: false,
-      handoff: null,
-    });
-    const next = this.requireOwned(to);
-    next.transferring = true;
-    next.handoff = this.reserveTransfer(to, next, nextRevision);
-    const finalizer: PendingFinalizer = {
-      key: encodeLocalUntitledKey(from),
-      closeProvider: () => cleanup.closePrevious(),
-      lease: old.lease,
-      providerClosed: false,
-      leaseReleased: false,
-      inFlight: null,
-      afterSettled: () => {
-        this.dependencies.records.remove(from, current.revision);
-      },
-    };
-    this.pendingFinalizers.set(finalizer.key, finalizer);
     try {
       await this.settleFinalizer(finalizer);
     } catch {
       // The replacement is already authoritative. Cleanup remains owner-held GC.
     }
-    return value;
+    return this.requireOwned(to).value;
   }
 
   destroyAll(): Promise<void> {
@@ -426,6 +442,53 @@ export class LocalUntitledOwner {
   private requireQualified(key: LocalUntitledKey): void {
     if (key.accountId !== this.dependencies.accountId)
       throw new Error("Local Untitled key belongs to a different account");
+  }
+
+  private requireOpen(): void {
+    if (this.lifecycle !== "open") throw new Error("Local Untitled owner is closing");
+  }
+
+  private requireRemintAuthority(
+    from: LocalUntitledKey,
+    to: LocalUntitledKey,
+    old: Owned,
+    source: LocalUntitledRecord,
+    replacement: LocalUntitledRecord | null,
+  ): void {
+    this.requireOpen();
+    const latest = this.dependencies.records.read(from);
+    if (
+      this.owned.get(encodeLocalUntitledKey(from)) !== old ||
+      !latest ||
+      latest.revision !== source.revision ||
+      latest.lineageId !== source.lineageId ||
+      (latest.lineageRevision ?? latest.revision) !== (source.lineageRevision ?? source.revision) ||
+      latest.active === false ||
+      latest.phase !== source.phase
+    ) {
+      throw new Error("Local Untitled remint revision is stale");
+    }
+    const replacementOwned = this.owned.get(encodeLocalUntitledKey(to));
+    const replacementRecord = this.dependencies.records.read(to);
+    if (replacementOwned || !this.sameRecordAuthority(replacementRecord, replacement)) {
+      throw new Error("Replacement local Untitled identity acquired competing authority");
+    }
+  }
+
+  private sameRecordAuthority(
+    actual: LocalUntitledRecord | null,
+    expected: LocalUntitledRecord | null,
+  ): boolean {
+    if (!actual || !expected) return actual === expected;
+    return (
+      actual.key.accountId === expected.key.accountId &&
+      actual.key.projectId === expected.key.projectId &&
+      actual.key.documentId === expected.key.documentId &&
+      actual.revision === expected.revision &&
+      actual.lineageId === expected.lineageId &&
+      actual.active === expected.active &&
+      actual.phase === expected.phase
+    );
   }
 
   private async settleKey(key: LocalUntitledKey): Promise<void> {
