@@ -61,6 +61,7 @@ type LifetimeHold = {
 };
 type DocumentHolds = {
   document: LifetimeHold;
+  documentReleased: boolean;
   projects: Map<ProjectId, LifetimeHold>;
 };
 type LocalAdmission = {
@@ -276,6 +277,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     private readonly local: LocalSessionAuthority,
     private readonly intervalMs: number,
     createWakeChannel: ((accountId: AccountId, wake: () => void) => WakeChannel | null) | null,
+    private readonly lifetimeHoldFactory: ((name: string) => Promise<LifetimeHold>) | null,
   ) {
     this.store = new DocumentSessionAuthorityStore(
       accountId,
@@ -700,16 +702,27 @@ class Coordination implements DocumentSessionCrossContextCoordination {
         incarnation: pending.incarnation,
       });
       const holds = this.holds.get(documentId);
-      for (const [projectId] of matching) {
-        projects.delete(projectId);
-        const hold = holds?.projects.get(projectId);
-        holds?.projects.delete(projectId);
-        await hold?.release();
+      const releases = await Promise.allSettled(
+        matching.map(async ([projectId]) => {
+          await holds?.projects.get(projectId)?.release();
+          holds?.projects.delete(projectId);
+          projects.delete(projectId);
+        }),
+      );
+      const failures = releases.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1) {
+        throw new AggregateError(failures, "Access lifecycle hold release failed");
       }
       if (projects.size === 0) {
+        if (holds && !holds.documentReleased) {
+          await holds.document.release();
+          holds.documentReleased = true;
+        }
         this.admissions.delete(documentId);
         this.holds.delete(documentId);
-        await holds?.document.release();
       }
       return;
     }
@@ -724,17 +737,18 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       generation: pending.generation,
       incarnation: pending.incarnation,
     });
-    projects.delete(pending.projectId);
     const holds = this.holds.get(documentId);
     const accessHold = holds?.projects.get(pending.projectId);
+    if (disposition === "locally-empty" && holds && !holds.documentReleased) {
+      await holds.document.release();
+      holds.documentReleased = true;
+    }
+    await accessHold?.release();
     holds?.projects.delete(pending.projectId);
+    projects.delete(pending.projectId);
     if (disposition === "locally-empty") {
       this.admissions.delete(documentId);
       this.holds.delete(documentId);
-      await holds?.document.release();
-      await accessHold?.release();
-    } else {
-      await accessHold?.release();
     }
   }
 
@@ -748,7 +762,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       const document = await this.acquireLifetime(
         documentLifecycleLock(this.accountId, documentId),
       );
-      holds = { document, projects: new Map() };
+      holds = { document, documentReleased: false, projects: new Map() };
       this.holds.set(documentId, holds);
       documentAcquired = true;
     }
@@ -761,8 +775,8 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       return { document: documentAcquired, access: true };
     } catch (error) {
       if (documentAcquired) {
-        this.holds.delete(documentId);
         await holds.document.release();
+        this.holds.delete(documentId);
       }
       throw error;
     }
@@ -777,16 +791,18 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     if (!holds) return;
     if (acquired.access) {
       const access = holds.projects.get(projectId);
-      holds.projects.delete(projectId);
       await access?.release();
+      holds.projects.delete(projectId);
     }
     if (acquired.document) {
-      this.holds.delete(documentId);
+      if (holds.projects.size > 0) return;
       await holds.document.release();
+      this.holds.delete(documentId);
     }
   }
 
   private async acquireLifetime(name: string): Promise<LifetimeHold> {
+    if (this.lifetimeHoldFactory) return this.lifetimeHoldFactory(name);
     const acquired = deferred<void>();
     const released = deferred<void>();
     let callbackEntered = false;
@@ -960,7 +976,8 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       }
       if (document.projects.size > 0) continue;
       try {
-        await document.document.release();
+        if (!document.documentReleased) await document.document.release();
+        document.documentReleased = true;
         this.holds.delete(documentId);
         this.admissions.delete(documentId);
       } catch (error) {
@@ -999,6 +1016,7 @@ export function createDocumentSessionCrossContextCoordination(input: {
   secureContext?: boolean;
   createWakeChannel?: ((accountId: AccountId, wake: () => void) => WakeChannel | null) | null;
   reconcileIntervalMs?: number;
+  acquireLifetimeHold?: (name: string) => Promise<{ release(): Promise<void> }>;
 }): DocumentSessionCrossContextCoordination {
   const secure = input.secureContext ?? globalThis.isSecureContext === true;
   const locks = input.locks === undefined ? nativeLocks() : input.locks;
@@ -1016,5 +1034,6 @@ export function createDocumentSessionCrossContextCoordination(input: {
     input.local,
     input.reconcileIntervalMs ?? PENDING_DRAIN_RECONCILE_MS,
     input.createWakeChannel === undefined ? nativeWakeChannel : input.createWakeChannel,
+    input.acquireLifetimeHold ?? null,
   );
 }
