@@ -6,7 +6,7 @@
  */
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { act } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { withReactRoot } from "@/test-support/react-dom-harness";
 
@@ -47,6 +47,10 @@ const owner = {
       entryVersion: 2,
     },
   })),
+  markApplyOutcomeUnknown: vi.fn((dispatch) => ({
+    kind: "outcome-unknown",
+    reservation: dispatch.reservation,
+  })),
 };
 
 vi.mock("@/features/project/draft-apply-recovery/DraftApplyRecoveryProvider", () => ({
@@ -69,6 +73,55 @@ const flushNotifications = () =>
   });
 
 describe("useApplyDraft committed outcome", () => {
+  beforeEach(() => {
+    applyDraftMock.mockReset();
+    owner.recordServerApplied.mockClear();
+    owner.markApplyOutcomeUnknown.mockClear();
+  });
+
+  it("routes a non-authoritative Apply 2xx through the exact outcome-unknown grant", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    const harnessRef: { apply: ReturnType<typeof useApplyDraft> | null } = { apply: null };
+    function Harness() {
+      harnessRef.apply = useApplyDraft();
+      return null;
+    }
+    applyDraftMock.mockRejectedValue(
+      new Error("Draft Apply response did not prove the requested draft was applied"),
+    );
+    await withReactRoot(
+      <QueryClientProvider client={queryClient}>
+        <Harness />
+      </QueryClientProvider>,
+      async () => {
+        const result = await harnessRef.apply?.mutateAsync({
+          projectId: "project-1",
+          workId: "work-1",
+          documentId: "doc-1",
+          draftId: "branch-1",
+          identity: {
+            accountId: "account-1",
+            projectId: "project-1",
+            workId: "work-1",
+            documentId: "doc-1",
+            draftId: "branch-1",
+          },
+          presentation: {
+            documentName: "Chapter",
+            contextPath: "chapter.md",
+            owningWorkLabel: "Work one",
+          },
+          obligations: { draftTab: { kind: "none" }, branch: { kind: "none" } },
+        });
+        expect(result).toMatchObject({ kind: "apply-outcome-unknown" });
+        expect(applyDraftMock).toHaveBeenCalledOnce();
+        expect(owner.recordServerApplied).not.toHaveBeenCalled();
+        expect(owner.markApplyOutcomeUnknown).toHaveBeenCalledOnce();
+      },
+      { drainMacrotask: true },
+    );
+  });
+
   it("does not let freshness refetch hold or reject the committed command", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
