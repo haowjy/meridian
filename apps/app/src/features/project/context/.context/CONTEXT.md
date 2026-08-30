@@ -42,9 +42,11 @@ background untitled create/move reconciliation share
 materialized tree or both move endpoints, even when no tab is open.
 
 The project-lifetime catalog reconciler diffs complete installed views by stable
-file ID. Authoritative deletion, reset omission, or Work unavailability reuses
-the removal coordinator for tab/route continuity and revokes the corresponding
-Yjs sessions; same-ID move upserts and local-new tabs survive.
+file ID. Catalog changes trigger exact project-final rechecks for the affected
+stable IDs; scoped omission never decides deletion. Generation-bearing final
+commands own the atomic tab, route, selection, admission, working-set, and Yjs
+session effects; same-ID moves and local-new tabs survive. Opening requires exact
+final availability plus a live opener and admission.
 
 `useFileSuggestions` projects directly from the normalized scope views. It
 never walks or caches a second recursive tree and never adds a server-search path; hosts constrain

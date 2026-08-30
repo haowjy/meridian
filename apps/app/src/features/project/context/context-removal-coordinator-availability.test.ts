@@ -6,8 +6,9 @@ import type {
 } from "@meridian/contracts/protocol";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useContextTabsStore } from "@/client/stores";
-import type { ProjectSearch } from "../routing/project-route";
+import { type ProjectSearch, parseProjectSearch } from "../routing/project-route";
 import { ContextRemovalCoordinator } from "./context-removal-coordinator";
+import { resolveDeskRoute } from "./context-route-desk-owner";
 
 const projectId = "project-1";
 const documentId = "00000000-0000-4000-8000-000000000001";
@@ -67,81 +68,159 @@ describe("ContextRemovalCoordinator availability batches", () => {
     });
   });
 
-  it("re-homes every matching tab and the bound desktop/mobile route without changing active Work", async () => {
+  it("atomically re-homes same-ID working state while preserving newer navigation", async () => {
+    useContextTabsStore.setState((state) => ({
+      byProject: {
+        ...state.byProject,
+        [projectId]: {
+          ...state.byProject[projectId],
+          tabs:
+            state.byProject[projectId]?.tabs.map((tab) => ({
+              ...tab,
+              path: tab.draftOnly ? "/copy.md" : "/old.md",
+              name: tab.draftOnly ? "copy.md" : "old.md",
+            })) ?? [],
+        },
+      },
+    }));
     let search: ProjectSearch = {
       screen: "context",
-      scheme: "scratch",
-      path: "Old.md",
       work: "work-1",
+      scheme: "scratch",
+      path: "/old.md",
     };
+    let nextLatestSearch: ProjectSearch | null = null;
+    let routeUpdates = 0;
     const route = {
       readSearch: () => search,
       updateSearch: (_projectId: string, update: (value: ProjectSearch) => ProjectSearch) => {
-        search = update(search);
+        routeUpdates += 1;
+        if (nextLatestSearch) {
+          search = nextLatestSearch;
+          nextLatestSearch = null;
+        }
+        search = update(parseProjectSearch(search));
       },
     };
+    let routes: WorkingSetRoute[] = [
+      { documentId, scheme: "scratch", path: "/old.md", workId: "work-1" },
+    ];
     const sessions = {
       revokeDocument: vi.fn(),
       revokeAccess: vi.fn(),
     } as unknown as LiveDocumentSessionAuthority;
-    const coordinator = new ContextRemovalCoordinator("account-1", { route, sessions });
+    const coordinator = new ContextRemovalCoordinator("account-1", {
+      route,
+      sessions,
+      workingSet: {
+        readRecentRoutes: () => routes,
+        replaceRecentRoutes: (_projectId, next) => {
+          routes = [...next];
+          return routes;
+        },
+        reconcileContextRoutes: () => routes,
+      },
+    });
     coordinator.registerRoutePort(projectId, route, "work-1");
     const revision = coordinator.beginRouteSelection(projectId, {
       scheme: "scratch",
-      path: "Old.md",
+      path: "/old.md",
       workId: "work-1",
     });
     coordinator.bindRouteSelection(projectId, revision, { kind: "server", documentId });
+    const beforeAdmission = coordinator.getProjectSnapshot(projectId);
+    expect(
+      coordinator.activate({
+        projectId,
+        selectionRevision: revision,
+        transitionRevision: beforeAdmission.transitionRevision,
+        locator: { scheme: "scratch", path: "/old.md", workId: "work-1" },
+        identity: { kind: "server", documentId },
+        owner: { kind: "desk", documentId },
+      }),
+    ).toBe(true);
+    const deskPublications: string[][] = [];
+    const stopDesk = useContextTabsStore.subscribe((state) => {
+      deskPublications.push(
+        state.byProject[projectId]?.tabs.map((tab) => ("path" in tab ? tab.path : "")) ?? [],
+      );
+    });
 
     await coordinator.reconcileDocumentAvailability([
       {
         kind: "available",
         commandId: `availability/v1/available/${projectId}/${documentId}/7`,
         projectId,
-        document: file(),
+        document: {
+          ...file(),
+          name: "new.md",
+          path: ["new.md"],
+          uri: "scratch://@work-2/new.md",
+        },
         generation: "7",
       },
     ]);
+    stopDesk();
 
+    expect(deskPublications).toEqual([["/new.md"]]);
+    expect(routeUpdates).toBe(1);
     expect(useContextTabsStore.getState().byProject[projectId]?.tabs).toEqual([
       expect.objectContaining({
         documentId,
-        path: "Arc/Moved.md",
+        path: "/new.md",
         workId: "work-2",
-        name: "Moved.md",
+        name: "new.md",
       }),
     ]);
-    expect(search).toEqual(expect.objectContaining({ work: "work-2", path: "Arc/Moved.md" }));
+    expect(search).toEqual(expect.objectContaining({ work: "work-2", path: "/new.md" }));
     expect(coordinator.getProjectSnapshot(projectId).selection).toEqual(
       expect.objectContaining({
         status: "bound",
-        locator: { scheme: "scratch", path: "Arc/Moved.md", workId: "work-2" },
+        locator: { scheme: "scratch", path: "/new.md", workId: "work-2" },
       }),
     );
+    expect(coordinator.getProjectSnapshot(projectId).admitted).toEqual({
+      scheme: "scratch",
+      path: "/new.md",
+      workId: "work-2",
+    });
+    expect(routes).toEqual([{ documentId, scheme: "scratch", path: "/new.md", workId: "work-2" }]);
+    expect(
+      resolveDeskRoute({
+        tabs: useContextTabsStore.getState().byProject[projectId]?.tabs ?? [],
+        selectedDocumentId:
+          useContextTabsStore.getState().byProject[projectId]?.selectedTabIdByWork["work-2"],
+        locator: { scheme: "scratch", path: "/new.md", workId: "work-2" },
+      }),
+    ).toMatchObject({ kind: "owner", identity: { kind: "server", documentId } });
     expect(sessions.revokeDocument).not.toHaveBeenCalled();
+    expect(sessions.revokeAccess).not.toHaveBeenCalled();
 
-    const noWork = {
+    nextLatestSearch = {
+      screen: "context",
+      work: "work-2",
+      scheme: "scratch",
+      path: "/newer-navigation.md",
+    };
+    const later = {
       ...file(),
-      scope: { kind: "project" as const, projectId },
-      uri: "scratch://@/Arc/Unscoped.md",
-      path: ["Arc", "Unscoped.md"],
-      name: "Unscoped.md",
+      name: "later.md",
+      path: ["later.md"],
+      uri: "scratch://@work-2/later.md",
     };
     coordinator.reconcileDocumentAvailability([
       {
         kind: "available",
         commandId: `availability/v1/available/${projectId}/${documentId}/8`,
         projectId,
-        document: noWork,
+        document: later,
         generation: "8",
       },
     ]);
-    expect(useContextTabsStore.getState().byProject[projectId]?.tabs).toEqual([
-      expect.not.objectContaining({ workId: expect.anything() }),
-    ]);
-    expect(coordinator.getProjectSnapshot(projectId).selection).toMatchObject({
-      locator: { workId: null, path: "Arc/Unscoped.md" },
-    });
+    expect(search.path).toBe("/newer-navigation.md");
+    expect(useContextTabsStore.getState().byProject[projectId]?.tabs[0]).toEqual(
+      expect.objectContaining({ path: "/later.md" }),
+    );
     expect(coordinator.getProjectSnapshot(projectId).activeWorkId).toBe("work-1");
   });
 
@@ -717,11 +796,11 @@ describe("availability Work authority and retry", () => {
     ]);
     expect(coordinator.getProjectSnapshot(projectId).activeWorkId).toBe("work-editor");
     expect(coordinator.getProjectSnapshot(projectId).selection).toMatchObject({
-      locator: { workId: "work-editor", path: "Lore/Renamed.md" },
+      locator: { workId: "work-editor", path: "/Lore/Renamed.md" },
     });
-    expect(search).toMatchObject({ work: "work-editor", path: "Lore/Renamed.md" });
+    expect(search).toMatchObject({ work: "work-editor", path: "/Lore/Renamed.md" });
     expect(useContextTabsStore.getState().byProject[projectId]?.tabs).toEqual([
-      expect.objectContaining({ path: "Lore/Renamed.md" }),
+      expect.objectContaining({ path: "/Lore/Renamed.md" }),
     ]);
   });
 

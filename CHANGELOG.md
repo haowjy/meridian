@@ -6,6 +6,14 @@
 ## [Unreleased]
 
 - `apps/app`: make document-session ownership exclusively lease-qualified, settle adopted local providers and lifetime leases in exact retryable stages before account close, fence local Untitled remint across every asynchronous lifecycle boundary, keep local persistence explicit, and remove the unfenced registry facade and unqualified persistence-key surface.
+- `apps/app`: atomically advance canonical Editor routes and working state for
+  project-final same-ID moves while preserving newer writer navigation and live
+  document sessions.
+
+- `apps/app`: make generation-bearing project-final availability commands the
+  sole remote terminal-removal boundary while preserving local Untitled tabs.
+
+- `apps/app`: make document-session ownership exclusively lease-qualified, keep local Untitled persistence explicit, and remove the unfenced registry facade and unqualified persistence-key surface.
 
 - `database`, `contracts`, `apps/server`, `apps/app`: add the authoritative
   Context metadata catalog with command-owned atomic metadata publication,
