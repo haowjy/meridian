@@ -11,7 +11,6 @@ import type { ContextRouteRepair, ContextRouteTarget } from "../routing/project-
 export type ContextRemovalIntent = {
   cause:
     | "writer-close"
-    | "acknowledged-delete"
     | "catalog-unavailable"
     | "authority-unavailable"
     | "work-prune"
@@ -162,7 +161,6 @@ export function contextTabEligibleForRemoval(
   switch (intent.cause) {
     case "writer-close":
       return true;
-    case "acknowledged-delete":
     case "catalog-unavailable":
     case "authority-unavailable":
       return tab.kind !== "new" && !tab.draftOnly;

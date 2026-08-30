@@ -46,17 +46,11 @@ import {
   workingSetRouteForTarget,
 } from "./context-removal-planner";
 import {
-  type AcknowledgedContextDeleteCommand,
-  type AcknowledgedDeleteAdmission,
   beginSelection,
   bindSelection,
-  type CommandAdmissionRecord,
-  type ContextDeleteInitiator,
   type ContextRouteSelection,
-  type InitiatingRouteWitness,
   leaveSelection,
   type RemovalPlanningEffect,
-  reduceAcknowledgedDelete,
   reduceRepresentedRemoval,
   rejectSelection,
   type SelectionTransition,
@@ -236,14 +230,9 @@ const productionWorkingSet: ContextRemovalWorkingSetPort = {
   replaceRecentRoutes,
 };
 
-function newCommandId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `delete-${Date.now()}-${Math.random()}`;
-}
-
 export class ContextRemovalCoordinator {
   private readonly projects = new Map<string, CoordinatorProjectState>();
   private readonly routePorts = new Map<string, { token: symbol; port: ContextRemovalRoutePort }>();
-  private commandAdmissions: ReadonlyMap<string, CommandAdmissionRecord> = new Map();
   private readonly fallbackRoute: ContextRemovalRoutePort | null;
   private readonly desk: DeskPort;
   private readonly workingSet: ContextRemovalWorkingSetPort;
@@ -518,41 +507,6 @@ export class ContextRemovalCoordinator {
 
   getProjectSnapshot(projectId: string): ContextRemovalProjectSnapshot {
     return this.projects.get(projectId)?.snapshot ?? EMPTY_PROJECT_SNAPSHOT;
-  }
-
-  captureDeleteInitiation(
-    projectId: string,
-    initiated: ContextDeleteInitiator,
-  ): Omit<AcknowledgedContextDeleteCommand, "cause" | "confirmed"> {
-    const selection = this.projects.get(projectId)?.selection ?? EMPTY_PROJECT_SNAPSHOT.selection;
-    let routeWitness: InitiatingRouteWitness = null;
-    if (selection.status === "candidate" && sameLocator(selection.locator, initiated.locator)) {
-      routeWitness = {
-        status: "candidate",
-        revision: selection.revision,
-        locator: selection.locator,
-      };
-    } else if (selection.status === "bound" && sameLocator(selection.locator, initiated.locator)) {
-      routeWitness = {
-        status: "bound",
-        revision: selection.revision,
-        locator: selection.locator,
-        identity: selection.identity,
-      };
-    }
-    return { commandId: newCommandId(), projectId, initiated, routeWitness };
-  }
-
-  acceptAcknowledgedDelete(command: AcknowledgedContextDeleteCommand): AcknowledgedDeleteAdmission {
-    if (this.unavailable()) return { status: "rejected", reason: "coordinator_disposed" };
-    const state = this.project(command.projectId);
-    const transition = reduceAcknowledgedDelete(this.commandAdmissions, state.selection, command);
-    this.commandAdmissions = transition.records;
-    if (transition.admission.status !== "accepted") return transition.admission;
-    state.selection = transition.selection;
-    if (transition.planning) this.executePlanning(command.projectId, transition.planning);
-    this.publish(state);
-    return transition.admission;
   }
 
   applyDraftMetadata(projectId: string, reviewWorkId: string, documentId: string): void {
@@ -846,12 +800,10 @@ export class ContextRemovalCoordinator {
     state.admitted = fallback;
 
     if (documentIds.length > 0) {
-      const represented = reduceRepresentedRemoval(
-        previousSelection,
-        tabs,
-        { cause: "work-prune", documentIds },
-        newCommandId(),
-      );
+      const represented = reduceRepresentedRemoval(previousSelection, tabs, {
+        cause: "work-prune",
+        documentIds,
+      });
       this.executePlanning(
         projectId,
         { ...represented.planning, current: { kind: "none" }, repair: "never" },
@@ -914,7 +866,6 @@ export class ContextRemovalCoordinator {
     if (this.disposed) return;
     this.disposed = true;
     for (const projectId of [...this.projects.keys()]) this.disposeProject(projectId);
-    this.commandAdmissions = new Map();
   }
 
   disposeProject(projectId: string): void {
@@ -947,7 +898,6 @@ export class ContextRemovalCoordinator {
       state.selection,
       this.desk.read(projectId).tabs,
       intent,
-      newCommandId(),
     );
     state.selection = transition.selection;
     const outcome = this.executePlanning(projectId, transition.planning, additionalRemovedLocators);
@@ -1074,12 +1024,7 @@ export class ContextRemovalCoordinator {
         current.kind === "none" || !plan.outcome.routedDocumentRemoved ? null : current.locator,
       removedDocumentIds: [...intent.documentIds],
     };
-    if (
-      cleanup &&
-      (intent.cause === "acknowledged-delete" ||
-        intent.cause === "catalog-unavailable" ||
-        intent.cause === "draft-discard")
-    ) {
+    if (cleanup && (intent.cause === "catalog-unavailable" || intent.cause === "draft-discard")) {
       state.terminalRemovals.set(locatorKey(cleanup.locator), { cleanup, intent });
     }
     this.publish(state);

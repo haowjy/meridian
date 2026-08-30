@@ -191,6 +191,41 @@ export class ProjectContextAvailabilityCoordinator {
       : [];
   }
 
+  /** Admit a committed server delete directly into the canonical terminal batch. */
+  acceptCommittedDelete(input: {
+    projectId: string;
+    deletedDocumentIds: readonly string[];
+    generation: AvailabilityGeneration;
+  }): void {
+    const state = this.project(input.projectId);
+    const generation = BigInt(input.generation);
+    const staged = [...new Set(input.deletedDocumentIds)]
+      .sort()
+      .filter(
+        (documentId) => generation > (state.highestAuthorityGeneration.get(documentId) ?? -1n),
+      )
+      .map((documentId) => ({
+        documentId,
+        requestGeneration: (state.requestGeneration.get(documentId) ?? 0) + 1,
+        command: {
+          kind: "terminal-remove" as const,
+          projectId: input.projectId,
+          documentId,
+          generation: input.generation,
+          cause: "document-deleted" as const,
+          commandId: commandId("terminal-remove", input.projectId, documentId, input.generation),
+        },
+      }));
+    if (staged.length === 0) return;
+
+    this.dependencies.apply(staged.map(({ command }) => command));
+    for (const candidate of staged) {
+      state.requestGeneration.set(candidate.documentId, candidate.requestGeneration);
+      state.highestAuthorityGeneration.set(candidate.documentId, generation);
+      state.admittedAuthority.delete(candidate.documentId);
+    }
+  }
+
   /** One exact-ID authority resolution with its own short-lived project lease. */
   async resolveForOpen(
     projectId: string,
