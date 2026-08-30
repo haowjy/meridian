@@ -11,7 +11,6 @@
  */
 
 import { type ChangeEventWsMessage, WS_CLOSE } from "@meridian/contracts/protocol";
-import { collabSchemaKeyTag } from "@meridian/prosemirror-schema";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { memoryStorage } from "@/test-support/memory-storage";
 import {
@@ -20,7 +19,6 @@ import {
   type DocumentSessionSnapshot,
   type DocumentSessionTransportProvider,
   deleteStaleVersionedIndexedDb,
-  roomSessionPersistenceKey,
 } from "./document-session";
 import { clientSchemaReloadGuardKey } from "./schema-fence";
 import type { SchemaRepairEvent } from "./schema-repair-witness";
@@ -401,15 +399,6 @@ describe("DocumentSession status derivation", () => {
 
     await expect(durable).resolves.toBeUndefined();
     await session.destroy();
-  });
-
-  it("builds a major.minor-versioned IndexedDB persistence key", () => {
-    expect(roomSessionPersistenceKey("doc-abc")).toBe(
-      `meridian:document:${collabSchemaKeyTag()}:doc-abc`,
-    );
-    expect(roomSessionPersistenceKey("branch:branch-abc:gen:1")).toBe(
-      `meridian:document:${collabSchemaKeyTag()}:branch:branch-abc:gen:1`,
-    );
   });
 
   it("deletes lower and legacy IndexedDB versions while preserving the patch-stable tag", async () => {

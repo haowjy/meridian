@@ -1,7 +1,6 @@
 /**
  * Account-scoped owner of live document sessions and generation-fenced branch rooms.
- * Live acquisition is lease-required; the temporary private-lane facade only keeps
- * pre-F1 callers compiling until F1-I deletes it.
+ * Live acquisition is lease-required; branch rooms remain generation-qualified.
  */
 import type {
   AccountId,
@@ -49,8 +48,6 @@ type LiveRoomState = {
 
 type RetainedLiveDocument = { lease: LiveDocumentSessionLease; detached: boolean };
 
-type UnleasedRoomState = { session: DocumentSession; detached: boolean };
-
 type LocalTransferReservation = {
   handoff: LocalDocumentSessionHandoff;
   transfer: LocalDocumentSessionTransfer;
@@ -96,15 +93,12 @@ export class DocumentSessionRegistry
   private accountRuntimeState: "open" | "closing" = "open";
   private invalidationPromise: Promise<void> | null = null;
   private readonly liveRooms = new Map<DocumentId, LiveRoomState>();
-  private readonly unleasedRooms = new Map<string, UnleasedRoomState>();
+  private readonly branchRooms = new Map<string, DocumentSession>();
   private readonly retainedByOwner = new Map<string, Map<DocumentId, RetainedLiveDocument>>();
   private readonly retainedObservers = new Set<
     (snapshot: readonly RetainedLiveDocumentReference[]) => void
   >();
-  private readonly unleasedRetainedByOwner = new Map<
-    string,
-    { roomKeys: Set<string>; detachedRoomKeys: Set<string> }
-  >();
+  private readonly retainedBranchRoomsByOwner = new Map<string, Set<string>>();
   private readonly admissionReservations = new Map<DocumentId, number>();
   private readonly localTransferReservations = new Map<string, LocalTransferReservation>();
   private readonly pendingAdoptionFinalizers = new Set<() => Promise<void>>();
@@ -266,13 +260,13 @@ export class DocumentSessionRegistry
         throw new Error(`Branch retention requires a branch room: ${roomKey}`);
       }
     }
-    this.unleasedRetainedByOwner.set(ownerId, { roomKeys: keys, detachedRoomKeys: new Set() });
-    this.reconcileUnleasedSessions();
+    this.retainedBranchRoomsByOwner.set(ownerId, keys);
+    this.reconcileBranchRooms();
   }
 
   releaseBranchRooms(ownerId: string): void {
-    this.unleasedRetainedByOwner.delete(ownerId);
-    this.reconcileUnleasedSessions();
+    this.retainedBranchRoomsByOwner.delete(ownerId);
+    this.reconcileBranchRooms();
   }
 
   getBranchRoom(roomKey: string): DocumentSession {
@@ -280,7 +274,7 @@ export class DocumentSessionRegistry
     if (room?.kind !== "branch")
       throw new Error(`Branch session requires a branch room: ${roomKey}`);
     this.cancelPendingTeardown(roomKey);
-    const existing = this.unleasedRooms.get(roomKey)?.session;
+    const existing = this.branchRooms.get(roomKey);
     if (existing) return existing;
     const session = this.createSession(roomKey, { kind: "none" });
     this.attachSessionTransport(session);
@@ -289,12 +283,11 @@ export class DocumentSessionRegistry
       void session
         .destroy()
         .finally(() => {
-          if (this.unleasedRooms.get(roomKey)?.session === session)
-            this.unleasedRooms.delete(roomKey);
+          if (this.branchRooms.get(roomKey) === session) this.branchRooms.delete(roomKey);
         })
         .catch(() => undefined);
     });
-    this.unleasedRooms.set(roomKey, { session, detached: false });
+    this.branchRooms.set(roomKey, session);
     return session;
   }
 
@@ -539,16 +532,16 @@ export class DocumentSessionRegistry
   invalidateAll(): Promise<void> {
     if (this.invalidationPromise) return this.invalidationPromise;
     this.clearRetainedLiveDocuments();
-    this.unleasedRetainedByOwner.clear();
+    this.retainedBranchRoomsByOwner.clear();
     this.liveDocCapWarningEmitted = false;
     for (const timer of this.pendingTeardownTimers.values()) clearTimeout(timer);
     this.pendingTeardownTimers.clear();
     const sessions = [
       ...[...this.liveRooms.values()].flatMap(({ session }) => (session ? [session] : [])),
-      ...[...this.unleasedRooms.values()].map(({ session }) => session),
+      ...this.branchRooms.values(),
     ];
     this.liveRooms.clear();
-    this.unleasedRooms.clear();
+    this.branchRooms.clear();
     const invalidation = async () => {
       const results = await Promise.allSettled(sessions.map((session) => session.destroy()));
       const errors = results.flatMap((result) =>
@@ -862,10 +855,10 @@ export class DocumentSessionRegistry
         void session.destroy().catch(() => undefined);
         return;
       }
-      const unleased = this.unleasedRooms.get(roomKey);
-      if (!unleased || this.isUnleasedRetained(roomKey)) return;
-      this.unleasedRooms.delete(roomKey);
-      void unleased.session.destroy().catch(() => undefined);
+      const branch = this.branchRooms.get(roomKey);
+      if (!branch || this.isBranchRetained(roomKey)) return;
+      this.branchRooms.delete(roomKey);
+      void branch.destroy().catch(() => undefined);
     }, this.teardownGraceMs);
     this.pendingTeardownTimers.set(roomKey, timer);
   }
@@ -882,9 +875,9 @@ export class DocumentSessionRegistry
     return false;
   }
 
-  private isUnleasedRetained(roomKey: string): boolean {
-    for (const retained of this.unleasedRetainedByOwner.values()) {
-      if (retained.roomKeys.has(roomKey)) return true;
+  private isBranchRetained(roomKey: string): boolean {
+    for (const retained of this.retainedBranchRoomsByOwner.values()) {
+      if (retained.has(roomKey)) return true;
     }
     return false;
   }
@@ -904,48 +897,15 @@ export class DocumentSessionRegistry
       observers = new Map();
       this.sessionObservers.set(roomKey, observers);
     }
-    observers.set(observer, this.peekAnyRoom(roomKey)?.subscribe(observer));
+    observers.set(
+      observer,
+      (this.branchRooms.get(roomKey) ?? this.liveRooms.get(roomKey)?.session)?.subscribe(observer),
+    );
     return () => {
       observers?.get(observer)?.();
       observers?.delete(observer);
       if (observers?.size === 0) this.sessionObservers.delete(roomKey);
     };
-  }
-
-  private reconcileUnleasedSessions(): void {
-    const keep = new Set<string>();
-    const attach = new Set<string>();
-    for (const retained of this.unleasedRetainedByOwner.values()) {
-      for (const roomKey of retained.roomKeys) {
-        keep.add(roomKey);
-        if (!retained.detachedRoomKeys.has(roomKey)) attach.add(roomKey);
-      }
-    }
-    for (const roomKey of keep) {
-      if (parseYjsRoomName(roomKey)?.kind === "branch") this.getBranchRoom(roomKey);
-      else this.temporaryGetLive(roomKey, !attach.has(roomKey));
-    }
-    for (const roomKey of this.unleasedRooms.keys()) {
-      if (!keep.has(roomKey)) this.scheduleTeardown(roomKey);
-    }
-  }
-
-  private peekAnyRoom(roomKey: string): DocumentSession | undefined {
-    return (
-      this.unleasedRooms.get(roomKey)?.session ?? this.liveRooms.get(roomKey)?.session ?? undefined
-    );
-  }
-
-  async retireLegacy(documentId: DocumentId): Promise<void> {
-    const room = this.unleasedRooms.get(documentId);
-    if (!room) return;
-    this.cancelPendingTeardown(documentId);
-    this.unleasedRooms.delete(documentId);
-    for (const retained of this.unleasedRetainedByOwner.values()) {
-      retained.roomKeys.delete(documentId);
-      retained.detachedRoomKeys.delete(documentId);
-    }
-    await room.session.destroy();
   }
 
   private maybeWarnLiveDocCap(): void {
@@ -957,125 +917,14 @@ export class DocumentSessionRegistry
     );
   }
 
-  // F1-I deletion target: every temporary* member below and the exported facade.
-  temporaryGet(roomKey: string): DocumentSession {
-    const room = parseYjsRoomName(roomKey);
-    return room?.kind === "branch"
-      ? this.getBranchRoom(roomKey)
-      : this.temporaryGetLive(roomKey, false);
-  }
-
-  temporaryGetDetached(documentId: string): DocumentSession {
-    return this.temporaryGetLive(documentId, true);
-  }
-
-  temporaryAttachDetached(documentId: string): DocumentSession {
-    const session = this.temporaryGetDetached(documentId);
-    if (session.getSnapshot().status === "detached") this.attachSessionTransport(session);
-    return session;
-  }
-
-  async temporaryRestartUnavailableRoom(documentId: string): Promise<boolean> {
-    const session = this.temporaryPeek(documentId);
-    if (!session) return false;
-    const snapshot = session.getSnapshot();
-    if (snapshot.schemaFence || snapshot.status === "detached") return false;
-    if (
-      snapshot.status !== "access-lost" &&
-      snapshot.connectionState?.kind !== "unauthorized" &&
-      snapshot.connectionState?.kind !== "terminal"
-    )
-      return false;
-    await session.restartTransport(({ roomKey, document, awareness }) =>
-      createHocuspocusDocumentTransport({ roomName: roomKey, document, awareness }),
-    );
-    return true;
-  }
-
-  temporaryRetain(
-    ownerId: string,
-    openRoomKeys: Iterable<string>,
-    options: { detachedRoomKeys?: Iterable<string> } = {},
-  ): void {
-    const roomKeys = new Set(openRoomKeys);
-    const branchKeys = new Set(
-      [...roomKeys].filter((roomKey) => parseYjsRoomName(roomKey)?.kind === "branch"),
-    );
-    const liveKeys = new Set([...roomKeys].filter((roomKey) => !branchKeys.has(roomKey)));
-    for (const documentId of liveKeys) this.assertNoAdmissionReservation(documentId);
-    const detached = new Set(options.detachedRoomKeys);
-    if (branchKeys.size > 0 && liveKeys.size === 0) {
-      this.retainBranchRooms(ownerId, branchKeys);
-      return;
+  private reconcileBranchRooms(): void {
+    const keep = new Set<string>();
+    for (const retained of this.retainedBranchRoomsByOwner.values()) {
+      for (const roomKey of retained) keep.add(roomKey);
     }
-    this.unleasedRetainedByOwner.set(ownerId, {
-      roomKeys: new Set([...branchKeys, ...liveKeys]),
-      detachedRoomKeys: new Set([...detached].filter((roomKey) => liveKeys.has(roomKey))),
-    });
-    this.reconcileUnleasedSessions();
-  }
-
-  temporaryPeek(roomKey: string): DocumentSession | undefined {
-    const room = parseYjsRoomName(roomKey);
-    if (room?.kind === "live") this.assertNoAdmissionReservation(roomKey);
-    return room?.kind === "branch"
-      ? this.unleasedRooms.get(roomKey)?.session
-      : this.unleasedRooms.get(roomKey)?.session;
-  }
-
-  async temporaryRevokeRoom(roomKey: string): Promise<void> {
-    this.cancelPendingTeardown(roomKey);
-    for (const retained of this.unleasedRetainedByOwner.values()) {
-      retained.roomKeys.delete(roomKey);
-      retained.detachedRoomKeys.delete(roomKey);
+    for (const roomKey of keep) this.getBranchRoom(roomKey);
+    for (const roomKey of this.branchRooms.keys()) {
+      if (!keep.has(roomKey)) this.scheduleTeardown(roomKey);
     }
-    const room = this.unleasedRooms.get(roomKey);
-    this.unleasedRooms.delete(roomKey);
-    await room?.session.destroy();
-  }
-
-  temporaryRelease(ownerId: string): void {
-    this.releaseBranchRooms(ownerId);
-  }
-
-  temporaryObserve(
-    roomKey: string,
-    observer: (snapshot: DocumentSessionSnapshot) => void,
-  ): () => void {
-    return this.observeRoom(roomKey, observer);
-  }
-
-  private temporaryGetLive(documentId: string, detached: boolean): DocumentSession {
-    const room = parseYjsRoomName(documentId);
-    if (room?.kind !== "live")
-      throw new Error(`Live session requires a document id: ${documentId}`);
-    this.assertNoAdmissionReservation(documentId);
-    if (this.liveRooms.get(documentId)?.leases.size) {
-      throw new DocumentSessionAuthorityError(
-        "stale-lease",
-        `Legacy acquisition is unavailable after admission for ${documentId}`,
-      );
-    }
-    this.cancelPendingTeardown(documentId);
-    const existing = this.unleasedRooms.get(documentId);
-    if (existing) {
-      if (!detached && existing.session.getSnapshot().status === "detached") {
-        this.attachSessionTransport(existing.session);
-        existing.detached = false;
-      }
-      return existing.session;
-    }
-    const session = this.createSession(documentId, { kind: "none" });
-    this.unleasedRooms.set(documentId, { session, detached });
-    if (!detached) this.attachSessionTransport(session);
-    return session;
-  }
-
-  private assertNoAdmissionReservation(documentId: DocumentId): void {
-    if (!this.admissionReservations.has(documentId)) return;
-    throw new DocumentSessionAuthorityError(
-      "stale-lease",
-      `Legacy acquisition is unavailable during admission for ${documentId}`,
-    );
   }
 }

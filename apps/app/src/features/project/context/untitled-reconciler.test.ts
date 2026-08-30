@@ -430,7 +430,7 @@ describe("collision recovery and durable receipts", () => {
     rig.create.enqueueResult({ status: "conflict" });
     rig.session("original", "irreplaceable words");
     const original = rig.session("original", "irreplaceable words");
-    rig.destroyRoomError = new Error("interrupted before original cleanup");
+    rig.originalCleanupError = new Error("interrupted before original cleanup");
     rig.start();
     rig.append("original");
     await rig.advance();

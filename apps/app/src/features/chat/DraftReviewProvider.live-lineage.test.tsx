@@ -163,40 +163,6 @@ vi.mock("./useDraftReviewController", () => ({
     };
   },
 }));
-vi.mock("@/core/editor/document-session-registry", () => ({
-  getDocumentSessionRegistry: () => ({
-    get: (documentId: string) => {
-      if (!docUpdateHandlers.has(documentId)) {
-        docUpdateHandlers.set(documentId, new Set());
-      }
-      return {
-        document: {
-          on: (event: string, handler: () => void) => {
-            if (event !== "update") return;
-            docUpdateHandlers.get(documentId)?.add(handler);
-          },
-          off: (event: string, handler: () => void) => {
-            if (event !== "update") return;
-            docUpdateHandlers.get(documentId)?.delete(handler);
-          },
-        },
-      };
-    },
-    getRoom: (roomName: string) => ({
-      document: {
-        on: (event: string, handler: () => void) => {
-          if (event !== "update") return;
-          docUpdateHandlers.get(roomName)?.add(handler);
-        },
-        off: (event: string, handler: () => void) => {
-          if (event !== "update") return;
-          docUpdateHandlers.get(roomName)?.delete(handler);
-        },
-      },
-    }),
-    has: (documentId: string) => docUpdateHandlers.has(documentId),
-  }),
-}));
 
 const { DraftReviewBoundary, DraftReviewProvider, useDraftReview, useDraftReviewScopeValue } =
   await import("./DraftReviewProvider");

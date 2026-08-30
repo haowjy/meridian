@@ -249,7 +249,7 @@ export class UntitledLifecycleRig {
   readonly deps: UntitledReconcilerDeps;
   reconciler: UntitledReconciler;
   nextDocumentId = "replacement";
-  destroyRoomError: Error | null = null;
+  originalCleanupError: Error | null = null;
 
   constructor() {
     const durableKey = (projectId: string, documentId: string) => `${projectId}:${documentId}`;
@@ -397,7 +397,7 @@ export class UntitledLifecycleRig {
             durableKey(projectId, to),
             Object.freeze({}) as LocalDocumentSessionHandoff,
           );
-          if (this.destroyRoomError) throw this.destroyRoomError;
+          if (this.originalCleanupError) throw this.originalCleanupError;
           this.clearedRooms.push(from);
           return session;
         },

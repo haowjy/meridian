@@ -35,7 +35,6 @@ export interface LocalSessionAuthority {
     projectId: ProjectId;
     generation: AvailabilityGeneration;
   }): void;
-  retireLegacy(documentId: DocumentId): Promise<void>;
   installSynchronously(input: {
     documentId: DocumentId;
     projectId: ProjectId;
@@ -330,8 +329,6 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       let value: T | undefined;
       await this.withOperation(documentId, async () => {
         await this.helpPendingUnderOperation(documentId);
-        this.assertAdmissionOpen();
-        await this.local.retireLegacy(documentId);
         this.assertAdmissionOpen();
         this.local.validateAdmission({ documentId, projectId, generation });
         const acquired = await this.ensureSharedHolds(documentId, projectId);

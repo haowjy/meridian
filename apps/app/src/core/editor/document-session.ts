@@ -34,7 +34,6 @@ import {
   COLLAB_SCHEMA_VERSION,
   type CollabSchemaVersion,
   cmpMajorMinor,
-  collabSchemaKeyTag,
   createCollabYDoc,
   parseCollabSchemaVersion,
 } from "@meridian/prosemirror-schema";
@@ -60,11 +59,6 @@ import type { SchemaRepairEvent } from "./schema-repair-witness";
 export type { SchemaFence } from "./schema-fence";
 
 import { SessionMarkerStore } from "./session-marker-store";
-
-/** Transitional callers may derive a key, but DocumentSession never derives one implicitly. */
-export function roomSessionPersistenceKey(roomKey: string): string {
-  return `meridian:document:${collabSchemaKeyTag()}:${roomKey}`;
-}
 
 const PERSISTENCE_KEY_PREFIX = "meridian:document:v";
 /** Give normal IndexedDB replay priority without letting blocked storage hold collaboration offline. */

@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+- `apps/app`: make document-session ownership exclusively lease-qualified, keep local Untitled persistence explicit, and remove the unfenced registry facade and unqualified persistence-key surface.
+
 - `database`, `contracts`, `apps/server`, `apps/app`: add the authoritative
   Context metadata catalog with command-owned atomic metadata publication,
   persisted tracked, custom, and binary classification, checkpoint-consistent

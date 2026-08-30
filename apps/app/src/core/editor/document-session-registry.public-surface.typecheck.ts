@@ -20,8 +20,6 @@ registry.attachDetached(documentId);
 registry.restartUnavailableRoom(documentId);
 // @ts-expect-error retain requires leases, not ids
 registry.retain(ownerId, [documentId]);
-// @ts-expect-error transitional ingress is not public
-registry.temporaryGet(documentId);
 // @ts-expect-error immutable account runtime owns account identity
 registry.setOwnUserId("account");
 // @ts-expect-error lifecycle is not part of the structural registry

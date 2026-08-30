@@ -18,8 +18,6 @@ describe("DocumentSessionRegistry authority admission", () => {
     await expect(admit(registry, "project", "doc", "1")).rejects.toEqual(
       expectAuthorityError("authority-unavailable"),
     );
-    expect(() => registry.temporaryPeek("doc")).not.toThrow();
-    expect(registry.temporaryPeek("doc")).toBeUndefined();
   });
 
   it("publishes immutable retained identities and isolates observer failures", async () => {

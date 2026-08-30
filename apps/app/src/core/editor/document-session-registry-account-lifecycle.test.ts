@@ -63,7 +63,6 @@ describe("DocumentSessionRegistry account lifecycle", () => {
     continueAdmission();
 
     await expect(opening).rejects.toThrow(/closing/);
-    expect(registry.temporaryPeek("doc-commit-fence")).toBeUndefined();
     await registry.closeAccountRuntime();
   });
 
@@ -237,13 +236,11 @@ describe("DocumentSessionRegistry account lifecycle", () => {
         idb: accountId === "account-idle-failed" ? failedIdb : indexedDB,
       }),
     );
-    const legacy = registry.temporaryGetDetached("idle-legacy");
     const unhandled: unknown[] = [];
     const observeUnhandled = (reason: unknown) => unhandled.push(reason);
     process.on("unhandledRejection", observeUnhandled);
     try {
       registry.setOwnUserId("account-idle-failed");
-      await vi.waitFor(() => expect(legacy.getSnapshot().status).toBe("destroyed"));
       const retained = await admit(registry, "project", "doc", "1").catch(
         (error: unknown) => error,
       );

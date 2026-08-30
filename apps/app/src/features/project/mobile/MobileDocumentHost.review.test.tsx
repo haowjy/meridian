@@ -78,7 +78,6 @@ vi.mock("@/client/stores", () => ({
   useContextTabsStore: Object.assign(() => null, { getState: () => mocks.desk }),
 }));
 vi.mock("@/core/editor/document-session-registry", () => ({
-  getDocumentSessionRegistry: () => mocks.registry,
   getLiveDocumentSessionRegistry: () => mocks.registry,
 }));
 vi.mock("@/features/editor/EditorView", () => ({

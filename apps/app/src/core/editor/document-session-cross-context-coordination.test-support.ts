@@ -109,7 +109,6 @@ export class LocalAuthority implements LocalSessionAuthority {
   }
 
   validateAdmission() {}
-  async retireLegacy(_documentId: DocumentId): Promise<void> {}
   installSynchronously(input: {
     documentId: DocumentId;
     projectId: ProjectId;

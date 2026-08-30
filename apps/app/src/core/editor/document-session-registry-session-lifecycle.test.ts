@@ -7,35 +7,12 @@ import {
   admit,
   DocumentSessionRegistry,
   databaseNames,
-  expectAuthorityError,
   providers,
   registryFor,
 } from "./document-session-registry.test-support";
 import { clientSchemaReloadGuardKey } from "./schema-fence";
 
 describe("DocumentSessionRegistry session lifecycle", () => {
-  it("constructs a local Untitled session without publishing it to transitional observers", async () => {
-    const registry = new DocumentSessionRegistry(undefined, 0, "account-local-construction");
-    const observer = vi.fn();
-    const stopObserving = registry.temporaryObserve("doc-local-construction", observer);
-
-    const session = registry.localUntitledDocumentSessionFactory().createDetached({
-      accountId: "account-local-construction",
-      projectId: "project-local-construction",
-      documentId: "doc-local-construction",
-      persistenceKey: "local-persistence-key",
-    });
-
-    expect(observer).not.toHaveBeenCalled();
-    expect(registry.temporaryPeek("doc-local-construction")).toBeUndefined();
-    session.raiseSchemaFence({ reason: "client-superseded" });
-    expect(observer).not.toHaveBeenCalled();
-
-    stopObserving();
-    await session.destroy();
-    registry.destroyAll();
-  });
-
   it("keeps branch generations separate from live authority and IndexedDB", async () => {
     const before = await databaseNames();
     const registry = new DocumentSessionRegistry();
@@ -54,9 +31,9 @@ describe("DocumentSessionRegistry session lifecycle", () => {
     const firstKey = "branch:branch-production:gen:1";
     const secondKey = "branch:branch-production:gen:2";
 
-    registry.temporaryRetain("editor-view", [firstKey]);
-    const first = registry.temporaryGet(firstKey);
-    registry.temporaryRelease("editor-view");
+    registry.retainBranchRooms("editor-view", [firstKey]);
+    const first = registry.getBranchRoom(firstKey);
+    registry.releaseBranchRooms("editor-view");
     vi.advanceTimersByTime(2_900);
     expect(first.getSnapshot().status).not.toBe("destroyed");
     vi.advanceTimersByTime(100);
@@ -109,7 +86,7 @@ describe("DocumentSessionRegistry session lifecycle", () => {
     process.on("unhandledRejection", observeUnhandled);
     try {
       registry.releaseBranchRooms("review");
-      await vi.waitFor(() => expect(registry.temporaryPeek(roomKey)).toBeUndefined());
+      await vi.waitFor(() => expect(session.getSnapshot().status).toBe("destroyed"));
       expect(session.getSnapshot().status).toBe("destroyed");
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(unhandled).toEqual([]);
@@ -151,7 +128,7 @@ describe("DocumentSessionRegistry session lifecycle", () => {
         reason: WS_CLOSE.BRANCH_STALE.reason,
         code: WS_CLOSE.BRANCH_STALE.code,
       });
-      await vi.waitFor(() => expect(registry.temporaryPeek(roomKey)).toBeUndefined());
+      await vi.waitFor(() => expect(first.getSnapshot().status).toBe("destroyed"));
       const second = registry.getBranchRoom(roomKey);
       expect(first.getSnapshot().status).toBe("destroyed");
       expect(second).not.toBe(first);
@@ -161,57 +138,6 @@ describe("DocumentSessionRegistry session lifecycle", () => {
       process.off("unhandledRejection", observeUnhandled);
       registry.destroyAll();
     }
-  });
-
-  it("retires legacy live state before admission and rejects legacy acquisition afterward", async () => {
-    const registry = new DocumentSessionRegistry(undefined, 0);
-    registry.setOwnUserId("account-transition");
-    const legacy = registry.temporaryGetDetached("legacy-first");
-    legacy.document.getText("words").insert(0, "unfenced");
-    const lease = await admit(registry, "project", "legacy-first", "5");
-    const canonical = registry.getDetached(lease);
-
-    expect(legacy.getSnapshot().status).toBe("destroyed");
-    expect(canonical).not.toBe(legacy);
-    expect(canonical.document.getText("words").toString()).toBe("");
-
-    const admittedFirst = await admit(registry, "project", "admit-first", "5");
-    expect(() => registry.temporaryGetDetached("admit-first")).toThrow(
-      expectAuthorityError("stale-lease"),
-    );
-    expect(registry.getDetached(admittedFirst).getSnapshot().status).toBe("detached");
-  });
-
-  it("reserves legacy ingress synchronously through awaited retirement", async () => {
-    const registry = new DocumentSessionRegistry(undefined, 0);
-    registry.setOwnUserId("account-legacy-reservation");
-    const legacy = registry.temporaryGetDetached("doc");
-    const originalDestroy = legacy.destroy.bind(legacy);
-    let entered!: () => void;
-    let release!: () => void;
-    const destroyEntered = new Promise<void>((resolve) => {
-      entered = resolve;
-    });
-    const destroyRelease = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    legacy.destroy = async () => {
-      entered();
-      await destroyRelease;
-      await originalDestroy();
-    };
-
-    const admitting = admit(registry, "project", "doc", "5");
-    expect(() => registry.temporaryGetDetached("doc")).toThrow(expectAuthorityError("stale-lease"));
-    await destroyEntered;
-    expect(() => registry.temporaryGet("doc")).toThrow(expectAuthorityError("stale-lease"));
-    expect(() => registry.temporaryRetain("owner", ["doc"])).toThrow(
-      expectAuthorityError("stale-lease"),
-    );
-    release();
-    const lease = await admitting;
-    expect(legacy.getSnapshot().status).toBe("destroyed");
-    expect(registry.getDetached(lease)).not.toBe(legacy);
   });
 
   it("keeps detached words and Y.Doc through explicit attach and denied restart", async () => {
