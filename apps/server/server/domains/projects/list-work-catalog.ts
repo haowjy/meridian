@@ -15,8 +15,8 @@ export async function listWorkCatalog(
   input: { projectId: ProjectId; userId: UserId },
   requestId = crypto.randomUUID(),
 ): Promise<WorksSnapshot> {
-  await requireProjectOwner({ projects: deps.projects }, input.projectId, input.userId);
   return deps.works.readSnapshot(async () => {
+    await requireProjectOwner({ projects: deps.projects }, input.projectId, input.userId);
     const identity = await deps.works.snapshotIdentity(input.projectId);
     const works = await deps.works.listByProject(input.projectId, { includeDeleted: true });
     const counts = await deps.pendingDrafts.countPendingByWorkIds(works.map(({ id }) => id));

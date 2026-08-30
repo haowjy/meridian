@@ -7,6 +7,8 @@
 
 - `apps/server`: conceal malformed foreign Context identities behind the same
   project-final availability result as missing documents.
+- `apps/server`: read Work catalog authorization, lifecycle, revision, rows,
+  and pending counts from one repeatable-read snapshot.
 
 - `apps/app`: make document-session ownership exclusively lease-qualified, settle adopted local providers and lifetime leases in exact retryable stages before account close, fence local Untitled remint across every asynchronous lifecycle boundary, keep local persistence explicit, and remove the unfenced registry facade and unqualified persistence-key surface.
 - `apps/app`: atomically advance canonical Editor routes and working state for
