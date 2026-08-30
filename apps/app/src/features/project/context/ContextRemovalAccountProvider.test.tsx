@@ -139,7 +139,7 @@ describe("ContextRemovalAccountProvider", () => {
       const [accountId, updateAccount] = useState("account-a");
       setAccount = updateAccount;
       return (
-        <TestAccountProvider key={accountId} accountId={accountId}>
+        <TestAccountProvider accountId={accountId}>
           <Child accountId={accountId} />
         </TestAccountProvider>
       );
@@ -157,9 +157,13 @@ describe("ContextRemovalAccountProvider", () => {
       });
       act(() => setAccount?.("account-b"));
       await queued;
+      expect(childLayouts).toEqual(["account-a"]);
+      expect(admission).toEqual({ status: "rejected", reason: "coordinator_disposed" });
+      await act(async () => {
+        for (let index = 0; index < 10; index += 1) await Promise.resolve();
+      });
       expect(childLayouts).toEqual(["account-a", "account-b"]);
       expect(layoutAdmission).toEqual({ status: "rejected", reason: "coordinator_disposed" });
-      expect(admission).toEqual({ status: "rejected", reason: "coordinator_disposed" });
     });
   });
 
@@ -207,7 +211,7 @@ describe("ContextRemovalAccountProvider", () => {
       const [accountId, updateAccount] = useState("account-a");
       setAccount = updateAccount;
       return (
-        <TestAccountProvider key={accountId} accountId={accountId}>
+        <TestAccountProvider accountId={accountId}>
           <Child />
         </TestAccountProvider>
       );
@@ -275,7 +279,7 @@ describe("ContextRemovalAccountProvider", () => {
       const [accountId, updateAccount] = useState("account-a");
       setAccount = updateAccount;
       return (
-        <TestAccountProvider key={accountId} accountId={accountId}>
+        <TestAccountProvider accountId={accountId}>
           <Child accountId={accountId} />
         </TestAccountProvider>
       );
