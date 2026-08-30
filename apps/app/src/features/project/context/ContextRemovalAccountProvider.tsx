@@ -8,6 +8,7 @@ import { LocalUntitledOwner } from "./local-untitled-owner";
 import { BrowserLocalUntitledRecordStore } from "./local-untitled-record-store";
 import { ProjectDocumentLiveOpener } from "./open-project-document";
 import { ProjectContextAvailabilityCoordinator } from "./project-context-availability-coordinator";
+import { ProjectDocumentLiveOpenerContext } from "./project-document-live-opener-context";
 
 const ContextRemovalAccountContext = createContext<ContextRemovalCoordinator | null>(null);
 const NOOP_CATALOG_REPAIR = async () => undefined;
@@ -15,7 +16,6 @@ const NOOP_CATALOG_REPAIR = async () => undefined;
 const ProjectAvailabilityAccountContext =
   createContext<ProjectContextAvailabilityCoordinator | null>(null);
 const LocalUntitledAccountContext = createContext<LocalUntitledOwner | null>(null);
-const ProjectDocumentLiveOpenerContext = createContext<ProjectDocumentLiveOpener | null>(null);
 
 type AccountFeatureLifetime = ReturnType<typeof createAccountFeatureLifetime>;
 
@@ -199,11 +199,7 @@ export function useLocalUntitledOwner(): LocalUntitledOwner {
   return owner;
 }
 
-export function useProjectDocumentLiveOpener(): ProjectDocumentLiveOpener {
-  const opener = useContext(ProjectDocumentLiveOpenerContext);
-  if (!opener) throw new Error("ContextRemovalAccountProvider is required");
-  return opener;
-}
+export { useProjectDocumentLiveOpener } from "./project-document-live-opener-context";
 
 export function useProjectContextAvailabilityCoordinator(): ProjectContextAvailabilityCoordinator {
   const coordinator = useContext(ProjectAvailabilityAccountContext);

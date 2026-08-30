@@ -1,11 +1,20 @@
 import type { CatalogFileEntry } from "@meridian/contracts/protocol";
 import { describe, expect, it, vi } from "vitest";
-import { ProjectDocumentLiveOpener } from "./open-project-document";
+import {
+  ProjectDocumentLiveOpener,
+  ProjectDocumentNavigationAdapter,
+} from "./open-project-document";
 
 const entry = {
-  id: "document-a",
+  entryId: "document-a",
+  scope: { kind: "project", projectId: "project-a" },
+  sourceId: "source-a",
+  parentId: "source-a",
+  aliases: [],
   name: "A.md",
-  path: "/A.md",
+  path: ["A.md"],
+  uri: "manuscript://project-a/A.md",
+  provisionalName: false,
   kind: "file",
   scheme: "manuscript",
   editable: true,
@@ -114,19 +123,31 @@ describe("ProjectDocumentLiveOpener", () => {
     const epoch = new AbortController();
     let resolve!: (value: typeof available) => void;
     const registry = { admit: vi.fn() };
+    const resolveForOpen = vi.fn(
+      () =>
+        new Promise<typeof available>((done) => {
+          resolve = done;
+        }),
+    );
     const opener = new ProjectDocumentLiveOpener({
-      availability: {
-        resolveForOpen: vi.fn(
-          () =>
-            new Promise<typeof available>((done) => {
-              resolve = done;
-            }),
-        ),
-      },
+      availability: { resolveForOpen },
       registry: registry as never,
       adoption: { admitAndAdopt: vi.fn() },
       epochSignal: epoch.signal,
     });
+
+    const preStart = new AbortController();
+    preStart.abort();
+    await expect(
+      opener.open({
+        source: "server",
+        projectId: "project-a",
+        documentId: "document-a",
+        signal: preStart.signal,
+      }),
+    ).resolves.toEqual({ kind: "cancelled" });
+    expect(resolveForOpen).not.toHaveBeenCalled();
+
     const pending = opener.open({
       source: "server",
       projectId: "project-a",
@@ -136,5 +157,100 @@ describe("ProjectDocumentLiveOpener", () => {
     resolve(available);
     await expect(pending).resolves.toEqual({ kind: "cancelled" });
     expect(registry.admit).not.toHaveBeenCalled();
+  });
+
+  it("coalesces repeated bindings through registry authority", async () => {
+    const lease = {
+      accountId: "account-a",
+      projectId: "project-a",
+      documentId: "document-a",
+      generation: "4",
+    };
+    const session = {} as never;
+    const registry = {
+      admit: vi.fn(async () => lease),
+      retain: vi.fn(),
+      get: vi.fn(() => session),
+      release: vi.fn(),
+    };
+    const opener = new ProjectDocumentLiveOpener({
+      availability: { resolveForOpen: vi.fn(async () => available) },
+      registry: registry as never,
+      adoption: { admitAndAdopt: vi.fn() },
+      epochSignal: new AbortController().signal,
+    });
+
+    const [first, second] = await Promise.all([
+      opener.open({ source: "server", projectId: "project-a", documentId: "document-a" }),
+      opener.open({ source: "server", projectId: "project-a", documentId: "document-a" }),
+    ]);
+    if (first.kind !== "opened" || second.kind !== "opened") throw new Error("open failed");
+    const [a, b] = await Promise.all([
+      first.admission.bind("tab-a"),
+      second.admission.bind("tab-b"),
+    ]);
+    expect(a.session).toBe(session);
+    expect(b.session).toBe(session);
+    expect(registry.retain).toHaveBeenCalledTimes(2);
+    a.release();
+    b.release();
+  });
+});
+
+describe("ProjectDocumentNavigationAdapter", () => {
+  const admission = { bind: vi.fn() } as never;
+  const opened = { kind: "opened" as const, document: entry, admission };
+
+  it("keeps current and background disposition explicit", async () => {
+    const openTab = vi.fn();
+    const openRoute = vi.fn(async (): Promise<void> => undefined);
+    const adapter = new ProjectDocumentNavigationAdapter({
+      opener: { open: vi.fn(async () => opened) },
+      openTab,
+      openRoute,
+    });
+    await expect(
+      adapter.open("project-a", { documentId: "document-a", disposition: "background" }),
+    ).resolves.toBe(opened);
+    expect(openTab).toHaveBeenCalledOnce();
+    expect(openRoute).not.toHaveBeenCalled();
+
+    await expect(
+      adapter.open("project-a", { documentId: "document-a", disposition: "current" }),
+    ).resolves.toBe(opened);
+    expect(openRoute).toHaveBeenCalledWith({
+      scheme: "manuscript",
+      path: "/A.md",
+      workId: null,
+    });
+  });
+
+  it("fences stale route tokens before and after opener acceptance", async () => {
+    let resolveFirst!: (value: typeof opened) => void;
+    const open = vi.fn(async () => opened);
+    open.mockImplementationOnce(
+      () => new Promise<typeof opened>((resolve) => (resolveFirst = resolve)),
+    );
+    const openTab = vi.fn();
+    const openRoute = vi.fn(async (): Promise<void> => undefined);
+    const adapter = new ProjectDocumentNavigationAdapter({ opener: { open }, openTab, openRoute });
+    const stale = adapter.open("project-a", { documentId: "document-a" });
+    const current = adapter.open("project-a", { documentId: "document-a" });
+    resolveFirst(opened);
+    await expect(stale).resolves.toEqual({ kind: "cancelled" });
+    await expect(current).resolves.toBe(opened);
+    expect(openTab).toHaveBeenCalledOnce();
+
+    let finishRoute!: () => void;
+    openRoute.mockImplementationOnce(() => new Promise<void>((resolve) => (finishRoute = resolve)));
+    const postStart = adapter.open("project-a", { documentId: "document-a" });
+    await vi.waitFor(() => expect(openRoute).toHaveBeenCalledTimes(2));
+    const replacement = adapter.open("project-a", {
+      documentId: "document-a",
+      disposition: "background",
+    });
+    finishRoute();
+    await expect(postStart).resolves.toEqual({ kind: "cancelled" });
+    await expect(replacement).resolves.toBe(opened);
   });
 });

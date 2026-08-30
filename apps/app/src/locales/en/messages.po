@@ -978,6 +978,7 @@ msgstr "Couldn't load. Check your connection."
 msgid "Couldn't open review mode."
 msgstr "Couldn't open review mode."
 
+#: src/features/project/context/ContextEditorMountHost.tsx
 #: src/features/project/mobile/MobileDocumentHost.tsx
 msgid "Couldn't open this document."
 msgstr "Couldn't open this document."

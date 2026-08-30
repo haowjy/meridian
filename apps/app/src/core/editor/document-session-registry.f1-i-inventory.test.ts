@@ -446,6 +446,44 @@ describe("F1-I document-session deletion inventory", () => {
     ).toEqual(new Set(["apps/app/src/core/editor/document-session-cross-context-coordination.ts"]));
   });
 
+  it("keeps production admission inside the opener and private implementation internals", () => {
+    const calls = sourceFiles(join(appRoot, "src")).flatMap((file) => {
+      const source = readFileSync(file, "utf8");
+      return source.split("\n").flatMap((line, index) =>
+        line.match(/\.(?:admit|admitAndAdopt)\s*\(/)
+          ? [
+              {
+                file: `apps/app/${relative(appRoot, file).split(sep).join("/")}`,
+                line: index + 1,
+              },
+            ]
+          : [],
+      );
+    });
+    expect(calls).toEqual([
+      {
+        file: "apps/app/src/core/editor/account-document-session-runtime.ts",
+        line: 105,
+      },
+      {
+        file: "apps/app/src/core/editor/document-session-cross-context-coordination.ts",
+        line: 340,
+      },
+      {
+        file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
+        line: 154,
+      },
+      {
+        file: "apps/app/src/features/project/context/open-project-document.ts",
+        line: 121,
+      },
+      {
+        file: "apps/app/src/features/project/context/open-project-document.ts",
+        line: 127,
+      },
+    ]);
+  });
+
   it("finds parenthesized, asserted, and global-destructured navigator aliases", () => {
     const records = fixtureInventory(`
       const paren = (globalThis.navigator);

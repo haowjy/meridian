@@ -62,7 +62,7 @@ import "./editor.css";
 
 export type EditorViewProps = {
   documentId: string;
-  /** Already-owned local session; bypasses the transitional ID lookup. */
+  /** Exact host-owned live/local session. Omitted only for branch review until F1-I3. */
   session?: DocumentSession;
   /** Stable editor lifetime across local identity remint/materialization. */
   bindingKey?: string;
@@ -131,30 +131,26 @@ function mountIdentity(props: EditorViewProps): EditorMountIdentity {
 export function EditorView(props: EditorViewProps) {
   const identity = mountIdentity(props);
   const roomKey = editorRoomKey(identity);
-  const detached = identity.surface === "live" && identity.detached;
   const inReview = identity.surface === "review";
   const [boundSession, setBoundSession] = useState<DocumentSession | null>(null);
   const sessionOwnerIdRef = useRef<string | null>(null);
   sessionOwnerIdRef.current ??= `editor-view:${++editorSessionOwnerSequence}`;
 
   useEffect(() => {
-    if (props.session) {
-      setBoundSession(props.session);
+    if (!inReview) {
+      setBoundSession(null);
       return;
     }
-    // The app-level registry owns teardown. This view only contributes the room
-    // it is currently bound to so short-lived draft sessions are reclaimed when
-    // inline review exits.
+    // Branch-review acquisition remains on the temporary facade until F1-I3.
+    // Ordinary live hosts must supply their exact opener-owned session.
     const registry = getDocumentSessionRegistry();
     const ownerId = sessionOwnerIdRef.current;
     if (!ownerId) return;
-    registry.retain(ownerId, [roomKey], {
-      detachedRoomKeys: detached ? [roomKey] : [],
-    });
-    const session = detached ? registry.getDetached(roomKey) : registry.getRoom(roomKey);
+    registry.retain(ownerId, [roomKey]);
+    const session = registry.getRoom(roomKey);
     setBoundSession(session);
     return () => registry.release(ownerId);
-  }, [detached, roomKey, props.session]);
+  }, [inReview, roomKey]);
 
   useEffect(() => {
     if (!inReview || boundSession?.roomKey !== roomKey) return;
@@ -170,7 +166,11 @@ export function EditorView(props: EditorViewProps) {
     });
   }, [boundSession, props.onReviewSessionUnavailable, inReview, roomKey]);
 
-  const session = props.session ?? (boundSession?.roomKey === roomKey ? boundSession : null);
+  const session = inReview
+    ? boundSession?.roomKey === roomKey
+      ? boundSession
+      : null
+    : (props.session ?? null);
 
   if (!session) return <PendingEditorShell {...props} />;
 

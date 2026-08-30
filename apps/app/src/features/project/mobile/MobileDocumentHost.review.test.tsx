@@ -26,6 +26,8 @@ import { MobileDocumentHost } from "./MobileDocumentHost";
 const mocks = vi.hoisted(() => ({
   editorProps: [] as Array<Record<string, unknown>>,
   enterInlineReview: vi.fn(),
+  liveSession: { suspendPresence: vi.fn(), resumePresence: vi.fn() },
+  liveOpener: { open: vi.fn() },
   openTab: vi.fn(),
   registry: {
     retain: vi.fn(),
@@ -48,6 +50,22 @@ const mocks = vi.hoisted(() => ({
     _deskHydrated: true,
   },
 }));
+
+vi.mock("../context/ContextRemovalAccountProvider", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../context/ContextRemovalAccountProvider")>();
+  return {
+    ...actual,
+    useProjectDocumentLiveOpener: () => mocks.liveOpener,
+  };
+});
+vi.mock("../context/project-document-live-opener-context", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../context/project-document-live-opener-context")>();
+  return {
+    ...actual,
+    useProjectDocumentLiveOpener: () => mocks.liveOpener,
+  };
+});
 
 vi.mock("@lingui/core/macro", () => ({ t: (parts: TemplateStringsArray) => parts.join("") }));
 vi.mock("@lingui/react/macro", () => ({
@@ -87,7 +105,7 @@ const file = {
   filetype: "markdown" as const,
   schemaType: "document" as const,
 };
-const catalog = { findPath: () => file };
+const catalog = { findPath: vi.fn((_path: string) => file) };
 
 vi.mock("@/client/query/useContextCatalog", () => ({
   useContextCatalogView: () => ({
@@ -102,6 +120,7 @@ vi.mock("@/client/query/useContextCatalog", () => ({
 let openReview: ((target: AiDraftLaunchTarget) => Promise<void>) | null = null;
 let settledDocumentId: string | null = null;
 let removalCoordinator: ReturnType<typeof useContextRemovalCoordinator> | null = null;
+let setDirectPath: ((path: string | null) => void) | null = null;
 
 function CoordinatorCapture() {
   removalCoordinator = useContextRemovalCoordinator();
@@ -196,6 +215,39 @@ function PhoneRouteHarness({ navigate }: { navigate: OpenContextRoute }) {
   );
 }
 
+function DirectMobileHarness() {
+  const [path, setPath] = useState<string | null>(target.contextPath);
+  setDirectPath = setPath;
+  const review = useMemo(
+    () =>
+      ({
+        controller: {
+          workId: target.workId,
+          inlineReview: null,
+          enterInlineReview: vi.fn(),
+          exitInlineReview: vi.fn(),
+        },
+        groups: [],
+        drafts: { status: "ready", groups: [] },
+        groupForDocument: () => null,
+        reviewRoomNameForDraft: () => null,
+        activeEditorDocumentId: null,
+        setActiveEditorDocumentId: vi.fn(),
+      }) as unknown as DraftReviewContextValue,
+    [],
+  );
+  return (
+    <DraftReviewBoundary value={review}>
+      <MobileDocumentHost
+        projectId="project-1"
+        editorWorkId={target.workId}
+        activeContextScheme={path ? "manuscript" : null}
+        activeContextPath={path}
+      />
+    </DraftReviewBoundary>
+  );
+}
+
 describe("MobileDocumentHost review binding", () => {
   beforeEach(() => {
     openReview = null;
@@ -204,6 +256,23 @@ describe("MobileDocumentHost review binding", () => {
     mocks.openTab.mockClear();
     mocks.registry.retain.mockClear();
     mocks.registry.release.mockClear();
+    mocks.liveOpener.open.mockReset();
+    mocks.liveOpener.open.mockResolvedValue({
+      kind: "opened",
+      document: file,
+      admission: {
+        bind: async () => ({
+          projectId: "project-1",
+          documentId: target.documentId,
+          generation: "1",
+          session: mocks.liveSession,
+          release: vi.fn(),
+        }),
+      },
+    });
+    catalog.findPath.mockReset();
+    catalog.findPath.mockReturnValue(file);
+    setDirectPath = null;
     settledDocumentId = null;
   });
 
@@ -236,6 +305,61 @@ describe("MobileDocumentHost review binding", () => {
           reviewWorkId: target.workId,
           editable: false,
         });
+      },
+    );
+  });
+
+  it("releases on route replacement and exit", async () => {
+    const releases = new Map<string, ReturnType<typeof vi.fn>>();
+    const second = { ...file, documentId: "document-second", entryId: "document-second" };
+    catalog.findPath.mockImplementation((path) => (path === "chapters/second.md" ? second : file));
+    mocks.liveOpener.open.mockImplementation(async (input: { documentId: string }) => {
+      const release = vi.fn();
+      releases.set(input.documentId, release);
+      return {
+        kind: "opened",
+        document: file,
+        admission: {
+          bind: async () => ({
+            projectId: "project-1",
+            documentId: input.documentId,
+            generation: "1",
+            session: mocks.liveSession,
+            release,
+          }),
+        },
+      };
+    });
+
+    await withReactRoot(
+      <ContextRemovalAccountProvider accountId="account-1">
+        <DirectMobileHarness />
+      </ContextRemovalAccountProvider>,
+      async () => {
+        await act(async () => undefined);
+        await act(async () => setDirectPath?.("chapters/second.md"));
+        expect(releases.get(target.documentId)).toHaveBeenCalledOnce();
+        await act(async () => setDirectPath?.(null));
+        expect(releases.get("document-second")).toHaveBeenCalledOnce();
+      },
+    );
+  });
+
+  it.each([
+    "not-editable",
+    "unavailable",
+  ] as const)("does not render an editor for %s", async (kind) => {
+    mocks.liveOpener.open.mockResolvedValue(
+      kind === "not-editable" ? { kind, document: file } : { kind, reason: "not-visible" },
+    );
+    await withReactRoot(
+      <ContextRemovalAccountProvider accountId="account-1">
+        <DirectMobileHarness />
+      </ContextRemovalAccountProvider>,
+      async () => {
+        await act(async () => undefined);
+        expect(mocks.editorProps).toHaveLength(0);
+        expect(document.body.textContent).toContain("Couldn't open this document.");
       },
     );
   });

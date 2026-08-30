@@ -5,7 +5,6 @@ import type {
   ProjectContextIdentityResolution,
 } from "@meridian/contracts/protocol";
 import type { DocumentId, ProjectId } from "@meridian/contracts/runtime";
-import type { CatalogFile } from "@/client/query/context-catalog-projection";
 import type { DocumentSession } from "@/core/editor/document-session";
 import type { LiveDocumentSessionRegistry } from "@/core/editor/document-session-registry";
 import type {
@@ -30,15 +29,16 @@ import type {
  */
 
 import {
-  isWorkScopedProjectContextScheme,
+  isProjectContextTreeScheme,
   type ProjectContextTreeScheme,
 } from "@meridian/contracts/protocol";
-import { useCallback } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
-import { lookupContextCatalogFile } from "@/client/query/useContextCatalog";
+import { projectCatalogFile } from "@/client/query/useContextCatalog";
 import { useContextTabsActions } from "@/client/stores";
-import { useProjectContextRoute } from "../routing/ProjectContextRoute";
+import { type OpenContextRoute, useProjectContextRoute } from "../routing/ProjectContextRoute";
 import { contextTabFromFile } from "./context-tab-from-file";
+import { useProjectDocumentLiveOpener } from "./project-document-live-opener-context";
 
 export interface LiveDocumentBinding {
   readonly projectId: ProjectId;
@@ -170,9 +170,6 @@ export class ProjectDocumentLiveOpener {
   }
 }
 
-/** Where a document may live. Work-scoped schemes need the work to look in. */
-const NAVIGABLE_SCHEMES = ["manuscript", "kb", "user", "scratch"] as const;
-
 export type OpenProjectDocumentRequest = {
   documentId: string;
   /** The work whose scratch to search; without one, work-scoped schemes are skipped. */
@@ -182,49 +179,100 @@ export type OpenProjectDocumentRequest = {
   signal?: AbortSignal;
 };
 
-/** False when the document was not found, is not editable, or the caller left. */
-export type OpenProjectDocument = (request: OpenProjectDocumentRequest) => Promise<boolean>;
+export type OpenProjectDocument = (
+  request: OpenProjectDocumentRequest,
+) => Promise<ProjectDocumentLiveOpenResult>;
 
-export function useOpenProjectDocument(projectId: string | undefined): OpenProjectDocument {
-  const openContextRoute = useProjectContextRoute();
-  const { openTab } = useContextTabsActions();
+type NavigationAdapterDependencies = {
+  opener: Pick<ProjectDocumentLiveOpener, "open">;
+  openTab(projectId: string, tab: ReturnType<typeof contextTabFromFile>): void;
+  openRoute: OpenContextRoute | null;
+};
 
-  return useCallback(
-    async ({ documentId, workId = null, disposition = "current", signal }) => {
-      if (!projectId) return false;
-      const found = await findDocument(projectId, documentId, workId, signal);
-      if (!found || signal?.aborted) return false;
-      // A viewer-only file has no editing surface to land in, and a tab that
-      // opened on one would be a door into nothing.
-      if (!found.file.editable) return false;
+/** Latest-attempt navigation effects over the exact-resolution opener. */
+export class ProjectDocumentNavigationAdapter {
+  private attempt = 0;
+  private current: AbortController | null = null;
 
-      const { scheme, file } = found;
-      openTab(projectId, contextTabFromFile(scheme, file, workId));
-      if (disposition === "background") return true;
+  constructor(private readonly dependencies: NavigationAdapterDependencies) {}
 
-      if (!openContextRoute) {
+  dispose(): void {
+    this.attempt += 1;
+    this.current?.abort();
+    this.current = null;
+  }
+
+  async open(
+    projectId: string,
+    { documentId, workId = null, disposition = "current", signal }: OpenProjectDocumentRequest,
+  ): Promise<ProjectDocumentLiveOpenResult> {
+    const token = ++this.attempt;
+    this.current?.abort();
+    const controller = new AbortController();
+    this.current = controller;
+    const abort = () => controller.abort();
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) controller.abort();
+    try {
+      const result = await this.dependencies.opener.open({
+        source: "server",
+        projectId,
+        documentId,
+        signal: controller.signal,
+      });
+      if (token !== this.attempt || controller.signal.aborted) return { kind: "cancelled" };
+      if (result.kind !== "opened") return result;
+
+      const scheme = schemeForEntry(result.document);
+      if (!scheme) return { kind: "unavailable", reason: "failed" };
+      const routeWorkId =
+        result.document.scope.kind === "work" ? result.document.scope.workId : workId;
+      const file = projectCatalogFile(result.document);
+      if (disposition === "current" && !this.dependencies.openRoute) {
         throw new Error("Opening a project document requires the project route owner");
       }
-      await openContextRoute({ scheme, path: file.path, workId });
-      return !signal?.aborted;
-    },
-    [openContextRoute, openTab, projectId],
-  );
+      this.dependencies.openTab(projectId, contextTabFromFile(scheme, file, routeWorkId));
+      if (disposition === "current") {
+        await this.dependencies.openRoute?.({
+          scheme,
+          path: file.path,
+          workId: routeWorkId ?? null,
+        });
+      }
+      return token === this.attempt && !controller.signal.aborted ? result : { kind: "cancelled" };
+    } finally {
+      signal?.removeEventListener("abort", abort);
+      if (token === this.attempt) this.current = null;
+    }
+  }
 }
 
-async function findDocument(
-  projectId: string,
-  documentId: string,
-  workId: string | null,
-  signal: AbortSignal | undefined,
-): Promise<{ scheme: ProjectContextTreeScheme; file: CatalogFile } | null> {
-  for (const scheme of NAVIGABLE_SCHEMES) {
-    if (isWorkScopedProjectContextScheme(scheme) && !workId) continue;
-    const file = await lookupContextCatalogFile(projectId, scheme, workId, {
-      entryId: documentId,
-    });
-    if (signal?.aborted) return null;
-    if (file) return { scheme, file };
-  }
-  return null;
+function schemeForEntry(entry: CatalogFileEntry): ProjectContextTreeScheme | null {
+  const separator = entry.uri.indexOf(":");
+  const scheme = separator < 0 ? "" : entry.uri.slice(0, separator);
+  return isProjectContextTreeScheme(scheme) ? scheme : null;
+}
+
+export function useOpenProjectDocument(projectId: string | undefined): OpenProjectDocument {
+  const opener = useProjectDocumentLiveOpener();
+  const openContextRoute = useProjectContextRoute();
+  const { openTab } = useContextTabsActions();
+  const adapter = useMemo(
+    () =>
+      new ProjectDocumentNavigationAdapter({
+        opener,
+        openTab,
+        openRoute: openContextRoute,
+      }),
+    [openContextRoute, openTab, opener],
+  );
+  useEffect(() => () => adapter.dispose(), [adapter]);
+
+  return useCallback(
+    async (request) => {
+      if (!projectId) return { kind: "unavailable", reason: "failed" };
+      return adapter.open(projectId, request);
+    },
+    [adapter, projectId],
+  );
 }

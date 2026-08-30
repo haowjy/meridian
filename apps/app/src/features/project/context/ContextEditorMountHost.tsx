@@ -29,22 +29,23 @@
  * the same `documentId`, so subscribe/unsubscribe stay paired.
  */
 import { Trans } from "@lingui/react/macro";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useRef, useState } from "react";
 
 import { type ContextTab, useContextTabsActions } from "@/client/stores";
 import { Button } from "@/components/ui/button";
-import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
+import type { DocumentSession } from "@/core/editor/document-session";
 import { useDraftReview } from "@/features/chat/DraftReviewProvider";
 import { cn } from "@/lib/utils";
 import { useLocalUntitledOwner } from "./ContextRemovalAccountProvider";
 import { LocalUntitledIdentityRedirect } from "./local-untitled-owner";
 import { untitledDocumentIsEmpty } from "./untitled-reconciler";
+import { useLiveDocumentBinding } from "./use-live-document-binding";
 
 const EditorView = lazy(() =>
   import("@/features/editor/EditorView").then((m) => ({ default: m.EditorView })),
 );
 
-const DESKTOP_CONTEXT_EDITOR_OWNER = "desktop-context-editor-mount-host";
+const DESKTOP_LOCAL_EDITOR_OWNER = "desktop-context-editor-mount-host";
 
 type EditableContextTab = Extract<ContextTab, { kind: "tracked" | "new" }>;
 
@@ -140,13 +141,6 @@ export function ContextEditorMountHost({
   // parent render (the array identity is fresh each time).
   const trackedIds = trackedTabs.map((t) => t.documentId);
   const untitledIds = trackedTabs.filter((tab) => tab.kind === "new").map((tab) => tab.documentId);
-  // A materialized tab becomes registry-owned while the mounted editor keeps
-  // using the transferred local session object. Classify by tab authority,
-  // not by that deliberately stable object reference, so the desktop host
-  // retains the adopted live lease before the reconciler releases its bind.
-  const serverIds = trackedTabs
-    .filter((tab) => tab.kind !== "new" && !localSessionsRef.current.has(tab.documentId))
-    .map((tab) => tab.documentId);
   const trackedIdsKey = trackedIds.join("|");
   const untitledIdsKey = untitledIds.join("|");
   useEffect(() => {
@@ -182,14 +176,11 @@ export function ContextEditorMountHost({
     lruRef.current = lruRef.current.filter((id) => known.has(id));
   }, [trackedIdsKey]);
 
-  // Reconcile this desktop host's open-document set with the registry.
-  // Sessions outlive view mounts (so leaving Context / warm-set eviction no
-  // longer tears down Yjs); they are reclaimed when their document closes
-  // (drops out of `trackedTabs`) or when this host unmounts entirely.
+  // Local pre-authority sessions still belong to the local owner. Server tabs
+  // are retained by their per-tab boundaries below.
   useEffect(() => {
-    getDocumentSessionRegistry().retain(DESKTOP_CONTEXT_EDITOR_OWNER, serverIds);
     localOwner.retain(
-      DESKTOP_CONTEXT_EDITOR_OWNER,
+      DESKTOP_LOCAL_EDITOR_OWNER,
       untitledIds.map((documentId) => ({
         accountId: localOwner.accountId,
         projectId,
@@ -200,21 +191,9 @@ export function ContextEditorMountHost({
 
   useEffect(() => {
     return () => {
-      getDocumentSessionRegistry().release(DESKTOP_CONTEXT_EDITOR_OWNER);
-      localOwner.release(DESKTOP_CONTEXT_EDITOR_OWNER);
+      localOwner.release(DESKTOP_LOCAL_EDITOR_OWNER);
     };
   }, [localOwner]);
-
-  const activeReviewDocumentId =
-    active && activeTabId && controller.inlineReview?.documentId === activeTabId
-      ? activeTabId
-      : null;
-  useEffect(() => {
-    if (!activeReviewDocumentId) return;
-    const session = getDocumentSessionRegistry().get(activeReviewDocumentId);
-    session.suspendPresence();
-    return () => session.resumePresence();
-  }, [activeReviewDocumentId]);
 
   const mounted = pickMountedIds(lruRef.current, trackedIds, activeTabId, MAX_MOUNTED_EDITORS);
 
@@ -222,7 +201,7 @@ export function ContextEditorMountHost({
     <div className="relative min-h-0 flex-1">
       <Suspense fallback={null}>
         {trackedTabs.map((tab) => {
-          if (!mounted.has(tab.documentId)) return null;
+          const isMounted = mounted.has(tab.documentId);
           const isActive = tab.documentId === activeTabId;
           const selectedReviewDraftId =
             isActive && controller.inlineReview?.documentId === tab.documentId
@@ -242,94 +221,148 @@ export function ContextEditorMountHost({
               bindingKeysRef.current.set(local.session, bindingKey);
             }
           }
-          return (
-            <div
-              key={bindingKey ?? tab.documentId}
-              data-context-editor-document-id={tab.documentId}
-              className={cn(
-                // Each editor fills the host's frame; only the active one is
-                // visible. `hidden` keeps DOM/state alive without painting.
-                "absolute inset-0 flex min-h-0 flex-col",
-                isActive ? "" : "hidden",
-              )}
-              // Defensive: aria-hidden hides background editors from AT.
-              aria-hidden={!isActive}
-            >
-              {ownedElsewhere.has(tab.documentId) ? (
-                <div className="grid h-full place-items-center text-muted-foreground text-sm">
-                  <Trans>This document is open in another tab</Trans>
-                </div>
-              ) : null}
-              {tab.kind === "new" && local && onUntitledBecameNonEmpty ? (
-                <UntitledInputObserver
-                  documentId={tab.documentId}
-                  session={local.session}
-                  onBecameNonEmpty={onUntitledBecameNonEmpty}
-                />
-              ) : null}
-              {/* Filename chrome is host-owned: the context tab strip names the
+          const renderEditor = (session: DocumentSession | null, failed = false): ReactNode => {
+            if (!isMounted) return null;
+            return (
+              <div
+                key={bindingKey ?? tab.documentId}
+                data-context-editor-document-id={tab.documentId}
+                className={cn(
+                  // Each editor fills the host's frame; only the active one is
+                  // visible. `hidden` keeps DOM/state alive without painting.
+                  "absolute inset-0 flex min-h-0 flex-col",
+                  isActive ? "" : "hidden",
+                )}
+                // Defensive: aria-hidden hides background editors from AT.
+                aria-hidden={!isActive}
+              >
+                {ownedElsewhere.has(tab.documentId) ? (
+                  <div className="grid h-full place-items-center text-muted-foreground text-sm">
+                    <Trans>This document is open in another tab</Trans>
+                  </div>
+                ) : null}
+                {failed ? (
+                  <div className="grid h-full place-items-center text-destructive text-sm">
+                    <Trans>Couldn't open this document.</Trans>
+                  </div>
+                ) : null}
+                {tab.kind === "new" && local && onUntitledBecameNonEmpty ? (
+                  <UntitledInputObserver
+                    documentId={tab.documentId}
+                    session={local.session}
+                    onBecameNonEmpty={onUntitledBecameNonEmpty}
+                  />
+                ) : null}
+                {/* Filename chrome is host-owned: the context tab strip names the
                   active file, so EditorView renders no redundant header bar. */}
-              {ownedElsewhere.has(tab.documentId) ||
-              (tab.kind === "new" && !local) ? null : waitingForReviewRoom &&
-                controller.reviewRoomError ? (
-                <div className="flex min-h-0 flex-1 items-center justify-center p-6">
-                  <div className="surface-card max-w-sm space-y-3 rounded-lg border border-border-subtle p-4 text-center shadow-sm">
-                    <p className="font-medium text-foreground text-sm">
-                      <Trans>Couldn't open review mode.</Trans>
-                    </p>
-                    <p className="text-muted-foreground text-xs">
-                      <Trans>Try again, or return to the live document.</Trans>
-                    </p>
-                    <div className="flex justify-center gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => {
-                          if (selectedReviewDraftId) {
-                            controller.enterInlineReview(tab.documentId, selectedReviewDraftId);
-                            return;
-                          }
-                          controller.exitInlineReview();
-                        }}
-                      >
-                        <Trans>Retry</Trans>
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => controller.exitInlineReview()}
-                      >
-                        <Trans>Back to live</Trans>
-                      </Button>
+                {failed ||
+                ownedElsewhere.has(tab.documentId) ||
+                (tab.kind === "new" && !local) ||
+                !session ? null : waitingForReviewRoom && controller.reviewRoomError ? (
+                  <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+                    <div className="surface-card max-w-sm space-y-3 rounded-lg border border-border-subtle p-4 text-center shadow-sm">
+                      <p className="font-medium text-foreground text-sm">
+                        <Trans>Couldn't open review mode.</Trans>
+                      </p>
+                      <p className="text-muted-foreground text-xs">
+                        <Trans>Try again, or return to the live document.</Trans>
+                      </p>
+                      <div className="flex justify-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => {
+                            if (selectedReviewDraftId) {
+                              controller.enterInlineReview(tab.documentId, selectedReviewDraftId);
+                              return;
+                            }
+                            controller.exitInlineReview();
+                          }}
+                        >
+                          <Trans>Retry</Trans>
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => controller.exitInlineReview()}
+                        >
+                          <Trans>Back to live</Trans>
+                        </Button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ) : waitingForReviewRoom ? null : (
-                <EditorView
-                  projectId={projectId}
-                  workId={workId}
-                  documentId={tab.documentId}
-                  session={local?.session}
-                  bindingKey={bindingKey}
-                  // A warm editor is hidden, not gone. Its chrome portals to
-                  // the body, where `hidden` on an ancestor means nothing.
-                  active={isActive}
-                  detached={tab.kind === "new"}
-                  schemaType={tab.kind === "tracked" ? tab.schemaType : "document"}
-                  reviewDraftId={reviewDraftId}
-                  reviewRoomName={reviewRoomName}
-                  reviewWorkId={reviewDraftId ? controller.workId : null}
-                  onReviewSessionUnavailable={controller.exitInlineReview}
-                />
-              )}
-            </div>
+                ) : waitingForReviewRoom ? null : (
+                  <>
+                    <PresenceSuspension
+                      session={session}
+                      enabled={Boolean(reviewDraftId && active)}
+                    />
+                    <EditorView
+                      projectId={projectId}
+                      workId={workId}
+                      documentId={tab.documentId}
+                      session={session}
+                      bindingKey={bindingKey}
+                      // A warm editor is hidden, not gone. Its chrome portals to
+                      // the body, where `hidden` on an ancestor means nothing.
+                      active={isActive}
+                      detached={tab.kind === "new"}
+                      schemaType={tab.kind === "tracked" ? tab.schemaType : "document"}
+                      reviewDraftId={reviewDraftId}
+                      reviewRoomName={reviewRoomName}
+                      reviewWorkId={reviewDraftId ? controller.workId : null}
+                      onReviewSessionUnavailable={controller.exitInlineReview}
+                    />
+                  </>
+                )}
+              </div>
+            );
+          };
+          if (tab.kind === "new") {
+            return renderEditor(local?.session ?? null);
+          }
+          return (
+            <ServerTabSessionBoundary
+              key={tab.documentId}
+              projectId={projectId}
+              documentId={tab.documentId}
+            >
+              {(session, failed) => renderEditor(session, failed)}
+            </ServerTabSessionBoundary>
           );
         })}
       </Suspense>
     </div>
   );
+}
+
+/** One binding whose lifetime is exactly one actual open server tab. */
+export function ServerTabSessionBoundary({
+  projectId,
+  documentId,
+  children,
+}: {
+  projectId: string;
+  documentId: string;
+  children: (session: DocumentSession | null, failed: boolean) => ReactNode;
+}) {
+  const binding = useLiveDocumentBinding({
+    projectId,
+    documentId,
+    owner: "desktop-server-tab",
+  });
+  return children(binding.kind === "opened" ? binding.session : null, binding.kind === "failed");
+}
+
+function PresenceSuspension({ session, enabled }: { session: DocumentSession; enabled: boolean }) {
+  useEffect(() => {
+    if (!enabled) return;
+    session.suspendPresence();
+    return () => session.resumePresence();
+  }, [enabled, session]);
+  return null;
 }
 
 function UntitledInputObserver({

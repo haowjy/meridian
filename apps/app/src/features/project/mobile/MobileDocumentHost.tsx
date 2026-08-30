@@ -1,10 +1,10 @@
 /**
- * MobileDocumentHost — read-only phone document/viewer host with registry retention.
+ * MobileDocumentHost — read-only phone document/viewer host with route-owned binding.
  *
  * Mobile never lets users type into collaborative documents, but it keeps the
  * TipTap/Yjs binding alive so AI edits stream into the read-only editor. This
- * host is the mobile registry owner: entering a document retains exactly that
- * document; leaving the view releases it so sessions do not leak. Mobile route
+ * host is the mobile binding owner: entering a document opens and binds exactly
+ * that document; leaving the view releases it so sessions do not leak. Mobile route
  * navigation deliberately derives the active tab from the context tree instead
  * of writing to the desktop tab strip's shared open-tab set.
  *
@@ -17,19 +17,17 @@ import type { ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo } from "react";
 import { useContextCatalogView } from "@/client/query/useContextCatalog";
-import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
 import { useDraftReview } from "@/features/chat/DraftReviewProvider";
 import { PassageNotice } from "@/features/editor/PassageNotice";
 import { useContextRemovalCoordinator } from "../context/ContextRemovalAccountProvider";
 import { ContextViewerBareHost } from "../context/ContextViewerHost";
 import { contextTabFromFile } from "../context/context-tab-from-file";
 import { useContextRemovalProject } from "../context/use-context-removal-project";
+import { useLiveDocumentBinding } from "../context/use-live-document-binding";
 
 const EditorView = lazy(() =>
   import("@/features/editor/EditorView").then((m) => ({ default: m.EditorView })),
 );
-
-const MOBILE_DOCUMENT_OWNER = "mobile-project-document-host";
 
 export type MobileDocumentHostProps = {
   projectId: string;
@@ -133,25 +131,22 @@ export function MobileDocumentHost({
       : null;
   const reviewDraftId = reviewRoomName ? selectedReviewDraftId : null;
 
-  useEffect(() => {
-    if (!activeEditorDocumentId || !selectedReviewDraftId) return;
-    const session = getDocumentSessionRegistry().get(activeEditorDocumentId);
-    session.suspendPresence();
-    return () => session.resumePresence();
-  }, [activeEditorDocumentId, selectedReviewDraftId]);
+  const live = useLiveDocumentBinding({
+    projectId,
+    documentId: activeTab?.editable ? activeTab.documentId : null,
+    owner: "mobile-project-document-host",
+  });
 
   useEffect(() => {
-    if (activeTab?.editable) {
-      getDocumentSessionRegistry().retain(MOBILE_DOCUMENT_OWNER, [activeTab.documentId]);
-      return () => getDocumentSessionRegistry().retain(MOBILE_DOCUMENT_OWNER, []);
-    }
-    getDocumentSessionRegistry().retain(MOBILE_DOCUMENT_OWNER, []);
-    return undefined;
-  }, [activeTab]);
-
-  useEffect(() => {
-    return () => getDocumentSessionRegistry().release(MOBILE_DOCUMENT_OWNER);
-  }, []);
+    if (
+      !selectedReviewDraftId ||
+      live.kind !== "opened" ||
+      live.documentId !== activeEditorDocumentId
+    )
+      return;
+    live.session.suspendPresence();
+    return () => live.session.resumePresence();
+  }, [activeEditorDocumentId, live, selectedReviewDraftId]);
 
   if (!activeContextScheme || !activeContextPath) {
     return (
@@ -187,6 +182,25 @@ export function MobileDocumentHost({
     );
   }
 
+  const liveSession =
+    live.kind === "opened" && live.documentId === activeTab.documentId ? live.session : null;
+  if (live.kind === "failed" && live.documentId === activeTab.documentId) {
+    return (
+      <DocumentStatus tone="error">
+        <AlertCircle className="size-4" aria-hidden />
+        <Trans>Couldn't open this document.</Trans>
+      </DocumentStatus>
+    );
+  }
+  if (!liveSession) {
+    return (
+      <DocumentStatus tone="muted">
+        <Loader2 className="size-4 animate-spin" aria-hidden />
+        <Trans>Opening document…</Trans>
+      </DocumentStatus>
+    );
+  }
+
   return (
     <div className="relative h-full min-h-0">
       <PassageNotice documentId={activeTab.documentId} />
@@ -202,6 +216,7 @@ export function MobileDocumentHost({
           projectId={projectId}
           workId={workId}
           documentId={activeTab.documentId}
+          session={liveSession}
           schemaType={activeTab.schemaType}
           editable={false}
           showToolbar={false}

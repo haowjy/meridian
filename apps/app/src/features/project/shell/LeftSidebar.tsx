@@ -14,6 +14,7 @@ import { PanelLeftClose } from "lucide-react";
 import type { CatalogFile as ContextFile } from "@/client/query/context-catalog-projection";
 import { MeridianMark } from "@/components/app/MeridianMark";
 import { ContextTreePanel } from "../context/ContextTreePanel";
+import { useOpenProjectDocument } from "../context/open-project-document";
 import { PanelToggleButton } from "./PanelToggleButton";
 import type { ScreenKey } from "./screens";
 import { WorkspaceNavBody } from "./WorkspaceNavBody";
@@ -51,8 +52,14 @@ export function LeftSidebar({
   onSelectContextPath,
   onCollapse,
 }: LeftSidebarProps) {
-  const handleSelectFile = (scheme: ProjectContextTreeScheme, file: ContextFile) =>
-    onSelectContextPath(file.path, scheme);
+  const openDocument = useOpenProjectDocument(projectId);
+  const handleSelectFile = (scheme: ProjectContextTreeScheme, file: ContextFile) => {
+    if (!file.editable) {
+      onSelectContextPath(file.path, scheme);
+      return;
+    }
+    void openDocument({ documentId: file.documentId, workId: editorWorkId });
+  };
 
   return (
     <nav

@@ -38,7 +38,7 @@ import type { ContextCreateKind } from "../context/context-create-kind";
 import { fileKindIcon } from "../context/context-file-icon";
 import { mobileContextTreeOverflowTriggerClassName } from "../context/context-row-geometry";
 import { schemeIcon, schemeLabel, visibleContextSchemes } from "../context/context-schemes";
-import { contextTabFromFile } from "../context/context-tab-from-file";
+import { useOpenProjectDocument } from "../context/open-project-document";
 import { useCreateEntryForm } from "../context/use-create-entry-form";
 import { useRenameEntryForm } from "../context/use-rename-entry-form";
 import type { ResolvedProjectViewProps } from "../ProjectView";
@@ -254,6 +254,7 @@ function FolderListingBody({
   onSelectContextPath: MobileContextBrowserProps["onSelectContextPath"];
   onRequestDelete: (target: EntryActionTarget) => void;
 }) {
+  const openDocument = useOpenProjectDocument(projectId);
   if (isError) {
     return (
       <ListingStatus tone="error">
@@ -302,8 +303,11 @@ function FolderListingBody({
   }
 
   function openFile(file: ContextFile) {
-    const contextTab = contextTabFromFile(scheme, file, workId);
-    onSelectContextPath(contextTab.path, contextTab.scheme);
+    if (!file.editable) {
+      onSelectContextPath(file.path, scheme);
+      return;
+    }
+    void openDocument({ documentId: file.documentId, workId });
   }
 
   const siblingNames = children.map((child) => child.name);

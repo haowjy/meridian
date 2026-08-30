@@ -10,6 +10,7 @@ import type { CatalogFile as ContextFile } from "@/client/query/context-catalog-
 import { MeridianMark } from "@/components/app/MeridianMark";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { ContextTreePanel } from "../context/ContextTreePanel";
+import { useOpenProjectDocument } from "../context/open-project-document";
 import type { TreeCreationRequest } from "../context/TreeCreationProvider";
 import type { ScreenKey } from "../shell/screens";
 import { WorkspaceNavBody } from "../shell/WorkspaceNavBody";
@@ -39,9 +40,16 @@ export function NavigationDrawer({
   onSelectScreen,
   onSelectContextPath,
 }: NavigationDrawerProps) {
+  const openDocument = useOpenProjectDocument(projectId);
   const handleSelectFile = (scheme: ProjectContextTreeScheme, file: ContextFile) => {
-    onSelectContextPath(file.path, scheme);
-    onOpenChange(false);
+    if (!file.editable) {
+      onSelectContextPath(file.path, scheme);
+      onOpenChange(false);
+      return;
+    }
+    void openDocument({ documentId: file.documentId, workId: editorWorkId }).then((result) => {
+      if (result.kind === "opened") onOpenChange(false);
+    });
   };
   // The drawer owns its own inline-create state: the desktop shell's shared
   // creation seam (empty state → sidebar) has no phone counterpart — phone

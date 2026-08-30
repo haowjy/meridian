@@ -30,7 +30,12 @@ export function useChangeTrailNavigation(threadId: string) {
               (item) => item.id === threadId,
             );
             if (signal.aborted) return false;
-            return openDocument({ documentId, workId: thread?.workId ?? null, signal });
+            const result = await openDocument({
+              documentId,
+              workId: thread?.workId ?? null,
+              signal,
+            });
+            return result.kind === "opened";
           },
         }),
       );
