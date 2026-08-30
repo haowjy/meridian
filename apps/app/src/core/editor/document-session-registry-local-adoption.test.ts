@@ -116,6 +116,59 @@ describe("DocumentSessionRegistry local adoption", () => {
     await expect(ordinary).resolves.toMatchObject({ projectId: "project", documentId: "doc" });
   });
 
+  it("withholds account close while an adoption finalizer is still pending", async () => {
+    const registry = createRegistry("account-pending-finalizer");
+    const session = registry.createDetached({
+      accountId: "account-pending-finalizer",
+      projectId: "project",
+      documentId: "doc",
+      persistenceKey: "local-pending-finalizer-test",
+    });
+    let releaseProvider!: () => void;
+    const providerBarrier = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+    let providerStarted!: () => void;
+    const providerStart = new Promise<void>((resolve) => {
+      providerStarted = resolve;
+    });
+    vi.spyOn(session, "stageIndexedDbPersistence").mockResolvedValue({
+      commit: () => ({
+        closePrevious: async () => {
+          providerStarted();
+          await providerBarrier;
+        },
+      }),
+      abort: vi.fn(async () => undefined),
+    });
+    const handoff = registry.reserve({
+      projectId: "project",
+      documentId: "doc",
+      session,
+      ownerRevision: 1,
+      prepareCommit: () => undefined,
+      commit: () => undefined,
+      finalize: vi.fn(async () => undefined),
+    });
+    const adoption = registry.admitAndAdopt({
+      projectId: "project",
+      documentId: "doc",
+      generation: "1",
+      handoff,
+    });
+    await providerStart;
+
+    let closeSettled = false;
+    const close = registry.closeAccountRuntime().finally(() => {
+      closeSettled = true;
+    });
+    await Promise.resolve();
+    expect(closeSettled).toBe(false);
+    releaseProvider();
+    await expect(adoption).resolves.toMatchObject({ session });
+    await expect(close).resolves.toBeUndefined();
+  });
+
   it("withholds account close until a failed provider-close stage is retried", async () => {
     const registry = createRegistry("account-provider-finalizer");
     const session = registry.createDetached({

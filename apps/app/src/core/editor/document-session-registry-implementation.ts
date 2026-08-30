@@ -434,12 +434,13 @@ export class DocumentSessionRegistry
       leaseReleased: false,
       inFlight: null,
     };
+    this.pendingAdoptionFinalizers.add(finalizer);
     try {
       await this.settleAdoptionFinalizer(finalizer);
+      this.pendingAdoptionFinalizers.delete(finalizer);
     } catch {
       // Canonical authority already committed. Retain the finalizer (and HL)
       // for a later open/teardown retry rather than misreporting adoption.
-      this.pendingAdoptionFinalizers.add(finalizer);
     }
     try {
       this.attachSessionTransport(session);
