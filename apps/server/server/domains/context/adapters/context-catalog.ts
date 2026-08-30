@@ -38,12 +38,11 @@ import type {
   ContextCatalogWakePort,
   WorkAuthorityCatalogMutationPort,
 } from "../ports/context-catalog.js";
+import { normalizeCatalogChangesLimit } from "../ports/context-catalog.js";
 import type { ProjectContextAvailabilityMutationPort } from "../ports/project-context-availability.js";
 import { catalogSourceAuthority, mapAuthoritativeFile } from "./catalog-file-mapper.js";
 import { createDrizzleProjectContextAvailability } from "./project-context-availability.js";
 
-const DEFAULT_DELTA_LIMIT = 100;
-const MAX_DELTA_LIMIT = 500;
 const DEFAULT_RETAINED_COMMITS_PER_SCOPE = 1_000;
 
 type CatalogDb = Pick<Database, "delete" | "insert" | "select" | "update">;
@@ -461,9 +460,9 @@ export function createDrizzleContextCatalog(
         { isolationLevel: "repeatable read", accessMode: "read only" },
       );
     },
-    async changes(scope, cursor, requestedLimit = DEFAULT_DELTA_LIMIT): Promise<CatalogChanges> {
+    async changes(scope, cursor, requestedLimit): Promise<CatalogChanges> {
       await ensureHead(db, scope);
-      const limit = Math.max(1, Math.min(MAX_DELTA_LIMIT, Math.floor(requestedLimit)));
+      const limit = normalizeCatalogChangesLimit(requestedLimit);
       return db.transaction(
         async (tx) => {
           const [head] = await tx

@@ -23,6 +23,7 @@ import {
 import { truncateDrizzleTables } from "../../../test-support/drizzle-reset.js";
 import { useRollbackTestDatabase } from "../../../test-support/rollback-test-database.js";
 import { createInMemoryEventSink } from "../../observability/index.js";
+import { createProjectContextDocumentStore } from "../context-source-provisioning.js";
 import { createDrizzleContextCatalog } from "./context-catalog.js";
 import { createDrizzleProjectContextAvailability } from "./project-context-availability.js";
 
@@ -507,6 +508,54 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       expect(result.resolutions[0]).toMatchObject({
         kind: "authority-unavailable",
         reason: "project_deleted",
+      });
+    });
+
+    it("fences and restores a user source with its personal backing project", async () => {
+      const db = await seed();
+      const availability = createDrizzleProjectContextAvailability(db);
+      const catalog = createDrizzleContextCatalog(db, undefined, {
+        availabilityMutations: availability,
+      });
+      await catalog.refreshSources([USER_SOURCE]);
+
+      await expect(
+        catalog.snapshot({ kind: "user", userId: USER } as never),
+      ).resolves.toMatchObject({
+        entries: expect.arrayContaining([expect.objectContaining({ entryId: DOCS[3] })]),
+      });
+
+      await db.update(projects).set({ deletedAt: new Date() }).where(eq(projects.id, PERSONAL));
+      const provisioned = createProjectContextDocumentStore(db, PROJECT, "user", USER);
+
+      await expect(provisioned.existingContextSourceId()).resolves.toBeNull();
+      await expect(
+        availability.lookup(
+          { projectId: PROJECT as never, documentIds: [DOCS[3]] as never },
+          { userId: USER },
+        ),
+      ).resolves.toMatchObject({
+        resolutions: [{ kind: "authority-unavailable", reason: "project_deleted" }],
+      });
+      await expect(
+        catalog.snapshot({ kind: "user", userId: USER } as never),
+      ).resolves.toMatchObject({ entries: [] });
+
+      await db.update(projects).set({ deletedAt: null }).where(eq(projects.id, PERSONAL));
+
+      await expect(provisioned.existingContextSourceId()).resolves.toBe(USER_SOURCE);
+      await expect(
+        availability.lookup(
+          { projectId: PROJECT as never, documentIds: [DOCS[3]] as never },
+          { userId: USER },
+        ),
+      ).resolves.toMatchObject({
+        resolutions: [{ kind: "available", entry: { uri: "user://doc-3.md" } }],
+      });
+      await expect(
+        catalog.snapshot({ kind: "user", userId: USER } as never),
+      ).resolves.toMatchObject({
+        entries: expect.arrayContaining([expect.objectContaining({ entryId: DOCS[3] })]),
       });
     });
 

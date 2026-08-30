@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+- `apps/server`: fence exact-ID `user://` availability when its personal backing
+  project is deleted, preserve restore, validate Work catalog IDs before
+  authority lookup, and keep catalog replay limits explicit and bounded.
 - `apps/server`: conceal malformed foreign Context identities behind the same
   project-final availability result as missing documents.
 - `apps/server`: read Work catalog authorization, lifecycle, revision, rows,
