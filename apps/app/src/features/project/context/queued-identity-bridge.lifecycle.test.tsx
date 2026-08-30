@@ -241,6 +241,7 @@ it.each([
         });
         if (ordering === "receipt-before-transition") {
           await act(async () => rig.advance());
+          await act(async () => rig.advance());
           expect(search).toMatchObject({
             work: "work-a",
             scheme: "manuscript",

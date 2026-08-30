@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 import type { DocumentSession } from "@/core/editor/document-session";
-import { type LocalUntitledIdentityRedirect, LocalUntitledOwner } from "./local-untitled-owner";
+import {
+  type LocalUntitledIdentityRedirect,
+  LocalUntitledOwner,
+  type LocalUntitledOwnerDependencies,
+} from "./local-untitled-owner";
 import type { LocalUntitledKey, LocalUntitledRecord } from "./local-untitled-record-store";
 
 const key = (documentId = "document-a"): LocalUntitledKey => ({
@@ -30,32 +34,37 @@ function fixture() {
     })),
     destroy: vi.fn(async () => undefined),
   } as unknown as DocumentSession;
+  const dependencies: LocalUntitledOwnerDependencies = {
+    accountId: "account-a",
+    records: {
+      read: (input: LocalUntitledKey) =>
+        records.get(`${input.projectId}:${input.documentId}`) ?? null,
+      write: (record: LocalUntitledRecord) =>
+        records.set(`${record.key.projectId}:${record.key.documentId}`, record),
+      remove: (input: LocalUntitledKey, revision: number) => {
+        const storageKey = `${input.projectId}:${input.documentId}`;
+        const record = records.get(storageKey);
+        if (!record || record.revision !== revision) return "stale" as const;
+        records.delete(storageKey);
+        return "removed" as const;
+      },
+      list: () => [...records.values()],
+    },
+    lifetime: {
+      tryAcquire: vi.fn(async (_projectId: string, documentId: string) => ({
+        release: async () => void releases.push(documentId),
+      })),
+    },
+    sessions: { createDetached: vi.fn(() => session) },
+    reservations: { reserve: vi.fn(() => ({}) as never), abort: vi.fn() },
+    newLineageId: () => "lineage-a",
+  };
   return {
     records,
     releases,
     session,
-    owner: new LocalUntitledOwner({
-      accountId: "account-a",
-      records: {
-        read: (input) => records.get(input.documentId) ?? null,
-        write: (record) => records.set(record.key.documentId, record),
-        remove: (input, revision) => {
-          const record = records.get(input.documentId);
-          if (!record || record.revision !== revision) return "stale";
-          records.delete(input.documentId);
-          return "removed";
-        },
-        list: () => [...records.values()],
-      },
-      lifetime: {
-        tryAcquire: vi.fn(async (_projectId, documentId) => ({
-          release: async () => void releases.push(documentId),
-        })),
-      },
-      sessions: { createDetached: vi.fn(() => session) },
-      reservations: { reserve: vi.fn(() => ({}) as never) },
-      newLineageId: () => "lineage-a",
-    }),
+    dependencies,
+    owner: new LocalUntitledOwner(dependencies),
   };
 }
 
@@ -66,15 +75,18 @@ describe("LocalUntitledOwner", () => {
     const f = fixture();
     const opened = await f.owner.create(key());
     expect(opened.kind).toBe("opened");
-    expect(f.records.get("document-a")).toMatchObject({ key: key(), phase: "local-pending" });
+    expect(f.records.get("project-a:document-a")).toMatchObject({
+      key: key(),
+      phase: "local-pending",
+    });
     await expect(f.owner.restore(key("unknown"))).rejects.toThrow("durable pending record");
   });
 
   it("constructs nothing when HL is owned elsewhere", async () => {
     const f = fixture();
-    vi.mocked(f.owner.dependencies.lifetime.tryAcquire).mockResolvedValueOnce(null);
+    vi.mocked(f.dependencies.lifetime.tryAcquire).mockResolvedValueOnce(null);
     expect(await f.owner.create(key())).toEqual({ kind: "owned-elsewhere" });
-    expect(f.owner.dependencies.sessions.createDetached).not.toHaveBeenCalled();
+    expect(f.dependencies.sessions.createDetached).not.toHaveBeenCalled();
     expect(f.records.size).toBe(0);
   });
 
@@ -90,7 +102,7 @@ describe("LocalUntitledOwner", () => {
     stop();
     f.owner.release("view");
     await f.owner.destroyAll();
-    expect(f.records.has("document-a")).toBe(true);
+    expect(f.records.has("project-a:document-a")).toBe(true);
     expect(f.releases).toEqual(["document-a"]);
   });
 
@@ -101,8 +113,8 @@ describe("LocalUntitledOwner", () => {
     const replacement = await f.owner.remint(key(), key("document-b"));
     expect(replacement.session).toBe(f.session);
     expect(f.releases).toEqual(["document-a"]);
-    expect(f.records.get("document-a")).toMatchObject({ active: false });
-    expect(f.records.get("document-b")).toMatchObject({
+    expect(f.records.get("project-a:document-a")).toMatchObject({ active: false });
+    expect(f.records.get("project-a:document-b")).toMatchObject({
       active: true,
       lineageId: "lineage-a",
       lineageRevision: 2,
@@ -112,10 +124,10 @@ describe("LocalUntitledOwner", () => {
   it("preserves the old identity and words when replacement HL is unavailable", async () => {
     const f = fixture();
     await f.owner.create(key());
-    vi.mocked(f.owner.dependencies.lifetime.tryAcquire).mockResolvedValueOnce(null);
+    vi.mocked(f.dependencies.lifetime.tryAcquire).mockResolvedValueOnce(null);
     await expect(f.owner.remint(key(), key("document-b"))).rejects.toThrow("owned elsewhere");
     expect(f.owner.getDetached(key())?.session).toBe(f.session);
-    expect(f.records.has("document-b")).toBe(false);
+    expect(f.records.has("project-a:document-b")).toBe(false);
     expect(f.releases).toEqual([]);
   });
 
@@ -124,12 +136,45 @@ describe("LocalUntitledOwner", () => {
     await f.owner.create(key());
     await f.owner.remint(key(), key("document-b"));
     await f.owner.destroyAll();
-    const restored = new LocalUntitledOwner(f.owner.dependencies);
+    const restored = new LocalUntitledOwner(f.dependencies);
     await expect(restored.restore(key())).rejects.toEqual(
       expect.objectContaining<Partial<LocalUntitledIdentityRedirect>>({
         name: "LocalUntitledIdentityRedirect",
         key: key("document-b"),
       }),
     );
+  });
+
+  it("owns the same document id independently in two projects", async () => {
+    const f = fixture();
+    const other = { ...key(), projectId: "project-b" };
+    expect((await f.owner.create(key())).kind).toBe("opened");
+    expect((await f.owner.create(other)).kind).toBe("opened");
+    expect(f.owner.getDetached(key())).not.toBeNull();
+    expect(f.owner.getDetached(other)).not.toBeNull();
+    await f.owner.destroyAll();
+    expect(f.releases).toEqual(["document-a", "document-a"]);
+  });
+
+  it("settles a definite pre-row abort so the exact reservation can retry", async () => {
+    const f = fixture();
+    await f.owner.create(key());
+    const first = await f.owner.prepareMaterialization(key(), 1);
+    f.owner.abortMaterialization(key(), first);
+    const second = await f.owner.prepareMaterialization(key(), 1);
+    expect(second).not.toBe(first);
+    expect(f.dependencies.reservations.abort).toHaveBeenCalledWith(first);
+    expect(f.dependencies.reservations.reserve).toHaveBeenCalledTimes(2);
+  });
+
+  it("attempts every provider and lease and aggregates teardown failures", async () => {
+    const f = fixture();
+    const destroy = vi.mocked(f.session.destroy);
+    destroy.mockRejectedValueOnce(new Error("provider-a"));
+    await f.owner.create(key("a"));
+    await f.owner.create(key("b"));
+    await expect(f.owner.destroyAll()).rejects.toThrow("Local Untitled teardown failed");
+    expect(destroy).toHaveBeenCalledTimes(2);
+    expect(f.releases).toEqual(["a", "b"]);
   });
 });

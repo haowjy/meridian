@@ -112,11 +112,12 @@ Work navigation, while explicit close/deletion and fulfilled bootstrap absence
 still remove it. Server working-set bootstrap merges validated device-owned
 `new` and local-origin tabs by document ID without promoting them into recency.
 
-`untitled-reconciler.ts` is the browser-independent materialization engine;
-`untitled-reconciler-browser.ts` binds localStorage, APIs, editor sessions, and
-React hooks. The localStorage registry (`meridian:pending-untitled`) stores one
-record per document: a monotonic revision, materialization phase, desired identity, failure receipt,
-and the pending timestamp. Explicit writer actions and recovery receipts are
+`untitled-reconciler.ts` is the browser-independent materialization executor;
+`untitled-reconciler-browser.ts` binds APIs, the account-local owner, and React
+hooks. The account/project/document-qualified `LocalUntitledOwner` record is
+the sole durable pre-authority work source, including its monotonic work
+revision, materialization phase and result, desired identity, failure receipt,
+home, and pending timestamp. Explicit writer actions and recovery receipts are
 therefore crash-safe. Reconciliation re-reads the live revision after every
 await; an attempt may clear identity work or drain a record only when that exact
 revision is still current, so the last explicit writer identity wins. Events

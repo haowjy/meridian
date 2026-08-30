@@ -286,13 +286,20 @@ export class DocumentSession {
   }
 
   private connectTransport(transportFactory: DocumentSessionTransportFactory): void {
-    this.transportProvider = transportFactory({
-      roomKey: this.roomKey,
-      room: this.room,
-      document: this.document,
-      awareness: this.awareness,
-      fragmentName: this.fragmentName,
-    });
+    try {
+      this.transportProvider = transportFactory({
+        roomKey: this.roomKey,
+        room: this.room,
+        document: this.document,
+        awareness: this.awareness,
+        fragmentName: this.fragmentName,
+      });
+    } catch (error) {
+      this.transportAttachmentPending = false;
+      this.recomputeStatus();
+      this.emit();
+      throw error;
+    }
     this.transportAttachmentPending = false;
     this.resolveTransportAttached();
     this.status = "syncing";
@@ -514,7 +521,11 @@ export class DocumentSession {
         return {
           closePrevious: async () => {
             await previous?.destroy();
-            if (previousName && previousName !== key) await deleteIndexedDb(previousName);
+            if (previousName && previousName !== key) {
+              // The new persistence namespace is already canonical. Removing
+              // obsolete bytes is retryable GC, not part of authority commit.
+              await deleteIndexedDb(previousName).catch(() => undefined);
+            }
           },
         };
       },

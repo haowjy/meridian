@@ -115,7 +115,7 @@ export function ContextEditorMountHost({
   for (const tab of trackedTabs) {
     if (tab.kind !== "new") continue;
     const key = {
-      accountId: localOwner.dependencies.accountId,
+      accountId: localOwner.accountId,
       projectId,
       documentId: tab.documentId,
     };
@@ -144,7 +144,9 @@ export function ContextEditorMountHost({
   // using the transferred local session object. Classify by tab authority,
   // not by that deliberately stable object reference, so the desktop host
   // retains the adopted live lease before the reconciler releases its bind.
-  const serverIds = trackedTabs.filter((tab) => tab.kind !== "new").map((tab) => tab.documentId);
+  const serverIds = trackedTabs
+    .filter((tab) => tab.kind !== "new" && !localSessionsRef.current.has(tab.documentId))
+    .map((tab) => tab.documentId);
   const trackedIdsKey = trackedIds.join("|");
   const untitledIdsKey = untitledIds.join("|");
   useEffect(() => {
@@ -153,7 +155,7 @@ export function ContextEditorMountHost({
       if (localSessionsRef.current.has(documentId)) continue;
       void localOwner
         .restore({
-          accountId: localOwner.dependencies.accountId,
+          accountId: localOwner.accountId,
           projectId,
           documentId,
         })
@@ -189,7 +191,7 @@ export function ContextEditorMountHost({
     localOwner.retain(
       DESKTOP_CONTEXT_EDITOR_OWNER,
       untitledIds.map((documentId) => ({
-        accountId: localOwner.dependencies.accountId,
+        accountId: localOwner.accountId,
         projectId,
         documentId,
       })),

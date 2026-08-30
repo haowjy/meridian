@@ -14,6 +14,7 @@ import { parseYjsRoomName } from "@meridian/contracts/protocol";
 import type { DocumentId, ProjectId, UserId } from "@meridian/contracts/runtime";
 
 import { createHocuspocusDocumentTransport } from "@/core/transport/hocuspocus-document-transport";
+import type { DocumentSessionTransportFactory } from "./document-session";
 import { DocumentSession, type DocumentSessionSnapshot } from "./document-session";
 import {
   compareAvailabilityGeneration,
@@ -56,6 +57,10 @@ type LocalTransferReservation = {
   settled: Promise<void>;
   settle(): void;
 };
+
+function localTransferKey(projectId: ProjectId, documentId: DocumentId): string {
+  return `${encodeURIComponent(projectId)}:${encodeURIComponent(documentId)}`;
+}
 
 export class DocumentSessionAuthorityError extends Error {
   constructor(
@@ -101,7 +106,8 @@ export class DocumentSessionRegistry
     { roomKeys: Set<string>; detachedRoomKeys: Set<string> }
   >();
   private readonly admissionReservations = new Map<DocumentId, number>();
-  private readonly localTransferReservations = new Map<DocumentId, LocalTransferReservation>();
+  private readonly localTransferReservations = new Map<string, LocalTransferReservation>();
+  private readonly pendingAdoptionFinalizers = new Set<() => Promise<void>>();
   private readonly pendingTeardownTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private liveDocCapWarningEmitted = false;
   private readonly sessionObservers = new Map<
@@ -117,6 +123,11 @@ export class DocumentSessionRegistry
       createDocumentSessionCrossContextCoordination({ accountId, local }),
     private readonly teardownGraceMs = SESSION_TEARDOWN_GRACE_MS,
     accountId?: AccountId,
+    private readonly transportFactory: DocumentSessionTransportFactory = ({
+      roomKey,
+      document,
+      awareness,
+    }) => createHocuspocusDocumentTransport({ roomName: roomKey, document, awareness }),
   ) {
     if (!accountId) return;
     this.accountId = accountId;
@@ -136,7 +147,7 @@ export class DocumentSessionRegistry
     compareAvailabilityGeneration(generation, generation);
     this.reserveAdmission(documentId);
     try {
-      await this.localTransferReservations.get(documentId)?.settled;
+      await this.localTransferReservations.get(localTransferKey(projectId, documentId))?.settled;
       this.requireAccountRuntimeOpen();
       const coordination = await this.configuredCoordination();
       const admitted = await this.translateCoordination(() =>
@@ -312,7 +323,8 @@ export class DocumentSessionRegistry
 
   reserve(transfer: LocalDocumentSessionTransfer): LocalDocumentSessionHandoff {
     this.requireAccountRuntimeOpen();
-    const existing = this.localTransferReservations.get(transfer.documentId);
+    const key = localTransferKey(transfer.projectId, transfer.documentId);
+    const existing = this.localTransferReservations.get(key);
     if (existing) {
       if (
         existing.transfer.session === transfer.session &&
@@ -328,13 +340,23 @@ export class DocumentSessionRegistry
       settle = resolve;
     });
     const handoff = Object.freeze({}) as LocalDocumentSessionHandoff;
-    this.localTransferReservations.set(transfer.documentId, {
+    this.localTransferReservations.set(key, {
       handoff,
       transfer,
       settled,
       settle,
     });
     return handoff;
+  }
+
+  abort(handoff: LocalDocumentSessionHandoff): void {
+    for (const [key, reservation] of this.localTransferReservations) {
+      if (reservation.handoff !== handoff) continue;
+      this.localTransferReservations.delete(key);
+      reservation.settle();
+      return;
+    }
+    throw new Error("Local document handoff is not reserved");
   }
 
   async admitAndAdopt(input: {
@@ -345,7 +367,8 @@ export class DocumentSessionRegistry
   }): Promise<{ lease: LiveDocumentSessionLease; session: DocumentSession }> {
     this.requireAccountRuntimeOpen();
     compareAvailabilityGeneration(input.generation, input.generation);
-    const reservation = this.localTransferReservations.get(input.documentId);
+    const reservationKey = localTransferKey(input.projectId, input.documentId);
+    const reservation = this.localTransferReservations.get(reservationKey);
     if (
       !reservation ||
       reservation.handoff !== input.handoff ||
@@ -366,7 +389,7 @@ export class DocumentSessionRegistry
           input.generation,
           async (admitted) => {
             this.requireAccountRuntimeOpen();
-            if (this.localTransferReservations.get(input.documentId) !== reservation)
+            if (this.localTransferReservations.get(reservationKey) !== reservation)
               throw new Error("Local document reservation changed during admission");
             const state = this.liveRooms.get(input.documentId);
             if (!state || state.session) throw new Error("A different live session won adoption");
@@ -380,7 +403,7 @@ export class DocumentSessionRegistry
             try {
               this.requireAccountRuntimeOpen();
               if (
-                this.localTransferReservations.get(input.documentId) !== reservation ||
+                this.localTransferReservations.get(reservationKey) !== reservation ||
                 this.liveRooms.get(input.documentId) !== state ||
                 state.session
               ) {
@@ -392,7 +415,7 @@ export class DocumentSessionRegistry
               state.session = reservation.transfer.session;
               state.persistenceGeneration = admitted.persistenceGeneration;
               reservation.transfer.commit();
-              this.localTransferReservations.delete(input.documentId);
+              this.localTransferReservations.delete(reservationKey);
               reservation.settle();
             } catch (error) {
               await stage.abort();
@@ -405,8 +428,22 @@ export class DocumentSessionRegistry
         }>,
     );
     const session = reservation.transfer.session;
-    await cleanup.closePrevious?.();
-    this.attachSessionTransport(session);
+    const finalize = async () => {
+      await cleanup.closePrevious?.();
+      await reservation.transfer.finalize();
+    };
+    try {
+      await finalize();
+    } catch {
+      // Canonical authority already committed. Retain the finalizer (and HL)
+      // for a later open/teardown retry rather than misreporting adoption.
+      this.pendingAdoptionFinalizers.add(finalize);
+    }
+    try {
+      this.attachSessionTransport(session);
+    } catch {
+      // A later bind/open retries attachment on this same canonical session.
+    }
     return { lease: result.admitted, session };
   }
 
@@ -423,7 +460,7 @@ export class DocumentSessionRegistry
     this.accountTransitionVersion += 1;
     const coordination = this.coordination;
     this.coordination = null;
-    return coordination?.close() ?? this.invalidateAll();
+    return this.retryAdoptionFinalizers().then(() => coordination?.close() ?? this.invalidateAll());
   }
 
   peekLive(lease: LiveDocumentSessionLease): DocumentSession | undefined {
@@ -681,7 +718,13 @@ export class DocumentSessionRegistry
     attach: boolean,
   ): DocumentSession {
     this.cancelPendingTeardown(lease.documentId);
-    if (state.session) return state.session;
+    if (state.session) {
+      if (attach && state.session.getSnapshot().status === "detached") {
+        this.attachSessionTransport(state.session);
+      }
+      void this.retryAdoptionFinalizers();
+      return state.session;
+    }
     state.persistenceGeneration ??= lease.generation;
     const session = this.createSession(lease.documentId, {
       kind: "indexeddb",
@@ -729,9 +772,19 @@ export class DocumentSessionRegistry
 
   private attachSessionTransport(session: DocumentSession): void {
     if (session.getSnapshot().schemaFence) return;
-    session.attachTransport(({ roomKey, document, awareness }) =>
-      createHocuspocusDocumentTransport({ roomName: roomKey, document, awareness }),
-    );
+    session.attachTransport(this.transportFactory);
+  }
+
+  private async retryAdoptionFinalizers(): Promise<void> {
+    const pending = [...this.pendingAdoptionFinalizers];
+    for (const finalize of pending) {
+      try {
+        await finalize();
+        this.pendingAdoptionFinalizers.delete(finalize);
+      } catch {
+        // The exact finalizer remains owned for the next canonical retry.
+      }
+    }
   }
 
   private removeRetainedProjectLease(projectId: ProjectId, documentId: DocumentId): boolean {

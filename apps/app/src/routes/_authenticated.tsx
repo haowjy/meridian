@@ -171,7 +171,6 @@ function AuthenticatedAccountProviderTree({
   );
   return (
     <ContextRemovalAccountProvider
-      key={user.userId}
       accountId={user.userId}
       repairProjectCatalog={repairProjectCatalog}
     >

@@ -1,6 +1,7 @@
 /** Bridges background untitled reconciliation receipts into the open-tab store. */
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { type ContextTab, useContextTabsActions, useContextTabsStore } from "@/client/stores";
+import type { LiveDocumentBinding } from "./open-project-document";
 import {
   isUntitledPending,
   registerUntitledCandidate,
@@ -15,6 +16,24 @@ export function useUntitledTabBridge({
   tabs: ContextTab[];
 }): void {
   const { remintNewTab, materializeNewTab, updateTrackedTab } = useContextTabsActions();
+  const adoptedBindings = useRef(new Map<string, LiveDocumentBinding>());
+
+  useEffect(() => {
+    const present = new Set(tabs.map((tab) => tab.documentId));
+    for (const [documentId, binding] of adoptedBindings.current) {
+      if (present.has(documentId)) continue;
+      binding.release();
+      adoptedBindings.current.delete(documentId);
+    }
+  }, [tabs]);
+
+  useEffect(
+    () => () => {
+      for (const binding of adoptedBindings.current.values()) binding.release();
+      adoptedBindings.current.clear();
+    },
+    [],
+  );
 
   useEffect(() => {
     syncUntitledReceiptOwners();
@@ -27,9 +46,16 @@ export function useUntitledTabBridge({
       .map((tab) =>
         registerUntitledCandidate(tab.documentId, {
           onReminted: (documentId) => remintNewTab(projectId, tab.documentId, documentId),
-          onMaterialized: ({ result, identity }) => {
+          onMaterialized: ({ result, identity, binding }) => {
             const slice = useContextTabsStore.getState().byProject[projectId];
-            if (!slice?.tabs.some((candidate) => candidate.documentId === tab.documentId)) return;
+            if (!slice?.tabs.some((candidate) => candidate.documentId === tab.documentId)) {
+              binding?.release();
+              return;
+            }
+            if (binding) {
+              adoptedBindings.current.get(tab.documentId)?.release();
+              adoptedBindings.current.set(tab.documentId, binding);
+            }
             materializeNewTab(projectId, tab.documentId, {
               kind: "tracked",
               documentId: tab.documentId,

@@ -18,6 +18,8 @@ export type LocalDocumentSessionTransfer = Readonly<{
   prepareCommit(): void;
   /** Nonthrowing synchronous convergence after the durable phase write. */
   commit(): void;
+  /** Runs only after the old local provider is closed and releases its lifetime lease. */
+  finalize(): Promise<void>;
 }>;
 
 export type LocalDocumentSessionHandoff = Readonly<{
@@ -26,6 +28,8 @@ export type LocalDocumentSessionHandoff = Readonly<{
 
 export interface LocalDocumentSessionReservationPort {
   reserve(transfer: LocalDocumentSessionTransfer): LocalDocumentSessionHandoff;
+  /** Exactly settles a reservation that cannot reach a server-row adoption. */
+  abort(handoff: LocalDocumentSessionHandoff): void;
 }
 
 export interface LocalDocumentSessionAdoptionPort {

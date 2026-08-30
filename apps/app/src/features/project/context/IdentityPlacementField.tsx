@@ -15,7 +15,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ContextTab } from "@/client/stores";
 import { IconButton } from "@/components/ui/icon-button";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
-import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
 import { cn } from "@/lib/utils";
 import { useLocalUntitledOwner } from "./ContextRemovalAccountProvider";
 import { invalidContextEntryNameReason } from "./context-entry-name";
@@ -82,7 +81,7 @@ export function IdentityPlacementField({
   const [value, setValue] = useState(
     () => failure?.name ?? (provisionalPlacement ? "" : location.leaf),
   );
-  const [ghost, setGhost] = useState(() => (provisionalPlacement ? suggestionForTab(tab) : ""));
+  const [ghost, setGhost] = useState("");
   const [noteValue, setNoteValue] = useState(value);
   const [conflict, setConflict] = useState<ConflictLocator | null>(() =>
     failure?.kind === "conflict"
@@ -109,21 +108,22 @@ export function IdentityPlacementField({
   useEffect(() => {
     if (!provisionalPlacement) return;
     const local = localUntitled.getDetached({
-      accountId: localUntitled.dependencies.accountId,
+      accountId: localUntitled.accountId,
       projectId,
       documentId: tab.documentId,
     });
     if (local) localSessionRef.current = local.session;
-    const session =
-      local?.session ??
-      localSessionRef.current ??
-      getDocumentSessionRegistry().getDetached(tab.documentId);
+    const session = local?.session ?? localSessionRef.current;
+    if (!session) {
+      setGhost("");
+      return;
+    }
     const fragment = session.document.getXmlFragment(session.fragmentName);
     const refresh = () => {
       if (suggestionTimer.current !== null) window.clearTimeout(suggestionTimer.current);
       suggestionTimer.current = window.setTimeout(() => {
         suggestionTimer.current = null;
-        setGhost(suggestionForTab(tab));
+        setGhost(suggestionForSession(tab, session));
       }, 300);
     };
     fragment.observeDeep(refresh);
@@ -465,8 +465,10 @@ function treeSegments(path: string): string[] {
   return path.split("/").filter(Boolean);
 }
 
-function suggestionForTab(tab: ContextTab): string {
-  const session = getDocumentSessionRegistry().getDetached(tab.documentId);
+function suggestionForSession(
+  tab: ContextTab,
+  session: import("@/core/editor/document-session").DocumentSession,
+): string {
   const suggestion = suggestedNameFromFragment(
     session.document.getXmlFragment(session.fragmentName),
   );

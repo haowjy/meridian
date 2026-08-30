@@ -1,6 +1,26 @@
 /** Durable, per-document local Untitled ownership records; browser storage is adapted later. */
-import type { AccountId } from "@meridian/contracts/protocol";
+import type {
+  AccountId,
+  CreateUntitledContextDocumentResponse,
+} from "@meridian/contracts/protocol";
 import type { DocumentId, ProjectId } from "@meridian/contracts/runtime";
+import type { DesiredIdentity } from "./identity-location";
+
+export type LocalUntitledHome = {
+  scheme: "scratch";
+  workId: string;
+  folderPath?: string;
+};
+
+export type LocalUntitledIdentityFailure =
+  | {
+      kind: "conflict";
+      name: string;
+      scheme: "manuscript" | "kb" | "user" | "scratch" | "uploads";
+      path: string;
+      workId?: string;
+    }
+  | { kind: "error"; name: string };
 
 export type LocalUntitledKey = Readonly<{
   accountId: AccountId;
@@ -14,8 +34,13 @@ export type LocalUntitledRecord = Readonly<{
   lineageRevision?: number;
   active?: boolean;
   revision: number;
+  workRevision?: number;
   phase: "local-pending" | "adopted-live";
-  home: Readonly<{ scheme: string; path: string; name: string }> | null;
+  home: LocalUntitledHome | null;
+  desiredIdentity?: DesiredIdentity;
+  materializedResult?: CreateUntitledContextDocumentResponse;
+  failure?: LocalUntitledIdentityFailure;
+  pendingSinceMs?: number | null;
 }>;
 
 export interface LocalUntitledRecordStore {
@@ -25,10 +50,17 @@ export interface LocalUntitledRecordStore {
   list(accountId: AccountId): readonly LocalUntitledRecord[];
 }
 
+/** One collision-free in-memory/storage encoding for the full local authority key. */
+export function encodeLocalUntitledKey(key: LocalUntitledKey): string {
+  return [key.accountId, key.projectId, key.documentId]
+    .map((part) => encodeURIComponent(part))
+    .join(":");
+}
+
 const RECORD_PREFIX = "meridian:pending-untitled:v2:";
 
 function recordStorageKey(key: LocalUntitledKey): string {
-  return `${RECORD_PREFIX}${encodeURIComponent(key.accountId)}:${encodeURIComponent(key.projectId)}:${encodeURIComponent(key.documentId)}`;
+  return `${RECORD_PREFIX}${encodeLocalUntitledKey(key)}`;
 }
 
 function isRecord(value: unknown): value is LocalUntitledRecord {

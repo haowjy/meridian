@@ -5,9 +5,6 @@
 
 ## [Unreleased]
 
-- `apps/app`: add the account-qualified local Untitled owner, exact live-open
-  operation, and one-operation same-Y.Doc persistence adoption foundation.
-
 - `database`, `contracts`, `apps/server`, `apps/app`: add the authoritative
   Context metadata catalog with command-owned atomic metadata publication,
   persisted tracked, custom, and binary classification, checkpoint-consistent

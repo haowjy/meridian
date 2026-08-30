@@ -51,6 +51,7 @@ describe("DocumentSessionRegistry local adoption", () => {
       commit: () => {
         committed = true;
       },
+      finalize: async () => undefined,
     });
     let ordinarySettled = false;
     const ordinary = registry.admit("project", "doc", "2").then(() => {
@@ -77,5 +78,41 @@ describe("DocumentSessionRegistry local adoption", () => {
         event === "grant" && name === "meridian:f1d:v1:operation/account-adoption/doc",
     );
     expect(operationGrants).toHaveLength(2);
+  });
+
+  it("settles an aborted handoff so ordinary admission cannot wait forever", async () => {
+    const locks = new FifoWebLocks();
+    const registry = new DocumentSessionRegistry(
+      (accountId, local) =>
+        createDocumentSessionCrossContextCoordination({
+          accountId,
+          local,
+          locks,
+          idb: indexedDB,
+          secureContext: true,
+          createWakeChannel: null,
+        }),
+      0,
+      "account-abort",
+    );
+    registries.push(registry);
+    const session = registry.createDetached({
+      accountId: "account-abort",
+      projectId: "project",
+      documentId: "doc",
+      persistenceKey: "local-abort-test",
+    });
+    const handoff = registry.reserve({
+      projectId: "project",
+      documentId: "doc",
+      session,
+      ownerRevision: 1,
+      prepareCommit: () => undefined,
+      commit: () => undefined,
+      finalize: async () => undefined,
+    });
+    const ordinary = registry.admit("project", "doc", "1");
+    registry.abort(handoff);
+    await expect(ordinary).resolves.toMatchObject({ projectId: "project", documentId: "doc" });
   });
 });

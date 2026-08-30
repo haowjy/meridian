@@ -340,7 +340,7 @@ export function ContextViewerSurfaceController({
     const tab = tabs.find((candidate) => candidate.documentId === documentId);
     if (tab?.kind === "new" && !isUntitledPending(documentId)) {
       const key = {
-        accountId: localUntitled.dependencies.accountId,
+        accountId: localUntitled.accountId,
         projectId,
         documentId,
       };
@@ -453,7 +453,7 @@ export function ContextViewerSurfaceController({
         if (!routeWorkId) return;
         const documentId = crypto.randomUUID();
         const opened = await localUntitled.create({
-          accountId: localUntitled.dependencies.accountId,
+          accountId: localUntitled.accountId,
           projectId,
           documentId,
         });

@@ -1,4 +1,4 @@
-/** Exact source-derived F1-I deletion inventory. */
+/** Frozen transitional F1-I source inventory. */
 export const F1_I_DOCUMENT_SESSION_INVENTORY = {
   expectedRecords: [
     {
@@ -59,25 +59,13 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "bare-lease-less-call",
       symbol: "legacy-registry-call",
       file: "apps/app/src/features/project/context/ContextEditorMountHost.tsx",
-      line: 188,
+      line: 190,
     },
     {
       kind: "bare-lease-less-call",
       symbol: "legacy-registry-call",
       file: "apps/app/src/features/project/context/ContextEditorMountHost.tsx",
-      line: 212,
-    },
-    {
-      kind: "bare-lease-less-call",
-      symbol: "legacy-registry-call",
-      file: "apps/app/src/features/project/context/IdentityPlacementField.tsx",
-      line: 120,
-    },
-    {
-      kind: "bare-lease-less-call",
-      symbol: "legacy-registry-call",
-      file: "apps/app/src/features/project/context/IdentityPlacementField.tsx",
-      line: 469,
+      line: 214,
     },
     {
       kind: "bare-lease-less-call",
@@ -107,13 +95,13 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "canonical-constructor",
       symbol: "DocumentSession",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 713,
+      line: 756,
     },
     {
       kind: "concrete-exposure",
       symbol: "DocumentSessionRegistry",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 78,
+      line: 83,
     },
     {
       kind: "concrete-exposure",
@@ -180,18 +168,6 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       symbol: "getDocumentSessionRegistry",
       file: "apps/app/src/features/project/context/ContextEditorMountHost.tsx",
       line: 36,
-    },
-    {
-      kind: "facade-import",
-      symbol: "getDocumentSessionRegistry",
-      file: "apps/app/src/features/project/context/IdentityPlacementField.tsx",
-      line: 18,
-    },
-    {
-      kind: "facade-import",
-      symbol: "getDocumentSessionRegistry",
-      file: "apps/app/src/features/project/context/untitled-reconciler-browser.ts",
-      line: 9,
     },
     {
       kind: "facade-import",
@@ -269,37 +245,19 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "facade-reference",
       symbol: "getDocumentSessionRegistry",
       file: "apps/app/src/features/project/context/ContextEditorMountHost.tsx",
-      line: 188,
+      line: 190,
     },
     {
       kind: "facade-reference",
       symbol: "getDocumentSessionRegistry",
       file: "apps/app/src/features/project/context/ContextEditorMountHost.tsx",
-      line: 201,
+      line: 203,
     },
     {
       kind: "facade-reference",
       symbol: "getDocumentSessionRegistry",
       file: "apps/app/src/features/project/context/ContextEditorMountHost.tsx",
-      line: 212,
-    },
-    {
-      kind: "facade-reference",
-      symbol: "getDocumentSessionRegistry",
-      file: "apps/app/src/features/project/context/IdentityPlacementField.tsx",
-      line: 120,
-    },
-    {
-      kind: "facade-reference",
-      symbol: "getDocumentSessionRegistry",
-      file: "apps/app/src/features/project/context/IdentityPlacementField.tsx",
-      line: 469,
-    },
-    {
-      kind: "facade-reference",
-      symbol: "getDocumentSessionRegistry",
-      file: "apps/app/src/features/project/context/untitled-reconciler-browser.ts",
-      line: 30,
+      line: 214,
     },
     {
       kind: "facade-reference",
@@ -342,36 +300,6 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       symbol: "destroyRoom",
       file: "apps/app/src/core/editor/document-session-registry.ts",
       line: 97,
-    },
-    {
-      kind: "legacy-owner",
-      symbol: "destroyRoom",
-      file: "apps/app/src/features/project/context/test-support/UntitledLifecycleRig.ts",
-      line: 272,
-    },
-    {
-      kind: "legacy-owner",
-      symbol: "destroyRoom",
-      file: "apps/app/src/features/project/context/untitled-reconciler-browser.ts",
-      line: 52,
-    },
-    {
-      kind: "legacy-owner",
-      symbol: "destroyRoom",
-      file: "apps/app/src/features/project/context/untitled-reconciler-browser.ts",
-      line: 52,
-    },
-    {
-      kind: "legacy-owner",
-      symbol: "destroyRoom",
-      file: "apps/app/src/features/project/context/untitled-reconciler.ts",
-      line: 98,
-    },
-    {
-      kind: "legacy-owner",
-      symbol: "destroyRoom",
-      file: "apps/app/src/features/project/context/untitled-reconciler.ts",
-      line: 687,
     },
     {
       kind: "legacy-owner",
@@ -587,49 +515,19 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "getDocumentSessionRegistry",
       file: "apps/app/src/features/project/context/ContextEditorMountHost.tsx",
-      line: 188,
+      line: 190,
     },
     {
       kind: "transitional",
       symbol: "getDocumentSessionRegistry",
       file: "apps/app/src/features/project/context/ContextEditorMountHost.tsx",
-      line: 201,
+      line: 203,
     },
     {
       kind: "transitional",
       symbol: "getDocumentSessionRegistry",
       file: "apps/app/src/features/project/context/ContextEditorMountHost.tsx",
-      line: 212,
-    },
-    {
-      kind: "transitional",
-      symbol: "getDocumentSessionRegistry",
-      file: "apps/app/src/features/project/context/IdentityPlacementField.tsx",
-      line: 18,
-    },
-    {
-      kind: "transitional",
-      symbol: "getDocumentSessionRegistry",
-      file: "apps/app/src/features/project/context/IdentityPlacementField.tsx",
-      line: 120,
-    },
-    {
-      kind: "transitional",
-      symbol: "getDocumentSessionRegistry",
-      file: "apps/app/src/features/project/context/IdentityPlacementField.tsx",
-      line: 469,
-    },
-    {
-      kind: "transitional",
-      symbol: "getDocumentSessionRegistry",
-      file: "apps/app/src/features/project/context/untitled-reconciler-browser.ts",
-      line: 9,
-    },
-    {
-      kind: "transitional",
-      symbol: "getDocumentSessionRegistry",
-      file: "apps/app/src/features/project/context/untitled-reconciler-browser.ts",
-      line: 30,
+      line: 214,
     },
     {
       kind: "transitional",
@@ -671,7 +569,7 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "temporaryAttachDetached",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 919,
+      line: 972,
     },
     {
       kind: "transitional",
@@ -683,7 +581,7 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "temporaryGet",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 908,
+      line: 961,
     },
     {
       kind: "transitional",
@@ -701,13 +599,13 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "temporaryGetDetached",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 915,
+      line: 968,
     },
     {
       kind: "transitional",
       symbol: "temporaryGetDetached",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 920,
+      line: 973,
     },
     {
       kind: "transitional",
@@ -719,31 +617,31 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "temporaryGetLive",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 873,
+      line: 926,
     },
     {
       kind: "transitional",
       symbol: "temporaryGetLive",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 912,
+      line: 965,
     },
     {
       kind: "transitional",
       symbol: "temporaryGetLive",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 916,
+      line: 969,
     },
     {
       kind: "transitional",
       symbol: "temporaryGetLive",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 995,
+      line: 1048,
     },
     {
       kind: "transitional",
       symbol: "temporaryObserve",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 988,
+      line: 1041,
     },
     {
       kind: "transitional",
@@ -755,13 +653,13 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "temporaryPeek",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 926,
+      line: 979,
     },
     {
       kind: "transitional",
       symbol: "temporaryPeek",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 965,
+      line: 1018,
     },
     {
       kind: "transitional",
@@ -779,7 +677,7 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "temporaryRelease",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 984,
+      line: 1037,
     },
     {
       kind: "transitional",
@@ -791,7 +689,7 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "temporaryRestartUnavailableRoom",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 925,
+      line: 978,
     },
     {
       kind: "transitional",
@@ -803,7 +701,7 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "temporaryRetain",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 942,
+      line: 995,
     },
     {
       kind: "transitional",
@@ -815,7 +713,7 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "transitional",
       symbol: "temporaryRevokeRoom",
       file: "apps/app/src/core/editor/document-session-registry-implementation.ts",
-      line: 973,
+      line: 1026,
     },
     {
       kind: "transitional",

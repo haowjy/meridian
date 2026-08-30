@@ -18,8 +18,10 @@ import type { moveContextEntry } from "@/client/api/projects-api";
 import { projectQueryKeys } from "@/client/query/project-query-keys";
 import { type ContextTab, useContextTabsStore } from "@/client/stores";
 import type { DocumentSessionSnapshot } from "@/core/editor/document-session";
+import type { LocalDocumentSessionHandoff } from "@/core/editor/local-document-session-adoption";
 import { createContextIdentityMutationService } from "../context-identity-mutation";
 import type { DesiredIdentity } from "../identity-location";
+import type { LocalUntitledRecord } from "../local-untitled-record-store";
 import {
   type PendingUntitled,
   type ReconciliationRecord,
@@ -158,6 +160,7 @@ type MoveSource = CreateUntitledContextDocumentResponse;
 export class UntitledLifecycleRig {
   readonly queryClient = new QueryClient();
   readonly storage = new Map<string, string>();
+  readonly durableRecords = new Map<string, LocalUntitledRecord>();
   readonly queued: Array<() => void> = [];
   readonly timers: Array<() => void> = [];
   readonly onlineListeners = new Set<() => void>();
@@ -209,11 +212,26 @@ export class UntitledLifecycleRig {
   destroyRoomError: Error | null = null;
 
   constructor() {
+    const durableKey = (projectId: string, documentId: string) => `${projectId}:${documentId}`;
+    const reservations = new Map<string, LocalDocumentSessionHandoff>();
+    const ensureRecord = (projectId: string, documentId: string) => {
+      const key = durableKey(projectId, documentId);
+      let record = this.durableRecords.get(key);
+      if (!record) {
+        record = {
+          key: { accountId: "account-1", projectId, documentId },
+          lineageId: documentId,
+          revision: 1,
+          phase: "local-pending",
+          home: null,
+          pendingSinceMs: null,
+        };
+        this.durableRecords.set(key, record);
+        this.session(documentId);
+      }
+      return record;
+    };
     this.deps = {
-      storage: {
-        getItem: (key) => this.storage.get(key) ?? null,
-        setItem: (key, value) => this.storage.set(key, value),
-      },
       scheduler: {
         queue: (task) => this.queued.push(task),
         setTimer: (task) => {
@@ -239,41 +257,96 @@ export class UntitledLifecycleRig {
           return "1";
         },
       },
-      sessions: {
-        getDetached: (documentId) => this.session(documentId),
-        admit: async (projectId, documentId, generation) => {
-          this.lifecycleEvents.push(`admit:${documentId}`);
+      localOwner: {
+        list: () => [...this.durableRecords.values()],
+        read: (projectId, documentId) => ensureRecord(projectId, documentId),
+        write: (record) =>
+          this.durableRecords.set(durableKey(record.key.projectId, record.key.documentId), record),
+        remove: (projectId, documentId) => {
+          this.durableRecords.delete(durableKey(projectId, documentId));
+        },
+        get: (_projectId, documentId) => this.sessions.get(documentId) ?? null,
+        restore: async (_projectId, documentId) => ({
+          session: this.session(documentId),
+          documentId,
+        }),
+        retain: () => undefined,
+        release: () => undefined,
+        revision: (projectId, documentId) =>
+          this.durableRecords.get(durableKey(projectId, documentId))?.revision ?? null,
+        prepare: async (projectId, documentId) => {
+          const handoff = Object.freeze({}) as LocalDocumentSessionHandoff;
+          reservations.set(durableKey(projectId, documentId), handoff);
+          return handoff;
+        },
+        abort: (projectId, documentId, handoff) => {
+          if (reservations.get(durableKey(projectId, documentId)) === handoff) {
+            reservations.delete(durableKey(projectId, documentId));
+          }
+        },
+        open: async (input) => {
+          const session = this.session(input.documentId);
+          const record = this.durableRecords.get(durableKey(input.projectId, input.documentId));
+          if (record && input.source === "local-untitled") {
+            this.durableRecords.set(durableKey(input.projectId, input.documentId), {
+              ...record,
+              phase: "adopted-live",
+            });
+            reservations.delete(durableKey(input.projectId, input.documentId));
+          }
+          this.lifecycleEvents.push(`admit:${input.documentId}`);
+          if (session.getSnapshot().status === "access-lost") {
+            this.lifecycleEvents.push(`restart:${input.documentId}`);
+            this.restartedRooms.push(input.documentId);
+            session.setStatus("detached");
+          }
+          this.lifecycleEvents.push(`attach:${input.documentId}`);
+          if (session.getSnapshot().status === "detached") session.setStatus("synced");
           return {
-            accountId: "account-1" as never,
-            projectId: projectId as never,
-            documentId: documentId as never,
-            generation,
+            kind: "opened" as const,
+            document: {} as never,
+            admission: {
+              projectId: input.projectId,
+              documentId: input.documentId,
+              generation: "1",
+              bind: async () => ({
+                projectId: input.projectId,
+                documentId: input.documentId,
+                generation: "1",
+                session: session as never,
+                release: () => undefined,
+              }),
+            },
           };
         },
-        attachDetached: ({ documentId }) => {
-          this.lifecycleEvents.push(`attach:${documentId}`);
-          const session = this.sessions.get(documentId);
-          if (!session) throw new Error(`missing session ${documentId}`);
-          if (session.getSnapshot().status === "detached") session.setStatus("synced");
+        remint: async (projectId, from, to) => {
+          const session = this.session(from);
+          const current = this.durableRecords.get(durableKey(projectId, from));
+          if (!current) throw new Error("missing durable record");
+          reservations.delete(durableKey(projectId, from));
+          this.sessions.delete(from);
+          this.sessions.set(to, session);
+          this.durableRecords.set(durableKey(projectId, from), { ...current, active: false });
+          this.durableRecords.set(durableKey(projectId, to), {
+            ...current,
+            key: { ...current.key, documentId: to },
+            revision: current.revision + 1,
+            active: true,
+          });
+          reservations.set(
+            durableKey(projectId, to),
+            Object.freeze({}) as LocalDocumentSessionHandoff,
+          );
+          if (this.destroyRoomError) throw this.destroyRoomError;
+          this.clearedRooms.push(from);
           return session;
         },
-        restartUnavailableRoom: async ({ documentId }) => {
-          this.lifecycleEvents.push(`restart:${documentId}`);
-          this.restartedRooms.push(documentId);
-          const session = this.sessions.get(documentId);
-          if (session?.getSnapshot().status !== "access-lost") return false;
-          session.setStatus("detached");
-          return true;
-        },
-        retain: () => {},
-        retainAdmitted: () => {},
-        releaseAdmitted: () => {},
-        release: () => {},
-        destroyRoom: async (documentId, options) => {
-          if (this.destroyRoomError) throw this.destroyRoomError;
-          if (options?.clearPersistence) this.clearedRooms.push(documentId);
+        abandon: async (projectId, documentId) => {
+          this.durableRecords.delete(durableKey(projectId, documentId));
           this.sessions.delete(documentId);
         },
+        phase: (projectId, documentId) =>
+          this.durableRecords.get(durableKey(projectId, documentId))?.phase ?? null,
       },
       newDocumentId: () => this.nextDocumentId,
     };
@@ -288,6 +361,23 @@ export class UntitledLifecycleRig {
       },
     });
     return tab;
+  }
+
+  seedRecord(record: ReconciliationRecord, projectId = "project-1"): void {
+    const entry = record.materialization.phase === "pending" ? record.materialization.entry : null;
+    this.durableRecords.set(`${projectId}:${record.documentId}`, {
+      key: { accountId: "account-1", projectId, documentId: record.documentId },
+      lineageId: record.documentId,
+      revision: 1,
+      workRevision: record.revision,
+      phase: record.materialization.phase === "pending" ? "local-pending" : "adopted-live",
+      home: entry?.home ?? null,
+      desiredIdentity: record.desiredIdentity,
+      materializedResult: record.materializedResult,
+      failure: record.failure,
+      pendingSinceMs: record.pendingSinceMs,
+    });
+    this.session(record.documentId);
   }
 
   seedTree(projectId: string, scheme: "manuscript" | "scratch", workId?: string): void {
@@ -341,14 +431,39 @@ export class UntitledLifecycleRig {
   }
 
   append(documentId: string, options: { projectId?: string; withHome?: boolean } = {}): void {
+    const projectId = options.projectId ?? "project-1";
+    const key = `${projectId}:${documentId}`;
+    if (!this.durableRecords.has(key)) {
+      this.durableRecords.set(key, {
+        key: { accountId: "account-1", projectId, documentId },
+        lineageId: documentId,
+        revision: 1,
+        phase: "local-pending",
+        home: null,
+        pendingSinceMs: null,
+      });
+    }
+    this.session(documentId);
     this.reconciler.append({
       documentId,
-      projectId: options.projectId ?? "project-1",
+      projectId,
       ...(options.withHome === false ? {} : { home: UNTITLED_HOME }),
     });
   }
 
   queueIdentity(documentId: string, name: string, folderPath = "Act 1"): void {
+    const key = `project-1:${documentId}`;
+    if (!this.durableRecords.has(key)) {
+      this.durableRecords.set(key, {
+        key: { accountId: "account-1", projectId: "project-1", documentId },
+        lineageId: documentId,
+        revision: 1,
+        phase: "local-pending",
+        home: UNTITLED_HOME,
+        pendingSinceMs: Date.now(),
+      });
+      this.session(documentId);
+    }
     this.reconciler.queueIdentity(
       { documentId, projectId: "project-1", home: UNTITLED_HOME },
       { name, destination: { scheme: "manuscript", folderPath } },
@@ -370,8 +485,26 @@ export class UntitledLifecycleRig {
   }
 
   records(): ReconciliationRecord[] {
-    return JSON.parse(
-      this.storage.get("meridian:pending-untitled") ?? "[]",
-    ) as ReconciliationRecord[];
+    return [...this.durableRecords.values()]
+      .filter((record) => record.active !== false)
+      .map((record) => ({
+        documentId: record.key.documentId,
+        revision: record.workRevision ?? record.revision,
+        materialization:
+          record.phase === "local-pending"
+            ? {
+                phase: "pending" as const,
+                entry: {
+                  documentId: record.key.documentId,
+                  projectId: record.key.projectId,
+                  ...(record.home ? { home: record.home } : {}),
+                },
+              }
+            : { phase: "synced" as const },
+        desiredIdentity: record.desiredIdentity,
+        materializedResult: record.materializedResult,
+        failure: record.failure,
+        pendingSinceMs: record.pendingSinceMs ?? null,
+      }));
   }
 }

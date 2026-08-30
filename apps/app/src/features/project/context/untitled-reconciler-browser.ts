@@ -5,10 +5,6 @@ import { createUntitledContextDocument } from "@/client/api/projects-api";
 import { lookupProjectContextAvailability } from "@/client/query/project-context-availability";
 import { lookupContextCatalogFile } from "@/client/query/useContextCatalog";
 import { useContextTabsStore } from "@/client/stores";
-import {
-  getDocumentSessionRegistry,
-  getLiveDocumentSessionRegistry,
-} from "@/core/editor/document-session-registry";
 import type { ContextIdentityMutationService } from "./context-identity-mutation";
 import type { DesiredIdentity } from "./identity-location";
 import type { LocalUntitledOwner } from "./local-untitled-owner";
@@ -24,18 +20,15 @@ import {
 
 function browserDeps(
   identityMutations: ContextIdentityMutationService,
-  localOwner?: LocalUntitledOwner,
-  opener?: ProjectDocumentLiveOpener,
+  localOwner: LocalUntitledOwner,
+  opener: ProjectDocumentLiveOpener,
 ): UntitledReconcilerDeps {
-  const registry = getDocumentSessionRegistry();
-  const liveRegistry = getLiveDocumentSessionRegistry();
   const localKey = (projectId: string, documentId: string) => ({
-    accountId: localOwner?.dependencies.accountId ?? "",
+    accountId: localOwner.accountId,
     projectId,
     documentId,
   });
   return {
-    storage: localStorage,
     scheduler: {
       queue: (task) => queueMicrotask(task),
       setTimer: (task, delayMs) => setTimeout(task, delayMs),
@@ -45,72 +38,65 @@ function browserDeps(
         return () => window.removeEventListener("online", task);
       },
     },
-    sessions: {
-      getDetached: registry.getDetached,
-      retain: registry.retain,
-      release: registry.release,
-      destroyRoom: registry.destroyRoom,
-      admit: (projectId, documentId, generation) =>
-        liveRegistry.admit(projectId, documentId, generation),
-      attachDetached: (lease) => liveRegistry.attachDetached(lease),
-      restartUnavailableRoom: (lease) => liveRegistry.restartUnavailableRoom(lease),
-      retainAdmitted: (owner, leases) => liveRegistry.retain(owner, leases),
-      releaseAdmitted: (owner) => liveRegistry.release(owner),
-    },
     newDocumentId: () => crypto.randomUUID(),
-    ...(localOwner && opener
-      ? {
-          localOwner: {
-            get: (projectId: string, documentId: string) =>
-              localOwner.getDetached(localKey(projectId, documentId))?.session ?? null,
-            async restore(projectId: string, documentId: string) {
-              let result: Awaited<ReturnType<LocalUntitledOwner["restore"]>>;
-              try {
-                result = await localOwner.restore(localKey(projectId, documentId));
-              } catch (error) {
-                if (!(error instanceof LocalUntitledIdentityRedirect)) throw error;
-                result = await localOwner.restore(error.key);
-              }
-              if (result.kind !== "opened")
-                throw new Error("Local Untitled is owned in another browser tab");
-              return {
-                session: result.value.session,
-                documentId: result.value.key.documentId,
-              };
-            },
-            retain(ownerId: string, projectId: string, documentId: string) {
-              localOwner.retain(ownerId, [localKey(projectId, documentId)]);
-            },
-            release: (ownerId: string) => localOwner.release(ownerId),
-            revision: (projectId: string, documentId: string) =>
-              localOwner.recordRevision(localKey(projectId, documentId)),
-            prepare: (projectId: string, documentId: string, revision: number) =>
-              localOwner.prepareMaterialization(localKey(projectId, documentId), revision),
-            open: (input) =>
-              input.source === "local-untitled" && input.handoff
-                ? opener.open({ ...input, source: "local-untitled", handoff: input.handoff })
-                : opener.open({
-                    source: "server",
-                    projectId: input.projectId,
-                    documentId: input.documentId,
-                  }),
-            async remint(projectId: string, from: string, to: string) {
-              return (await localOwner.remint(localKey(projectId, from), localKey(projectId, to)))
-                .session;
-            },
-            async abandon(projectId: string, documentId: string, revision: number) {
-              const result = await localOwner.abandon({
-                key: localKey(projectId, documentId),
-                expectedRevision: revision,
-                evidence: "server-row-absent",
-              });
-              if (result !== "abandoned") throw new Error(`Local abandon was ${result}`);
-            },
-            phase: (projectId: string, documentId: string) =>
-              localOwner.dependencies.records.read(localKey(projectId, documentId))?.phase ?? null,
-          },
+    localOwner: {
+      list: () => localOwner.listWork(),
+      read: (projectId, documentId) => localOwner.readWork(localKey(projectId, documentId)),
+      write: (record) => localOwner.writeWork(record),
+      remove(projectId, documentId, expectedRevision) {
+        const result = localOwner.removeWork(localKey(projectId, documentId), expectedRevision);
+        if (result !== "removed") throw new Error("Local Untitled work revision is stale");
+      },
+      get: (projectId: string, documentId: string) =>
+        localOwner.getDetached(localKey(projectId, documentId))?.session ?? null,
+      async restore(projectId: string, documentId: string) {
+        let result: Awaited<ReturnType<LocalUntitledOwner["restore"]>>;
+        try {
+          result = await localOwner.restore(localKey(projectId, documentId));
+        } catch (error) {
+          if (!(error instanceof LocalUntitledIdentityRedirect)) throw error;
+          result = await localOwner.restore(error.key);
         }
-      : {}),
+        if (result.kind !== "opened")
+          throw new Error("Local Untitled is owned in another browser tab");
+        return {
+          session: result.value.session,
+          documentId: result.value.key.documentId,
+        };
+      },
+      retain(ownerId: string, projectId: string, documentId: string) {
+        localOwner.retain(ownerId, [localKey(projectId, documentId)]);
+      },
+      release: (ownerId: string) => localOwner.release(ownerId),
+      revision: (projectId: string, documentId: string) =>
+        localOwner.recordRevision(localKey(projectId, documentId)),
+      prepare: (projectId: string, documentId: string, revision: number) =>
+        localOwner.prepareMaterialization(localKey(projectId, documentId), revision),
+      abort: (projectId, documentId, handoff) =>
+        localOwner.abortMaterialization(localKey(projectId, documentId), handoff),
+      open: (input) =>
+        input.source === "local-untitled" && input.handoff
+          ? opener.open({ ...input, source: "local-untitled", handoff: input.handoff })
+          : opener.open({
+              source: "server",
+              projectId: input.projectId,
+              documentId: input.documentId,
+            }),
+      async remint(projectId: string, from: string, to: string) {
+        return (await localOwner.remint(localKey(projectId, from), localKey(projectId, to)))
+          .session;
+      },
+      async abandon(projectId: string, documentId: string, revision: number) {
+        const result = await localOwner.abandon({
+          key: localKey(projectId, documentId),
+          expectedRevision: revision,
+          evidence: "server-row-absent",
+        });
+        if (result !== "abandoned") throw new Error(`Local abandon was ${result}`);
+      },
+      phase: (projectId: string, documentId: string) =>
+        localOwner.phase(localKey(projectId, documentId)),
+    },
     api: {
       resolveHome: resolveUntitledCatalogHome,
       async create(entry) {
@@ -181,9 +167,6 @@ export function getUntitledReconciler(
     }
     shared = account;
     return account;
-  }
-  if (!shared && typeof window !== "undefined" && identityMutations) {
-    shared = new UntitledReconciler(browserDeps(identityMutations, localOwner, opener));
   }
   if (!shared) throw new Error("Untitled reconciler is browser-only");
   return shared;

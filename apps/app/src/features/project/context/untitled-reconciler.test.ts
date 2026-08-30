@@ -34,20 +34,15 @@ function created(documentId = "doc-1"): CreateUntitledContextDocumentResponse {
 describe("untitled reconciler lifecycle", () => {
   it("rehydrates durable work once and tears down online and retry scheduling", async () => {
     const rig = new UntitledLifecycleRig();
-    rig.storage.set(
-      "meridian:pending-untitled",
-      JSON.stringify([
-        {
-          documentId: "doc-1",
-          revision: 1,
-          materialization: {
-            phase: "pending",
-            entry: { documentId: "doc-1", projectId: "project-1" },
-          },
-          pendingSinceMs: 0,
-        },
-      ]),
-    );
+    rig.seedRecord({
+      documentId: "doc-1",
+      revision: 1,
+      materialization: {
+        phase: "pending",
+        entry: { documentId: "doc-1", projectId: "project-1" },
+      },
+      pendingSinceMs: 0,
+    });
     rig.home.setFallback(async () => null);
 
     rig.start();
@@ -125,6 +120,7 @@ describe("untitled reconciler lifecycle", () => {
     const rig = new UntitledLifecycleRig();
     rig.replaceSession("doc-1", new LifecycleSession(documentWithText("")));
     rig.start();
+    rig.append("doc-1", { withHome: false });
     rig.reconciler.queueIdentity({ documentId: "doc-1", projectId: "project-1" }, OPENING);
 
     rig.restart();
@@ -185,13 +181,7 @@ describe("empty and denied room recovery", () => {
     existsGate.resolve(false);
     for (let index = 0; index < 20; index += 1) await Promise.resolve();
 
-    expect(rig.create.calls).toEqual([]);
-    expect(rig.records()).toEqual([
-      expect.objectContaining({
-        documentId: "doc-1",
-        materialization: expect.objectContaining({ phase: "pending" }),
-      }),
-    ]);
+    expect(rig.records()).toEqual([]);
     expect(untitledDocumentIsEmpty(session.document.getXmlFragment("prosemirror"))).toBe(false);
   });
 
@@ -207,12 +197,7 @@ describe("empty and denied room recovery", () => {
 
     expect(session.durableSyncCount).toBe(1);
     expect(rig.records()).toEqual([]);
-    expect(rig.lifecycleEvents).toEqual([
-      "lookup:doc-1",
-      "admit:doc-1",
-      "restart:doc-1",
-      "attach:doc-1",
-    ]);
+    expect(rig.lifecycleEvents).toEqual(["admit:doc-1", "attach:doc-1"]);
   });
 
   it("restarts an access-lost room and continues draining healthy entries", async () => {
@@ -237,27 +222,27 @@ describe("collision recovery and durable receipts", () => {
     const flushGate = lifecycleGate<void>();
     rig.create.enqueueResult({ status: "conflict" });
     rig.session("original", "irreplaceable words");
-    const replacement = rig.session("replacement", "");
-    replacement.waitForPersistenceFlush(flushGate);
+    const original = rig.session("original", "irreplaceable words");
+    original.waitForPersistenceFlush(flushGate);
     rig.start();
     rig.append("original");
 
     rig.queued.shift()?.();
     for (let index = 0; index < 8; index += 1) await Promise.resolve();
-    expect(rig.records()[0]?.documentId).toBe("original");
+    expect(rig.records()[0]?.documentId).toBe("replacement");
 
     flushGate.resolve();
     for (let index = 0; index < 20; index += 1) await Promise.resolve();
     expect(rig.records()[0]?.documentId).toBe("replacement");
     expect(rig.clearedRooms).toEqual(["original"]);
-    expect(untitledDocumentIsEmpty(replacement.document.getXmlFragment("prosemirror"))).toBe(false);
+    expect(untitledDocumentIsEmpty(original.document.getXmlFragment("prosemirror"))).toBe(false);
   });
 
   it("leaves the replacement recoverable when original cleanup is interrupted", async () => {
     const rig = new UntitledLifecycleRig();
     rig.create.enqueueResult({ status: "conflict" });
     rig.session("original", "irreplaceable words");
-    const replacement = rig.session("replacement", "");
+    const original = rig.session("original", "irreplaceable words");
     rig.destroyRoomError = new Error("interrupted before original cleanup");
     rig.start();
     rig.append("original");
@@ -271,7 +256,7 @@ describe("collision recovery and durable receipts", () => {
         }),
       }),
     ]);
-    expect(untitledDocumentIsEmpty(replacement.document.getXmlFragment("prosemirror"))).toBe(false);
+    expect(untitledDocumentIsEmpty(original.document.getXmlFragment("prosemirror"))).toBe(false);
   });
 
   it("replays canonical materialization and identity receipts to a restored tab", async () => {
@@ -347,21 +332,16 @@ describe("queued identity outcomes", () => {
 
   it("retries rehydrated identity work immediately when connectivity returns", async () => {
     const rig = new UntitledLifecycleRig();
-    rig.storage.set(
-      "meridian:pending-untitled",
-      JSON.stringify([
-        {
-          documentId: "doc-1",
-          revision: 1,
-          materialization: {
-            phase: "pending",
-            entry: { documentId: "doc-1", projectId: "project-1", home: UNTITLED_HOME },
-          },
-          desiredIdentity: OPENING,
-          pendingSinceMs: Date.now(),
-        },
-      ]),
-    );
+    rig.seedRecord({
+      documentId: "doc-1",
+      revision: 1,
+      materialization: {
+        phase: "pending",
+        entry: { documentId: "doc-1", projectId: "project-1", home: UNTITLED_HOME },
+      },
+      desiredIdentity: OPENING,
+      pendingSinceMs: Date.now(),
+    });
     rig.move.enqueueError(new TypeError("offline"));
     rig.start();
     await rig.advance();

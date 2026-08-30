@@ -38,6 +38,9 @@ describe("AccountDocumentSessionRuntime", () => {
           if (closing) throw new Error("core is closing");
           throw new Error("not installed");
         },
+        abort: () => {
+          if (closing) throw new Error("core is closing");
+        },
       },
       localAdoption: {
         admitAndAdopt: async () => {

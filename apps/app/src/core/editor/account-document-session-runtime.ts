@@ -94,6 +94,9 @@ export function createAccountDocumentSessionRuntime(
       requireOpen();
       return core.localReservation.reserve(transfer);
     },
+    abort(handoff) {
+      return core.localReservation.abort(handoff);
+    },
   };
   const localAdoption: LocalDocumentSessionAdoptionPort = {
     admitAndAdopt(request) {

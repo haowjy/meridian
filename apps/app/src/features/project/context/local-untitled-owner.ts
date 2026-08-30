@@ -1,6 +1,5 @@
 /** Account-qualified owner of durable pre-authority Untitled sessions. */
 import type { AccountId } from "@meridian/contracts/protocol";
-import type { DocumentId } from "@meridian/contracts/runtime";
 import { collabSchemaKeyTag } from "@meridian/prosemirror-schema";
 import type { DocumentSession, DocumentSessionSnapshot } from "@/core/editor/document-session";
 import type {
@@ -17,6 +16,7 @@ import type {
   LocalUntitledRecord,
   LocalUntitledRecordStore,
 } from "./local-untitled-record-store";
+import { encodeLocalUntitledKey } from "./local-untitled-record-store";
 
 export type LocalUntitledSession = Readonly<{
   key: LocalUntitledKey;
@@ -64,14 +64,48 @@ function sameKey(left: LocalUntitledKey, right: LocalUntitledKey): boolean {
 }
 
 export class LocalUntitledOwner {
-  readonly dependencies: LocalUntitledOwnerDependencies;
-  private readonly owned = new Map<DocumentId, Owned>();
-  private readonly retained = new Map<string, Set<DocumentId>>();
+  readonly accountId: AccountId;
+  private readonly owned = new Map<string, Owned>();
+  private readonly retained = new Map<string, Set<string>>();
   private closePromise: Promise<void> | null = null;
   private closing = false;
 
   constructor(dependencies: LocalUntitledOwnerDependencies) {
     this.dependencies = dependencies;
+    this.accountId = dependencies.accountId;
+  }
+
+  private readonly dependencies: LocalUntitledOwnerDependencies;
+
+  key(
+    projectId: LocalUntitledKey["projectId"],
+    documentId: LocalUntitledKey["documentId"],
+  ): LocalUntitledKey {
+    return { accountId: this.accountId, projectId, documentId };
+  }
+
+  phase(key: LocalUntitledKey): LocalUntitledRecord["phase"] | null {
+    this.requireQualified(key);
+    return this.dependencies.records.read(key)?.phase ?? null;
+  }
+
+  readWork(key: LocalUntitledKey): LocalUntitledRecord | null {
+    this.requireQualified(key);
+    return this.dependencies.records.read(key);
+  }
+
+  listWork(): readonly LocalUntitledRecord[] {
+    return this.dependencies.records.list(this.accountId);
+  }
+
+  writeWork(record: LocalUntitledRecord): void {
+    this.requireQualified(record.key);
+    this.dependencies.records.write(record);
+  }
+
+  removeWork(key: LocalUntitledKey, expectedRevision: number): "removed" | "stale" {
+    this.requireQualified(key);
+    return this.dependencies.records.remove(key, expectedRevision);
   }
 
   create(key: LocalUntitledKey): Promise<LocalUntitledOpenResult> {
@@ -84,7 +118,7 @@ export class LocalUntitledOwner {
 
   getDetached(key: LocalUntitledKey): LocalUntitledSession | null {
     this.requireQualified(key);
-    const owned = this.owned.get(key.documentId);
+    const owned = this.owned.get(encodeLocalUntitledKey(key));
     return owned && sameKey(owned.value.key, key) ? owned.value : null;
   }
 
@@ -94,10 +128,10 @@ export class LocalUntitledOwner {
   }
 
   retain(ownerId: string, keys: Iterable<LocalUntitledKey>): void {
-    const ids = new Set<DocumentId>();
+    const ids = new Set<string>();
     for (const key of keys) {
       this.requireQualified(key);
-      if (this.getDetached(key)) ids.add(key.documentId);
+      if (this.getDetached(key)) ids.add(encodeLocalUntitledKey(key));
     }
     this.retained.set(ownerId, ids);
   }
@@ -124,7 +158,7 @@ export class LocalUntitledOwner {
     const record = this.dependencies.records.read(input.key);
     if (!record || record.revision !== input.expectedRevision || owned.revision !== record.revision)
       return "stale";
-    if (owned.transferring || this.isRetained(input.key.documentId)) return "busy";
+    if (owned.transferring || this.isRetained(input.key)) return "busy";
     if (
       input.evidence === "writer-empty-close" &&
       owned.value.session.document.getXmlFragment(owned.value.session.fragmentName).length > 0
@@ -133,7 +167,7 @@ export class LocalUntitledOwner {
     }
     if (this.dependencies.records.remove(input.key, input.expectedRevision) !== "removed")
       return "stale";
-    this.owned.delete(input.key.documentId);
+    this.owned.delete(encodeLocalUntitledKey(input.key));
     await owned.value.session.destroy({ clearPersistence: true });
     await owned.lease.release();
     return "abandoned";
@@ -154,33 +188,23 @@ export class LocalUntitledOwner {
     owned.transferring = true;
     try {
       await owned.value.session.flushLocalPersistence();
-      const handoff = this.dependencies.reservations.reserve({
-        projectId: key.projectId,
-        documentId: key.documentId,
-        session: owned.value.session,
-        ownerRevision: expectedRevision,
-        prepareCommit: () => {
-          const latest = this.dependencies.records.read(key);
-          if (
-            latest?.phase !== "local-pending" ||
-            latest.revision !== expectedRevision ||
-            this.owned.get(key.documentId) !== owned
-          ) {
-            throw new Error("Local Untitled ownership changed during materialization");
-          }
-          this.dependencies.records.write({ ...latest, phase: "adopted-live" });
-        },
-        commit: () => {
-          this.owned.delete(key.documentId);
-          void owned.lease.release().catch(() => undefined);
-        },
-      });
+      const handoff = this.reserveTransfer(key, owned, expectedRevision);
       owned.handoff = handoff;
       return handoff;
     } catch (error) {
       owned.transferring = false;
       throw error;
     }
+  }
+
+  abortMaterialization(key: LocalUntitledKey, handoff: LocalDocumentSessionHandoff): void {
+    const owned = this.requireOwned(key);
+    if (!owned.transferring || owned.handoff !== handoff) {
+      throw new Error("Local Untitled handoff is not the active reservation");
+    }
+    this.dependencies.reservations.abort(handoff);
+    owned.handoff = null;
+    owned.transferring = false;
   }
 
   async remint(from: LocalUntitledKey, to: LocalUntitledKey): Promise<LocalUntitledSession> {
@@ -213,6 +237,11 @@ export class LocalUntitledOwner {
     );
     let cleanup: { closePrevious(): Promise<void> };
     try {
+      if (old.handoff) {
+        this.dependencies.reservations.abort(old.handoff);
+        old.handoff = null;
+        old.transferring = false;
+      }
       this.dependencies.records.write({ ...replacement, active: false });
       this.dependencies.records.write(replacement);
       cleanup = prepared.commit();
@@ -226,17 +255,20 @@ export class LocalUntitledOwner {
     } catch {
       // The higher active lineage revision is already authoritative.
     }
-    this.owned.delete(from.documentId);
+    this.owned.delete(encodeLocalUntitledKey(from));
     const value = { key: to, session: old.value.session };
-    this.owned.set(to.documentId, {
+    this.owned.set(encodeLocalUntitledKey(to), {
       value,
       lease: replacementLease,
       revision: nextRevision,
       transferring: false,
       handoff: null,
     });
-    void old.lease.release().catch(() => undefined);
-    await cleanup.closePrevious().catch(() => undefined);
+    const next = this.requireOwned(to);
+    next.transferring = true;
+    next.handoff = this.reserveTransfer(to, next, nextRevision);
+    await cleanup.closePrevious();
+    await old.lease.release();
     return value;
   }
 
@@ -246,16 +278,18 @@ export class LocalUntitledOwner {
     this.retained.clear();
     const owned = [...this.owned.values()];
     this.owned.clear();
-    this.closePromise = Promise.allSettled(
+    this.closePromise = Promise.all(
       owned.map(async (entry) => {
-        await entry.value.session.destroy();
-        await entry.lease.release();
+        const provider = await Promise.allSettled([entry.value.session.destroy()]);
+        const lease = await Promise.allSettled([entry.lease.release()]);
+        return [...provider, ...lease];
       }),
-    ).then((results) => {
-      const failed = results.find(
-        (result): result is PromiseRejectedResult => result.status === "rejected",
-      );
-      if (failed) throw failed.reason;
+    ).then((groups) => {
+      const failures = groups
+        .flat()
+        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+        .map((result) => result.reason);
+      if (failures.length > 0) throw new AggregateError(failures, "Local Untitled teardown failed");
     });
     return this.closePromise;
   }
@@ -303,6 +337,7 @@ export class LocalUntitledOwner {
           active: true,
           phase: "local-pending",
           home: null,
+          pendingSinceMs: null,
         };
         this.dependencies.records.write(record);
       } else if (record.phase !== "local-pending" || record.active === false) {
@@ -313,7 +348,7 @@ export class LocalUntitledOwner {
         persistenceKey: localUntitledPersistenceKey(key),
       });
       const value = Object.freeze({ key, session });
-      this.owned.set(key.documentId, {
+      this.owned.set(encodeLocalUntitledKey(key), {
         value,
         lease,
         revision: record.revision,
@@ -333,13 +368,42 @@ export class LocalUntitledOwner {
   }
 
   private requireOwned(key: LocalUntitledKey): Owned {
-    const owned = this.getDetached(key) && this.owned.get(key.documentId);
+    const owned = this.getDetached(key) && this.owned.get(encodeLocalUntitledKey(key));
     if (!owned) throw new Error("Local Untitled session is not owned in this realm");
     return owned;
   }
 
-  private isRetained(documentId: DocumentId): boolean {
-    for (const ids of this.retained.values()) if (ids.has(documentId)) return true;
+  private reserveTransfer(
+    key: LocalUntitledKey,
+    owned: Owned,
+    expectedRevision: number,
+  ): LocalDocumentSessionHandoff {
+    return this.dependencies.reservations.reserve({
+      projectId: key.projectId,
+      documentId: key.documentId,
+      session: owned.value.session,
+      ownerRevision: expectedRevision,
+      prepareCommit: () => {
+        const latest = this.dependencies.records.read(key);
+        if (
+          latest?.phase !== "local-pending" ||
+          latest.revision !== expectedRevision ||
+          this.owned.get(encodeLocalUntitledKey(key)) !== owned
+        ) {
+          throw new Error("Local Untitled ownership changed during materialization");
+        }
+        this.dependencies.records.write({ ...latest, phase: "adopted-live" });
+      },
+      commit: () => {
+        this.owned.delete(encodeLocalUntitledKey(key));
+      },
+      finalize: () => owned.lease.release(),
+    });
+  }
+
+  private isRetained(key: LocalUntitledKey): boolean {
+    const encoded = encodeLocalUntitledKey(key);
+    for (const ids of this.retained.values()) if (ids.has(encoded)) return true;
     return false;
   }
 }
