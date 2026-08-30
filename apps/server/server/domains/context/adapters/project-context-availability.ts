@@ -87,19 +87,19 @@ function classifyAuthoritativeIdentity(input: {
   foldersById: ReadonlyMap<string, typeof folders.$inferSelect>;
 }): IdentityClassification {
   const { document, source, sourceProject, work } = input.row;
-  const rawProjectIsRequested = source?.projectId === input.requestProjectId;
-  const rawWorkIsRequested = work?.projectId === input.requestProjectId;
-  const rawActorPersonalAuthority =
-    sourceProject?.isPersonal === true && sourceProject.userId === input.actorUserId;
-  if (!rawProjectIsRequested && !rawWorkIsRequested && !rawActorPersonalAuthority) {
-    return { kind: "not-visible" };
-  }
-  if (!source) return { kind: "inconsistent" };
-
-  if (document.kind !== "content" || !isContextUriScheme(source.slug)) {
+  if (!source || document.kind !== "content" || !isContextUriScheme(source.slug)) {
     return { kind: "inconsistent" };
   }
   const scheme = source.slug;
+  const rawProjectIsRequested = source?.projectId === input.requestProjectId;
+  const rawWorkIsRequested = work?.projectId === input.requestProjectId;
+  const isActorUserSource =
+    scheme === "user" &&
+    sourceProject?.isPersonal === true &&
+    sourceProject.userId === input.actorUserId;
+  if (!rawProjectIsRequested && !rawWorkIsRequested && !isActorUserSource) {
+    return { kind: "not-visible" };
+  }
   const isWorkScheme = WORK_SCHEMES.has(scheme);
   const hasWorkOwnership = source.scope === "work" && source.workId !== null;
   const hasProjectOwnership = source.scope === "project" && source.projectId !== null;
@@ -111,7 +111,6 @@ function classifyAuthoritativeIdentity(input: {
     (source.projectId !== null) !== hasProjectOwnership ||
     (hasWorkOwnership && (!work || work.id !== source.workId)) ||
     (hasProjectOwnership && (!sourceProject || sourceProject.id !== source.projectId)) ||
-    (rawActorPersonalAuthority && scheme !== "user") ||
     (scheme === "user" &&
       (!sourceProject?.isPersonal || sourceProject.userId !== input.actorUserId))
   ) {
@@ -133,7 +132,7 @@ function classifyAuthoritativeIdentity(input: {
       workId: work.id,
       workSlug,
     } as never;
-  } else if (rawActorPersonalAuthority) {
+  } else if (isActorUserSource) {
     scope = { kind: "user", userId: input.actorUserId } as never;
     authority = { kind: "user", userId: input.actorUserId } as never;
     generation = input.checkedGeneration;

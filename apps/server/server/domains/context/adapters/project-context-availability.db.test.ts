@@ -138,6 +138,58 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       ).rejects.toThrow("Project not found");
     });
 
+    it("resolves manuscript and user sources distinctly on the actor's personal project", async () => {
+      const db = await seed();
+      const personalManuscriptSource = "00000000-0000-4000-8000-000000000930";
+      const personalManuscriptDocument = "00000000-0000-4000-8000-000000000931";
+      await db.insert(contextSources).values({
+        id: personalManuscriptSource,
+        projectId: PERSONAL,
+        name: "Personal manuscript",
+        slug: "manuscript",
+      });
+      await db.insert(documents).values({
+        id: personalManuscriptDocument,
+        contextSourceId: personalManuscriptSource,
+        name: "chapter",
+        extension: "md",
+      });
+      const result = await createDrizzleProjectContextAvailability(db).lookup(
+        {
+          projectId: PERSONAL as never,
+          documentIds: [personalManuscriptDocument, DOCS[3]] as never,
+        },
+        { userId: USER },
+      );
+      expect(result.resolutions).toMatchObject([
+        { kind: "available", authority: { kind: "project", projectId: PERSONAL } },
+        { kind: "available", authority: { kind: "user", userId: USER } },
+      ]);
+    });
+
+    it("does not expose a non-user source from another personal project", async () => {
+      const db = await seed();
+      const otherPersonalSource = "00000000-0000-4000-8000-000000000933";
+      const otherPersonalDocument = "00000000-0000-4000-8000-000000000934";
+      await db.insert(contextSources).values({
+        id: otherPersonalSource,
+        projectId: PERSONAL,
+        name: "Other manuscript",
+        slug: "manuscript",
+      });
+      await db.insert(documents).values({
+        id: otherPersonalDocument,
+        contextSourceId: otherPersonalSource,
+        name: "private",
+        extension: "md",
+      });
+      const result = await createDrizzleProjectContextAvailability(db).lookup(
+        { projectId: PROJECT as never, documentIds: [otherPersonalDocument] as never },
+        { userId: USER },
+      );
+      expect(result.resolutions).toMatchObject([{ kind: "not-visible" }]);
+    });
+
     it("advances affected heads once and rollback publishes no watermark", async () => {
       const db = await seed();
       const availability = createDrizzleProjectContextAvailability(db);
