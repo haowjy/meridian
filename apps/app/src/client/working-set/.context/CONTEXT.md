@@ -26,16 +26,15 @@ state but never navigates; restore remains owned by the existing context and
 chat controllers.
 
 Server-adopted routes are a seeding plan, not navigation instructions. The
-project layer resolves each stable ID through exact project availability, opens
-it inactive, and checks that the route remains desired immediately before the
-async commit. Terminal or not-visible results prune by ID; indeterminate and
-transport failures preserve the durable route. Server-route restore never
-acquires a cold catalog or looks up a path. Device-owned local Untitled
-validation remains catalog-backed and separate. One project-entry raw operation
-owns seed/validation.
-One project-entry raw operation owns seed/validation. Strict replay or a pre-live
-readiness interruption adopts that operation; after it completes, Work changes use
-the removal coordinator and never reopen raw tree-absence pruning.
+project layer resolves each stable ID through the project-final availability
+coordinator, opens it inactive, and checks that the route remains desired
+immediately before the async commit. Exact project-final absence prunes by ID;
+indeterminate and transport failures preserve the durable route. Server-route
+restore never acquires a cold catalog or looks up a path. Device-owned local
+Untitled validation remains catalog-backed and separate. One project-entry raw
+operation owns seed/validation. Strict replay or a pre-live readiness
+interruption adopts that operation; after it completes, Work changes use the
+removal coordinator and never reopen raw tree-absence pruning.
 
 ## Suspect baseline (recovery sweep errata)
 

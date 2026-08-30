@@ -55,8 +55,8 @@
   initiating target identity, admit exact removal effects before invalidation,
   and reconcile route continuity through account-scoped, Work-gated protocol state.
 
-- `contracts`, `apps/server`: acknowledge context deletion with the exact
-  committed document IDs while preserving empty-folder and non-recursive folder semantics.
+- `contracts`, `apps/server`: acknowledge file and recursive folder deletion with
+  the exact committed document IDs, including every populated-folder descendant.
 
 - `apps/server`: serialize concurrent authenticated-user provisioning so one
   WorkOS principal converges on one local account and cross-principal email

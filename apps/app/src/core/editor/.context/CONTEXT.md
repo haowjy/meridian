@@ -12,8 +12,9 @@ Yjs document session. It must stay structurally aligned with
   enforced, so a node or attr added on either side is a two-file change.
 - Collaboration uses the shared `PROSEMIRROR_FRAGMENT_NAME` Y.XmlFragment. Do
   not create a second fragment name or a second editor sync path.
-- `DocumentSessionRegistry` is keyed by the Yjs room key, not by editor surface:
-  live rooms use the bare document id; review rooms use the opaque,
+- The account document-session runtime owns one registry. Live rooms are acquired
+  only through project-qualified availability leases and use explicit
+  account/document/generation persistence; review rooms use the opaque,
   generation-fenced `reviewRoomName` vended by the preview. Switching live ↔
   review is a session identity change and must remount the TipTap editor because
   Collaboration binds to a concrete Y.Doc/fragment at construction. A review
@@ -148,17 +149,15 @@ Yjs document session. It must stay structurally aligned with
   suspension. `suspend`/`resume`/`release` belong to the session alone. The
   negative-space guard fails the build on a `setLocalState`/`setLocalStateField`
   anywhere in `apps/app/src` outside `local-presence.ts`.
-- Live sessions may be created `detached`: their Y.Doc and IndexedDB persistence
-  exist before server transport. Ordinary acquisition of an existing detached
-  room leaves it detached; post-create reconciliation explicitly attaches
-  transport to that same session once. Retention accepts an explicit detached
-  room set so restored pending tabs create local sessions without probing a
-  server row that does not exist yet. If an older client already left that room
-  terminally denied, post-create reconciliation restarts it before attachment.
-  Teardown always preserves IndexedDB by
-  default because it may contain the only copy of unsynced words; only confirmed
-  cleanup paths may request persistence deletion. Retention and unavailable-room
-  recovery must not materialize or replace a detached session implicitly.
+- Before a server row exists, `LocalUntitledOwner` uses the account runtime's
+  narrow construction factory to create one detached session with an explicit
+  account/project/document-qualified persistence key. Adoption keeps that Y.Doc,
+  reidentifies its persistence to the admitted generation, and then attaches
+  transport under the exact lease. Ordinary live `get`, `peekLive`, `retain`,
+  `release`, `observeLive`, `attachDetached`, and revoke operations remain
+  lease-qualified. Teardown preserves persistence unless a confirmed authority
+  cleanup explicitly clears it; reload, remint, abandonment, and adoption remain
+  owned by the local Untitled lifecycle rather than an ID-based registry path.
 - A schema fence is orthogonal session state, not a connection status:
   `DocumentSessionSnapshot.schemaFence` composes with detached, synced, offline,
   and access-lost states. The first fence wins, is persisted through the
