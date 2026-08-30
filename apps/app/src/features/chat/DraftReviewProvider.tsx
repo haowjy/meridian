@@ -243,7 +243,13 @@ function useDraftReviewScopeOwner(
     const roomKey = controller.reviewRoomName;
     if (!projectId || !workId || !inlineDocumentId || !inlineDraftId || !roomKey) return;
     registry.retainBranchRooms(reviewProjectionOwner.current, [roomKey]);
-    const session = registry.getBranchRoom(roomKey);
+    let session: DocumentSession;
+    try {
+      session = registry.getBranchRoom(roomKey);
+    } catch (error) {
+      registry.releaseBranchRooms(reviewProjectionOwner.current);
+      throw error;
+    }
     let timer: number | null = null;
     const invalidateMountedDraft = () => {
       if (timer != null) window.clearTimeout(timer);
