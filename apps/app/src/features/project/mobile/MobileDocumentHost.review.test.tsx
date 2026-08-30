@@ -77,9 +77,6 @@ vi.mock("@/client/stores", () => ({
   useContextTabsActions: () => ({ openTab: mocks.openTab }),
   useContextTabsStore: Object.assign(() => null, { getState: () => mocks.desk }),
 }));
-vi.mock("@/core/editor/document-session-registry", () => ({
-  getLiveDocumentSessionRegistry: () => mocks.registry,
-}));
 vi.mock("@/features/editor/EditorView", () => ({
   EditorView: (props: Record<string, unknown>) => {
     mocks.editorProps.push(props);

@@ -39,4 +39,26 @@ describe("F1-I document-session production inventory", () => {
   ] as const)("keeps %s at exact zero", (_name, pattern) => {
     expect(scan(pattern)).toEqual([]);
   });
+
+  it.each([
+    ["module-global registry", /\bsharedRegistry\b/],
+    ["module-global getter", /\bgetLiveDocumentSessionRegistry\b/],
+    ["render-time account configurator", /\bconfigureDocumentSessionUser\b/],
+  ] as const)("keeps %s at exact zero", (_name, pattern) => {
+    expect(scan(pattern)).toEqual([]);
+  });
+
+  it("keeps mutable registry lifecycle methods at exact zero", () => {
+    const findings = [
+      ...scan(/^\s*setOwnUserId\s*\(/),
+      ...scan(/^\s*destroyAll\s*\(\)\s*:\s*void/),
+    ].filter(({ file }) => file === "core/editor/document-session-registry-implementation.ts");
+    expect(findings).toEqual([]);
+  });
+
+  it("constructs exactly one production registry at the immutable account runtime", () => {
+    expect(scan(/\bnew DocumentSessionRegistry\s*\(/)).toEqual([
+      expect.objectContaining({ file: "core/editor/account-document-session-runtime.ts" }),
+    ]);
+  });
 });

@@ -10,7 +10,7 @@ import type {
   LiveDocumentSessionLease,
 } from "@meridian/contracts/protocol";
 import { parseYjsRoomName } from "@meridian/contracts/protocol";
-import type { DocumentId, ProjectId, UserId } from "@meridian/contracts/runtime";
+import type { DocumentId, ProjectId } from "@meridian/contracts/runtime";
 
 import { createHocuspocusDocumentTransport } from "@/core/transport/hocuspocus-document-transport";
 import type { DocumentSessionTransportFactory } from "./document-session";
@@ -95,8 +95,6 @@ export class DocumentSessionRegistry
 {
   private accountId: AccountId | null = null;
   private coordination: DocumentSessionCrossContextCoordination | null = null;
-  private accountTransition: Promise<void> = Promise.resolve();
-  private accountTransitionVersion = 0;
   private authorityFailure: unknown = null;
   private accountRuntimeState: "open" | "closing" = "open";
   private invalidationPromise: Promise<void> | null = null;
@@ -462,7 +460,6 @@ export class DocumentSessionRegistry
   closeAccountRuntime(): Promise<void> {
     this.beginCloseAccountRuntime();
     return this.retryAdoptionFinalizers().then(async () => {
-      this.accountTransitionVersion += 1;
       const coordination = this.coordination;
       this.coordination = null;
       await (coordination?.close() ?? this.invalidateAll());
@@ -483,63 +480,6 @@ export class DocumentSessionRegistry
   ): () => void {
     this.requireLease(lease);
     return this.observeRoom(lease.documentId, observer);
-  }
-
-  setOwnUserId(userId: UserId): void {
-    if (this.accountId === userId) return;
-    this.clearRetainedLiveDocuments();
-    const transitionVersion = ++this.accountTransitionVersion;
-    const previous = this.coordination;
-    this.accountId = userId;
-    this.coordination = null;
-    this.authorityFailure = null;
-    const closePrevious = (previous?.close() ?? this.invalidateAll()).then(
-      () => ({ ok: true as const }),
-      (error: unknown) => ({ ok: false as const, error }),
-    );
-    const transition = this.accountTransition
-      .catch(() => undefined)
-      .then(async () => {
-        const closed = await closePrevious;
-        if (!closed.ok) throw closed.error;
-        if (this.accountId !== userId || this.accountTransitionVersion !== transitionVersion)
-          return;
-        try {
-          this.coordination = this.createCoordination(userId, this);
-        } catch (error) {
-          this.authorityFailure = error;
-        }
-      });
-    this.accountTransition = transition;
-  }
-
-  destroyAll(): void {
-    this.clearRetainedLiveDocuments();
-    this.accountTransitionVersion += 1;
-    const captured = this.coordination;
-    this.coordination = null;
-    const capturedClose = captured?.close().then(
-      () => ({ ok: true as const }),
-      (error: unknown) => ({ ok: false as const, error }),
-    );
-    const transition = this.accountTransition
-      .catch(() => undefined)
-      .then(async () => {
-        const current = this.coordination;
-        this.coordination = null;
-        if (current && current !== captured) {
-          await current.close();
-          return;
-        }
-        if (capturedClose) {
-          const closed = await capturedClose;
-          if (!closed.ok) throw closed.error;
-        } else {
-          await this.invalidateAll();
-        }
-      });
-    this.accountTransition = transition;
-    void transition.catch(() => undefined);
   }
 
   invalidateAll(): Promise<void> {
@@ -582,7 +522,6 @@ export class DocumentSessionRegistry
   }
 
   private async configuredCoordination(): Promise<DocumentSessionCrossContextCoordination> {
-    await this.accountTransition;
     if (!this.accountId) {
       throw new DocumentSessionAuthorityError(
         "account-unconfigured",

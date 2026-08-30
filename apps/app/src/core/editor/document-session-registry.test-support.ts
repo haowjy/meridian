@@ -42,9 +42,7 @@ export const { createDocumentSessionCrossContextCoordination } = await import(
 export type Registry = InstanceType<typeof DocumentSessionRegistry>;
 
 export async function registryFor(accountId: string): Promise<Registry> {
-  const registry = new DocumentSessionRegistry(undefined, 0);
-  registry.setOwnUserId(accountId);
-  return registry;
+  return new DocumentSessionRegistry(undefined, 0, accountId);
 }
 
 export async function databaseNames(): Promise<string[]> {

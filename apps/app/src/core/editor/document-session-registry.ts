@@ -4,10 +4,9 @@ import type {
   LiveDocumentSessionAuthority,
   LiveDocumentSessionLease,
 } from "@meridian/contracts/protocol";
-import type { DocumentId, ProjectId, UserId } from "@meridian/contracts/runtime";
+import type { DocumentId, ProjectId } from "@meridian/contracts/runtime";
 
 import type { DocumentSession, DocumentSessionSnapshot } from "./document-session";
-import { DocumentSessionRegistry } from "./document-session-registry-implementation";
 
 export type RetainedLiveDocumentReference = Readonly<{
   projectId: ProjectId;
@@ -46,16 +45,4 @@ export interface LocalUntitledDocumentSessionFactory {
     documentId: DocumentId;
     persistenceKey: string;
   }): DocumentSession;
-}
-
-let sharedRegistry: DocumentSessionRegistry | null = null;
-
-export function getLiveDocumentSessionRegistry(): LiveDocumentSessionRegistry {
-  sharedRegistry ??= new DocumentSessionRegistry();
-  return sharedRegistry;
-}
-
-export function configureDocumentSessionUser(userId: UserId): void {
-  sharedRegistry ??= new DocumentSessionRegistry();
-  sharedRegistry.setOwnUserId(userId);
 }
