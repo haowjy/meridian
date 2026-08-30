@@ -277,10 +277,18 @@ describe("document session cross-context coordination", () => {
     const accountId = "account-versionchange-rejection";
     const locks = new FifoWebLocks();
     const diagnostic = new Error("provider destroy failed on versionchange");
+    let rejectFirst!: (error: Error) => void;
+    const firstFailure = new Promise<void>((_resolve, reject) => {
+      rejectFirst = reject;
+    });
     class RejectingLocalAuthority extends LocalAuthority {
+      private rejected = false;
       override async invalidateAll(): Promise<void> {
         await super.invalidateAll();
-        throw diagnostic;
+        if (!this.rejected) {
+          this.rejected = true;
+          await firstFailure;
+        }
       }
     }
     const local = new RejectingLocalAuthority();
@@ -301,8 +309,11 @@ describe("document session cross-context coordination", () => {
       });
       await vi.waitFor(() => expect(local.invalidated).toBe(1));
       const joiningClose = value.close();
+      rejectFirst(diagnostic);
       const joinedDiagnostic = await joiningClose.catch((error: unknown) => error);
       expect(joinedDiagnostic).toBe(diagnostic);
+      expect(locks.activeNames()).toHaveLength(2);
+      await expect(value.close()).resolves.toBeUndefined();
       await upgraded;
       expect(local.leases.size).toBe(0);
       expect(locks.activeNames()).toEqual([]);
