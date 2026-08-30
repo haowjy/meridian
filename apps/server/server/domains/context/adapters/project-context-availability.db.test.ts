@@ -138,6 +138,54 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       ).rejects.toThrow("Project not found");
     });
 
+    it("normalizes every foreign identity to the missing-ID privacy shape", async () => {
+      const db = await seed();
+      const evidence = createInMemoryEventSink();
+      const foreignInvalidSource = "00000000-0000-4000-8000-000000000935";
+      const foreignInvalidDocument = "00000000-0000-4000-8000-000000000936";
+      const foreignManifest = "00000000-0000-4000-8000-000000000937";
+      const missingDocument = "00000000-0000-4000-8000-999999999999";
+      await db.insert(contextSources).values({
+        id: foreignInvalidSource,
+        projectId: FOREIGN_PROJECT,
+        name: "Foreign invalid",
+        slug: "invalid-scheme",
+      });
+      await db.insert(documents).values([
+        {
+          id: foreignInvalidDocument,
+          contextSourceId: foreignInvalidSource,
+          name: "private",
+          extension: "md",
+        },
+        {
+          id: foreignManifest,
+          contextSourceId: FOREIGN_SOURCE,
+          kind: "manifest",
+          name: ".manifest",
+          extension: "json",
+        },
+      ]);
+
+      const result = await createDrizzleProjectContextAvailability(db, evidence).lookup(
+        {
+          projectId: PROJECT as never,
+          documentIds: [missingDocument, DOCS[4], foreignManifest, foreignInvalidDocument] as never,
+        },
+        { userId: USER },
+      );
+      const normalized = result.resolutions.map(({ documentId: _, ...resolution }) =>
+        JSON.stringify(resolution),
+      );
+      expect(new Set(normalized)).toEqual(new Set([normalized[0]]));
+      expect(result.resolutions[0]).toEqual({
+        kind: "not-visible",
+        documentId: missingDocument,
+        checkedGeneration: expect.any(String),
+      });
+      expect(evidence.events).toEqual([]);
+    });
+
     it("resolves manuscript and user sources distinctly on the actor's personal project", async () => {
       const db = await seed();
       const personalManuscriptSource = "00000000-0000-4000-8000-000000000930";

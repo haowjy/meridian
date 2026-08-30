@@ -29,7 +29,6 @@ function catalogWith(files: readonly CatalogFile[]): CatalogContextView {
   return {
     projectId: "project",
     scheme: "scratch",
-    capabilities: { writable: true, searchable: true, creatable: true },
     normalized: {} as CatalogContextView["normalized"],
     root: {
       kind: "dir",

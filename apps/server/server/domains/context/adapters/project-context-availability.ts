@@ -87,19 +87,19 @@ function classifyAuthoritativeIdentity(input: {
   foldersById: ReadonlyMap<string, typeof folders.$inferSelect>;
 }): IdentityClassification {
   const { document, source, sourceProject, work } = input.row;
-  if (!source || document.kind !== "content" || !isContextUriScheme(source.slug)) {
-    return { kind: "inconsistent" };
-  }
-  const scheme = source.slug;
   const rawProjectIsRequested = source?.projectId === input.requestProjectId;
   const rawWorkIsRequested = work?.projectId === input.requestProjectId;
   const isActorUserSource =
-    scheme === "user" &&
+    source?.slug === "user" &&
     sourceProject?.isPersonal === true &&
     sourceProject.userId === input.actorUserId;
   if (!rawProjectIsRequested && !rawWorkIsRequested && !isActorUserSource) {
     return { kind: "not-visible" };
   }
+  if (!source || document.kind !== "content" || !isContextUriScheme(source.slug)) {
+    return { kind: "inconsistent" };
+  }
+  const scheme = source.slug;
   const isWorkScheme = WORK_SCHEMES.has(scheme);
   const hasWorkOwnership = source.scope === "work" && source.workId !== null;
   const hasProjectOwnership = source.scope === "project" && source.projectId !== null;

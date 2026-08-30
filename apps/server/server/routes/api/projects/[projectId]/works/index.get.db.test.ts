@@ -1,6 +1,7 @@
 /** Real-Postgres regression for the multi-Work collection route (#452). */
 
-import { sql } from "drizzle-orm";
+import { createDb } from "@meridian/database";
+import { eq, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestWorkProjectionMutation } from "../../../../../test-support/work-projection.js";
 
@@ -297,6 +298,135 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
           ],
         },
       });
+    });
+
+    it("reads authorization, head, Works, and pending counts from one delete snapshot", async () => {
+      const reader = createDb(DATABASE_URL, { max: 1 });
+      const writer = createDb(DATABASE_URL, { max: 1 });
+      const committedOwner = "00000000-0000-4000-8000-000000000961";
+      const committedProject = "00000000-0000-4000-8000-000000000962";
+      const committedWork = "00000000-0000-4000-8000-000000000963";
+      const committedSource = "00000000-0000-4000-8000-000000000964";
+      const committedDocument = "00000000-0000-4000-8000-000000000965";
+      const committedBranch = "works-delete-snapshot-branch";
+      let releaseReader: (() => void) | undefined;
+      const writerCommitted = new Promise<void>((resolve) => {
+        releaseReader = resolve;
+      });
+      let announceAuthorized: (() => void) | undefined;
+      const readerAuthorized = new Promise<void>((resolve) => {
+        announceAuthorized = resolve;
+      });
+
+      try {
+        await reader.insert(schema.users).values(conformanceUserValues(committedOwner, "snapshot"));
+        await reader.insert(schema.projects).values({
+          id: committedProject,
+          userId: committedOwner,
+          name: "Snapshot Project",
+          slug: "snapshot-project",
+        });
+        await reader.insert(schema.works).values({
+          id: committedWork,
+          projectId: committedProject,
+          createdByUserId: committedOwner,
+          name: "Snapshot Work",
+          slug: "snapshot-work",
+        });
+        await reader.insert(schema.contextSources).values({
+          id: committedSource,
+          projectId: committedProject,
+          name: "Snapshot source",
+          slug: "manuscript",
+        });
+        await reader.insert(schema.documents).values({
+          id: committedDocument,
+          contextSourceId: committedSource,
+          name: "snapshot",
+          extension: "md",
+        });
+        await reader
+          .insert(schema.documentBranches)
+          .values(branch(committedBranch, committedDocument, committedWork));
+        await reader.insert(schema.branchWriteJournal).values(journal(committedBranch));
+        await reader.insert(schema.contextAvailabilityHeads).values({
+          authorityKey: `project:${committedProject}`,
+          generation: 1n,
+        });
+
+        const projectRepo = createDrizzleProjectRepository({ db: reader });
+        const workRepo = createDrizzleProjectWorkRepository({
+          db: reader,
+          hasUnreviewedDraft: async () => false,
+          projectionMutation: createTestWorkProjectionMutation(reader),
+        });
+        const documentSync = createWorkDraftPending(createDrizzleWorkDraftPendingStore(reader));
+        const barrierProjectRepo = {
+          ...projectRepo,
+          async findById(projectId: Parameters<typeof projectRepo.findById>[0]) {
+            const project = await projectRepo.findById(projectId);
+            announceAuthorized?.();
+            await writerCommitted;
+            return project;
+          },
+        };
+        requireAppUser.mockResolvedValue({
+          user: { userId: committedOwner },
+          app: { projectRepo: barrierProjectRepo, workRepo, documentSync },
+        });
+        const firstRequest = handler({
+          req: new Request(
+            `https://server.local/api/projects/${committedProject}/works?status=all`,
+          ),
+          context: { params: { projectId: committedProject } },
+          res: { status: 200 },
+        } as never);
+        await readerAuthorized;
+
+        await writer.transaction(async (tx) => {
+          await tx
+            .update(schema.projects)
+            .set({ deletedAt: new Date("2026-02-01T00:00:00.000Z") })
+            .where(eq(schema.projects.id, committedProject));
+          await tx
+            .update(schema.contextAvailabilityHeads)
+            .set({ generation: 2n })
+            .where(eq(schema.contextAvailabilityHeads.authorityKey, `project:${committedProject}`));
+          await tx
+            .update(schema.works)
+            .set({ status: "archived", archivedAt: new Date("2026-02-01T00:00:00.000Z") })
+            .where(eq(schema.works.id, committedWork));
+          await tx
+            .update(schema.branchWriteJournal)
+            .set({ status: "discarded" })
+            .where(eq(schema.branchWriteJournal.branchId, committedBranch));
+        });
+        releaseReader?.();
+
+        await expect(firstRequest).resolves.toMatchObject({
+          value: {
+            authorityRevision: "1",
+            works: [{ id: committedWork, status: "active", unpushedChangeCount: 1 }],
+          },
+        });
+
+        requireAppUser.mockResolvedValue({
+          user: { userId: committedOwner },
+          app: { projectRepo, workRepo, documentSync },
+        });
+        await expect(
+          handler({
+            req: new Request(
+              `https://server.local/api/projects/${committedProject}/works?status=all`,
+            ),
+            context: { params: { projectId: committedProject } },
+            res: { status: 200 },
+          } as never),
+        ).rejects.toMatchObject({ statusCode: 404, message: "Project not found" });
+      } finally {
+        releaseReader?.();
+        await Promise.all([reader.close(), writer.close()]);
+      }
     });
 
     it("conceals a project owned by another writer", async () => {

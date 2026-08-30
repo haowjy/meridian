@@ -134,7 +134,6 @@ export function projectCatalogView(
   return {
     projectId,
     scheme,
-    capabilities: { writable: true, searchable: true, creatable: scheme !== "uploads" },
     normalized: view,
     root,
     children: (parentId) =>
@@ -204,7 +203,6 @@ export function useContextCatalogView(
   );
   return {
     catalog: response,
-    capabilities: response?.capabilities ?? null,
     isError: query.isError,
     isFetching: query.isFetching,
     refetch: () => void query.refetch(),
