@@ -50,6 +50,10 @@ type AggregatedWatchRecord = { documentId: string; sourceWorkIds: Set<string> };
 type ProjectState = {
   leases: number;
   watches: Map<string, ReadonlyMap<string, AvailabilityWatchRecord>>;
+  authorizationObservers: Map<
+    string,
+    { records: ReadonlySet<string>; observer: AuthorizationLossObserver }
+  >;
   requestGeneration: Map<string, number>;
   highestAuthorityGeneration: Map<string, bigint>;
   admittedAuthority: Map<string, ProjectContextAuthority>;
@@ -57,8 +61,21 @@ type ProjectState = {
   slotWaiters: Array<() => void>;
 };
 
+export type AuthorizationLoss = Readonly<{
+  projectId: string;
+  documentId: string;
+  generation: AvailabilityGeneration;
+  reason: "authority-unavailable" | "not-visible";
+}>;
+export type AuthorizationLossObserver = (loss: AuthorizationLoss) => void;
+
 export type ProjectAvailabilityLease = {
   watch(producer: string, records: readonly AvailabilityWatchRecord[]): void;
+  observeAuthorizationLoss(
+    producer: string,
+    records: readonly AvailabilityWatchRecord[],
+    observer: AuthorizationLossObserver,
+  ): void;
   release(): void;
 };
 
@@ -113,12 +130,33 @@ export class ProjectContextAvailabilityCoordinator {
         );
         this.fenceLostWatches(state, before);
       },
+      observeAuthorizationLoss: (producer, records, observer) => {
+        if (!held) return;
+        const key = `${prefix}authorization:${producer}`;
+        const before = new Set(this.watchedRecords(state).map((record) => record.documentId));
+        state.watches.set(
+          key,
+          new Map(records.map((record) => [record.documentId, Object.freeze({ ...record })])),
+        );
+        state.authorizationObservers.set(key, {
+          records: new Set(records.map((record) => record.documentId)),
+          observer,
+        });
+        this.fenceLostWatches(state, before);
+        void this.recheck(
+          projectId,
+          records.map((record) => record.documentId),
+        );
+      },
       release: () => {
         if (!held) return;
         held = false;
         const before = new Set(this.watchedRecords(state).map((record) => record.documentId));
         for (const key of state.watches.keys())
-          if (key.startsWith(prefix)) state.watches.delete(key);
+          if (key.startsWith(prefix)) {
+            state.watches.delete(key);
+            state.authorizationObservers.delete(key);
+          }
         this.fenceLostWatches(state, before);
         state.leases -= 1;
         if (state.leases === 0) this.projects.delete(projectId);
@@ -194,6 +232,7 @@ export class ProjectContextAvailabilityCoordinator {
       ) {
         state.admittedAuthority.delete(documentId);
       }
+      this.emitAuthorizationLoss(projectId, state, resolution);
       return resolution;
     } finally {
       lease.release();
@@ -289,6 +328,25 @@ export class ProjectContextAvailabilityCoordinator {
       ) {
         state.admittedAuthority.delete(candidate.documentId);
       }
+      this.emitAuthorizationLoss(projectId, state, candidate.resolution);
+    }
+  }
+
+  private emitAuthorizationLoss(
+    projectId: string,
+    state: ProjectState,
+    resolution: ProjectContextIdentityResolution,
+  ): void {
+    if (resolution.kind !== "authority-unavailable" && resolution.kind !== "not-visible") return;
+    const loss: AuthorizationLoss = {
+      projectId,
+      documentId: resolution.documentId,
+      generation:
+        resolution.kind === "not-visible" ? resolution.checkedGeneration : resolution.generation,
+      reason: resolution.kind,
+    };
+    for (const { records, observer } of state.authorizationObservers.values()) {
+      if (records.has(resolution.documentId)) observer(loss);
     }
   }
 
@@ -441,6 +499,7 @@ export class ProjectContextAvailabilityCoordinator {
       state = {
         leases: 0,
         watches: new Map(),
+        authorizationObservers: new Map(),
         requestGeneration: new Map(),
         highestAuthorityGeneration: new Map(),
         admittedAuthority: new Map(),

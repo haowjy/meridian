@@ -368,3 +368,70 @@ describe("final watch fence", () => {
     expect(apply).not.toHaveBeenCalled();
   });
 });
+
+describe("authorization-loss evidence", () => {
+  it("emits only current authority loss and never admits a session", async () => {
+    const lookup = vi.fn(async (projectId: string, documentIds: readonly string[]) =>
+      result(
+        projectId,
+        documentIds.map((documentId) => ({
+          kind: "authority-unavailable" as const,
+          documentId,
+          generation: "8",
+          authority: { kind: "project" as const, projectId },
+          reason: "project_deleted" as const,
+        })),
+      ),
+    );
+    const losses: unknown[] = [];
+    const coordinator = new ProjectContextAvailabilityCoordinator({
+      lookup,
+      repairProjectCatalog: async () => undefined,
+      apply: () => undefined,
+    });
+    const lease = coordinator.attachProject("project-1");
+    lease.observeAuthorizationLoss("trail", [{ documentId: "document-1" }], (loss) =>
+      losses.push(loss),
+    );
+    await vi.waitFor(() => expect(losses).toHaveLength(1));
+    expect(losses[0]).toMatchObject({
+      documentId: "document-1",
+      generation: "8",
+      reason: "authority-unavailable",
+    });
+    expect(lookup).toHaveBeenCalledWith("project-1", ["document-1"]);
+  });
+
+  it.each(["deleted", "indeterminate"] as const)("retains evidence on %s", async (kind) => {
+    const losses: unknown[] = [];
+    const coordinator = new ProjectContextAvailabilityCoordinator({
+      lookup: async (projectId, documentIds) =>
+        result(
+          projectId,
+          documentIds.map((documentId) =>
+            kind === "deleted"
+              ? {
+                  kind,
+                  documentId,
+                  generation: "9",
+                  lastAuthority: { kind: "project" as const, projectId },
+                }
+              : {
+                  kind,
+                  documentId,
+                  checkedGeneration: "9",
+                  reason: "identity_inconsistent" as const,
+                },
+          ),
+        ),
+      repairProjectCatalog: async () => undefined,
+      apply: () => undefined,
+    });
+    const lease = coordinator.attachProject("project-1");
+    lease.observeAuthorizationLoss("trail", [{ documentId: "document-1" }], (loss) =>
+      losses.push(loss),
+    );
+    await coordinator.recheck("project-1");
+    expect(losses).toEqual([]);
+  });
+});

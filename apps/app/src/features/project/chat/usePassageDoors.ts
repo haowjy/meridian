@@ -24,6 +24,7 @@ import { navigateToPassage } from "@/core/editor/passage-navigation";
 import { dismissPassageNotice, reportPassageChanged } from "@/core/editor/passage-notice-store";
 import type { ContextPassageAnchor } from "@/features/chat/ChatContextNavigation";
 import { LatestNavigationCoordinator } from "@/features/chat/latest-navigation-coordinator";
+import { useOpenProjectDocument } from "@/features/project/context/open-project-document";
 
 export type PassageDoorTarget = {
   scheme: ProjectContextTreeScheme;
@@ -37,6 +38,7 @@ export type PassageDoorOpened = (target: PassageDoorTarget, passage?: ContextPas
 
 export function usePassageDoors(projectId: string, activeWorkId: string | null): PassageDoorOpened {
   const coordinator = useRef(new LatestNavigationCoordinator());
+  const openDocument = useOpenProjectDocument(projectId);
 
   // A resolution belongs to the scope it began in. Changing project or work
   // retires it exactly as a newer door would: the transcript it came from is
@@ -67,6 +69,7 @@ export function usePassageDoors(projectId: string, activeWorkId: string | null):
           documentId: file.documentId,
           anchor: passage,
           signal,
+          openDocument: (documentId) => openDocument({ documentId, workId: target.workId, signal }),
         });
         // Report only while this door is still the writer's latest: a stale
         // verdict about somewhere they have already left is worse than silence.
@@ -77,6 +80,6 @@ export function usePassageDoors(projectId: string, activeWorkId: string | null):
       // promise; nothing here is worth interrupting the writer for.
       void resolving.catch(() => {});
     },
-    [projectId],
+    [openDocument, projectId],
   );
 }

@@ -32,7 +32,6 @@ import {
 } from "react";
 
 import type { DocumentSession, DocumentSessionSnapshot } from "@/core/editor/document-session";
-import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
 import { imageCaretTarget, openImagePicker } from "@/core/editor/images";
 import { registerLiveRangeEditor } from "@/core/editor/live-range-navigation-runtime";
 import {
@@ -43,6 +42,7 @@ import {
 } from "@/core/editor/mounted-editor";
 import { usePrefetchTrailDetails } from "@/features/change-trail/trail-detail-query";
 import { useDraftReview } from "@/features/chat/DraftReviewProvider";
+import { useLiveDocumentSessionRegistry } from "@/features/project/context/ContextRemovalAccountProvider";
 import { cn } from "@/lib/utils";
 import { EditorChromeHost } from "./chrome/EditorChromeHost";
 import { EditorSurfaceFrame } from "./EditorSurfaceFrame";
@@ -132,6 +132,7 @@ export function EditorView(props: EditorViewProps) {
   const identity = mountIdentity(props);
   const roomKey = editorRoomKey(identity);
   const inReview = identity.surface === "review";
+  const registry = useLiveDocumentSessionRegistry();
   const [boundSession, setBoundSession] = useState<DocumentSession | null>(null);
   const sessionOwnerIdRef = useRef<string | null>(null);
   sessionOwnerIdRef.current ??= `editor-view:${++editorSessionOwnerSequence}`;
@@ -141,16 +142,19 @@ export function EditorView(props: EditorViewProps) {
       setBoundSession(null);
       return;
     }
-    // Branch-review acquisition remains on the temporary facade until F1-I3.
-    // Ordinary live hosts must supply their exact opener-owned session.
-    const registry = getDocumentSessionRegistry();
     const ownerId = sessionOwnerIdRef.current;
     if (!ownerId) return;
-    registry.retain(ownerId, [roomKey]);
-    const session = registry.getRoom(roomKey);
+    registry.retainBranchRooms(ownerId, [roomKey]);
+    let session: DocumentSession;
+    try {
+      session = registry.getBranchRoom(roomKey);
+    } catch (error) {
+      registry.releaseBranchRooms(ownerId);
+      throw error;
+    }
     setBoundSession(session);
-    return () => registry.release(ownerId);
-  }, [inReview, roomKey]);
+    return () => registry.releaseBranchRooms(ownerId);
+  }, [inReview, registry, roomKey]);
 
   useEffect(() => {
     if (!inReview || boundSession?.roomKey !== roomKey) return;
@@ -183,6 +187,7 @@ export function EditorView(props: EditorViewProps) {
       {...props}
       identity={identity}
       session={session}
+      liveSession={props.session ?? null}
     />
   );
 }
@@ -190,6 +195,7 @@ export function EditorView(props: EditorViewProps) {
 type SessionEditorViewProps = EditorViewProps & {
   identity: EditorMountIdentity;
   session: DocumentSession;
+  liveSession: DocumentSession | null;
 };
 
 function SessionEditorView(props: SessionEditorViewProps) {
@@ -250,6 +256,7 @@ function ActiveSessionEditorView({
   reviewWorkId = null,
   onReviewSessionUnavailable,
   session,
+  liveSession,
   snapshot,
   evidenceDegraded,
 }: ActiveSessionEditorViewProps) {
@@ -257,8 +264,7 @@ function ActiveSessionEditorView({
   const { controller } = useDraftReview();
   const inReview = identity.surface === "review";
   const reviewDraftId = identity.surface === "review" ? identity.draftId : null;
-  const registry = getDocumentSessionRegistry();
-  const liveReviewSession = inReview && registry.has(documentId) ? registry.get(documentId) : null;
+  const liveReviewSession = inReview ? liveSession : null;
   const editorRef = useRef<Editor | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const effectiveEditableRef = useRef(true);

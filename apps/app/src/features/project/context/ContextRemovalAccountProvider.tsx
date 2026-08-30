@@ -16,6 +16,9 @@ const NOOP_CATALOG_REPAIR = async () => undefined;
 const ProjectAvailabilityAccountContext =
   createContext<ProjectContextAvailabilityCoordinator | null>(null);
 const LocalUntitledAccountContext = createContext<LocalUntitledOwner | null>(null);
+const LiveDocumentRegistryAccountContext = createContext<AccountFeatureLifetime["registry"] | null>(
+  null,
+);
 
 type AccountFeatureLifetime = ReturnType<typeof createAccountFeatureLifetime>;
 
@@ -184,9 +187,11 @@ function AccountFeatureProviders({
     <ContextRemovalAccountContext.Provider value={lifetime.removal}>
       <ProjectAvailabilityAccountContext.Provider value={lifetime.availability}>
         <LocalUntitledAccountContext.Provider value={lifetime.localOwner}>
-          <ProjectDocumentLiveOpenerContext.Provider value={lifetime.opener}>
-            {children}
-          </ProjectDocumentLiveOpenerContext.Provider>
+          <LiveDocumentRegistryAccountContext.Provider value={lifetime.registry}>
+            <ProjectDocumentLiveOpenerContext.Provider value={lifetime.opener}>
+              {children}
+            </ProjectDocumentLiveOpenerContext.Provider>
+          </LiveDocumentRegistryAccountContext.Provider>
         </LocalUntitledAccountContext.Provider>
       </ProjectAvailabilityAccountContext.Provider>
     </ContextRemovalAccountContext.Provider>
@@ -211,4 +216,14 @@ export function useContextRemovalCoordinator(): ContextRemovalCoordinator {
   const coordinator = useContext(ContextRemovalAccountContext);
   if (!coordinator) throw new Error("ContextRemovalAccountProvider is required");
   return coordinator;
+}
+
+export function useLiveDocumentSessionRegistry(): AccountFeatureLifetime["registry"] {
+  const registry = useContext(LiveDocumentRegistryAccountContext);
+  if (!registry) throw new Error("ContextRemovalAccountProvider is required");
+  return registry;
+}
+
+export function useOptionalProjectContextAvailabilityCoordinator(): ProjectContextAvailabilityCoordinator | null {
+  return useContext(ProjectAvailabilityAccountContext);
 }

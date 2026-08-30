@@ -30,6 +30,19 @@ let queriedWorkIds: Array<string | null> = [];
 let controllerWorkIds: string[] = [];
 
 const docUpdateHandlers = new Map<string, Set<() => void>>();
+function sessionFor(documentId: string) {
+  if (!docUpdateHandlers.has(documentId)) docUpdateHandlers.set(documentId, new Set());
+  return {
+    document: {
+      on: (event: string, handler: () => void) => {
+        if (event === "update") docUpdateHandlers.get(documentId)?.add(handler);
+      },
+      off: (event: string, handler: () => void) => {
+        if (event === "update") docUpdateHandlers.get(documentId)?.delete(handler);
+      },
+    },
+  };
+}
 
 vi.mock("@tanstack/react-query", () => ({
   queryOptions: (options: unknown) => options,
@@ -59,6 +72,17 @@ vi.mock("@/features/project/context/ContextRemovalAccountProvider", () => ({
   useContextRemovalCoordinator: () => ({
     applyDraftMetadata: applyDraftMetadataMock,
     discardDraft: discardDraftMock,
+  }),
+  useLiveDocumentSessionRegistry: () => ({
+    retainBranchRooms: vi.fn(),
+    releaseBranchRooms: vi.fn(),
+    getBranchRoom: (roomName: string) => sessionFor(roomName),
+  }),
+  useProjectDocumentLiveOpener: () => ({
+    open: async ({ documentId }: { documentId: string }) => ({
+      kind: "opened",
+      admission: { bind: async () => ({ documentId, session: {}, release: vi.fn() }) },
+    }),
   }),
 }));
 vi.mock("@/client/query/useWorkDrafts", () => ({
@@ -128,7 +152,8 @@ const { DraftReviewBoundary, DraftReviewProvider, useDraftReview, useDraftReview
 function SetActiveEditorDocument({ documentId }: { documentId: string }) {
   const { setActiveEditorDocumentId } = useDraftReview();
   useEffect(() => {
-    setActiveEditorDocumentId(documentId);
+    setActiveEditorDocumentId(documentId, sessionFor(documentId) as never);
+    return () => setActiveEditorDocumentId(null);
   }, [documentId, setActiveEditorDocumentId]);
   return null;
 }

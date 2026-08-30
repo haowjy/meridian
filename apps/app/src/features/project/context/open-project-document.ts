@@ -307,3 +307,8 @@ export function useOpenProjectDocument(projectId: string | undefined): OpenProje
     [owner, projectId],
   );
 }
+
+/** Current project-route identity for authorization-only projections. */
+export function useProjectDocumentNavigationProjectId(): string | null {
+  return useContext(ProjectDocumentNavigationContext)?.projectId ?? null;
+}

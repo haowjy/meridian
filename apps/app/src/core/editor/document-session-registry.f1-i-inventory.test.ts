@@ -374,9 +374,25 @@ function currentProductionInventory(): InventoryRecord[] {
   return cachedProductionInventory;
 }
 
+const F1_I3_MIGRATED_PROJECTION_FILES = new Set([
+  "apps/app/src/client/query/useDraftReviewMutations.ts",
+  "apps/app/src/core/editor/change-trail-navigation.ts",
+  "apps/app/src/core/editor/passage-navigation.ts",
+  "apps/app/src/features/chat/DraftReviewProvider.tsx",
+  "apps/app/src/features/chat/useAuthorizedChangeTrailDetail.ts",
+  "apps/app/src/features/editor/EditorView.tsx",
+  "apps/app/src/features/editor/surfaces/peer-marks/PeerMarkPopover.tsx",
+]);
+
 describe("F1-I document-session deletion inventory", () => {
-  it("matches the complete line-exact production inventory", () => {
-    expect(currentProductionInventory()).toEqual(F1_I_DOCUMENT_SESSION_INVENTORY.expectedRecords);
+  it("shows I3 callers migrated while preserving the I4 facade fixtures", () => {
+    const expectedAfterProjectionMigration = F1_I_DOCUMENT_SESSION_INVENTORY.expectedRecords.filter(
+      (record) => !F1_I3_MIGRATED_PROJECTION_FILES.has(record.file),
+    );
+    expect(currentProductionInventory()).toEqual(expectedAfterProjectionMigration);
+    expect(currentProductionInventory()).toContainEqual(
+      expect.objectContaining({ kind: "facade-definition", symbol: "getDocumentSessionRegistry" }),
+    );
   }, 20_000);
 
   it("cannot hide frozen syntax behind aliases, destructuring, multiline exports, or DOM types", () => {

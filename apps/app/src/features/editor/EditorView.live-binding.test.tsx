@@ -20,8 +20,8 @@ vi.mock("@lingui/react/macro", () => ({
   Trans: ({ children }: { children?: unknown }) => children,
 }));
 
-vi.mock("@/core/editor/document-session-registry", () => ({
-  getDocumentSessionRegistry: () => registry,
+vi.mock("@/features/project/context/ContextRemovalAccountProvider", () => ({
+  useLiveDocumentSessionRegistry: () => registry,
 }));
 vi.mock("./editor-bind-horizon", () => ({
   waitForEditorBindHorizon: () => new Promise(() => undefined),

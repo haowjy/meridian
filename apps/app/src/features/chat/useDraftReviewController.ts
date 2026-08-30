@@ -21,7 +21,10 @@ import {
 import { getDraftPreview } from "@/client/api/drafts-api";
 import { projectQueryKeys } from "@/client/query/project-query-keys";
 import { useApplyDraft, useDiscardDraft } from "@/client/query/useDraftReviewMutations";
-import { useContextRemovalCoordinator } from "@/features/project/context/ContextRemovalAccountProvider";
+import {
+  useContextRemovalCoordinator,
+  useProjectDocumentLiveOpener,
+} from "@/features/project/context/ContextRemovalAccountProvider";
 import {
   type DraftBatchErrorCode,
   type DraftCommandOutcome,
@@ -109,10 +112,13 @@ export function useDraftReviewController(
 ): DraftReviewController {
   const queryClient = useQueryClient();
   const contextRemoval = useContextRemovalCoordinator();
+  const liveOpener = useProjectDocumentLiveOpener();
   const applyMutation = useApplyDraft();
   const discardMutation = useDiscardDraft();
   const [state, dispatch] = useReducer(draftReviewReducer, EMPTY_DRAFT_REVIEW_STATE);
   const commandPortsRef = useRef<DraftReviewCommandPorts | null>(null);
+  const pendingReopenRef = useRef(new Map<string, () => void>());
+  const serverAppliedDraftsRef = useRef(new Set<string>());
   const reviewSession = useMemo(
     () =>
       new DraftReviewSession(() => {
@@ -137,6 +143,15 @@ export function useDraftReviewController(
   );
   const nextReviewAttemptIdRef = useRef(0);
   stateRef.current = state;
+
+  useEffect(
+    () => () => {
+      for (const release of pendingReopenRef.current.values()) release();
+      pendingReopenRef.current.clear();
+      serverAppliedDraftsRef.current.clear();
+    },
+    [],
+  );
 
   const inlineReview = inlineReviewFromState(state);
   const inlineReviewMessage = state.inlineReviewMessage;
@@ -208,13 +223,21 @@ export function useDraftReviewController(
 
   commandPortsRef.current = {
     apply: async ({ documentId, draftId }) => {
-      await applyMutation.mutateAsync({
-        projectId,
-        workId,
-        threadId,
-        documentId,
-        draftId,
-      });
+      if (!serverAppliedDraftsRef.current.has(draftId)) {
+        await applyMutation.mutateAsync({
+          projectId,
+          workId,
+          threadId,
+          documentId,
+          draftId,
+        });
+        serverAppliedDraftsRef.current.add(draftId);
+      }
+      const opened = await liveOpener.open({ source: "server", projectId, documentId });
+      if (opened.kind !== "opened") throw new Error("Applied draft is not available live");
+      const binding = await opened.admission.bind(`draft-apply-reopen:${documentId}:${draftId}`);
+      pendingReopenRef.current.get(draftId)?.();
+      pendingReopenRef.current.set(draftId, () => binding.release());
     },
     discard: async ({ documentId, draftId }, input) => {
       await discardMutation.mutateAsync({
@@ -238,8 +261,13 @@ export function useDraftReviewController(
     draftApplied: ({ documentId, draftId }) => {
       dispatch({ type: "applySucceeded", documentId, draftId });
       contextRemoval.applyDraftMetadata(projectId, workId, documentId);
+      pendingReopenRef.current.get(draftId)?.();
+      pendingReopenRef.current.delete(draftId);
+      serverAppliedDraftsRef.current.delete(draftId);
     },
     draftFailed: (selection, code) => {
+      pendingReopenRef.current.get(selection.draftId)?.();
+      pendingReopenRef.current.delete(selection.draftId);
       dispatch({ type: "draftCommandFailed", selection, code });
     },
     draftDiscarded: ({ documentId, draftId }) => {

@@ -1,12 +1,13 @@
 /** Focused disposition coverage for the shared draft review controller. */
 import { act, useEffect } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { withReactRoot } from "@/test-support/react-dom-harness";
 
 const applyDraftMetadataMock = vi.fn();
 const discardDraftTabMock = vi.fn(async () => ({ kind: "noop" as const }));
 const wholeDraftResponse: unknown = null;
 let wholeDraftResponses: unknown[] = [];
+let reopenAvailable = true;
 let applyPromise: Promise<{ status: "applied"; draftId: string }> | null = null;
 const draftPreview = {
   status: "active",
@@ -52,6 +53,15 @@ vi.mock("@/features/project/context/ContextRemovalAccountProvider", () => ({
     applyDraftMetadata: applyDraftMetadataMock,
     discardDraft: discardDraftTabMock,
   }),
+  useProjectDocumentLiveOpener: () => ({
+    open: async ({ documentId }: { documentId: string }) =>
+      reopenAvailable
+        ? {
+            kind: "opened",
+            admission: { bind: async () => ({ documentId, session: {}, release: vi.fn() }) },
+          }
+        : { kind: "unavailable" },
+  }),
 }));
 vi.mock("@/client/query/useDraftReviewMutations", () => ({
   useApplyDraft: () => ({ mutateAsync: applyMutateMock }),
@@ -66,6 +76,9 @@ vi.mock("@/client/stores", () => ({
 const { useDraftReviewController } = await import("./useDraftReviewController");
 
 describe("useDraftReviewController", () => {
+  beforeEach(() => {
+    reopenAvailable = true;
+  });
   it("applies by product draft identity without rendered operation cards", async () => {
     let controller: ReturnType<typeof useDraftReviewController> | null = null;
     applyMutateMock.mockClear();
@@ -323,6 +336,29 @@ describe("useDraftReviewController", () => {
         await wholeApply;
       });
       applyPromise = null;
+    });
+  });
+
+  it("retains a server-applied review and retries only the fresh live reopen", async () => {
+    let controller: ReturnType<typeof useDraftReviewController> | null = null;
+    applyMutateMock.mockClear();
+    reopenAvailable = false;
+    function Probe() {
+      controller = useDraftReviewController("project-1", "work-1", "thread-1");
+      return null;
+    }
+    await withReactRoot(<Probe />, async () => {
+      await expect(act(async () => controller?.apply("document-1", "draft-1"))).resolves.toEqual({
+        kind: "failed",
+        code: "apply-failed",
+      });
+      expect(applyMutateMock).toHaveBeenCalledTimes(1);
+      reopenAvailable = true;
+      await act(async () => {
+        await controller?.apply("document-1", "draft-1");
+      });
+      expect(applyMutateMock).toHaveBeenCalledTimes(1);
+      expect(applyDraftMetadataMock).toHaveBeenCalledWith("project-1", "work-1", "document-1");
     });
   });
 });

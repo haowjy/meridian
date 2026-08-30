@@ -9,6 +9,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { projectQueryKeys } from "@/client/query/project-query-keys";
@@ -24,8 +25,12 @@ import {
   useWorkDrafts,
 } from "@/client/query/useWorkDrafts";
 import { useContextTabsStore } from "@/client/stores";
-import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
-import { useContextRemovalCoordinator } from "@/features/project/context/ContextRemovalAccountProvider";
+import type { DocumentSession } from "@/core/editor/document-session";
+import {
+  useContextRemovalCoordinator,
+  useLiveDocumentSessionRegistry,
+  useProjectDocumentLiveOpener,
+} from "@/features/project/context/ContextRemovalAccountProvider";
 import { type DraftReviewController, useDraftReviewController } from "./useDraftReviewController";
 
 export type DraftReviewContextValue = {
@@ -35,10 +40,16 @@ export type DraftReviewContextValue = {
   groupForDocument: (documentId: string | null | undefined) => ThreadDraftGroup | null;
   reviewRoomNameForDraft: (documentId: string, draftId: string) => string | null;
   activeEditorDocumentId: string | null;
-  setActiveEditorDocumentId: (documentId: string | null) => void;
+  setActiveEditorDocumentId: (
+    documentId: string | null,
+    session?: DocumentSession | null,
+    inReview?: boolean,
+    owner?: object,
+  ) => void;
 };
 
 const DraftReviewContext = createContext<DraftReviewContextValue | null>(null);
+let reviewProjectionOwnerSequence = 0;
 
 export type DraftReviewProviderProps = {
   projectId: string | null;
@@ -83,6 +94,11 @@ function useDraftReviewScopeOwner(
 ): DraftReviewContextValue {
   const queryClient = useQueryClient();
   const contextRemoval = useContextRemovalCoordinator();
+  const registry = useLiveDocumentSessionRegistry();
+  const liveOpener = useProjectDocumentLiveOpener();
+  const reviewProjectionOwner = useRef(
+    `draft-review-projection:${++reviewProjectionOwnerSequence}`,
+  );
   const effectiveProjectId = projectId ?? "";
   const effectiveWorkId = workId ?? "";
   const drafts = useWorkDrafts(projectId, workId);
@@ -91,7 +107,27 @@ function useDraftReviewScopeOwner(
   // Editor-host concern: this only tells the chat overlay whether the active
   // editor already renders the docked bar for a document. Review-mode truth
   // itself lives in the controller state machine.
-  const [activeEditorDocumentId, setActiveEditorDocumentId] = useState<string | null>(null);
+  const [activeEditorProjection, setActiveEditorProjection] = useState<{
+    documentId: string;
+    session: DocumentSession;
+    inReview: boolean;
+    owner: object | null;
+  } | null>(null);
+  const activeEditorDocumentId = activeEditorProjection?.documentId ?? null;
+  const setActiveEditorDocumentId = useCallback(
+    (
+      documentId: string | null,
+      session: DocumentSession | null = null,
+      inReview = false,
+      owner: object | null = null,
+    ) => {
+      setActiveEditorProjection((current) => {
+        if (documentId && session) return { documentId, session, inReview, owner };
+        return owner && current?.owner !== owner ? current : null;
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     controller.exitReview();
@@ -122,13 +158,18 @@ function useDraftReviewScopeOwner(
     const documentDrafts =
       groups.find((group) => group.documentId === activeSelection.documentId)?.drafts ?? [];
     if (documentDrafts.some((draft) => draft.draftId === activeSelection.draftId)) return;
-    controller.exitReview();
-    if (!projectId || !workId) return;
+    if (!projectId || !workId) {
+      controller.exitReview();
+      return;
+    }
     const tabs = useContextTabsStore.getState();
     const tab = tabs.byProject[projectId]?.tabs.find(
       (candidate) => candidate.documentId === activeSelection.documentId,
     );
-    if (tab?.kind !== "tracked" || !tab.draftOnly || tab.reviewWorkId !== workId) return;
+    if (tab?.kind !== "tracked" || !tab.draftOnly || tab.reviewWorkId !== workId) {
+      controller.exitReview();
+      return;
+    }
 
     // The active-only list cannot say why a remote disposition removed the
     // draft. For draft-created documents, manifest membership is authoritative:
@@ -159,10 +200,24 @@ function useDraftReviewScopeOwner(
           ) ?? [];
         if (currentDrafts.some((draft) => draft.documentId === activeSelection.documentId)) return;
         if (catalog.findDocument(activeSelection.documentId)) {
-          contextRemoval.applyDraftMetadata(projectId, workId, activeSelection.documentId);
-        } else {
-          void contextRemoval.discardDraft(projectId, workId, activeSelection.documentId);
+          return liveOpener
+            .open({ source: "server", projectId, documentId: activeSelection.documentId })
+            .then(async (opened) => {
+              if (opened.kind !== "opened") return;
+              const binding = await opened.admission.bind(
+                `remote-draft-reopen:${activeSelection.draftId}`,
+              );
+              try {
+                if (controller.inlineReview?.draftId !== activeSelection.draftId) return;
+                controller.exitReview();
+                contextRemoval.applyDraftMetadata(projectId, workId, activeSelection.documentId);
+              } finally {
+                binding.release();
+              }
+            });
         }
+        controller.exitReview();
+        void contextRemoval.discardDraft(projectId, workId, activeSelection.documentId);
       })
       // A failed membership check must leave the tab intact rather than guess
       // that a remotely applied document was discarded.
@@ -175,8 +230,10 @@ function useDraftReviewScopeOwner(
     drafts.status,
     effectiveProjectId,
     groups,
+    liveOpener,
     projectId,
     queryClient,
+    registry,
     workId,
   ]);
 
@@ -185,9 +242,8 @@ function useDraftReviewScopeOwner(
     const inlineDraftId = controller.inlineReview?.draftId;
     const roomKey = controller.reviewRoomName;
     if (!projectId || !workId || !inlineDocumentId || !inlineDraftId || !roomKey) return;
-    const registry = getDocumentSessionRegistry();
-    if (!registry.has(roomKey)) return;
-    const session = registry.getRoom(roomKey);
+    registry.retainBranchRooms(reviewProjectionOwner.current, [roomKey]);
+    const session = registry.getBranchRoom(roomKey);
     let timer: number | null = null;
     const invalidateMountedDraft = () => {
       if (timer != null) window.clearTimeout(timer);
@@ -210,6 +266,7 @@ function useDraftReviewScopeOwner(
     return () => {
       if (timer != null) window.clearTimeout(timer);
       session.document.off("update", invalidateMountedDraft);
+      registry.releaseBranchRooms(reviewProjectionOwner.current);
     };
   }, [
     controller.inlineReview?.documentId,
@@ -221,9 +278,8 @@ function useDraftReviewScopeOwner(
   ]);
 
   useEffect(() => {
-    if (!threadId || !activeEditorDocumentId) return;
-    const registry = getDocumentSessionRegistry();
-    const session = registry.get(activeEditorDocumentId);
+    if (!threadId || !activeEditorProjection || activeEditorProjection.inReview) return;
+    const session = activeEditorProjection.session;
     let timer: number | null = null;
     const invalidateLineage = () => {
       if (timer != null) window.clearTimeout(timer);
@@ -237,7 +293,7 @@ function useDraftReviewScopeOwner(
       if (timer != null) window.clearTimeout(timer);
       session.document.off("update", invalidateLineage);
     };
-  }, [activeEditorDocumentId, queryClient, threadId]);
+  }, [activeEditorProjection, queryClient, threadId]);
 
   const value = useMemo<DraftReviewContextValue>(
     () => ({

@@ -15,7 +15,7 @@ import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import type { ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { AlertCircle, Loader2 } from "lucide-react";
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useContextCatalogView } from "@/client/query/useContextCatalog";
 import { useDraftReview } from "@/features/chat/DraftReviewProvider";
 import { PassageNotice } from "@/features/editor/PassageNotice";
@@ -43,6 +43,7 @@ export function MobileDocumentHost({
   activeContextPath,
 }: MobileDocumentHostProps) {
   const workId = editorWorkId;
+  const projectionOwner = useRef({});
   const contextRemoval = useContextRemovalCoordinator();
   const removalState = useContextRemovalProject(projectId);
   const { controller, reviewRoomNameForDraft, setActiveEditorDocumentId } = useDraftReview();
@@ -117,10 +118,6 @@ export function MobileDocumentHost({
   }, [activeTab, contextRemoval, projectId, removalState]);
 
   const activeEditorDocumentId = activeTab?.editable ? activeTab.documentId : null;
-  useEffect(() => {
-    setActiveEditorDocumentId(activeEditorDocumentId);
-    return () => setActiveEditorDocumentId(null);
-  }, [activeEditorDocumentId, setActiveEditorDocumentId]);
   const selectedReviewDraftId =
     activeEditorDocumentId && controller.inlineReview?.documentId === activeEditorDocumentId
       ? controller.inlineReview.draftId
@@ -136,6 +133,20 @@ export function MobileDocumentHost({
     documentId: activeTab?.editable ? activeTab.documentId : null,
     owner: "mobile-project-document-host",
   });
+
+  useEffect(() => {
+    if (live.kind !== "opened" || live.documentId !== activeEditorDocumentId) {
+      setActiveEditorDocumentId(null, null, false, projectionOwner.current);
+      return;
+    }
+    setActiveEditorDocumentId(
+      activeEditorDocumentId,
+      live.session,
+      Boolean(reviewDraftId),
+      projectionOwner.current,
+    );
+    return () => setActiveEditorDocumentId(null, null, false, projectionOwner.current);
+  }, [activeEditorDocumentId, live, reviewDraftId, setActiveEditorDocumentId]);
 
   useEffect(() => {
     if (

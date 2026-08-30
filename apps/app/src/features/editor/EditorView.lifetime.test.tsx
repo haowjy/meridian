@@ -111,6 +111,9 @@ const registry = {
   getDetached: sessionFor,
   has: () => false,
   get: sessionFor,
+  retainBranchRooms: () => {},
+  releaseBranchRooms: () => {},
+  getBranchRoom: sessionFor,
 };
 
 const controller = {
@@ -142,8 +145,8 @@ vi.mock("@/features/change-trail/trail-detail-query", () => ({
 vi.mock("@/features/chat/DraftReviewProvider", () => ({
   useDraftReview: () => ({ controller }),
 }));
-vi.mock("@/core/editor/document-session-registry", () => ({
-  getDocumentSessionRegistry: () => registry,
+vi.mock("@/features/project/context/ContextRemovalAccountProvider", () => ({
+  useLiveDocumentSessionRegistry: () => registry,
 }));
 vi.mock("./useInlineReviewSync", () => ({ useInlineReviewSync: () => {} }));
 vi.mock("./SyncStatus", () => ({ SyncStatus: () => null }));

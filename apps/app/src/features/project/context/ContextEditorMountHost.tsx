@@ -99,12 +99,6 @@ export function ContextEditorMountHost({
   const localOwner = useLocalUntitledOwner();
   const { remintNewTab } = useContextTabsActions();
   const { controller, reviewRoomNameForDraft, setActiveEditorDocumentId } = useDraftReview();
-  // Track the focused tracked editor even when Context is parked in the dock —
-  // lineage chip freshness listens on this id, not on `?screen=context`.
-  useEffect(() => {
-    setActiveEditorDocumentId(activeTabId);
-    return () => setActiveEditorDocumentId(null);
-  }, [activeTabId, setActiveEditorDocumentId]);
   // LRU stack of documentIds: head = most recent. Maintained in an effect so
   // we never mutate state during render. The eviction policy reads from this
   // every render to pick which tabs stay mounted.
@@ -295,6 +289,14 @@ export function ContextEditorMountHost({
                   </div>
                 ) : waitingForReviewRoom ? null : (
                   <>
+                    {isActive ? (
+                      <ActiveEditorProjection
+                        documentId={tab.documentId}
+                        session={session}
+                        inReview={Boolean(reviewDraftId)}
+                        setProjection={setActiveEditorDocumentId}
+                      />
+                    ) : null}
                     <PresenceSuspension
                       session={session}
                       enabled={Boolean(reviewDraftId && active)}
@@ -354,6 +356,30 @@ export function ServerTabSessionBoundary({
     owner: "desktop-server-tab",
   });
   return children(binding.kind === "opened" ? binding.session : null, binding.kind === "failed");
+}
+
+function ActiveEditorProjection({
+  documentId,
+  session,
+  inReview,
+  setProjection,
+}: {
+  documentId: string;
+  session: DocumentSession;
+  inReview: boolean;
+  setProjection: (
+    documentId: string | null,
+    session?: DocumentSession | null,
+    inReview?: boolean,
+    owner?: object,
+  ) => void;
+}) {
+  const owner = useRef({});
+  useEffect(() => {
+    setProjection(documentId, session, inReview, owner.current);
+    return () => setProjection(null, null, false, owner.current);
+  }, [documentId, inReview, session, setProjection]);
+  return null;
 }
 
 function PresenceSuspension({ session, enabled }: { session: DocumentSession; enabled: boolean }) {

@@ -5,8 +5,6 @@
 import { type QueryClient, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { applyDraft, discardDraft } from "@/client/api/drafts-api";
-import { getDocumentSessionRegistry } from "@/core/editor/document-session-registry";
-
 import { isProjectContextCatalogKey, projectQueryKeys } from "./project-query-keys";
 import { threadQueryKeys } from "./thread-query-keys";
 
@@ -61,11 +59,6 @@ export function useApplyDraft() {
     mutationFn: ({ projectId, workId, documentId, draftId }: DraftReviewMutationBase) =>
       applyDraft(projectId, workId, documentId, { draftId }),
     onSuccess: async (_response, variables) => {
-      // A draft-only tab may have opened its live room before the document was
-      // materialized, leaving a terminal authorization denial cached in the
-      // registry. Apply grants access; replace only that unavailable session
-      // so EditorView can bind a freshly authorized provider on review exit.
-      await getDocumentSessionRegistry().restartUnavailableRoom(variables.documentId);
       void queryClient.invalidateQueries({
         predicate: (query) => isProjectContextCatalogKey(query.queryKey, variables.projectId),
       });
