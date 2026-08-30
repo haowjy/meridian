@@ -22,7 +22,7 @@ describe("DocumentSessionRegistry session lifecycle", () => {
     expect(first).not.toBe(second);
     expect(first.document).not.toBe(second.document);
     expect(await databaseNames()).toEqual(before);
-    registry.destroyAll();
+    await registry.closeAccountRuntime();
   });
 
   it("runs the EditorView branch retain/get/release sequence with grace teardown", () => {
@@ -71,7 +71,7 @@ describe("DocumentSessionRegistry session lifecycle", () => {
       expect(unhandled).toEqual([]);
     } finally {
       process.off("unhandledRejection", observeUnhandled);
-      registry.destroyAll();
+      await registry.closeAccountRuntime();
     }
   });
 
@@ -92,7 +92,7 @@ describe("DocumentSessionRegistry session lifecycle", () => {
       expect(unhandled).toEqual([]);
     } finally {
       process.off("unhandledRejection", observeUnhandled);
-      registry.destroyAll();
+      await registry.closeAccountRuntime();
     }
   });
 
@@ -136,7 +136,7 @@ describe("DocumentSessionRegistry session lifecycle", () => {
       expect(unhandled).toEqual([]);
     } finally {
       process.off("unhandledRejection", observeUnhandled);
-      registry.destroyAll();
+      await registry.closeAccountRuntime();
     }
   });
 
@@ -159,8 +159,7 @@ describe("DocumentSessionRegistry session lifecycle", () => {
   });
 
   it("restarts a full grace window after re-retention and peek does not cancel it", async () => {
-    const registry = new DocumentSessionRegistry(undefined, 3_000);
-    registry.setOwnUserId("account-grace");
+    const registry = new DocumentSessionRegistry(undefined, 3_000, "account-grace");
     const lease = await admit(registry, "project", "doc-grace", "1");
     vi.useFakeTimers();
     registry.retain("owner", [lease]);
@@ -200,8 +199,7 @@ describe("DocumentSessionRegistry session lifecycle", () => {
         avatarUrl: null,
       },
     } satisfies AuthMeResponse;
-    const registry = new DocumentSessionRegistry();
-    registry.setOwnUserId(authMe.user.userId);
+    const registry = new DocumentSessionRegistry(undefined, undefined, authMe.user.userId);
     const lease = await admit(registry, "project", "document-before-auth", "1");
     const session = registry.getDetached(lease);
     const event = (admittedByUserId: string, trailId: string): ChangeEventWsMessage => ({
@@ -252,7 +250,7 @@ describe("DocumentSessionRegistry session lifecycle", () => {
       code: WS_CLOSE.CLIENT_SCHEMA_SUPERSEDED.code,
     });
     expect(first.getSnapshot().schemaFence).toEqual({ reason: "client-superseded" });
-    firstRegistry.destroyAll();
+    await firstRegistry.closeAccountRuntime();
     const providerCount = providers.length;
 
     const secondRegistry = await registryFor("account-schema");

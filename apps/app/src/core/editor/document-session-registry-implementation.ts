@@ -10,7 +10,7 @@ import type {
   LiveDocumentSessionLease,
 } from "@meridian/contracts/protocol";
 import { parseYjsRoomName } from "@meridian/contracts/protocol";
-import type { DocumentId, ProjectId, UserId } from "@meridian/contracts/runtime";
+import type { DocumentId, ProjectId } from "@meridian/contracts/runtime";
 
 import { createHocuspocusDocumentTransport } from "@/core/transport/hocuspocus-document-transport";
 import type { DocumentSessionTransportFactory } from "./document-session";
@@ -55,6 +55,14 @@ type LocalTransferReservation = {
   settle(): void;
 };
 
+type AdoptionFinalizer = {
+  closeProvider(): Promise<void>;
+  releaseLease(): Promise<void>;
+  providerClosed: boolean;
+  leaseReleased: boolean;
+  inFlight: Promise<void> | null;
+};
+
 function localTransferKey(projectId: ProjectId, documentId: DocumentId): string {
   return `${encodeURIComponent(projectId)}:${encodeURIComponent(documentId)}`;
 }
@@ -87,8 +95,6 @@ export class DocumentSessionRegistry
 {
   private accountId: AccountId | null = null;
   private coordination: DocumentSessionCrossContextCoordination | null = null;
-  private accountTransition: Promise<void> = Promise.resolve();
-  private accountTransitionVersion = 0;
   private authorityFailure: unknown = null;
   private accountRuntimeState: "open" | "closing" = "open";
   private invalidationPromise: Promise<void> | null = null;
@@ -101,7 +107,7 @@ export class DocumentSessionRegistry
   private readonly retainedBranchRoomsByOwner = new Map<string, Set<string>>();
   private readonly admissionReservations = new Map<DocumentId, number>();
   private readonly localTransferReservations = new Map<string, LocalTransferReservation>();
-  private readonly pendingAdoptionFinalizers = new Set<() => Promise<void>>();
+  private readonly pendingAdoptionFinalizers = new Set<AdoptionFinalizer>();
   private readonly pendingTeardownTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private liveDocCapWarningEmitted = false;
   private readonly sessionObservers = new Map<
@@ -421,16 +427,20 @@ export class DocumentSessionRegistry
         }>,
     );
     const session = reservation.transfer.session;
-    const finalize = async () => {
-      await cleanup.closePrevious?.();
-      await reservation.transfer.finalize();
+    const finalizer: AdoptionFinalizer = {
+      closeProvider: () => cleanup.closePrevious?.() ?? Promise.resolve(),
+      releaseLease: () => reservation.transfer.finalize(),
+      providerClosed: false,
+      leaseReleased: false,
+      inFlight: null,
     };
+    this.pendingAdoptionFinalizers.add(finalizer);
     try {
-      await finalize();
+      await this.settleAdoptionFinalizer(finalizer);
+      this.pendingAdoptionFinalizers.delete(finalizer);
     } catch {
       // Canonical authority already committed. Retain the finalizer (and HL)
       // for a later open/teardown retry rather than misreporting adoption.
-      this.pendingAdoptionFinalizers.add(finalize);
     }
     try {
       this.attachSessionTransport(session);
@@ -450,10 +460,11 @@ export class DocumentSessionRegistry
 
   closeAccountRuntime(): Promise<void> {
     this.beginCloseAccountRuntime();
-    this.accountTransitionVersion += 1;
-    const coordination = this.coordination;
-    this.coordination = null;
-    return this.retryAdoptionFinalizers().then(() => coordination?.close() ?? this.invalidateAll());
+    return this.retryAdoptionFinalizers().then(async () => {
+      const coordination = this.coordination;
+      await (coordination?.close() ?? this.invalidateAll());
+      if (this.coordination === coordination) this.coordination = null;
+    });
   }
 
   peekLive(lease: LiveDocumentSessionLease): DocumentSession | undefined {
@@ -470,63 +481,6 @@ export class DocumentSessionRegistry
   ): () => void {
     this.requireLease(lease);
     return this.observeRoom(lease.documentId, observer);
-  }
-
-  setOwnUserId(userId: UserId): void {
-    if (this.accountId === userId) return;
-    this.clearRetainedLiveDocuments();
-    const transitionVersion = ++this.accountTransitionVersion;
-    const previous = this.coordination;
-    this.accountId = userId;
-    this.coordination = null;
-    this.authorityFailure = null;
-    const closePrevious = (previous?.close() ?? this.invalidateAll()).then(
-      () => ({ ok: true as const }),
-      (error: unknown) => ({ ok: false as const, error }),
-    );
-    const transition = this.accountTransition
-      .catch(() => undefined)
-      .then(async () => {
-        const closed = await closePrevious;
-        if (!closed.ok) throw closed.error;
-        if (this.accountId !== userId || this.accountTransitionVersion !== transitionVersion)
-          return;
-        try {
-          this.coordination = this.createCoordination(userId, this);
-        } catch (error) {
-          this.authorityFailure = error;
-        }
-      });
-    this.accountTransition = transition;
-  }
-
-  destroyAll(): void {
-    this.clearRetainedLiveDocuments();
-    this.accountTransitionVersion += 1;
-    const captured = this.coordination;
-    this.coordination = null;
-    const capturedClose = captured?.close().then(
-      () => ({ ok: true as const }),
-      (error: unknown) => ({ ok: false as const, error }),
-    );
-    const transition = this.accountTransition
-      .catch(() => undefined)
-      .then(async () => {
-        const current = this.coordination;
-        this.coordination = null;
-        if (current && current !== captured) {
-          await current.close();
-          return;
-        }
-        if (capturedClose) {
-          const closed = await capturedClose;
-          if (!closed.ok) throw closed.error;
-        } else {
-          await this.invalidateAll();
-        }
-      });
-    this.accountTransition = transition;
-    void transition.catch(() => undefined);
   }
 
   invalidateAll(): Promise<void> {
@@ -569,7 +523,6 @@ export class DocumentSessionRegistry
   }
 
   private async configuredCoordination(): Promise<DocumentSessionCrossContextCoordination> {
-    await this.accountTransition;
     if (!this.accountId) {
       throw new DocumentSessionAuthorityError(
         "account-unconfigured",
@@ -715,7 +668,7 @@ export class DocumentSessionRegistry
       if (attach && state.session.getSnapshot().status === "detached") {
         this.attachSessionTransport(state.session);
       }
-      void this.retryAdoptionFinalizers();
+      void this.retryAdoptionFinalizers().catch(() => undefined);
       return state.session;
     }
     state.persistenceGeneration ??= lease.generation;
@@ -770,14 +723,36 @@ export class DocumentSessionRegistry
 
   private async retryAdoptionFinalizers(): Promise<void> {
     const pending = [...this.pendingAdoptionFinalizers];
+    const failures: unknown[] = [];
     for (const finalize of pending) {
       try {
-        await finalize();
+        await this.settleAdoptionFinalizer(finalize);
         this.pendingAdoptionFinalizers.delete(finalize);
-      } catch {
+      } catch (error) {
         // The exact finalizer remains owned for the next canonical retry.
+        failures.push(error);
       }
     }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) throw new AggregateError(failures, "Adoption finalization failed");
+  }
+
+  private settleAdoptionFinalizer(finalizer: AdoptionFinalizer): Promise<void> {
+    if (finalizer.inFlight) return finalizer.inFlight;
+    const attempt = (async () => {
+      if (!finalizer.providerClosed) {
+        await finalizer.closeProvider();
+        finalizer.providerClosed = true;
+      }
+      if (!finalizer.leaseReleased) {
+        await finalizer.releaseLease();
+        finalizer.leaseReleased = true;
+      }
+    })().finally(() => {
+      if (finalizer.inFlight === attempt) finalizer.inFlight = null;
+    });
+    finalizer.inFlight = attempt;
+    return attempt;
   }
 
   private removeRetainedProjectLease(projectId: ProjectId, documentId: DocumentId): boolean {

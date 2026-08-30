@@ -12,8 +12,11 @@ Yjs document session. It must stay structurally aligned with
   enforced, so a node or attr added on either side is a two-file change.
 - Collaboration uses the shared `PROSEMIRROR_FRAGMENT_NAME` Y.XmlFragment. Do
   not create a second fragment name or a second editor sync path.
-- The account document-session runtime owns one registry. Live rooms are acquired
-  only through project-qualified availability leases and use explicit
+- The account document-session runtime constructs the only production registry
+  for one immutable account epoch. Account close fences admission synchronously,
+  then drains local providers, lifetime leases, and adopted-session finalizers
+  before the epoch can close. Live rooms are acquired only through
+  project-qualified availability leases and use explicit
   account/document/generation persistence; review rooms use the opaque,
   generation-fenced `reviewRoomName` vended by the preview. Switching live ↔
   review is a session identity change and must remount the TipTap editor because

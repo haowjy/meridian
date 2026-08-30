@@ -13,8 +13,7 @@ import {
 describe("DocumentSessionRegistry authority admission", () => {
   it("fails before lease or session creation when Web Locks are unavailable", async () => {
     vi.stubGlobal("navigator", { ...navigator, locks: undefined });
-    const registry = new DocumentSessionRegistry(undefined, 0);
-    registry.setOwnUserId("account-no-web-locks");
+    const registry = new DocumentSessionRegistry(undefined, 0, "account-no-web-locks");
     await expect(admit(registry, "project", "doc", "1")).rejects.toEqual(
       expectAuthorityError("authority-unavailable"),
     );
@@ -42,7 +41,7 @@ describe("DocumentSessionRegistry authority admission", () => {
     registry.release("owner");
     expect(snapshots.at(-1)).toEqual([]);
     stop();
-    registry.destroyAll();
+    await registry.closeAccountRuntime();
   });
 
   it("shares one room, Y.Doc, and first persistence generation across project leases", async () => {
@@ -61,7 +60,7 @@ describe("DocumentSessionRegistry authority admission", () => {
     expect(await databaseNames()).not.toContain(
       documentSessionPersistenceKey("account-shared", "doc-shared", "14"),
     );
-    registry.destroyAll();
+    await registry.closeAccountRuntime();
   });
 
   it("revokes only B access while A retains the room, then globally revokes both", async () => {
@@ -213,6 +212,6 @@ describe("DocumentSessionRegistry authority admission", () => {
     });
     expect(await databaseNames()).not.toContain(oldName);
     expect(await databaseNames()).toContain(documentSessionPersistenceKey(accountId, "doc", "6"));
-    registry.destroyAll();
+    await registry.closeAccountRuntime();
   });
 });

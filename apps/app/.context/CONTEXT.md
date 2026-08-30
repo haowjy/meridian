@@ -196,8 +196,12 @@ Both HTTP snapshot callers must pass `nextSeq`. An unsequenced caller
 ## Authenticated layout shell
 
 `src/routes/_authenticated.tsx` mounts one unconditional provider tree for every
-authenticated route (`AppQueryProvider` → `ProjectStoreProvider` →
-`ThreadStoreProvider` → `TransportProvider` → `MeridianCopilotProvider`). No
+authenticated route (`AppQueryProvider` → `ContextRemovalAccountProvider` →
+`DraftApplyRecoveryProvider` → `ProjectStoreProvider` → `ThreadStoreProvider` →
+`TransportProvider` → `MeridianCopilotProvider`).
+`ContextRemovalAccountProvider` owns the immutable
+account document-session epoch; authenticated render does not configure a
+module-global registry. No
 pathname-based provider gating — conditional light↔workspace branches previously
 dropped `ThreadStoreProvider` during transitions.
 

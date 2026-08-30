@@ -14,6 +14,14 @@ const key = (documentId = "document-a"): LocalUntitledKey => ({
   documentId,
 });
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 function fixture() {
   const records = new Map<string, LocalUntitledRecord>();
   const releases: string[] = [];
@@ -129,6 +137,40 @@ describe("LocalUntitledOwner", () => {
     expect(f.owner.getDetached(key())?.session).toBe(f.session);
     expect(f.records.has("project-a:document-b")).toBe(false);
     expect(f.releases).toEqual([]);
+  });
+
+  it("aborts a staged remint that resumes after account teardown", async () => {
+    const f = fixture();
+    const staging = deferred<{
+      commit(): { closePrevious(): Promise<void> };
+      abort(): Promise<void>;
+    }>();
+    const commit = vi.fn(() => ({ closePrevious: async () => undefined }));
+    const abort = vi.fn(async () => undefined);
+    vi.mocked(f.session.prepareDetachedReidentity).mockReturnValueOnce(staging.promise);
+    await f.owner.create(key());
+
+    const remint = f.owner.remint(key(), key("document-b"));
+    await vi.waitFor(() => expect(f.dependencies.lifetime.tryAcquire).toHaveBeenCalledTimes(2));
+    vi.mocked(f.dependencies.reservations.reserve).mockImplementation(() => {
+      throw new Error("Account document session runtime is closing");
+    });
+    await f.owner.destroyAll();
+    expect(f.releases).toEqual(["document-a"]);
+
+    staging.resolve({ commit, abort });
+    await expect(remint).rejects.toThrow(/closing/);
+    expect(abort).toHaveBeenCalledOnce();
+    expect(commit).not.toHaveBeenCalled();
+    expect(f.releases).toEqual(["document-a", "document-b"]);
+    expect(f.dependencies.reservations.reserve).not.toHaveBeenCalled();
+    expect(f.records.get("project-a:document-a")).toMatchObject({ active: true, revision: 1 });
+    expect(f.records.has("project-a:document-b")).toBe(false);
+    expect(f.owner.getDetached(key("document-b"))).toBeNull();
+
+    await f.owner.destroyAll();
+    expect(f.session.destroy).toHaveBeenCalledOnce();
+    expect(f.releases).toEqual(["document-a", "document-b"]);
   });
 
   it("redirects a stale crash-restored identity to the highest active lineage revision", async () => {
