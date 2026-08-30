@@ -28,6 +28,11 @@ export type LocalUntitledKey = Readonly<{
   documentId: DocumentId;
 }>;
 
+export type LocalUntitledCreateSettlement =
+  | { kind: "ready" }
+  | { kind: "confirmation-required" }
+  | { kind: "confirmed"; result: CreateUntitledContextDocumentResponse };
+
 export type LocalUntitledRecord = Readonly<{
   key: LocalUntitledKey;
   lineageId: string;
@@ -38,8 +43,7 @@ export type LocalUntitledRecord = Readonly<{
   phase: "local-pending" | "adopted-live";
   home: LocalUntitledHome | null;
   desiredIdentity?: DesiredIdentity;
-  materializedResult?: CreateUntitledContextDocumentResponse;
-  createSettlement?: "ambiguous";
+  createSettlement: LocalUntitledCreateSettlement;
   failure?: LocalUntitledIdentityFailure;
   pendingSinceMs?: number | null;
 }>;
@@ -68,12 +72,16 @@ function isRecord(value: unknown): value is LocalUntitledRecord {
   if (!value || typeof value !== "object") return false;
   const record = value as Partial<LocalUntitledRecord>;
   const key = record.key as Partial<LocalUntitledKey> | undefined;
+  const settlement = record.createSettlement as Partial<LocalUntitledCreateSettlement> | undefined;
   return (
     typeof key?.accountId === "string" &&
     typeof key.projectId === "string" &&
     typeof key.documentId === "string" &&
     typeof record.lineageId === "string" &&
     Number.isSafeInteger(record.revision) &&
+    (settlement?.kind === "ready" ||
+      settlement?.kind === "confirmation-required" ||
+      (settlement?.kind === "confirmed" && typeof settlement.result === "object")) &&
     (record.phase === "local-pending" || record.phase === "adopted-live")
   );
 }

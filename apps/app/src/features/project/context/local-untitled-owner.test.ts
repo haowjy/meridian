@@ -113,7 +113,7 @@ describe("LocalUntitledOwner", () => {
     const replacement = await f.owner.remint(key(), key("document-b"));
     expect(replacement.session).toBe(f.session);
     expect(f.releases).toEqual(["document-a"]);
-    expect(f.records.get("project-a:document-a")).toMatchObject({ active: false });
+    expect(f.records.has("project-a:document-a")).toBe(false);
     expect(f.records.get("project-a:document-b")).toMatchObject({
       active: true,
       lineageId: "lineage-a",
@@ -134,8 +134,11 @@ describe("LocalUntitledOwner", () => {
   it("redirects a stale crash-restored identity to the highest active lineage revision", async () => {
     const f = fixture();
     await f.owner.create(key());
+    vi.mocked(f.session.prepareDetachedReidentity).mockResolvedValueOnce({
+      commit: () => ({ closePrevious: async () => Promise.reject(new Error("close failed")) }),
+      abort: async () => undefined,
+    });
     await f.owner.remint(key(), key("document-b"));
-    await f.owner.destroyAll();
     const restored = new LocalUntitledOwner(f.dependencies);
     await expect(restored.restore(key())).rejects.toEqual(
       expect.objectContaining<Partial<LocalUntitledIdentityRedirect>>({
@@ -229,7 +232,7 @@ describe("LocalUntitledOwner", () => {
     expect(events.indexOf("new-close")).toBeLessThan(events.indexOf("release:document-b"));
   });
 
-  it("attempts every provider and lease and aggregates teardown failures", async () => {
+  it("retries failed provider teardown without releasing its HL or repeating settled keys", async () => {
     const f = fixture();
     const destroy = vi.mocked(f.session.destroy);
     destroy.mockRejectedValueOnce(new Error("provider-a"));
@@ -237,6 +240,43 @@ describe("LocalUntitledOwner", () => {
     await f.owner.create(key("b"));
     await expect(f.owner.destroyAll()).rejects.toThrow("Local Untitled teardown failed");
     expect(destroy).toHaveBeenCalledTimes(2);
-    expect(f.releases).toEqual(["a", "b"]);
+    expect(f.releases).toEqual(["b"]);
+
+    await expect(f.owner.destroyAll()).resolves.toBeUndefined();
+    expect(destroy).toHaveBeenCalledTimes(3);
+    expect(f.releases).toEqual(["b", "a"]);
+  });
+
+  it("retries only a failed lease stage after provider close succeeds", async () => {
+    const f = fixture();
+    let releaseCalls = 0;
+    vi.mocked(f.dependencies.lifetime.tryAcquire).mockResolvedValueOnce({
+      release: async () => {
+        releaseCalls += 1;
+        if (releaseCalls === 1) throw new Error("lease failed");
+        f.releases.push("document-a");
+      },
+    });
+    await f.owner.create(key());
+
+    await expect(f.owner.destroyAll()).rejects.toThrow("Local Untitled teardown failed");
+    expect(f.session.destroy).toHaveBeenCalledOnce();
+    await f.owner.destroyAll();
+    expect(f.session.destroy).toHaveBeenCalledOnce();
+    expect(releaseCalls).toBe(2);
+  });
+
+  it("does not make unrelated admission await a failed finalizer", async () => {
+    const f = fixture();
+    await f.owner.create(key("a"));
+    vi.mocked(f.session.destroy).mockRejectedValue(new Error("A close failed"));
+    await expect(
+      f.owner.abandon({ key: key("a"), expectedRevision: 1, evidence: "server-row-absent" }),
+    ).rejects.toThrow("A close failed");
+
+    await expect(f.owner.create(key("b"))).resolves.toMatchObject({ kind: "opened" });
+    expect(f.session.destroy).toHaveBeenCalledOnce();
+    expect(f.releases).toEqual([]);
+    expect(f.records.has("project-a:a")).toBe(true);
   });
 });

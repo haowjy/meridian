@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+- `apps/app`: make local Untitled cleanup key-isolated and retryable without
+  releasing browser lifetime ownership before provider close, and make create
+  settlement crash-durable through project-final identity confirmation.
+
 - `database`, `contracts`, `apps/server`, `apps/app`: add the authoritative
   Context metadata catalog with command-owned atomic metadata publication,
   persisted tracked, custom, and binary classification, checkpoint-consistent

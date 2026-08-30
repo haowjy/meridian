@@ -22,6 +22,7 @@ import type { LocalDocumentSessionHandoff } from "@/core/editor/local-document-s
 import { createContextIdentityMutationService } from "../context-identity-mutation";
 import type { DesiredIdentity } from "../identity-location";
 import type { LocalUntitledRecord } from "../local-untitled-record-store";
+import type { ProjectDocumentOpenResolution } from "../project-context-availability-coordinator";
 import {
   type PendingUntitled,
   type ReconciliationRecord,
@@ -157,6 +158,40 @@ export class LifecycleSession {
 type ResolvedEntry = PendingUntitled & { home: UntitledHome };
 type MoveSource = CreateUntitledContextDocumentResponse;
 
+export function availableResolution(
+  documentId = "doc-1",
+  options: { workId?: string; path?: string[]; scheme?: "scratch" | "manuscript" } = {},
+): ProjectDocumentOpenResolution {
+  const scheme = options.scheme ?? "scratch";
+  const path = options.path ?? ["Untitled"];
+  const workId = options.workId ?? "work-1";
+  return {
+    kind: "available",
+    documentId,
+    generation: "1",
+    authority: { kind: "work", projectId: "project-1", workId, workSlug: "work-1" as never },
+    entry: {
+      kind: "file",
+      entryId: documentId,
+      scope: { kind: "work", projectId: "project-1", workId },
+      sourceId: "source" as never,
+      parentId: "source" as never,
+      name: path.at(-1) ?? "Untitled",
+      aliases: [],
+      path,
+      uri: `${scheme}://@work-1/${path.join("/")}` as never,
+      provisionalName: true,
+      editable: true,
+      filetype: "markdown",
+      schemaType: "document",
+    },
+  };
+}
+
+export function noRowResolution(documentId = "doc-1"): ProjectDocumentOpenResolution {
+  return { kind: "not-visible", documentId, checkedGeneration: "1" };
+}
+
 export class UntitledLifecycleRig {
   readonly queryClient = new QueryClient();
   readonly storage = new Map<string, string>();
@@ -172,6 +207,7 @@ export class UntitledLifecycleRig {
   readonly identities: MoveContextEntrySuccess[] = [];
   readonly reminted: string[] = [];
   readonly reservationEvents: string[] = [];
+  readonly settlementEvents: string[] = [];
   readonly reservations = new Map<string, LocalDocumentSessionHandoff>();
 
   readonly home = new OutcomePlan<[string], UntitledHome | null>(async () => UNTITLED_HOME);
@@ -184,7 +220,9 @@ export class UntitledLifecycleRig {
       name: "Untitled",
     }),
   );
-  readonly exists = new OutcomePlan<[ResolvedEntry], boolean>(async () => false);
+  readonly confirmation = new OutcomePlan<[ResolvedEntry], ProjectDocumentOpenResolution>(
+    async (entry) => noRowResolution(entry.documentId),
+  );
   readonly move = new OutcomePlan<
     [ResolvedEntry, MoveSource, DesiredIdentity],
     MoveContextEntryResult
@@ -227,6 +265,7 @@ export class UntitledLifecycleRig {
           phase: "local-pending",
           home: null,
           pendingSinceMs: null,
+          createSettlement: { kind: "ready" },
         };
         this.durableRecords.set(key, record);
         this.session(documentId, "words", projectId);
@@ -251,20 +290,15 @@ export class UntitledLifecycleRig {
       },
       api: {
         resolveHome: this.home.run,
-        create: this.create.run,
-        confirmCreate: async (entry) =>
-          (await this.exists.run(entry))
-            ? {
-                status: "present" as const,
-                result: {
-                  status: "already-materialized" as const,
-                  documentId: entry.documentId,
-                  scheme: "scratch" as const,
-                  path: "/Untitled",
-                  name: "Untitled",
-                },
-              }
-            : { status: "definite-no-row" as const },
+        create: async (entry) => {
+          this.settlementEvents.push(`post:${entry.documentId}`);
+          return this.create.run(entry);
+        },
+        materialized: async () => undefined,
+        confirmCreate: async (entry) => {
+          this.settlementEvents.push(`confirm:${entry.documentId}`);
+          return this.confirmation.run(entry);
+        },
         move: this.move.run,
         lookupGeneration: async (_projectId, documentId) => {
           this.lifecycleEvents.push(`lookup:${documentId}`);
@@ -275,8 +309,10 @@ export class UntitledLifecycleRig {
         accountId: "account-1",
         list: () => [...this.durableRecords.values()],
         read: (projectId, documentId) => ensureRecord(projectId, documentId),
-        write: (record) =>
-          this.durableRecords.set(durableKey(record.key.projectId, record.key.documentId), record),
+        write: (record) => {
+          this.settlementEvents.push(`persist:${record.createSettlement.kind}`);
+          this.durableRecords.set(durableKey(record.key.projectId, record.key.documentId), record);
+        },
         remove: (projectId, documentId) => {
           this.durableRecords.delete(durableKey(projectId, documentId));
         },
@@ -297,6 +333,7 @@ export class UntitledLifecycleRig {
           const handoff = Object.freeze({}) as LocalDocumentSessionHandoff;
           reservations.set(reservationKey, handoff);
           this.reservationEvents.push(`reserve:${reservationKey}`);
+          this.settlementEvents.push(`reserve:${documentId}`);
           return handoff;
         },
         abort: (projectId, documentId, handoff) => {
@@ -306,6 +343,7 @@ export class UntitledLifecycleRig {
           }
         },
         open: async (input) => {
+          this.settlementEvents.push(`admit:${input.documentId}`);
           const session = this.session(input.documentId, "words", input.projectId);
           const record = this.durableRecords.get(durableKey(input.projectId, input.documentId));
           if (record && input.source === "local-untitled") {
@@ -395,7 +433,6 @@ export class UntitledLifecycleRig {
       phase: record.materialization.phase === "pending" ? "local-pending" : "adopted-live",
       home: entry?.home ?? null,
       desiredIdentity: record.desiredIdentity,
-      materializedResult: record.materializedResult,
       createSettlement: record.createSettlement,
       failure: record.failure,
       pendingSinceMs: record.pendingSinceMs,
@@ -465,6 +502,7 @@ export class UntitledLifecycleRig {
         phase: "local-pending",
         home: null,
         pendingSinceMs: null,
+        createSettlement: { kind: "ready" },
       });
     }
     this.session(documentId, "words", projectId);
@@ -485,6 +523,7 @@ export class UntitledLifecycleRig {
         phase: "local-pending",
         home: UNTITLED_HOME,
         pendingSinceMs: Date.now(),
+        createSettlement: { kind: "ready" },
       });
       this.session(documentId);
     }
@@ -531,7 +570,6 @@ export class UntitledLifecycleRig {
               }
             : { phase: "synced" as const },
         desiredIdentity: record.desiredIdentity,
-        materializedResult: record.materializedResult,
         createSettlement: record.createSettlement,
         failure: record.failure,
         pendingSinceMs: record.pendingSinceMs ?? null,

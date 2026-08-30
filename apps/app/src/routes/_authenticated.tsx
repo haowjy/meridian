@@ -30,6 +30,7 @@ import { installTraceCapture } from "@/features/debug/trace/install-trace-captur
 import {
   ContextRemovalAccountProvider,
   useLocalUntitledOwner,
+  useProjectContextAvailabilityCoordinator,
   useProjectDocumentLiveOpener,
 } from "@/features/project/context/ContextRemovalAccountProvider";
 import { createContextIdentityMutationService } from "@/features/project/context/context-identity-mutation";
@@ -191,6 +192,7 @@ function AuthenticatedProviderTree({
   const queryClient = useQueryClient();
   const localUntitled = useLocalUntitledOwner();
   const liveOpener = useProjectDocumentLiveOpener();
+  const availability = useProjectContextAvailabilityCoordinator();
   const untitledReconciler = useMemo(
     () =>
       typeof window === "undefined"
@@ -199,8 +201,9 @@ function AuthenticatedProviderTree({
             createContextIdentityMutationService(queryClient),
             localUntitled,
             liveOpener,
+            availability,
           ),
-    [queryClient, localUntitled, liveOpener],
+    [queryClient, localUntitled, liveOpener, availability],
   );
 
   // Browser persistence is initialized only after the Query composition root

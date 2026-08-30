@@ -3,13 +3,16 @@
 import { useSyncExternalStore } from "react";
 import { createUntitledContextDocument } from "@/client/api/projects-api";
 import { lookupProjectContextAvailability } from "@/client/query/project-context-availability";
-import { lookupContextCatalogFile } from "@/client/query/useContextCatalog";
 import { useContextTabsStore } from "@/client/stores";
 import type { ContextIdentityMutationService } from "./context-identity-mutation";
 import type { DesiredIdentity } from "./identity-location";
 import type { LocalUntitledOwner } from "./local-untitled-owner";
 import { LocalUntitledIdentityRedirect } from "./local-untitled-owner";
 import type { ProjectDocumentLiveOpener } from "./open-project-document";
+import type {
+  ProjectContextAvailabilityCoordinator,
+  ProjectDocumentOpenResolution,
+} from "./project-context-availability-coordinator";
 import {
   type PendingUntitled,
   type QueuedIdentityFailure,
@@ -22,6 +25,7 @@ function browserDeps(
   identityMutations: ContextIdentityMutationService,
   localOwner: LocalUntitledOwner,
   opener: ProjectDocumentLiveOpener,
+  availability: ProjectContextAvailabilityCoordinator,
 ): UntitledReconcilerDeps {
   const localKey = (projectId: string, documentId: string) => ({
     accountId: localOwner.accountId,
@@ -101,7 +105,7 @@ function browserDeps(
     api: {
       resolveHome: resolveUntitledCatalogHome,
       async create(entry) {
-        const result = await createUntitledContextDocument(
+        return createUntitledContextDocument(
           entry.projectId,
           entry.home.scheme,
           {
@@ -110,32 +114,10 @@ function browserDeps(
           },
           { workId: entry.home.workId },
         );
-        if (result.status !== "conflict") {
-          await identityMutations.materialized(entry.projectId, result);
-        }
-        return result;
       },
+      materialized: (projectId, result) => identityMutations.materialized(projectId, result),
       async confirmCreate(entry) {
-        const file = await lookupContextCatalogFile(
-          entry.projectId,
-          entry.home.scheme,
-          entry.home.workId,
-          { entryId: entry.documentId },
-        );
-        if (!file) return { status: "definite-no-row" };
-        const result = {
-          status: "already-materialized" as const,
-          documentId: entry.documentId,
-          scheme: entry.home.scheme,
-          path: file.path.startsWith("/") ? file.path : `/${file.path}`,
-          name: file.name,
-          workId: entry.home.workId,
-        };
-        await identityMutations.materialized(entry.projectId, result);
-        return {
-          status: "present",
-          result,
-        };
+        return confirmUntitledCreate(availability, entry.projectId, entry.documentId);
       },
       async move(entry, source, desired: DesiredIdentity) {
         const { result } = await identityMutations.move(
@@ -162,6 +144,14 @@ function browserDeps(
   };
 }
 
+export function confirmUntitledCreate(
+  availability: Pick<ProjectContextAvailabilityCoordinator, "resolveForOpen">,
+  projectId: string,
+  documentId: string,
+): Promise<ProjectDocumentOpenResolution> {
+  return availability.resolveForOpen(projectId, documentId);
+}
+
 export async function resolveUntitledCatalogHome(_projectId: string) {
   return resolveUntitledHome(null);
 }
@@ -174,11 +164,14 @@ export function getUntitledReconciler(
   identityMutations?: ContextIdentityMutationService,
   localOwner?: LocalUntitledOwner,
   opener?: ProjectDocumentLiveOpener,
+  availability?: ProjectContextAvailabilityCoordinator,
 ): UntitledReconciler {
-  if (localOwner && identityMutations && opener && typeof window !== "undefined") {
+  if (localOwner && identityMutations && opener && availability && typeof window !== "undefined") {
     let account = accountReconcilers.get(localOwner);
     if (!account) {
-      account = new UntitledReconciler(browserDeps(identityMutations, localOwner, opener));
+      account = new UntitledReconciler(
+        browserDeps(identityMutations, localOwner, opener, availability),
+      );
       accountReconcilers.set(localOwner, account);
     }
     shared = account;

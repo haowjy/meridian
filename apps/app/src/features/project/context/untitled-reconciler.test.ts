@@ -8,9 +8,11 @@ import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { testWorkSlug } from "@/test-support/work-slug";
 import {
+  availableResolution,
   documentWithText,
   LifecycleSession,
   lifecycleGate,
+  noRowResolution,
   UNTITLED_HOME,
   UntitledLifecycleRig,
 } from "./test-support/UntitledLifecycleRig";
@@ -63,14 +65,14 @@ describe("untitled reconciler lifecycle", () => {
   it("keeps the exact reservation after committed create response loss", async () => {
     const rig = new UntitledLifecycleRig();
     rig.create.enqueueError(new TypeError("response lost after commit"));
-    rig.exists.enqueueResult(true);
+    rig.confirmation.enqueueResult(availableResolution());
     rig.start();
     rig.append("doc-1");
 
     await rig.advance();
     expect(rig.isReserved("project-1", "doc-1")).toBe(true);
     expect(rig.reservationEvents).toEqual(["reserve:project-1:doc-1"]);
-    expect(rig.records()[0]?.createSettlement).toBe("ambiguous");
+    expect(rig.records()[0]?.createSettlement).toEqual({ kind: "confirmation-required" });
 
     await rig.retry();
     expect(rig.create.calls).toHaveLength(1);
@@ -81,7 +83,7 @@ describe("untitled reconciler lifecycle", () => {
   it("aborts only after exact no-row proof and permits a fresh create", async () => {
     const rig = new UntitledLifecycleRig();
     rig.create.enqueueError(new TypeError("request rejected"));
-    rig.exists.enqueueResult(false);
+    rig.confirmation.enqueueResult(noRowResolution());
     rig.start();
     rig.append("doc-1");
 
@@ -96,6 +98,125 @@ describe("untitled reconciler lifecycle", () => {
     expect(rig.records()).toEqual([]);
   });
 
+  it("survives dispatch and admission crashes across three realms without reposting", async () => {
+    const rig = new UntitledLifecycleRig();
+    const dispatchGate = lifecycleGate<CreateUntitledContextDocumentResponse>();
+    rig.create.enqueueHandler(() => dispatchGate.promise);
+    rig.start();
+    rig.append("doc-1");
+
+    await rig.advance();
+    expect(rig.settlementEvents).toEqual(
+      expect.arrayContaining(["reserve:doc-1", "persist:confirmation-required", "post:doc-1"]),
+    );
+    expect(rig.settlementEvents.indexOf("reserve:doc-1")).toBeLessThan(
+      rig.settlementEvents.indexOf("persist:confirmation-required"),
+    );
+    expect(rig.settlementEvents.indexOf("persist:confirmation-required")).toBeLessThan(
+      rig.settlementEvents.indexOf("post:doc-1"),
+    );
+
+    const admissionGate = lifecycleGate<void>();
+    const open = rig.deps.localOwner.open;
+    rig.deps.localOwner.open = async (input) => {
+      rig.settlementEvents.push(`admit-attempt:${input.documentId}`);
+      await admissionGate.promise;
+      return open(input);
+    };
+    rig.confirmation.enqueueResult(
+      availableResolution("doc-1", {
+        scheme: "manuscript",
+        workId: "work-moved",
+        path: ["Moved", "Chapter.md"],
+      }),
+    );
+    rig.restart();
+    await rig.advance();
+
+    expect(rig.create.calls).toHaveLength(1);
+    expect(rig.confirmation.calls).toHaveLength(1);
+    expect(rig.records()[0]?.createSettlement).toMatchObject({
+      kind: "confirmed",
+      result: {
+        scheme: "manuscript",
+        path: "/Moved/Chapter.md",
+        workId: "work-moved",
+      },
+    });
+    expect(rig.settlementEvents.indexOf("confirm:doc-1")).toBeLessThan(
+      rig.settlementEvents.indexOf("persist:confirmed"),
+    );
+    expect(rig.settlementEvents.indexOf("persist:confirmed")).toBeLessThan(
+      rig.settlementEvents.indexOf("admit-attempt:doc-1"),
+    );
+
+    rig.deps.localOwner.open = open;
+    rig.restart();
+    await rig.advance();
+
+    expect(rig.create.calls).toHaveLength(1);
+    expect(rig.confirmation.calls).toHaveLength(1);
+    expect(rig.records()).toEqual([]);
+  });
+
+  it.each([
+    {
+      name: "deleted",
+      outcome: {
+        kind: "deleted",
+        documentId: "doc-1",
+        generation: "1",
+        lastAuthority: { kind: "none", projectId: "project-1" },
+      },
+    },
+    {
+      name: "authority-unavailable",
+      outcome: {
+        kind: "authority-unavailable",
+        documentId: "doc-1",
+        generation: "1",
+        authority: { kind: "none", projectId: "project-1" },
+        reason: "project_deleted",
+      },
+    },
+    {
+      name: "indeterminate",
+      outcome: {
+        kind: "indeterminate",
+        documentId: "doc-1",
+        checkedGeneration: "1",
+        reason: "identity_inconsistent",
+      },
+    },
+    { name: "failed", outcome: { kind: "failed" } },
+    { name: "malformed", outcome: { kind: "malformed" } },
+  ] as const)("preserves confirmation-required on $name", async ({ outcome }) => {
+    const rig = new UntitledLifecycleRig();
+    rig.create.enqueueError(new TypeError("response lost"));
+    rig.confirmation.enqueueResult(outcome);
+    rig.start();
+    rig.append("doc-1");
+    await rig.advance();
+    await rig.retry();
+
+    expect(rig.create.calls).toHaveLength(1);
+    expect(rig.isReserved("project-1", "doc-1")).toBe(true);
+    expect(rig.records()[0]?.createSettlement).toEqual({ kind: "confirmation-required" });
+  });
+
+  it("preserves confirmation-required when project-final confirmation transport fails", async () => {
+    const rig = new UntitledLifecycleRig();
+    rig.create.enqueueError(new TypeError("response lost"));
+    rig.confirmation.enqueueError(new TypeError("offline"));
+    rig.start();
+    rig.append("doc-1");
+    await rig.advance();
+    await rig.retry();
+
+    expect(rig.create.calls).toHaveLength(1);
+    expect(rig.records()[0]?.createSettlement).toEqual({ kind: "confirmation-required" });
+  });
+
   it("rehydrates durable work once and tears down online and retry scheduling", async () => {
     const rig = new UntitledLifecycleRig();
     rig.seedRecord({
@@ -106,6 +227,7 @@ describe("untitled reconciler lifecycle", () => {
         phase: "pending",
         entry: { documentId: "doc-1", projectId: "project-1" },
       },
+      createSettlement: { kind: "ready" },
       pendingSinceMs: 0,
     });
     rig.home.setFallback(async () => null);
@@ -210,7 +332,7 @@ describe("empty and denied room recovery", () => {
     rig.append("doc-1");
     await rig.advance();
 
-    expect(rig.exists.calls).toHaveLength(1);
+    expect(rig.confirmation.calls).toHaveLength(1);
     expect(rig.create.calls).toEqual([]);
     expect(rig.records()).toEqual([]);
     expect(rig.clearedRooms).toEqual([]);
@@ -224,17 +346,17 @@ describe("empty and denied room recovery", () => {
     rig.append("doc-1");
     await rig.advance();
 
-    expect(rig.exists.calls).toEqual([]);
+    expect(rig.confirmation.calls).toEqual([]);
     expect(rig.create.calls).toHaveLength(1);
     expect(rig.materialized).toEqual([expect.objectContaining({ documentId: "doc-1" })]);
   });
 
   it("keeps the pending room when the writer types during the no-row check", async () => {
     const rig = new UntitledLifecycleRig();
-    const existsGate = lifecycleGate<boolean>();
+    const confirmationGate = lifecycleGate<ReturnType<typeof noRowResolution>>();
     const session = new LifecycleSession(documentWithText(""));
     rig.replaceSession("doc-1", session);
-    rig.exists.enqueueHandler(() => existsGate.promise);
+    rig.confirmation.enqueueHandler(() => confirmationGate.promise);
     rig.start();
     rig.append("doc-1");
 
@@ -243,7 +365,7 @@ describe("empty and denied room recovery", () => {
     const paragraph = new Y.XmlElement("paragraph");
     paragraph.insert(0, [new Y.XmlText("words typed during the check")]);
     session.document.getXmlFragment("prosemirror").insert(0, [paragraph]);
-    existsGate.resolve(false);
+    confirmationGate.resolve(noRowResolution());
     for (let index = 0; index < 20; index += 1) await Promise.resolve();
 
     expect(rig.records()).toEqual([]);
@@ -254,7 +376,7 @@ describe("empty and denied room recovery", () => {
     const rig = new UntitledLifecycleRig();
     const session = new LifecycleSession(documentWithText(""));
     rig.replaceSession("doc-1", session);
-    rig.exists.enqueueResult(true);
+    rig.confirmation.enqueueResult(availableResolution());
     rig.create.enqueueResult({ ...created(), status: "already-materialized" });
     rig.start();
     rig.append("doc-1");
@@ -409,6 +531,7 @@ describe("queued identity outcomes", () => {
         entry: { documentId: "doc-1", projectId: "project-1", home: UNTITLED_HOME },
       },
       desiredIdentity: OPENING,
+      createSettlement: { kind: "ready" },
       pendingSinceMs: Date.now(),
     });
     rig.move.enqueueError(new TypeError("offline"));

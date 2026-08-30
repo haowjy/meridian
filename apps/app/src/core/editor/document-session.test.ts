@@ -720,18 +720,22 @@ describe("DocumentSession status derivation", () => {
     expect(session.getSnapshot().status).toBe("destroyed");
   });
 
-  it("retains one destroy barrier and completes later teardown after transport rejection", async () => {
+  it("joins one destroy attempt and retries only the rejected transport stage", async () => {
     let rejectTransport!: (error: Error) => void;
     const transportDestroy = new Promise<void>((_resolve, reject) => {
       rejectTransport = reject;
     });
+    const destroyTransport = vi
+      .fn<() => Promise<void>>()
+      .mockReturnValueOnce(transportDestroy)
+      .mockResolvedValue();
     const session = new DocumentSession({
       roomKey: "doc-destroy-rejection",
       persistence: { kind: "none" },
       transportFactory: () => ({
         synced: false,
         subscribeStatus: () => () => undefined,
-        destroy: () => transportDestroy,
+        destroy: destroyTransport,
       }),
     });
     const awarenessDestroy = vi.spyOn(session.awareness, "destroy");
@@ -748,7 +752,9 @@ describe("DocumentSession status derivation", () => {
     await expect(first).rejects.toBe(failure);
     expect(awarenessDestroy).toHaveBeenCalled();
     expect(documentDestroy).toHaveBeenCalledOnce();
-    expect(session.destroy()).toBe(first);
+    await expect(session.destroy()).resolves.toBeUndefined();
+    expect(destroyTransport).toHaveBeenCalledTimes(2);
+    expect(documentDestroy).toHaveBeenCalledOnce();
   });
 
   it("without a transport, remains detached after local persistence loads", () => {

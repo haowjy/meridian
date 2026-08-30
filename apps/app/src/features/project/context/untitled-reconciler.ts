@@ -12,6 +12,7 @@ import type {
   CreateUntitledContextDocumentResult,
   MoveContextEntryResult,
   MoveContextEntrySuccess,
+  ProjectContextIdentityResolution,
   ProjectContextTreeScheme,
 } from "@meridian/contracts/protocol";
 import * as Y from "yjs";
@@ -20,6 +21,7 @@ import type { LocalDocumentSessionHandoff } from "@/core/editor/local-document-s
 import type { DesiredIdentity } from "./identity-location";
 import { encodeLocalUntitledKey, type LocalUntitledRecord } from "./local-untitled-record-store";
 import type { LiveDocumentBinding, ProjectDocumentLiveOpenResult } from "./open-project-document";
+import type { ProjectDocumentOpenResolution } from "./project-context-availability-coordinator";
 
 const RETRY_BASE_MS = 1_000;
 const RETRY_MAX_MS = 30_000;
@@ -94,12 +96,10 @@ type ApiPort = {
   create(
     entry: PendingUntitled & { home: UntitledHome },
   ): Promise<CreateUntitledContextDocumentResult>;
+  materialized(projectId: string, result: CreateUntitledContextDocumentResponse): Promise<void>;
   confirmCreate(
     entry: PendingUntitled & { home: UntitledHome },
-  ): Promise<
-    | { status: "present"; result: CreateUntitledContextDocumentResponse }
-    | { status: "definite-no-row" }
-  >;
+  ): Promise<ProjectDocumentOpenResolution>;
   move(
     entry: PendingUntitled & { home: UntitledHome },
     source: CreateUntitledContextDocumentResponse,
@@ -155,9 +155,10 @@ export type ReconciliationRecord = {
   revision: number;
   materialization: { phase: "pending"; entry: PendingUntitled } | { phase: "synced" };
   desiredIdentity?: DesiredIdentity;
-  materializedResult?: CreateUntitledContextDocumentResponse;
-  /** A create response was lost; only exact lookup may settle this reservation. */
-  createSettlement?: "ambiguous";
+  createSettlement:
+    | { kind: "ready" }
+    | { kind: "confirmation-required" }
+    | { kind: "confirmed"; result: CreateUntitledContextDocumentResponse };
   failure?: QueuedIdentityFailure;
   /** Epoch ms for device-only grace; meaningful only while pending. */
   pendingSinceMs: number | null;
@@ -246,6 +247,7 @@ export class UntitledReconciler {
       documentId: entry.documentId,
       revision: (current?.revision ?? 0) + 1,
       materialization: { phase: "pending", entry },
+      createSettlement: current?.createSettlement ?? { kind: "ready" },
       desiredIdentity: current?.desiredIdentity,
       failure: current?.failure,
       pendingSinceMs: current?.pendingSinceMs ?? Date.now(),
@@ -301,6 +303,7 @@ export class UntitledReconciler {
       documentId: entry.documentId,
       revision: (current?.revision ?? 0) + 1,
       materialization,
+      createSettlement: current?.createSettlement ?? { kind: "ready" },
       desiredIdentity,
       failure: undefined,
       pendingSinceMs: current?.pendingSinceMs ?? Date.now(),
@@ -384,8 +387,12 @@ export class UntitledReconciler {
     const phase = local.phase(projectId, documentId);
     if (phase === "adopted-live") {
       const current = this.pendingRecord(key);
-      if (current?.desiredIdentity && current.materializedResult) {
-        const identity = await this.applyDesiredIdentity(key, entry, current.materializedResult);
+      if (current?.desiredIdentity && current.createSettlement.kind === "confirmed") {
+        const identity = await this.applyDesiredIdentity(
+          key,
+          entry,
+          current.createSettlement.result,
+        );
         const receipt = { result: identity.result, identity: identity.identity };
         const candidate = this.candidates.get(key);
         if (candidate) this.publishMaterialization(candidate, receipt);
@@ -421,41 +428,51 @@ export class UntitledReconciler {
       if (!record) return;
       const empty = untitledDocumentIsEmpty(session.document.getXmlFragment(session.fragmentName));
       let confirmedResult: CreateUntitledContextDocumentResponse | undefined;
-      if (empty && !record.desiredIdentity && !this.candidates.has(key)) {
+      if (
+        record.createSettlement.kind === "ready" &&
+        empty &&
+        !record.desiredIdentity &&
+        !this.candidates.has(key)
+      ) {
         const checkedRevision = record.revision;
         const confirmation = await this.deps.api.confirmCreate(entry);
-        if (confirmation.status === "definite-no-row") {
+        if (confirmation.kind === "not-visible") {
           local.release(ownerId);
           await local.abandon(projectId, documentId, local.revision(projectId, documentId) ?? -1);
           this.drain(key, checkedRevision);
           return;
         }
-        confirmedResult = confirmation.result;
+        if (confirmation.kind !== "available") {
+          throw new Error(`Untitled create confirmation is ${confirmation.kind}`);
+        }
+        confirmedResult = createResultFromAvailability(confirmation);
       }
 
       const ownerRevision = local.revision(projectId, documentId);
       if (ownerRevision === null) throw new Error("Local Untitled owner record disappeared");
       const handoff = await local.prepare(projectId, documentId, ownerRevision);
       let result: CreateUntitledContextDocumentResult;
-      if (confirmedResult) {
+      if (record.createSettlement.kind === "confirmed") {
+        result = record.createSettlement.result;
+      } else if (confirmedResult) {
         result = confirmedResult;
-      } else if (record.createSettlement === "ambiguous") {
+      } else if (record.createSettlement.kind === "confirmation-required") {
         const confirmation = await this.deps.api.confirmCreate(entry);
-        if (confirmation.status === "definite-no-row") {
+        if (confirmation.kind === "not-visible") {
           local.abort(projectId, documentId, handoff);
-          this.records.set(key, { ...record, createSettlement: undefined });
-          this.persist();
+          this.records.set(key, { ...record, createSettlement: { kind: "ready" } });
+          this.persistExact(key);
           throw new Error("Untitled create definitely did not commit");
         }
-        result = confirmation.result;
-      } else {
-        try {
-          result = await this.deps.api.create(entry);
-        } catch (error) {
-          this.records.set(key, { ...record, createSettlement: "ambiguous" });
-          this.persist();
-          throw error;
+        if (confirmation.kind !== "available") {
+          throw new Error(`Untitled create confirmation is ${confirmation.kind}`);
         }
+        result = createResultFromAvailability(confirmation);
+      } else {
+        record = { ...record, createSettlement: { kind: "confirmation-required" } };
+        this.records.set(key, record);
+        this.persistExact(key);
+        result = await this.deps.api.create(entry);
       }
       if (result.status === "conflict") {
         await this.remintOwned(key, entry);
@@ -463,14 +480,18 @@ export class UntitledReconciler {
       }
       record = this.pendingRecord(key);
       if (!record) return;
-      record = { ...record, materializedResult: result, createSettlement: undefined };
+      record = { ...record, createSettlement: { kind: "confirmed", result } };
       this.records.set(key, record);
-      this.persist();
+      this.persistExact(key);
+      await this.deps.api.materialized(projectId, result);
       const identity = await this.applyDesiredIdentity(key, entry, result);
       const latestAfterIdentity = this.records.get(key);
       if (latestAfterIdentity) {
-        this.records.set(key, { ...latestAfterIdentity, materializedResult: identity.result });
-        this.persist();
+        this.records.set(key, {
+          ...latestAfterIdentity,
+          createSettlement: { kind: "confirmed", result: identity.result },
+        });
+        this.persistExact(key);
       }
       const opened = await local.open({
         source: "local-untitled",
@@ -532,6 +553,7 @@ export class UntitledReconciler {
       documentId: replacementId,
       revision: record.revision + 1,
       materialization: { phase: "pending", entry: { ...entry, documentId: replacementId } },
+      createSettlement: { kind: "ready" },
     });
     this.candidates.delete(key);
     if (candidate) this.candidates.set(replacementKey, candidate);
@@ -688,12 +710,28 @@ export class UntitledReconciler {
         workRevision: record.revision,
         home: entry?.home ?? base.home,
         desiredIdentity: record.desiredIdentity,
-        materializedResult: record.materializedResult,
         createSettlement: record.createSettlement,
         failure: record.failure,
         pendingSinceMs: record.pendingSinceMs,
       });
     }
+  }
+
+  private persistExact(key: string): void {
+    const record = this.records.get(key);
+    if (!record) return;
+    const entry = record.materialization.phase === "pending" ? record.materialization.entry : null;
+    const base = this.deps.localOwner.read(record.projectId, record.documentId);
+    if (!base) return;
+    this.deps.localOwner.write({
+      ...base,
+      workRevision: record.revision,
+      home: entry?.home ?? base.home,
+      desiredIdentity: record.desiredIdentity,
+      createSettlement: record.createSettlement,
+      failure: record.failure,
+      pendingSinceMs: record.pendingSinceMs,
+    });
   }
 
   private persistAndEmit(): void {
@@ -747,10 +785,26 @@ function fromDurableRecord(record: LocalUntitledRecord): ReconciliationRecord {
           }
         : { phase: "synced" },
     desiredIdentity: record.desiredIdentity,
-    materializedResult: record.materializedResult,
     createSettlement: record.createSettlement,
     failure: record.failure,
     pendingSinceMs: record.pendingSinceMs ?? null,
+  };
+}
+
+function createResultFromAvailability(
+  resolution: Extract<ProjectContextIdentityResolution, { kind: "available" }>,
+): CreateUntitledContextDocumentResponse {
+  const scheme = resolution.entry.uri.slice(
+    0,
+    resolution.entry.uri.indexOf(":"),
+  ) as CreateUntitledContextDocumentResponse["scheme"];
+  return {
+    status: "already-materialized",
+    documentId: resolution.documentId,
+    scheme,
+    path: `/${resolution.entry.path.join("/")}`,
+    name: resolution.entry.name,
+    ...(resolution.entry.scope.kind === "work" ? { workId: resolution.entry.scope.workId } : {}),
   };
 }
 

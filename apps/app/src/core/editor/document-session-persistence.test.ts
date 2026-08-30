@@ -21,8 +21,8 @@ const { DocumentSession } = await import("./document-session");
 describe("DocumentSession persistence cleanup", () => {
   afterEach(() => {
     vi.useRealTimers();
-    persistence.clearData.mockClear();
-    persistence.destroy.mockClear();
+    persistence.clearData.mockReset().mockResolvedValue();
+    persistence.destroy.mockReset().mockResolvedValue();
     persistence.createWhenSynced.mockReset().mockResolvedValue();
   });
 
@@ -74,6 +74,25 @@ describe("DocumentSession persistence cleanup", () => {
 
     expect(persistence.clearData).toHaveBeenCalledOnce();
     expect(persistence.destroy).not.toHaveBeenCalled();
+  });
+
+  it("retries only failed teardown stages and freezes the first persistence policy", async () => {
+    persistence.clearData.mockRejectedValueOnce(new Error("clear failed"));
+    const transportDestroy = vi.fn(async () => undefined);
+    const session = new DocumentSession({
+      roomKey: "doc-retry-clear",
+      persistence: { kind: "indexeddb", key: "test:document-session" },
+      transportFactory: () => ({ destroy: transportDestroy }),
+    });
+    await session.whenLocalPersistenceSynced();
+    await Promise.resolve();
+
+    await expect(session.destroy({ clearPersistence: true })).rejects.toThrow("clear failed");
+    await expect(session.destroy()).resolves.toBeUndefined();
+
+    expect(persistence.clearData).toHaveBeenCalledTimes(2);
+    expect(persistence.destroy).not.toHaveBeenCalled();
+    expect(transportDestroy).toHaveBeenCalledOnce();
   });
 
   it("settles whenSynced when a detached session is destroyed before local sync", async () => {

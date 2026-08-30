@@ -47,8 +47,9 @@ type PendingFinalizer = {
   closeProvider(): Promise<void>;
   lease: LocalUntitledCrossContextLease;
   afterSettled?: () => void;
-  providerClosed?: boolean;
-  leaseReleased?: boolean;
+  providerClosed: boolean;
+  leaseReleased: boolean;
+  inFlight: Promise<void> | null;
 };
 
 export type LocalUntitledOwnerDependencies = {
@@ -78,7 +79,7 @@ export class LocalUntitledOwner {
   private readonly retained = new Map<string, Set<string>>();
   private readonly pendingFinalizers = new Map<string, PendingFinalizer>();
   private closePromise: Promise<void> | null = null;
-  private closing = false;
+  private lifecycle: "open" | "closing" | "closed" = "open";
 
   constructor(dependencies: LocalUntitledOwnerDependencies) {
     this.dependencies = dependencies;
@@ -166,10 +167,9 @@ export class LocalUntitledOwner {
   }): Promise<"abandoned" | "stale" | "busy"> {
     const pending = this.pendingFinalizers.get(encodeLocalUntitledKey(input.key));
     if (pending) {
-      await this.settleFinalizer(pending, false);
+      await this.settleFinalizer(pending);
       return "abandoned";
     }
-    await this.retryPendingFinalizers();
     const owned = this.requireOwned(input.key);
     const record = this.dependencies.records.read(input.key);
     if (!record || record.revision !== input.expectedRevision || owned.revision !== record.revision)
@@ -186,6 +186,9 @@ export class LocalUntitledOwner {
       key: encoded,
       closeProvider: () => owned.value.session.destroy({ clearPersistence: true }),
       lease: owned.lease,
+      providerClosed: false,
+      leaseReleased: false,
+      inFlight: null,
       afterSettled: () => {
         if (this.dependencies.records.remove(input.key, input.expectedRevision) !== "removed")
           throw new Error("Local Untitled abandon revision became stale");
@@ -193,7 +196,7 @@ export class LocalUntitledOwner {
       },
     };
     this.pendingFinalizers.set(encoded, finalizer);
-    await this.settleFinalizer(finalizer, false);
+    await this.settleFinalizer(finalizer);
     return "abandoned";
   }
 
@@ -201,7 +204,7 @@ export class LocalUntitledOwner {
     key: LocalUntitledKey,
     expectedRevision: number,
   ): Promise<LocalDocumentSessionHandoff> {
-    await this.retryPendingFinalizers();
+    await this.settleKey(key);
     const owned = this.requireOwned(key);
     const record = this.dependencies.records.read(key);
     if (record?.phase !== "local-pending" || record.revision !== expectedRevision)
@@ -233,7 +236,8 @@ export class LocalUntitledOwner {
   }
 
   async remint(from: LocalUntitledKey, to: LocalUntitledKey): Promise<LocalUntitledSession> {
-    await this.retryPendingFinalizers();
+    await this.settleKey(from);
+    await this.settleKey(to);
     const old = this.requireOwned(from);
     this.requireQualified(to);
     if (from.projectId !== to.projectId || from.documentId === to.documentId)
@@ -256,6 +260,7 @@ export class LocalUntitledOwner {
       revision: nextRevision,
       lineageRevision: (current.lineageRevision ?? current.revision) + 1,
       active: true,
+      createSettlement: { kind: "ready" },
     };
     const prepared = await old.value.session.prepareDetachedReidentity(
       to.documentId,
@@ -297,10 +302,16 @@ export class LocalUntitledOwner {
       key: encodeLocalUntitledKey(from),
       closeProvider: () => cleanup.closePrevious(),
       lease: old.lease,
+      providerClosed: false,
+      leaseReleased: false,
+      inFlight: null,
+      afterSettled: () => {
+        this.dependencies.records.remove(from, current.revision);
+      },
     };
     this.pendingFinalizers.set(finalizer.key, finalizer);
     try {
-      await this.settleFinalizer(finalizer, false);
+      await this.settleFinalizer(finalizer);
     } catch {
       // The replacement is already authoritative. Cleanup remains owner-held GC.
     }
@@ -308,42 +319,47 @@ export class LocalUntitledOwner {
   }
 
   destroyAll(): Promise<void> {
+    if (this.lifecycle === "closed") return Promise.resolve();
     if (this.closePromise) return this.closePromise;
-    this.closing = true;
+    this.lifecycle = "closing";
     this.retained.clear();
-    const owned = [...this.owned.entries()];
-    this.owned.clear();
-    const finalizers = [
-      ...this.pendingFinalizers.values(),
-      ...owned
-        .filter(([key]) => !this.pendingFinalizers.has(key))
-        .map(
-          ([key, entry]): PendingFinalizer => ({
-            key,
-            closeProvider: () => entry.value.session.destroy(),
-            lease: entry.lease,
-          }),
-        ),
-    ];
-    this.pendingFinalizers.clear();
-    this.closePromise = Promise.allSettled(
-      finalizers.map((finalizer) => this.settleFinalizer(finalizer, true)),
-    ).then((results) => {
-      const failures = results
-        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-        .map((result) => result.reason);
-      if (failures.length > 0) throw new AggregateError(failures, "Local Untitled teardown failed");
-    });
-    return this.closePromise;
+    for (const [key, entry] of this.owned) {
+      if (this.pendingFinalizers.has(key)) continue;
+      this.pendingFinalizers.set(key, {
+        key,
+        closeProvider: () => entry.value.session.destroy(),
+        lease: entry.lease,
+        providerClosed: false,
+        leaseReleased: false,
+        inFlight: null,
+        afterSettled: () => this.owned.delete(key),
+      });
+    }
+    const attempt = Promise.allSettled(
+      [...this.pendingFinalizers.values()].map((finalizer) => this.settleFinalizer(finalizer)),
+    )
+      .then((results) => {
+        const failures = results
+          .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+          .map((result) => result.reason);
+        if (failures.length > 0)
+          throw new AggregateError(failures, "Local Untitled teardown failed");
+        this.lifecycle = "closed";
+      })
+      .finally(() => {
+        if (this.closePromise === attempt) this.closePromise = null;
+      });
+    this.closePromise = attempt;
+    return attempt;
   }
 
   private async open(
     key: LocalUntitledKey,
     mode: "create" | "restore",
   ): Promise<LocalUntitledOpenResult> {
-    await this.retryPendingFinalizers();
     this.requireQualified(key);
-    if (this.closing) throw new Error("Local Untitled owner is closing");
+    if (this.lifecycle !== "open") throw new Error("Local Untitled owner is closing");
+    await this.settleKey(key);
     if (mode === "restore") {
       const requested = this.dependencies.records.read(key);
       if (requested) {
@@ -382,6 +398,7 @@ export class LocalUntitledOwner {
           phase: "local-pending",
           home: null,
           pendingSinceMs: null,
+          createSettlement: { kind: "ready" },
         };
         this.dependencies.records.write(record);
       } else if (record.phase !== "local-pending" || record.active === false) {
@@ -411,48 +428,29 @@ export class LocalUntitledOwner {
       throw new Error("Local Untitled key belongs to a different account");
   }
 
-  private async retryPendingFinalizers(): Promise<void> {
-    const failures: unknown[] = [];
-    for (const finalizer of [...this.pendingFinalizers.values()]) {
-      try {
-        await this.settleFinalizer(finalizer, false);
-      } catch (error) {
-        failures.push(error);
-      }
-    }
-    if (failures.length > 0)
-      throw new AggregateError(failures, "Local Untitled cleanup retry failed");
+  private async settleKey(key: LocalUntitledKey): Promise<void> {
+    const finalizer = this.pendingFinalizers.get(encodeLocalUntitledKey(key));
+    if (finalizer) await this.settleFinalizer(finalizer);
   }
 
-  private async settleFinalizer(finalizer: PendingFinalizer, releaseAfterFailure: boolean) {
-    let providerFailure: unknown;
-    if (!finalizer.providerClosed) {
-      try {
+  private settleFinalizer(finalizer: PendingFinalizer): Promise<void> {
+    if (finalizer.inFlight) return finalizer.inFlight;
+    const attempt = (async () => {
+      if (!finalizer.providerClosed) {
         await finalizer.closeProvider();
         finalizer.providerClosed = true;
-      } catch (error) {
-        providerFailure = error;
-        if (!releaseAfterFailure) throw error;
       }
-    }
-    let leaseFailure: unknown;
-    if (!finalizer.leaseReleased) {
-      try {
+      if (!finalizer.leaseReleased) {
         await finalizer.lease.release();
         finalizer.leaseReleased = true;
-      } catch (error) {
-        leaseFailure = error;
       }
-    }
-    if (!providerFailure && !leaseFailure) {
       finalizer.afterSettled?.();
       this.pendingFinalizers.delete(finalizer.key);
-      return;
-    }
-    throw new AggregateError(
-      [providerFailure, leaseFailure].filter((error) => error !== undefined),
-      "Local Untitled finalizer failed",
-    );
+    })().finally(() => {
+      if (finalizer.inFlight === attempt) finalizer.inFlight = null;
+    });
+    finalizer.inFlight = attempt;
+    return attempt;
   }
 
   private requireOwned(key: LocalUntitledKey): Owned {

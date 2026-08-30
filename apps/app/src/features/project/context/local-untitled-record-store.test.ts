@@ -13,6 +13,7 @@ describe("BrowserLocalUntitledRecordStore", () => {
       revision: 1,
       phase: "local-pending" as const,
       home: null,
+      createSettlement: { kind: "ready" as const },
     };
     const second = {
       ...first,
@@ -35,6 +36,7 @@ describe("BrowserLocalUntitledRecordStore", () => {
       revision: 3,
       phase: "local-pending" as const,
       home: null,
+      createSettlement: { kind: "ready" as const },
     };
     store.write(record);
     expect(store.remove(record.key, 2)).toBe("stale");
