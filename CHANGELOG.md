@@ -13,8 +13,6 @@
 - `apps/app`: make generation-bearing project-final availability commands the
   sole remote terminal-removal boundary while preserving local Untitled tabs.
 
-- `apps/app`: make document-session ownership exclusively lease-qualified, keep local Untitled persistence explicit, and remove the unfenced registry facade and unqualified persistence-key surface.
-
 - `database`, `contracts`, `apps/server`, `apps/app`: add the authoritative
   Context metadata catalog with command-owned atomic metadata publication,
   persisted tracked, custom, and binary classification, checkpoint-consistent
@@ -22,9 +20,10 @@
   authenticated snapshot/delta/children/stable-ID-or-URI lookup routes, and
   lossy wake hints over the authenticated thread socket. React Query owns one
   normalized stable-ID cache and one high-water acquisition drain shared by
-  direct-child tree rows, picker, opening, and placement consumers. Authoritative
-  catalog transitions remove stale tabs, routes, and Yjs sessions by stable ID;
-  remove the recursive tree transport and duplicate client owner.
+  direct-child tree rows, picker, and placement consumers. Catalog changes trigger
+  exact project-final rechecks; generation-bearing final commands remove stale
+  tabs, routes, and Yjs sessions by stable ID. Remove the recursive tree transport
+  and duplicate client owner.
 
 - `apps/app`: deepen the shared suggestion menu into a host-independent,
   generation-fenced and reentrancy-safe lifecycle with stable-row refresh

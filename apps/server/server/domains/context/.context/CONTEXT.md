@@ -214,8 +214,8 @@ router resolves to exact project-scoped Work authority before dispatch.
   internal exact-file cleanup; there is no path-only file-delete contract.
   Files contribute their one committed `documents.id`; recursive folder deletion
   contributes every committed descendant document ID, while an empty folder
-  contributes none. Post-commit membership delivery failure prevents a successful
-  acknowledgement.
+  contributes none. Post-commit membership callback failure is diagnostic; the
+  committed receipt remains successful.
 
 ## Deleted (cleanse removal)
 
