@@ -7,7 +7,9 @@
 
 - `apps/app`: retain account workspace teardown above authenticated route
   boundaries, retry unfinished session and coordination close stages, and
-  withhold replacement accounts until the prior lifetime closes.
+  withhold replacement accounts until the prior lifetime closes. Qualify account
+  declarations by the committed auth epoch, and make terminal reconciliation join
+  retained room teardown before releasing lifecycle authority.
 
 - `apps/app`: make document-session ownership exclusively lease-qualified, settle adopted local providers and lifetime leases in exact retryable stages before account close, fence local Untitled remint across every asynchronous lifecycle boundary, keep local persistence explicit, and remove the unfenced registry facade and unqualified persistence-key surface.
 - `apps/app`: atomically advance canonical Editor routes and working state for

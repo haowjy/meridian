@@ -43,6 +43,34 @@ export class DocumentSessionTeardownOwner {
     if (this.byRoom.has(qualifiedKey(key))) throw this.unavailable(key);
   }
 
+  drainRoom(key: DocumentSessionRetirementKey): Promise<void> {
+    const room = qualifiedKey(key);
+    const attempted = new Set<DocumentSession>();
+    const run = async () => {
+      const failures = new Map<DocumentSession, unknown>();
+      for (;;) {
+        const pending = [...(this.byRoom.get(room) ?? [])]
+          .map((session) => this.entries.get(session))
+          .filter((entry): entry is Entry => entry !== undefined && !attempted.has(entry.session));
+        if (pending.length === 0) break;
+        for (const entry of pending) attempted.add(entry.session);
+        const results = await Promise.allSettled(pending.map((entry) => this.start(entry)));
+        results.forEach((result, index) => {
+          const session = pending[index]?.session;
+          if (!session) return;
+          if (result.status === "rejected") failures.set(session, result.reason);
+          else failures.delete(session);
+        });
+      }
+      const errors = [...failures.entries()]
+        .filter(([session]) => this.entries.has(session))
+        .map(([, error]) => error);
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1) throw new AggregateError(errors, "Room teardown failed");
+    };
+    return run();
+  }
+
   drain(): Promise<void> {
     if (this.drainAttempt) return this.drainAttempt;
     const attempted = new Set<DocumentSession>();

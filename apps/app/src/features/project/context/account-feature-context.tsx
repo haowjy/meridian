@@ -4,11 +4,13 @@ import {
   useContext,
   useEffect,
   useInsertionEffect,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 import type { PostApplyDispositionOwner } from "../draft-apply-recovery/draft-apply-recovery-owner";
 import type {
+  AccountFeatureDeclaration,
   AccountFeatureLifetime,
   AccountFeatureSupervisor,
 } from "./account-feature-supervisor";
@@ -45,13 +47,26 @@ export function AccountFeatureComposition({
     supervisor.getSnapshot,
     supervisor.getServerSnapshot,
   );
+  const declarationRef = useRef<AccountFeatureDeclaration | null>(null);
+  const auth = supervisor.getAuthDeclaration();
+  if (declarationRef.current?.auth.subject !== authSubject) declarationRef.current = null;
+  if (!declarationRef.current && auth?.subject === authSubject) {
+    declarationRef.current = Object.freeze({ auth, account: Object.freeze({ id: accountId }) });
+  }
+  const declaration = declarationRef.current;
   const lifetime =
-    snapshot.kind === "ready" && snapshot.accountId === accountId ? snapshot.lifetime : null;
+    snapshot.kind === "ready" &&
+    declaration !== null &&
+    snapshot.declaration.auth.epoch === declaration.auth.epoch &&
+    snapshot.declaration.auth.subject === declaration.auth.subject &&
+    snapshot.declaration.account.id === declaration.account.id
+      ? snapshot.lifetime
+      : null;
   const [attached, setAttached] = useState<AccountFeatureLifetime | null>(null);
 
   useEffect(() => {
-    supervisor.declareAccount(authSubject, accountId);
-  }, [supervisor, authSubject, accountId]);
+    if (declaration) supervisor.declareAccount(declaration);
+  }, [supervisor, declaration]);
 
   useEffect(() => {
     if (!lifetime) {

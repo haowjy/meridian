@@ -243,10 +243,26 @@ export type AccountFeatureCloseFailure = Readonly<{
   cause: unknown;
 }>;
 
+export type AccountFeatureAuthEpoch = Readonly<{
+  kind: "authenticated";
+  epoch: number;
+  subject: string;
+}>;
+
+export type AccountFeatureDeclaration = Readonly<{
+  auth: AccountFeatureAuthEpoch;
+  account: Readonly<{ id: string }>;
+}>;
+
 export type AccountFeatureSupervisorSnapshot =
   | { kind: "idle"; authEpoch: number }
   | { kind: "awaiting-composition"; authEpoch: number; desiredAccountId: string }
-  | { kind: "ready"; authEpoch: number; accountId: string; lifetime: AccountFeatureLifetime }
+  | {
+      kind: "ready";
+      authEpoch: number;
+      declaration: AccountFeatureDeclaration;
+      lifetime: AccountFeatureLifetime;
+    }
   | {
       kind: "closing";
       authEpoch: number;
@@ -265,8 +281,8 @@ export type AccountFeatureSupervisorSnapshot =
 
 export class AccountFeatureSupervisor {
   private authEpoch = 0;
-  private authSubject: string | null = null;
-  private canonical: { authSubject: string; accountId: string } | null = null;
+  private authDeclaration: AccountFeatureAuthEpoch | null = null;
+  private canonical: AccountFeatureDeclaration | null = null;
   private desiredAccountId: string | null = null;
   private lifetime: AccountFeatureLifetime | null = null;
   private closeAttempt: Promise<void> | null = null;
@@ -285,6 +301,7 @@ export class AccountFeatureSupervisor {
 
   getSnapshot = (): AccountFeatureSupervisorSnapshot => this.snapshot;
   getServerSnapshot = (): AccountFeatureSupervisorSnapshot => this.serverSnapshot;
+  getAuthDeclaration = (): AccountFeatureAuthEpoch | null => this.authDeclaration;
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -292,9 +309,11 @@ export class AccountFeatureSupervisor {
 
   setAuthIntent(intent: { loading: boolean; subject: string | null }): void {
     if (intent.loading && !intent.subject) return;
-    if (intent.subject === this.authSubject) return;
+    if (intent.subject === (this.authDeclaration?.subject ?? null)) return;
     this.authEpoch += 1;
-    this.authSubject = intent.subject;
+    this.authDeclaration = intent.subject
+      ? Object.freeze({ kind: "authenticated", epoch: this.authEpoch, subject: intent.subject })
+      : null;
     this.canonical = null;
     this.desiredAccountId = null;
     if (this.lifetime) this.startClose();
@@ -302,15 +321,21 @@ export class AccountFeatureSupervisor {
     if (this.snapshot.kind === "close-failed") this.startClose();
   }
 
-  declareAccount(authSubject: string, accountId: string): void {
-    if (!this.authSubject || authSubject !== this.authSubject) return;
+  declareAccount(declaration: AccountFeatureDeclaration): void {
+    if (
+      !this.authDeclaration ||
+      declaration.auth.epoch !== this.authEpoch ||
+      declaration.auth.subject !== this.authDeclaration.subject
+    ) {
+      return;
+    }
     if (
       this.snapshot.kind === "identity-inconsistent" ||
       this.snapshot.kind === "construction-failed"
     ) {
       return;
     }
-    if (this.canonical && this.canonical.accountId !== accountId) {
+    if (this.canonical && this.canonical.account.id !== declaration.account.id) {
       this.publish({
         kind: "identity-inconsistent",
         authEpoch: this.authEpoch,
@@ -319,14 +344,14 @@ export class AccountFeatureSupervisor {
       });
       return;
     }
-    this.canonical ??= { authSubject, accountId };
-    this.desiredAccountId = accountId;
+    this.canonical ??= declaration;
+    this.desiredAccountId = declaration.account.id;
     if (this.lifetime) {
-      if (this.lifetime.accountId === accountId && this.lifetime.state === "open") {
+      if (this.lifetime.accountId === declaration.account.id && this.lifetime.state === "open") {
         this.publish({
           kind: "ready",
           authEpoch: this.authEpoch,
-          accountId,
+          declaration: this.canonical,
           lifetime: this.lifetime,
         });
       }
@@ -396,7 +421,13 @@ export class AccountFeatureSupervisor {
       const lifetime = this.createLifetime(accountId);
       if (lifetime.accountId !== accountId) throw new Error("Account lifetime identity mismatch");
       this.lifetime = lifetime;
-      this.publish({ kind: "ready", authEpoch: this.authEpoch, accountId, lifetime });
+      if (!this.canonical) throw new Error("Account declaration is missing");
+      this.publish({
+        kind: "ready",
+        authEpoch: this.authEpoch,
+        declaration: this.canonical,
+        lifetime,
+      });
     } catch (cause) {
       this.publish({
         kind: "construction-failed",

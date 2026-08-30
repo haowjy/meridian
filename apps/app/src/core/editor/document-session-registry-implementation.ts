@@ -610,7 +610,11 @@ export class DocumentSessionRegistry
     incarnation: AvailabilityGeneration | null;
   }): Promise<void> {
     const state = this.liveRooms.get(input.documentId);
-    if (!state || state.persistenceGeneration !== input.incarnation) return;
+    if (!state) {
+      await this.teardownOwner.drainRoom({ kind: "live", roomKey: input.documentId });
+      return;
+    }
+    if (state.persistenceGeneration !== input.incarnation) return;
     this.cancelPendingTeardown(input.documentId);
     let retainedChanged = false;
     for (const retained of this.retainedByOwner.values()) {
@@ -621,6 +625,7 @@ export class DocumentSessionRegistry
     if (state.session) {
       await this.teardownOwner.retire({ kind: "live", roomKey: input.documentId }, state.session);
     }
+    await this.teardownOwner.drainRoom({ kind: "live", roomKey: input.documentId });
   }
 
   async drainAccess(input: {
@@ -630,7 +635,11 @@ export class DocumentSessionRegistry
     incarnation: AvailabilityGeneration | null;
   }): Promise<"other-local-project-remains" | "locally-empty"> {
     const state = this.liveRooms.get(input.documentId);
-    if (!state || state.persistenceGeneration !== input.incarnation) return "locally-empty";
+    if (!state) {
+      await this.teardownOwner.drainRoom({ kind: "live", roomKey: input.documentId });
+      return "locally-empty";
+    }
+    if (state.persistenceGeneration !== input.incarnation) return "locally-empty";
     state.leases.delete(input.projectId);
     if (this.removeRetainedProjectLease(input.projectId, input.documentId)) {
       this.publishRetainedLiveDocuments();
@@ -641,6 +650,7 @@ export class DocumentSessionRegistry
     if (state.session) {
       await this.teardownOwner.retire({ kind: "live", roomKey: input.documentId }, state.session);
     }
+    await this.teardownOwner.drainRoom({ kind: "live", roomKey: input.documentId });
     return "locally-empty";
   }
 

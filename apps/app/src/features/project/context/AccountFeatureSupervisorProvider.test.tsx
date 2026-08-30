@@ -82,7 +82,10 @@ it("keeps one A obligation through route error, reset, and root retry", async ()
 
   function Declaration({ subject, accountId }: { subject: string; accountId: string }) {
     const owner = useAccountFeatureSupervisor();
-    useEffect(() => owner.declareAccount(subject, accountId), [owner, subject, accountId]);
+    useEffect(() => {
+      const auth = owner.getAuthDeclaration();
+      if (auth?.subject === subject) owner.declareAccount({ auth, account: { id: accountId } });
+    }, [owner, subject, accountId]);
     return null;
   }
   function Thrower({ fail }: { fail: boolean }) {
