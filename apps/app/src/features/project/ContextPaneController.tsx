@@ -27,6 +27,8 @@ import { appendPendingUntitled, isUntitledPending } from "./context/untitled-rec
 import { useContextRemovalProject } from "./context/use-context-removal-project";
 import { identityCommitMayNavigate } from "./context/use-identity-commit";
 import { useUntitledTabBridge } from "./context/useUntitledTabBridge";
+import { useOptionalPostApplyDisposition } from "./draft-apply-recovery/DraftApplyRecoveryProvider";
+import { useOptionalProjectDraftApplyRecovery } from "./draft-apply-recovery/ProjectDraftApplyRecoveryExecutor";
 import type { ContextRouteTarget } from "./routing/project-route";
 import type { PaneHeaderRailToggle } from "./shell/PaneHeader";
 
@@ -62,6 +64,8 @@ export function ContextViewerSurfaceController({
   const routeWorkId = editorWorkId;
   const contextRemoval = useContextRemovalCoordinator();
   const localUntitled = useLocalUntitledOwner();
+  const postApply = useOptionalPostApplyDisposition();
+  const postApplyCommands = useOptionalProjectDraftApplyRecovery();
 
   const { tabs, selectedTabIdByWork } = useContextTabs(projectId);
   const selectedDocumentId = routeWorkId ? selectedTabIdByWork[routeWorkId] : undefined;
@@ -338,6 +342,40 @@ export function ContextViewerSurfaceController({
 
   function handleCloseTab(documentId: string) {
     const tab = tabs.find((candidate) => candidate.documentId === documentId);
+    if (
+      tab?.kind !== "new" &&
+      tab?.draftOnly &&
+      tab.reviewWorkId &&
+      tab.reviewDraftId &&
+      tab.tabInstanceToken
+    ) {
+      const item = postApply?.owner
+        .getSnapshot()
+        .items.find(
+          (candidate) =>
+            candidate.identity.projectId === projectId &&
+            candidate.identity.workId === tab.reviewWorkId &&
+            candidate.identity.documentId === documentId &&
+            candidate.identity.draftId === tab.reviewDraftId,
+        );
+      if (item && postApplyCommands) {
+        postApplyCommands.abandon({ identity: item.identity, entryVersion: item.entryVersion });
+        return;
+      }
+      if (
+        postApply?.owner.draftTabMutationFence({
+          identity: {
+            accountId: localUntitled.accountId,
+            projectId,
+            workId: tab.reviewWorkId,
+            documentId,
+            draftId: tab.reviewDraftId,
+          },
+          tabInstanceToken: tab.tabInstanceToken,
+        }) === "apply-reservation-pending"
+      )
+        return;
+    }
     if (tab?.kind === "new" && !isUntitledPending(projectId, documentId)) {
       const key = {
         accountId: localUntitled.accountId,

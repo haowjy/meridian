@@ -108,7 +108,34 @@ function useDraftReviewScopeOwner(
   const effectiveProjectId = projectId ?? "";
   const effectiveWorkId = workId ?? "";
   const drafts = useWorkDrafts(projectId, workId);
-  const groups = drafts.groups ?? [];
+  const rawGroups = drafts.groups ?? [];
+  const groups = useMemo(
+    () =>
+      rawGroups.flatMap((group) => {
+        const visible = group.drafts.filter((draft) => {
+          if (!projectId || !workId) return true;
+          const matches = (identity: {
+            accountId: string;
+            projectId: string;
+            workId: string;
+            documentId: string;
+            draftId: string;
+          }) =>
+            identity.accountId === accountId &&
+            identity.projectId === projectId &&
+            identity.workId === workId &&
+            identity.documentId === draft.documentId &&
+            identity.draftId === draft.draftId;
+          return !(
+            dispositionSnapshot.reservations.some((item) => matches(item.identity)) ||
+            dispositionSnapshot.items.some((item) => matches(item.identity)) ||
+            dispositionSnapshot.appliedSuppressions.some((item) => matches(item.identity))
+          );
+        });
+        return visible.length > 0 ? [{ ...group, drafts: visible }] : [];
+      }),
+    [accountId, dispositionSnapshot, projectId, rawGroups, workId],
+  );
   const controller = useDraftReviewController(effectiveProjectId, effectiveWorkId, threadId);
 
   useEffect(() => {
@@ -220,8 +247,30 @@ function useDraftReviewScopeOwner(
     if (activeSelection == null) return;
     if (drafts.status !== "ready" && drafts.status !== "empty") return;
     if (controller.isDisposing) return;
-    if (controller.isServerAppliedAwaitingHost(activeSelection.documentId, activeSelection.draftId))
+    const matchingIdentity = (identity: {
+      accountId: string;
+      projectId: string;
+      workId: string;
+      documentId: string;
+      draftId: string;
+    }) =>
+      identity.accountId === accountId &&
+      identity.projectId === projectId &&
+      identity.workId === workId &&
+      identity.documentId === activeSelection.documentId &&
+      identity.draftId === activeSelection.draftId;
+    if (
+      dispositionSnapshot.reservations.some((item) => matchingIdentity(item.identity)) ||
+      dispositionSnapshot.items.some((item) => matchingIdentity(item.identity))
+    )
       return;
+    const settled = dispositionSnapshot.appliedSuppressions.find((item) =>
+      matchingIdentity(item.identity),
+    );
+    if (settled?.terminalDisposition) {
+      controller.exitReview();
+      return;
+    }
     const documentDrafts =
       groups.find((group) => group.documentId === activeSelection.documentId)?.drafts ?? [];
     if (documentDrafts.some((draft) => draft.draftId === activeSelection.draftId)) return;
@@ -310,11 +359,14 @@ function useDraftReviewScopeOwner(
     dispositionSnapshot.remoteDraftWitnesses,
     controller.exitReview,
     controller.inlineReview,
-    controller.isServerAppliedAwaitingHost,
     controller.isDisposing,
     drafts.status,
     effectiveProjectId,
     groups,
+    accountId,
+    dispositionSnapshot.appliedSuppressions,
+    dispositionSnapshot.items,
+    dispositionSnapshot.reservations,
     projectId,
     queryClient,
     registry,

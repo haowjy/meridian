@@ -496,6 +496,13 @@ export class AccountPostApplyDispositionOwner implements PostApplyDispositionOwn
       const existingIndex = witnesses.findIndex((candidate) =>
         sameDraftRecoveryIdentity(candidate.identity, observation.identity),
       );
+      const existing = existingIndex < 0 ? null : witnesses[existingIndex];
+      if (
+        existing &&
+        JSON.stringify(existing.presentation) === JSON.stringify(observation.presentation) &&
+        JSON.stringify(existing.obligations) === JSON.stringify(observation.obligations)
+      )
+        continue;
       const witness = { ...observation, witnessVersion: nextVersion++ };
       if (existingIndex < 0) witnesses.push(witness);
       else witnesses[existingIndex] = witness;
@@ -728,7 +735,7 @@ export class AccountPostApplyDispositionOwner implements PostApplyDispositionOwn
   }
 
   private consumeEvidence(identity: DraftRecoveryIdentity): void {
-    this.publish({
+    const next = {
       ...this.snapshot,
       reservations: this.snapshot.reservations.filter(
         (candidate) => !sameDraftRecoveryIdentity(candidate.identity, identity),
@@ -736,7 +743,9 @@ export class AccountPostApplyDispositionOwner implements PostApplyDispositionOwn
       remoteDraftWitnesses: this.snapshot.remoteDraftWitnesses.filter(
         (candidate) => !sameDraftRecoveryIdentity(candidate.identity, identity),
       ),
-    });
+    };
+    if (!this.replaceClaims(next)) return;
+    this.publish(next);
   }
 
   private removeReservation(reservation: ApplyReservation): boolean {

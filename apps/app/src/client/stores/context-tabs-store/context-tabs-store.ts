@@ -129,7 +129,7 @@ function mergeTabMetadata(existing: ContextTab, incoming: ContextTab): ContextTa
   ) {
     merged.origin = "local-untitled";
   }
-  if (existing.kind !== "new" && existing.draftOnly && !incoming.draftOnly) {
+  if (existing.kind !== "new" && existing.draftOnly) {
     return {
       ...merged,
       draftOnly: existing.draftOnly,

@@ -98,8 +98,6 @@ export type DraftReviewController = {
   focusReviewOperation: (operationId: string) => void;
   discardOperation: (operationId: string) => Promise<DraftCommandOutcome>;
   apply: (documentId: string, draftId: string) => Promise<DraftCommandOutcome>;
-  acknowledgeServerApplied: (documentId: string, draftId: string) => Promise<DraftCommandOutcome>;
-  isServerAppliedAwaitingHost: (documentId: string, draftId: string) => boolean;
   discard: (documentId: string, draftId: string) => Promise<DraftCommandOutcome>;
   disposeDrafts: (
     mode: "apply" | "discard",
@@ -223,6 +221,17 @@ export function useDraftReviewController(
 
   commandPortsRef.current = {
     apply: async ({ documentId, draftId }) => {
+      let applyRoomName = reviewRoomName;
+      if (!applyRoomName) {
+        const preview = await getDraftPreview(projectId, workId, documentId, draftId);
+        if (preview.status !== "active" || preview.draftId !== draftId)
+          throw new Error("Draft Apply branch is no longer active");
+        applyRoomName = preview.reviewRoomName;
+        queryClient.setQueryData(
+          projectQueryKeys.workDraftPreview(projectId, workId, documentId, draftId),
+          preview,
+        );
+      }
       const tab = useContextTabsStore
         .getState()
         .byProject?.[projectId]?.tabs.find((candidate) => candidate.documentId === documentId);
@@ -252,9 +261,7 @@ export function useDraftReviewController(
                   tabInstanceToken: tab.tabInstanceToken,
                 }
               : { kind: "none" },
-          branch: reviewRoomName
-            ? { kind: "generation-qualified", reviewRoomName }
-            : { kind: "none" },
+          branch: { kind: "generation-qualified", reviewRoomName: applyRoomName },
         },
       });
       if (result.kind !== "server-applied-awaiting-live") return result;
@@ -382,13 +389,6 @@ export function useDraftReviewController(
     [reviewSession],
   );
 
-  const acknowledgeServerApplied = useCallback(
-    (documentId: string, draftId: string): Promise<DraftCommandOutcome> =>
-      reviewSession.applyReviewedDraft({ documentId, draftId }),
-    [reviewSession],
-  );
-  const isServerAppliedAwaitingHost = useCallback(() => false, []);
-
   const discard = useCallback(
     (documentId: string, draftId: string): Promise<DraftCommandOutcome> =>
       reviewSession.discardDraft({ documentId, draftId }),
@@ -430,8 +430,6 @@ export function useDraftReviewController(
       focusReviewOperation,
       discardOperation,
       apply,
-      acknowledgeServerApplied,
-      isServerAppliedAwaitingHost,
       discard,
       disposeDrafts,
     }),
@@ -461,8 +459,6 @@ export function useDraftReviewController(
       focusReviewOperation,
       discardOperation,
       apply,
-      acknowledgeServerApplied,
-      isServerAppliedAwaitingHost,
       discard,
       disposeDrafts,
     ],

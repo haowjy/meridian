@@ -1,5 +1,6 @@
 /** One Project runtime executor for fresh post-Apply live-readiness attempts. */
 
+import { useQueryClient } from "@tanstack/react-query";
 import {
   createContext,
   useCallback,
@@ -7,9 +8,11 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   useSyncExternalStore,
 } from "react";
 import { listWorkDrafts } from "@/client/api/drafts-api";
+import { projectQueryKeys } from "@/client/query/project-query-keys";
 import { useContextTabsStore } from "@/client/stores";
 import {
   useContextRemovalCoordinator,
@@ -64,12 +67,14 @@ export function ProjectDraftApplyRecoveryExecutor({
   children: React.ReactNode;
 }) {
   const owner = usePostApplyDispositionOwner();
+  const queryClient = useQueryClient();
   const snapshot = usePostApplySnapshot();
   const opener = useProjectDocumentLiveOpener();
   const acknowledge = useAcknowledgeLiveBinding();
   const removal = useContextRemovalCoordinator();
   const tabs = useContextTabsStore((state) => state.byProject[projectId]?.tabs ?? []);
   const running = useRef<{ grant: PostApplyAttemptGrant; abort: AbortController } | null>(null);
+  const [executorRevision, advanceExecutor] = useState(0);
   const demandKey = `${inlineDocumentIds.join(",")}:${tabs
     .filter((tab) => tab.kind === "tracked")
     .map((tab) => `${tab.documentId}:${tab.draftOnly ? "draft" : "live"}`)
@@ -181,14 +186,32 @@ export function ProjectDraftApplyRecoveryExecutor({
         }),
       )
       .finally(() => {
-        if (running.current?.grant === grant) running.current = null;
+        if (running.current?.grant === grant) {
+          running.current = null;
+          advanceExecutor((value) => value + 1);
+        }
       });
-    return () => {
-      abort.abort();
-      owner.failAttempt({ ...grant, failure: "cancelled" });
-      if (running.current?.grant === grant) running.current = null;
-    };
-  }, [acknowledge, currentDemand, opener, owner, projectId, settleContext, snapshot.items]);
+  }, [
+    acknowledge,
+    currentDemand,
+    executorRevision,
+    opener,
+    owner,
+    projectId,
+    settleContext,
+    snapshot.items,
+  ]);
+
+  useEffect(
+    () => () => {
+      const current = running.current;
+      if (!current) return;
+      current.abort.abort();
+      owner.failAttempt({ ...current.grant, failure: "cancelled" });
+      running.current = null;
+    },
+    [owner, projectId],
+  );
 
   const commands = useMemo<ProjectDraftApplyRecoveryCommands>(
     () => ({
@@ -238,8 +261,8 @@ export function ProjectDraftApplyRecoveryExecutor({
       checkApplyOutcome(reservation) {
         const check = owner.beginApplyOutcomeCheck(reservation);
         if (!check) return;
-        void listWorkDrafts(reservation.identity.projectId, reservation.identity.workId).then(
-          ({ drafts }) =>
+        void listWorkDrafts(reservation.identity.projectId, reservation.identity.workId)
+          .then(({ drafts }) => {
             owner.reconcileForcedDraftList({
               accountId: reservation.identity.accountId,
               projectId: reservation.identity.projectId,
@@ -258,13 +281,21 @@ export function ProjectDraftApplyRecoveryExecutor({
                 },
                 obligations: { draftTab: { kind: "none" }, branch: { kind: "none" } },
               })),
-            }),
-        );
+            });
+            queryClient.setQueryData(
+              projectQueryKeys.workDrafts(
+                reservation.identity.projectId,
+                reservation.identity.workId,
+              ),
+              drafts,
+            );
+          })
+          .catch(() => undefined);
       },
       matchingHostMounted: ({ recovery }) =>
         void owner.requestRetry({ recovery, trigger: "matching-host-mounted" }),
     }),
-    [owner, settleContext],
+    [owner, queryClient, settleContext],
   );
   return <CommandsContext.Provider value={commands}>{children}</CommandsContext.Provider>;
 }
@@ -273,6 +304,10 @@ export function useProjectDraftApplyRecovery(): ProjectDraftApplyRecoveryCommand
   const value = useContext(CommandsContext);
   if (!value) throw new Error("ProjectDraftApplyRecoveryExecutor is required");
   return value;
+}
+
+export function useOptionalProjectDraftApplyRecovery(): ProjectDraftApplyRecoveryCommands | null {
+  return useContext(CommandsContext);
 }
 
 export function usePostApplyHostWake(

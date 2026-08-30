@@ -30,6 +30,24 @@ describe("context tabs draft-only lifecycle", () => {
       trackedTab(false),
     ]);
   });
+
+  it("does not let a repeated catalog or launcher upsert replace a draft-only token", () => {
+    const store = useContextTabsStore.getState();
+    store.openTab("project-1", {
+      ...trackedTab(true),
+      reviewDraftId: "draft-a",
+      tabInstanceToken: "token-a",
+    });
+    store.openTab("project-1", {
+      ...trackedTab(true),
+      reviewDraftId: "draft-a",
+      tabInstanceToken: "token-b",
+    });
+    expect(useContextTabsStore.getState().byProject["project-1"]?.tabs[0]).toMatchObject({
+      reviewDraftId: "draft-a",
+      tabInstanceToken: "token-a",
+    });
+  });
 });
 
 describe("context tab identity and removal commits", () => {
