@@ -58,7 +58,13 @@ export function AccountFeatureComposition({
       setAttached(null);
       return;
     }
-    const attachment = lifetime.attachComposition(repairProjectCatalog);
+    let attachment: ReturnType<AccountFeatureLifetime["attachComposition"]>;
+    try {
+      attachment = lifetime.attachComposition(repairProjectCatalog);
+    } catch {
+      setAttached(null);
+      return;
+    }
     setAttached(lifetime);
     return () => {
       setAttached(null);

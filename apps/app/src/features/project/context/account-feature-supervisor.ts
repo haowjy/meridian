@@ -272,6 +272,10 @@ export class AccountFeatureSupervisor {
   private closeAttempt: Promise<void> | null = null;
   private closeFailures = 0;
   private snapshot: AccountFeatureSupervisorSnapshot = { kind: "idle", authEpoch: 0 };
+  private readonly serverSnapshot: AccountFeatureSupervisorSnapshot = {
+    kind: "idle",
+    authEpoch: 0,
+  };
   private readonly listeners = new Set<() => void>();
 
   constructor(
@@ -280,7 +284,7 @@ export class AccountFeatureSupervisor {
   ) {}
 
   getSnapshot = (): AccountFeatureSupervisorSnapshot => this.snapshot;
-  getServerSnapshot = (): AccountFeatureSupervisorSnapshot => ({ kind: "idle", authEpoch: 0 });
+  getServerSnapshot = (): AccountFeatureSupervisorSnapshot => this.serverSnapshot;
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -300,6 +304,12 @@ export class AccountFeatureSupervisor {
 
   declareAccount(authSubject: string, accountId: string): void {
     if (!this.authSubject || authSubject !== this.authSubject) return;
+    if (
+      this.snapshot.kind === "identity-inconsistent" ||
+      this.snapshot.kind === "construction-failed"
+    ) {
+      return;
+    }
     if (this.canonical && this.canonical.accountId !== accountId) {
       this.publish({
         kind: "identity-inconsistent",
@@ -319,8 +329,6 @@ export class AccountFeatureSupervisor {
           accountId,
           lifetime: this.lifetime,
         });
-      } else if (this.snapshot.kind === "close-failed") {
-        this.startClose();
       }
       return;
     }

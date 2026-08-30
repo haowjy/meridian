@@ -65,6 +65,8 @@ describe("AccountFeatureSupervisor", () => {
       closingAccountId: "account-a",
       desiredAccountId: "account-c",
     });
+    supervisor.declareAccount("subject-c", "account-c");
+    expect(a.attempts).toHaveLength(1);
 
     const retryA = supervisor.retry();
     const retryB = supervisor.retry();
@@ -88,6 +90,8 @@ describe("AccountFeatureSupervisor", () => {
       kind: "identity-inconsistent",
       retainedLifetime: true,
     });
+    supervisor.declareAccount("same-subject", "account-a");
+    expect(supervisor.getSnapshot().kind).toBe("identity-inconsistent");
     expect(create).toHaveBeenCalledTimes(1);
 
     supervisor.setAuthIntent({ loading: false, subject: "new-subject" });
