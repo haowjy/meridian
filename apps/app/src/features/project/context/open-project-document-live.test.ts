@@ -165,6 +165,124 @@ describe("ProjectDocumentLiveOpener", () => {
     expect(registry.admit).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "server",
+    "local-untitled",
+  ] as const)("normalizes a rejected %s admission without leaking capability effects", async (source) => {
+    let rejectAdmission!: (error: Error) => void;
+    let admissionStartedResolve!: () => void;
+    const admissionStarted = new Promise<void>((resolve) => {
+      admissionStartedResolve = resolve;
+    });
+    const failed = new Error("authority changed during admission");
+    const admission = vi.fn(
+      () =>
+        new Promise<never>((_resolve, reject) => {
+          rejectAdmission = reject;
+          admissionStartedResolve();
+        }),
+    );
+    const registry = {
+      admit: source === "server" ? admission : vi.fn(),
+      retain: vi.fn(),
+      get: vi.fn(),
+      release: vi.fn(),
+      restartUnavailableRoom: vi.fn(),
+    };
+    const adoption = { admitAndAdopt: source === "local-untitled" ? admission : vi.fn() };
+    const opener = new ProjectDocumentLiveOpener({
+      availability: { resolveForOpen: vi.fn(async () => available) },
+      registry: registry as never,
+      adoption: adoption as never,
+      epochSignal: new AbortController().signal,
+    });
+
+    const opened = opener.open(
+      source === "server"
+        ? { source, projectId: "project-a", documentId: "document-a" }
+        : {
+            source,
+            projectId: "project-a",
+            documentId: "document-a",
+            handoff: {} as never,
+          },
+    );
+    await admissionStarted;
+    rejectAdmission(failed);
+
+    await expect(opened).resolves.toEqual({ kind: "unavailable", reason: "failed" });
+    expect(registry.retain).not.toHaveBeenCalled();
+    expect(registry.get).not.toHaveBeenCalled();
+    expect(registry.release).not.toHaveBeenCalled();
+    expect(registry.restartUnavailableRoom).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "request",
+    "epoch",
+  ] as const)("gives %s cancellation precedence over rejected admission", async (abortKind) => {
+    const request = new AbortController();
+    const epoch = new AbortController();
+    let startedResolve!: () => void;
+    const started = new Promise<void>((resolve) => {
+      startedResolve = resolve;
+    });
+    let rejectAdmission!: (error: Error) => void;
+    const opener = new ProjectDocumentLiveOpener({
+      availability: { resolveForOpen: vi.fn(async () => available) },
+      registry: {
+        admit: () =>
+          new Promise<never>((_resolve, reject) => {
+            rejectAdmission = reject;
+            startedResolve();
+          }),
+      } as never,
+      adoption: { admitAndAdopt: vi.fn() },
+      epochSignal: epoch.signal,
+    });
+    const opened = opener.open({
+      source: "server",
+      projectId: "project-a",
+      documentId: "document-a",
+      signal: request.signal,
+    });
+    await started;
+    (abortKind === "request" ? request : epoch).abort();
+    rejectAdmission(new Error("fenced"));
+    await expect(opened).resolves.toEqual({ kind: "cancelled" });
+  });
+
+  it("gives cancellation precedence when exact lookup rejects after abort", async () => {
+    const request = new AbortController();
+    let startedResolve!: () => void;
+    const started = new Promise<void>((resolve) => {
+      startedResolve = resolve;
+    });
+    let rejectLookup!: (error: Error) => void;
+    const opener = new ProjectDocumentLiveOpener({
+      availability: {
+        resolveForOpen: () =>
+          new Promise<never>((_resolve, reject) => {
+            rejectLookup = reject;
+            startedResolve();
+          }),
+      },
+      registry: { admit: vi.fn() } as never,
+      adoption: { admitAndAdopt: vi.fn() },
+      epochSignal: new AbortController().signal,
+    });
+    const opened = opener.open({
+      source: "server",
+      projectId: "project-a",
+      documentId: "document-a",
+      signal: request.signal,
+    });
+    await started;
+    request.abort();
+    rejectLookup(new Error("lookup failed"));
+    await expect(opened).resolves.toEqual({ kind: "cancelled" });
+  });
+
   it("coalesces repeated bindings through registry authority", async () => {
     const lease = {
       accountId: "account-a",
