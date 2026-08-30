@@ -405,8 +405,8 @@ export class DocumentSessionRegistry
         }>,
     );
     const session = reservation.transfer.session;
-    this.attachSessionTransport(session);
     await cleanup.closePrevious?.();
+    this.attachSessionTransport(session);
     return { lease: result.admitted, session };
   }
 

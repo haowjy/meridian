@@ -1,6 +1,7 @@
 /** Account-qualified owner of durable pre-authority Untitled sessions. */
 import type { AccountId } from "@meridian/contracts/protocol";
 import type { DocumentId } from "@meridian/contracts/runtime";
+import { collabSchemaKeyTag } from "@meridian/prosemirror-schema";
 import type { DocumentSession, DocumentSessionSnapshot } from "@/core/editor/document-session";
 import type {
   LocalUntitledCrossContextLease,
@@ -51,7 +52,7 @@ export type LocalUntitledOwnerDependencies = {
 };
 
 export function localUntitledPersistenceKey(key: LocalUntitledKey): string {
-  return `meridian:local-untitled:v1:${encodeURIComponent(key.accountId)}:${encodeURIComponent(key.projectId)}:${encodeURIComponent(key.documentId)}`;
+  return `meridian:local-untitled:${collabSchemaKeyTag()}:${encodeURIComponent(key.accountId)}:${encodeURIComponent(key.projectId)}:${encodeURIComponent(key.documentId)}`;
 }
 
 function sameKey(left: LocalUntitledKey, right: LocalUntitledKey): boolean {
@@ -206,26 +207,37 @@ export class LocalUntitledOwner {
       lineageRevision: (current.lineageRevision ?? current.revision) + 1,
       active: true,
     };
-    this.dependencies.records.write({ ...replacement, active: false });
+    const prepared = await old.value.session.prepareDetachedReidentity(
+      to.documentId,
+      localUntitledPersistenceKey(to),
+    );
+    let cleanup: { closePrevious(): Promise<void> };
     try {
-      await old.value.session.reidentifyDetached(to.documentId, localUntitledPersistenceKey(to));
+      this.dependencies.records.write({ ...replacement, active: false });
       this.dependencies.records.write(replacement);
-      this.dependencies.records.write({ ...current, active: false });
-      this.owned.delete(from.documentId);
-      const value = { key: to, session: old.value.session };
-      this.owned.set(to.documentId, {
-        value,
-        lease: replacementLease,
-        revision: nextRevision,
-        transferring: false,
-        handoff: null,
-      });
-      await old.lease.release();
-      return value;
+      cleanup = prepared.commit();
     } catch (error) {
+      await prepared.abort();
       await replacementLease.release();
       throw error;
     }
+    try {
+      this.dependencies.records.write({ ...current, active: false });
+    } catch {
+      // The higher active lineage revision is already authoritative.
+    }
+    this.owned.delete(from.documentId);
+    const value = { key: to, session: old.value.session };
+    this.owned.set(to.documentId, {
+      value,
+      lease: replacementLease,
+      revision: nextRevision,
+      transferring: false,
+      handoff: null,
+    });
+    void old.lease.release().catch(() => undefined);
+    await cleanup.closePrevious().catch(() => undefined);
+    return value;
   }
 
   destroyAll(): Promise<void> {

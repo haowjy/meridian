@@ -527,22 +527,34 @@ export class DocumentSession {
   }
 
   /** Local-only same-session identity change used by conflict remint. */
-  async reidentifyDetached(documentId: string, persistenceKey: string): Promise<void> {
+  async prepareDetachedReidentity(
+    documentId: string,
+    persistenceKey: string,
+  ): Promise<{
+    commit(): { closePrevious(): Promise<void> };
+    abort(): Promise<void>;
+  }> {
     if (this.transportProvider || this.status !== "detached")
       throw new Error("Only a detached local session may be reminted");
     const room = parseYjsRoomName(documentId);
     if (room?.kind !== "live") throw new Error("Invalid reminted document identity");
-    const previousKey = this.persistence?.name;
     const stage = await this.stageIndexedDbPersistence(persistenceKey);
-    const cleanup = stage.commit();
-    this.roomKey = documentId;
-    this.room = room;
-    this.documentId = documentId;
-    await cleanup.closePrevious();
-    if (previousKey && previousKey !== persistenceKey) {
-      await deleteIndexedDb(previousKey).catch(() => undefined);
-    }
-    this.emit();
+    return {
+      commit: () => {
+        const cleanup = stage.commit();
+        this.roomKey = documentId;
+        this.room = room;
+        this.documentId = documentId;
+        this.emit();
+        return cleanup;
+      },
+      abort: () => stage.abort(),
+    };
+  }
+
+  async reidentifyDetached(documentId: string, persistenceKey: string): Promise<void> {
+    const prepared = await this.prepareDetachedReidentity(documentId, persistenceKey);
+    await prepared.commit().closePrevious();
   }
 
   /**

@@ -111,8 +111,17 @@ export function createAccountDocumentSessionRuntime(
       return core.localConstruction.createDetached(request);
     },
   };
-  const localLifetime =
+  const lifetimeCore =
     core.localLifetime ?? createLocalUntitledCrossContextLeasePort({ accountId: input.accountId });
+  const localLifetime: LocalUntitledCrossContextLeasePort = {
+    async tryAcquire(projectId, documentId) {
+      requireOpen();
+      const lease = await lifetimeCore.tryAcquire(projectId, documentId);
+      if (state === "open") return lease;
+      await lease?.release();
+      throw new Error(`Account document session runtime is ${state}`);
+    },
+  };
 
   const beginClose = () => {
     if (state !== "open") return;

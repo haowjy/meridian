@@ -24,6 +24,10 @@ function fixture() {
     whenLocalPersistenceSynced: vi.fn(async () => undefined),
     flushLocalPersistence: vi.fn(async () => undefined),
     reidentifyDetached: vi.fn(async () => undefined),
+    prepareDetachedReidentity: vi.fn(async () => ({
+      commit: () => ({ closePrevious: async () => undefined }),
+      abort: async () => undefined,
+    })),
     destroy: vi.fn(async () => undefined),
   } as unknown as DocumentSession;
   return {
