@@ -254,7 +254,14 @@ function HydratedReviewProject({
       projectId={props.projectId}
       openContextRoute={props.onOpenContextTarget}
     >
-      <ProjectDraftApplyRecoveryExecutor projectId={props.projectId} inlineDocumentIds={[]}>
+      <ProjectDraftApplyRecoveryExecutor
+        projectId={props.projectId}
+        scopeKey={`${chatWorkId ?? ""}:${props.editorWorkId ?? ""}`}
+        mobileContextPath={
+          props.activeContextScheme === "manuscript" ? props.activeContextPath : null
+        }
+        inlineDocumentIds={[]}
+      >
         <HydratedReviewScopes {...props} chatWorkId={chatWorkId} chatThreadId={chatThreadId} />
       </ProjectDraftApplyRecoveryExecutor>
     </EditorReviewHandoffProvider>

@@ -59,10 +59,14 @@ const EMPTY_POST_APPLY_SNAPSHOT = {
 
 export function ProjectDraftApplyRecoveryExecutor({
   projectId,
+  scopeKey,
+  mobileContextPath,
   inlineDocumentIds,
   children,
 }: {
   projectId: string;
+  scopeKey: string;
+  mobileContextPath: string | null;
   inlineDocumentIds: readonly string[];
   children: React.ReactNode;
 }) {
@@ -73,9 +77,13 @@ export function ProjectDraftApplyRecoveryExecutor({
   const acknowledge = useAcknowledgeLiveBinding();
   const removal = useContextRemovalCoordinator();
   const tabs = useContextTabsStore((state) => state.byProject[projectId]?.tabs ?? []);
-  const running = useRef<{ grant: PostApplyAttemptGrant; abort: AbortController } | null>(null);
+  const running = useRef<{
+    grant: PostApplyAttemptGrant;
+    abort: AbortController;
+    scopeKey: string;
+  } | null>(null);
   const [executorRevision, advanceExecutor] = useState(0);
-  const demandKey = `${inlineDocumentIds.join(",")}:${tabs
+  const demandKey = `${inlineDocumentIds.join(",")}:${mobileContextPath ?? ""}:${tabs
     .filter((tab) => tab.kind === "tracked")
     .map((tab) => `${tab.documentId}:${tab.draftOnly ? "draft" : "live"}`)
     .join(",")}`;
@@ -88,9 +96,15 @@ export function ProjectDraftApplyRecoveryExecutor({
       revision: demandRevision.current.revision,
       required:
         inlineDocumentIds.includes(documentId) ||
-        tabs.some((tab) => tab.documentId === documentId && tab.kind === "tracked"),
+        tabs.some((tab) => tab.documentId === documentId && tab.kind === "tracked") ||
+        snapshot.items.some(
+          (item) =>
+            item.identity.projectId === projectId &&
+            item.identity.documentId === documentId &&
+            item.presentation.contextPath === mobileContextPath,
+        ),
     }),
-    [inlineDocumentIds, tabs],
+    [inlineDocumentIds, mobileContextPath, projectId, snapshot.items, tabs],
   );
 
   const settleContext = useCallback(
@@ -125,6 +139,17 @@ export function ProjectDraftApplyRecoveryExecutor({
       running.current = null;
     }
     if (running.current) return;
+    const disposing = snapshot.items.find(
+      (item) => item.identity.projectId === projectId && item.phase.kind === "disposing",
+    );
+    if (disposing?.phase.kind === "disposing") {
+      settleContext({
+        recovery: { identity: disposing.identity, entryVersion: disposing.entryVersion },
+        dispositionToken: disposing.phase.dispositionToken,
+        outcome: disposing.phase.outcome,
+      });
+      return;
+    }
     const queued = snapshot.items.find(
       (item) => item.identity.projectId === projectId && item.phase.kind === "queued",
     );
@@ -133,7 +158,7 @@ export function ProjectDraftApplyRecoveryExecutor({
     const grant = owner.beginAttempt(recovery);
     if (!grant) return;
     const abort = new AbortController();
-    running.current = { grant, abort };
+    running.current = { grant, abort, scopeKey };
     const demandAtOpen = currentDemand(queued.identity.documentId);
     void opener
       .open({
@@ -198,6 +223,7 @@ export function ProjectDraftApplyRecoveryExecutor({
     opener,
     owner,
     projectId,
+    scopeKey,
     settleContext,
     snapshot.items,
   ]);
@@ -212,6 +238,15 @@ export function ProjectDraftApplyRecoveryExecutor({
     },
     [owner, projectId],
   );
+
+  useEffect(() => {
+    const current = running.current;
+    if (!current || current.scopeKey === scopeKey) return;
+    current.abort.abort();
+    owner.failAttempt({ ...current.grant, failure: "cancelled" });
+    running.current = null;
+    advanceExecutor((value) => value + 1);
+  }, [owner, scopeKey]);
 
   const commands = useMemo<ProjectDraftApplyRecoveryCommands>(
     () => ({

@@ -136,124 +136,128 @@ export function DraftDock({ dock }: { dock: DraftDockModel }) {
 
   return (
     <div className="mx-2 rounded-t-lg bg-dock-surface" data-draft-dock="settled">
-      {/* The WHOLE strip is the expand/collapse target (multi only) — buttons
+      {dock.rows.length > 0 ? (
+        <>
+          {/* The WHOLE strip is the expand/collapse target (multi only) — buttons
           intercept their own clicks below. Tiny chevron-only targets read as
           broken affordance. */}
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents: the chevron button inside is the keyboard-accessible toggle; the row onClick is a mouse convenience. */}
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: same — mouse-convenience toggle over a semantic inner button. */}
-      <div
-        onClick={multi ? () => setExpanded((value) => !value) : () => dock.reviewFirst()}
-        className={cn(
-          "flex min-h-7 items-center gap-1.5 px-2.5 text-caption text-prose-foreground",
-          multi && "cursor-pointer transition-colors hover:bg-muted/50",
-        )}
-      >
-        {multi ? (
-          <button
-            type="button"
-            aria-expanded={expanded}
-            aria-label={expanded ? t`Collapse changes` : t`Expand changes`}
-            onClick={(event) => {
-              event.stopPropagation();
-              setExpanded((value) => !value);
-            }}
-            className="focus-ring -ml-0.5 grid size-4 shrink-0 place-items-center rounded-sm text-ink-subtle"
+          {/* biome-ignore lint/a11y/useKeyWithClickEvents: the chevron button inside is the keyboard-accessible toggle; the row onClick is a mouse convenience. */}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: same — mouse-convenience toggle over a semantic inner button. */}
+          <div
+            onClick={multi ? () => setExpanded((value) => !value) : () => dock.reviewFirst()}
+            className={cn(
+              "flex min-h-7 items-center gap-1.5 px-2.5 text-caption text-prose-foreground",
+              multi && "cursor-pointer transition-colors hover:bg-muted/50",
+            )}
           >
-            <ChevronRight
-              className={cn("size-3 transition-transform", expanded && "rotate-90")}
-              aria-hidden
-            />
-          </button>
-        ) : null}
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-          <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-jade-text" />
-          {/* min() keeps the 12ch floor from padding short names with dead space */}
-          <span className="min-w-[min(12ch,max-content)] shrink truncate">
-            {single ? identity : <Trans>{dock.rows.length} documents</Trans>}
-          </span>
-          {dock.aggregateStats ? (
-            <span className="shrink-0 whitespace-nowrap text-ink-subtle">
-              <DraftStatsLabel stats={dock.aggregateStats} />
-            </span>
-          ) : null}
-        </div>
-        {/* biome-ignore lint/a11y/useKeyWithClickEvents: pure click fence so verb buttons don't also toggle the row. */}
-        {/* biome-ignore lint/a11y/noStaticElementInteractions: same — stopPropagation fence only, no interaction of its own. */}
-        <div
-          className="flex shrink-0 items-center gap-0.5"
-          onClick={(event) => event.stopPropagation()}
-        >
-          {confirmingDiscardAll ? (
-            <>
-              <span className="whitespace-nowrap text-ink-muted">
-                <Trans>Discard all changes?</Trans>
+            {multi ? (
+              <button
+                type="button"
+                aria-expanded={expanded}
+                aria-label={expanded ? t`Collapse changes` : t`Expand changes`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setExpanded((value) => !value);
+                }}
+                className="focus-ring -ml-0.5 grid size-4 shrink-0 place-items-center rounded-sm text-ink-subtle"
+              >
+                <ChevronRight
+                  className={cn("size-3 transition-transform", expanded && "rotate-90")}
+                  aria-hidden
+                />
+              </button>
+            ) : null}
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+              <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-jade-text" />
+              {/* min() keeps the 12ch floor from padding short names with dead space */}
+              <span className="min-w-[min(12ch,max-content)] shrink truncate">
+                {single ? identity : <Trans>{dock.rows.length} documents</Trans>}
               </span>
-              <QuietButton onClick={() => setConfirmingDiscardAll(false)}>
-                <Trans>Keep</Trans>
-              </QuietButton>
-              <QuietButton
-                onClick={() => {
-                  setConfirmingDiscardAll(false);
-                  dock.startDiscardAll();
-                }}
-                disabled={dock.isBusy}
-              >
-                <Trans>Discard</Trans>
-              </QuietButton>
-            </>
-          ) : (
-            <>
-              <QuietButton
-                onClick={() => {
-                  if (single && firstPending) dock.discardRow(firstPending);
-                  else setConfirmingDiscardAll(true);
-                }}
-                disabled={dock.generating || dock.isBusy || !firstPending}
-              >
-                {single ? <Trans>Discard</Trans> : <Trans>Discard all</Trans>}
-              </QuietButton>
-              <QuietButton
-                onClick={() => {
-                  if (single && firstPending) void dock.applyRow(firstPending).catch(() => {});
-                  else dock.startApplyAll();
-                }}
-                disabled={dock.generating || dock.isBusy || !firstPending}
-              >
-                {single ? <Trans>Apply</Trans> : <Trans>Apply all</Trans>}
-              </QuietButton>
-              {firstPending ? (
-                <ReviewPill onClick={() => dock.reviewFirst()} disabled={dock.isBusy} />
+              {dock.aggregateStats ? (
+                <span className="shrink-0 whitespace-nowrap text-ink-subtle">
+                  <DraftStatsLabel stats={dock.aggregateStats} />
+                </span>
               ) : null}
-            </>
-          )}
-        </div>
-      </div>
+            </div>
+            {/* biome-ignore lint/a11y/useKeyWithClickEvents: pure click fence so verb buttons don't also toggle the row. */}
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: same — stopPropagation fence only, no interaction of its own. */}
+            <div
+              className="flex shrink-0 items-center gap-0.5"
+              onClick={(event) => event.stopPropagation()}
+            >
+              {confirmingDiscardAll ? (
+                <>
+                  <span className="whitespace-nowrap text-ink-muted">
+                    <Trans>Discard all changes?</Trans>
+                  </span>
+                  <QuietButton onClick={() => setConfirmingDiscardAll(false)}>
+                    <Trans>Keep</Trans>
+                  </QuietButton>
+                  <QuietButton
+                    onClick={() => {
+                      setConfirmingDiscardAll(false);
+                      dock.startDiscardAll();
+                    }}
+                    disabled={dock.isBusy}
+                  >
+                    <Trans>Discard</Trans>
+                  </QuietButton>
+                </>
+              ) : (
+                <>
+                  <QuietButton
+                    onClick={() => {
+                      if (single && firstPending) dock.discardRow(firstPending);
+                      else setConfirmingDiscardAll(true);
+                    }}
+                    disabled={dock.generating || dock.isBusy || !firstPending}
+                  >
+                    {single ? <Trans>Discard</Trans> : <Trans>Discard all</Trans>}
+                  </QuietButton>
+                  <QuietButton
+                    onClick={() => {
+                      if (single && firstPending) void dock.applyRow(firstPending).catch(() => {});
+                      else dock.startApplyAll();
+                    }}
+                    disabled={dock.generating || dock.isBusy || !firstPending}
+                  >
+                    {single ? <Trans>Apply</Trans> : <Trans>Apply all</Trans>}
+                  </QuietButton>
+                  {firstPending ? (
+                    <ReviewPill onClick={() => dock.reviewFirst()} disabled={dock.isBusy} />
+                  ) : null}
+                </>
+              )}
+            </div>
+          </div>
 
-      {dock.dispositionError ? (
-        <p
-          className="border-border-subtle border-t px-3 py-2 text-destructive text-micro"
-          data-draft-dock-disposition-error={dock.dispositionError}
-        >
-          {dock.dispositionError === "apply-failed" ? (
-            <Trans>Couldn't apply. Check your connection and try again.</Trans>
-          ) : (
-            <Trans>Couldn't discard. Check your connection and try again.</Trans>
-          )}
-        </p>
-      ) : null}
+          {dock.dispositionError ? (
+            <p
+              className="border-border-subtle border-t px-3 py-2 text-destructive text-micro"
+              data-draft-dock-disposition-error={dock.dispositionError}
+            >
+              {dock.dispositionError === "apply-failed" ? (
+                <Trans>Couldn't apply. Check your connection and try again.</Trans>
+              ) : (
+                <Trans>Couldn't discard. Check your connection and try again.</Trans>
+              )}
+            </p>
+          ) : null}
 
-      {multi && expanded ? (
-        <div>
-          {dock.rows.map((row) => (
-            <DockRowLine
-              key={row.documentId}
-              row={row}
-              busy={dock.isBusy}
-              onOpen={() => dock.openRow(row)}
-              onReview={() => dock.reviewRow(row)}
-            />
-          ))}
-        </div>
+          {multi && expanded ? (
+            <div>
+              {dock.rows.map((row) => (
+                <DockRowLine
+                  key={row.documentId}
+                  row={row}
+                  busy={dock.isBusy}
+                  onOpen={() => dock.openRow(row)}
+                  onReview={() => dock.reviewRow(row)}
+                />
+              ))}
+            </div>
+          ) : null}
+        </>
       ) : null}
       {dock.dispositionRows.map((row) => (
         <div
