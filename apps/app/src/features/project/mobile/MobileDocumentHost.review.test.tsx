@@ -120,7 +120,6 @@ function mobileRoute(path: string | null) {
 vi.mock("@/client/query/useContextCatalog", () => ({
   useContextCatalogView: () => ({
     catalog,
-    capabilities: null,
     isError: false,
     isFetching: false,
     refetch: vi.fn(),

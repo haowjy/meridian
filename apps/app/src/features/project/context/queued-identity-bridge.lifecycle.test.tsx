@@ -72,7 +72,6 @@ const tree = {
 vi.mock("@/client/query/useContextCatalog", () => ({
   useContextCatalogView: (_projectId: string, scheme: ProjectContextTreeScheme) => ({
     tree: scheme === "manuscript" ? tree : { kind: "dir", name: "Scratch", path: "", children: [] },
-    capabilities: null,
     isError: false,
     isFetching: false,
     refetch: vi.fn(),

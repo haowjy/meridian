@@ -1,5 +1,4 @@
 /** Flat UI projection types over the React Query-owned normalized catalog. */
-import type { ContextSchemeCapabilities } from "@meridian/contracts/context-uri";
 import type {
   DocumentFileType,
   Filetype,
@@ -48,7 +47,6 @@ export type CatalogNode = CatalogDirectory | CatalogFile;
 export type CatalogContextView = {
   projectId: string;
   scheme: ProjectContextTreeScheme;
-  capabilities: ContextSchemeCapabilities;
   normalized: CatalogCacheView;
   root: CatalogDirectory;
   children(parentId: string): readonly CatalogNode[];

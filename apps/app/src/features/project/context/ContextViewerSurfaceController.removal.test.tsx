@@ -39,7 +39,6 @@ const tree = {
 
 const queryState = {
   tree,
-  capabilities: null,
   isError: false,
   isFetching: false,
   refetch: vi.fn(),
