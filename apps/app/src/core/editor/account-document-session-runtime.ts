@@ -1,6 +1,9 @@
-/** Immutable account epoch and two-phase lifecycle for document-session owners. */
+/** Immutable account epoch and narrowed facets over one private session core. */
 import type { AccountId } from "@meridian/contracts/protocol";
-import type { LiveDocumentSessionRegistry } from "./document-session-registry";
+import type {
+  LiveDocumentSessionRegistry,
+  LocalUntitledDocumentSessionFactory,
+} from "./document-session-registry";
 import { DocumentSessionRegistry } from "./document-session-registry-implementation";
 import type {
   LocalDocumentSessionAdoptionPort,
@@ -13,47 +16,47 @@ export interface AccountDocumentSessionRuntime {
   readonly registry: LiveDocumentSessionRegistry;
   readonly localReservation: LocalDocumentSessionReservationPort;
   readonly localAdoption: LocalDocumentSessionAdoptionPort;
+  readonly localConstruction: LocalUntitledDocumentSessionFactory;
+  beginClose(): void;
+  finishClose(): Promise<void>;
+}
+
+/** Test substitution is cohesive: every facet and both lifecycle phases travel together. */
+export interface AccountDocumentSessionCore {
+  readonly accountId: AccountId;
+  readonly registry: LiveDocumentSessionRegistry;
+  readonly localReservation: LocalDocumentSessionReservationPort;
+  readonly localAdoption: LocalDocumentSessionAdoptionPort;
+  readonly localConstruction: LocalUntitledDocumentSessionFactory;
   beginClose(): void;
   finishClose(): Promise<void>;
 }
 
 type RuntimeInput = {
   accountId: AccountId;
-  registry?: LiveDocumentSessionRegistry;
-  localReservation?: LocalDocumentSessionReservationPort;
-  localAdoption?: LocalDocumentSessionAdoptionPort;
-  closeLocalSessions(): Promise<void>;
-  closeRegistry?(): Promise<void>;
+  core?: AccountDocumentSessionCore;
 };
+
+function createCore(accountId: AccountId): AccountDocumentSessionCore {
+  const registry = new DocumentSessionRegistry(undefined, undefined, accountId);
+  return Object.freeze({
+    accountId,
+    registry,
+    localReservation: registry,
+    localAdoption: registry,
+    localConstruction: registry,
+    beginClose: () => registry.beginCloseAccountRuntime(),
+    finishClose: () => registry.closeAccountRuntime(),
+  });
+}
 
 export function createAccountDocumentSessionRuntime(
   input: RuntimeInput,
 ): AccountDocumentSessionRuntime {
-  const ownedRegistry = input.registry
-    ? null
-    : new DocumentSessionRegistry(undefined, undefined, input.accountId);
-  const coreRegistry = input.registry ?? ownedRegistry;
-  if (!coreRegistry) throw new Error("Account registry construction failed");
-  const closeRegistry =
-    input.closeRegistry ??
-    (() => {
-      if (!ownedRegistry) throw new Error("Injected account registry requires a close operation");
-      return ownedRegistry.closeAccountRuntime();
-    });
-  const reservation =
-    input.localReservation ??
-    ({
-      reserve: () => {
-        throw new Error("Local document reservation is not installed until F1-I1");
-      },
-    } satisfies LocalDocumentSessionReservationPort);
-  const adoptionFacet =
-    input.localAdoption ??
-    ({
-      admitAndAdopt: async () => {
-        throw new Error("Local document adoption is not installed until F1-I1");
-      },
-    } satisfies LocalDocumentSessionAdoptionPort);
+  const core = input.core ?? createCore(input.accountId);
+  if (core.accountId !== input.accountId) {
+    throw new Error("Account document session core belongs to a different account");
+  }
   const epoch = new AbortController();
   let state: "open" | "closing" | "closed" = "open";
   let finishPromise: Promise<void> | null = null;
@@ -61,7 +64,7 @@ export function createAccountDocumentSessionRuntime(
     if (state !== "open") throw new Error(`Account document session runtime is ${state}`);
   };
 
-  const registry = new Proxy(coreRegistry, {
+  const registry = new Proxy(core.registry, {
     get(target, property, receiver) {
       const value = Reflect.get(target, property, receiver);
       if (typeof value !== "function") return value;
@@ -75,34 +78,30 @@ export function createAccountDocumentSessionRuntime(
       }
       return (...args: unknown[]) => {
         requireOpen();
-        const result = Reflect.apply(value, target, args);
-        if (result instanceof Promise) {
-          return result.then((settled) => {
-            requireOpen();
-            return settled;
-          });
-        }
-        return result;
+        return Reflect.apply(value, target, args);
       };
     },
   });
   const localReservation: LocalDocumentSessionReservationPort = {
     reserve(transfer) {
       requireOpen();
-      return reservation.reserve(transfer);
+      return core.localReservation.reserve(transfer);
     },
   };
   const localAdoption: LocalDocumentSessionAdoptionPort = {
     admitAndAdopt(request) {
       try {
         requireOpen();
+        return core.localAdoption.admitAndAdopt(request);
       } catch (error) {
         return Promise.reject(error);
       }
-      return adoptionFacet.admitAndAdopt(request).then((settled) => {
-        requireOpen();
-        return settled;
-      });
+    },
+  };
+  const localConstruction: LocalUntitledDocumentSessionFactory = {
+    createDetached(request) {
+      requireOpen();
+      return core.localConstruction.createDetached(request);
     },
   };
 
@@ -110,6 +109,7 @@ export function createAccountDocumentSessionRuntime(
     if (state !== "open") return;
     state = "closing";
     epoch.abort(new Error("Account document session runtime is closing"));
+    core.beginClose();
   };
   return Object.freeze({
     accountId: input.accountId,
@@ -117,28 +117,14 @@ export function createAccountDocumentSessionRuntime(
     registry,
     localReservation,
     localAdoption,
+    localConstruction,
     beginClose,
     finishClose() {
       if (finishPromise) return finishPromise;
       beginClose();
-      finishPromise = (async () => {
-        const errors: unknown[] = [];
-        try {
-          await input.closeLocalSessions();
-        } catch (error) {
-          errors.push(error);
-        }
-        try {
-          await closeRegistry();
-        } catch (error) {
-          errors.push(error);
-        }
-        if (errors.length === 1) throw errors[0];
-        if (errors.length > 1) {
-          throw new AggregateError(errors, "Account document session teardown failed");
-        }
+      finishPromise = core.finishClose().then(() => {
         state = "closed";
-      })();
+      });
       return finishPromise;
     },
   });

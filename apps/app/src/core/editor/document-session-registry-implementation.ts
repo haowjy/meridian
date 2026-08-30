@@ -29,6 +29,12 @@ import type {
   LocalUntitledDocumentSessionFactory,
   RetainedLiveDocumentReference,
 } from "./document-session-registry";
+import type {
+  LocalDocumentSessionAdoptionPort,
+  LocalDocumentSessionHandoff,
+  LocalDocumentSessionReservationPort,
+  LocalDocumentSessionTransfer,
+} from "./local-document-session-adoption";
 import { readSchemaFenceQuarantine, writeSchemaFenceQuarantine } from "./schema-fence";
 
 const LIVE_DOC_SOFT_CAP = 50;
@@ -63,13 +69,19 @@ export class DocumentSessionAuthorityError extends Error {
 }
 
 export class DocumentSessionRegistry
-  implements LiveDocumentSessionAuthority, LocalSessionAuthority
+  implements
+    LiveDocumentSessionAuthority,
+    LocalSessionAuthority,
+    LocalUntitledDocumentSessionFactory,
+    LocalDocumentSessionReservationPort,
+    LocalDocumentSessionAdoptionPort
 {
   private accountId: AccountId | null = null;
   private coordination: DocumentSessionCrossContextCoordination | null = null;
   private accountTransition: Promise<void> = Promise.resolve();
   private accountTransitionVersion = 0;
   private authorityFailure: unknown = null;
+  private accountRuntimeState: "open" | "closing" = "open";
   private invalidationPromise: Promise<void> | null = null;
   private readonly liveRooms = new Map<DocumentId, LiveRoomState>();
   private readonly unleasedRooms = new Map<string, UnleasedRoomState>();
@@ -112,6 +124,7 @@ export class DocumentSessionRegistry
     documentId: DocumentId,
     generation: AvailabilityGeneration,
   ): Promise<LiveDocumentSessionLease> {
+    this.requireAccountRuntimeOpen();
     compareAvailabilityGeneration(generation, generation);
     this.reserveAdmission(documentId);
     try {
@@ -265,23 +278,51 @@ export class DocumentSessionRegistry
   }
 
   localUntitledDocumentSessionFactory(): LocalUntitledDocumentSessionFactory {
-    return {
-      createDetached: (input) => {
-        if (input.accountId !== this.accountId) {
-          throw new DocumentSessionAuthorityError(
-            "account-mismatch",
-            "Local Untitled construction belongs to a different account epoch",
-          );
-        }
-        return this.createSession(input.documentId, {
-          kind: "indexeddb",
-          key: input.persistenceKey,
-        });
-      },
-    };
+    return this;
+  }
+
+  createDetached(input: {
+    accountId: AccountId;
+    projectId: ProjectId;
+    documentId: DocumentId;
+    persistenceKey: string;
+  }): DocumentSession {
+    this.requireAccountRuntimeOpen();
+    if (input.accountId !== this.accountId) {
+      throw new DocumentSessionAuthorityError(
+        "account-mismatch",
+        "Local Untitled construction belongs to a different account epoch",
+      );
+    }
+    return this.constructSession(input.documentId, {
+      kind: "indexeddb",
+      key: input.persistenceKey,
+    });
+  }
+
+  reserve(_transfer: LocalDocumentSessionTransfer): LocalDocumentSessionHandoff {
+    this.requireAccountRuntimeOpen();
+    throw new Error("Local document reservation is not installed until F1-I1");
+  }
+
+  async admitAndAdopt(_input: {
+    projectId: ProjectId;
+    documentId: DocumentId;
+    generation: AvailabilityGeneration;
+    handoff: LocalDocumentSessionHandoff;
+  }): Promise<{ lease: LiveDocumentSessionLease; session: DocumentSession }> {
+    this.requireAccountRuntimeOpen();
+    throw new Error("Local document adoption is not installed until F1-I1");
+  }
+
+  beginCloseAccountRuntime(): void {
+    if (this.accountRuntimeState === "closing") return;
+    this.accountRuntimeState = "closing";
+    this.coordination?.beginClose();
   }
 
   closeAccountRuntime(): Promise<void> {
+    this.beginCloseAccountRuntime();
     this.accountTransitionVersion += 1;
     const coordination = this.coordination;
     this.coordination = null;
@@ -452,6 +493,7 @@ export class DocumentSessionRegistry
     generation: AvailabilityGeneration;
     persistenceGeneration: AvailabilityGeneration;
   }): void {
+    this.requireAccountRuntimeOpen();
     if (!this.accountId) return;
     const lease = {
       accountId: this.accountId,
@@ -562,6 +604,15 @@ export class DocumentSessionRegistry
     roomKey: string,
     persistence: { kind: "indexeddb"; key: string } | { kind: "none" },
   ): DocumentSession {
+    const session = this.constructSession(roomKey, persistence);
+    this.publishSession(roomKey, session);
+    return session;
+  }
+
+  private constructSession(
+    roomKey: string,
+    persistence: { kind: "indexeddb"; key: string } | { kind: "none" },
+  ): DocumentSession {
     const session = new DocumentSession({
       roomKey,
       persistence,
@@ -570,8 +621,13 @@ export class DocumentSessionRegistry
     });
     const quarantine = readSchemaFenceQuarantine(roomKey);
     if (quarantine) session.raiseSchemaFence(quarantine);
-    this.publishSession(roomKey, session);
     return session;
+  }
+
+  private requireAccountRuntimeOpen(): void {
+    if (this.accountRuntimeState !== "open") {
+      throw new Error("Account document session runtime is closing");
+    }
   }
 
   private attachSessionTransport(session: DocumentSession): void {

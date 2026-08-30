@@ -14,6 +14,28 @@ import {
 import { clientSchemaReloadGuardKey } from "./schema-fence";
 
 describe("DocumentSessionRegistry session lifecycle", () => {
+  it("constructs a local Untitled session without publishing it to transitional observers", async () => {
+    const registry = new DocumentSessionRegistry(undefined, 0, "account-local-construction");
+    const observer = vi.fn();
+    const stopObserving = registry.temporaryObserve("doc-local-construction", observer);
+
+    const session = registry.localUntitledDocumentSessionFactory().createDetached({
+      accountId: "account-local-construction",
+      projectId: "project-local-construction",
+      documentId: "doc-local-construction",
+      persistenceKey: "local-persistence-key",
+    });
+
+    expect(observer).not.toHaveBeenCalled();
+    expect(registry.temporaryPeek("doc-local-construction")).toBeUndefined();
+    session.raiseSchemaFence({ reason: "client-superseded" });
+    expect(observer).not.toHaveBeenCalled();
+
+    stopObserving();
+    await session.destroy();
+    registry.destroyAll();
+  });
+
   it("keeps branch generations separate from live authority and IndexedDB", async () => {
     const before = await databaseNames();
     const registry = new DocumentSessionRegistry();

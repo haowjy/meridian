@@ -13,6 +13,60 @@ import {
 } from "./document-session-registry.test-support";
 
 describe("DocumentSessionRegistry account lifecycle", () => {
+  it("refuses an admission commit that resumes after the account close fence", async () => {
+    let continueAdmission!: () => void;
+    const admissionBarrier = new Promise<void>((resolve) => {
+      continueAdmission = resolve;
+    });
+    let admissionStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      admissionStarted = resolve;
+    });
+    const registry = new DocumentSessionRegistry(
+      (accountId, local) => ({
+        admit: async (projectId, documentId, generation) => {
+          admissionStarted();
+          await admissionBarrier;
+          local.installSynchronously({
+            documentId,
+            projectId,
+            generation,
+            persistenceGeneration: generation,
+          });
+          return {
+            accountId,
+            projectId,
+            documentId,
+            generation,
+            persistenceGeneration: generation,
+          };
+        },
+        revokeDocument: async (_projectId, _documentId, generation) => ({
+          revokedThrough: generation,
+          persistence: "cleared" as const,
+        }),
+        revokeAccess: async (_projectId, _documentId, generation) => ({
+          revokedThrough: generation,
+          persistence: "cleared" as const,
+        }),
+        reconcilePending: async () => undefined,
+        beginClose: () => undefined,
+        close: async () => undefined,
+      }),
+      0,
+      "account-commit-fence",
+    );
+
+    const opening = registry.admit("project", "doc-commit-fence", "1");
+    await started;
+    registry.beginCloseAccountRuntime();
+    continueAdmission();
+
+    await expect(opening).rejects.toThrow(/closing/);
+    expect(registry.temporaryPeek("doc-commit-fence")).toBeUndefined();
+    await registry.closeAccountRuntime();
+  });
+
   it("publishes one synchronous empty retained snapshot at account transition and destroy", async () => {
     const registry = await registryFor("account-retained-a");
     const snapshots: Array<readonly { projectId: string; documentId: string }[]> = [];
@@ -91,6 +145,7 @@ describe("DocumentSessionRegistry account lifecycle", () => {
           persistence: "cleared" as const,
         }),
         reconcilePending: async () => undefined,
+        beginClose: () => undefined,
         close: async () => {
           await closeBarrier;
           await local.invalidateAll();

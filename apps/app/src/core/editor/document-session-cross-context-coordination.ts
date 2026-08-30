@@ -109,6 +109,7 @@ export interface DocumentSessionCrossContextCoordination {
   reconcilePending(
     reason: "scan" | "broadcast" | "focus" | "pageshow" | "visible" | "operation" | "account-close",
   ): Promise<void>;
+  beginClose(): void;
   close(): Promise<void>;
 }
 
@@ -242,6 +243,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
   private readonly readiness: Promise<void>;
   private closePromise: Promise<void> | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private admissionsFenced = false;
   private closed = false;
   private versionChanged = false;
   private readonly removeLifecycleListeners: () => void;
@@ -293,7 +295,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     generation: AvailabilityGeneration,
   ): Promise<LiveDocumentSessionLease & { persistenceGeneration: AvailabilityGeneration }> {
     await this.requireReady();
-    this.assertOpen();
+    this.assertAdmissionOpen();
     for (;;) {
       let barrier: AvailabilityGeneration | null = null;
       let installed:
@@ -301,9 +303,9 @@ class Coordination implements DocumentSessionCrossContextCoordination {
         | null = null;
       await this.withOperation(documentId, async () => {
         await this.helpPendingUnderOperation(documentId);
-        this.assertOpen();
+        this.assertAdmissionOpen();
         await this.local.retireLegacy(documentId);
-        this.assertOpen();
+        this.assertAdmissionOpen();
         this.local.validateAdmission({ documentId, projectId, generation });
         const acquired = await this.ensureSharedHolds(documentId, projectId);
         try {
@@ -322,7 +324,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
             await this.releaseNewHolds(documentId, projectId, acquired);
             return;
           }
-          this.assertOpen();
+          this.assertAdmissionOpen();
           const lease = { accountId: this.accountId, projectId, documentId, generation };
           this.local.installSynchronously({
             documentId,
@@ -482,6 +484,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
 
   close(): Promise<void> {
     if (this.closePromise) return this.closePromise;
+    this.beginClose();
     this.closed = true;
     this.abort.abort(new Error("Document authority closed"));
     if (this.timer) clearTimeout(this.timer);
@@ -491,6 +494,10 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     const close = this.finishClose();
     this.closePromise = close;
     return close;
+  }
+
+  beginClose(): void {
+    this.admissionsFenced = true;
   }
 
   private async finishClose(): Promise<void> {
@@ -851,6 +858,16 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       throw new DocumentSessionCoordinationError(
         "account-mismatch",
         "Document authority is closed or changed",
+      );
+    }
+  }
+
+  private assertAdmissionOpen(): void {
+    this.assertOpen();
+    if (this.admissionsFenced) {
+      throw new DocumentSessionCoordinationError(
+        "account-mismatch",
+        "Document authority admission is fenced for account close",
       );
     }
   }
