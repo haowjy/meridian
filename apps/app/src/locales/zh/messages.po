@@ -412,6 +412,10 @@ msgid "Appearance and behavior settings."
 msgstr ""
 
 #: src/features/chat/DraftDock.tsx
+msgid "Applied. Reopening live document."
+msgstr ""
+
+#: src/features/chat/DraftDock.tsx
 msgid "Apply"
 msgstr ""
 
@@ -642,6 +646,11 @@ msgstr ""
 msgid "Chats couldn’t load"
 msgstr ""
 
+#: src/features/chat/DraftDock.tsx
+#: src/features/editor/DraftReviewHeader.tsx
+msgid "Check again"
+msgstr ""
+
 #: src/features/project/home/HomeFeed.tsx
 msgid "Check your connection and try again."
 msgstr ""
@@ -660,6 +669,10 @@ msgstr ""
 
 #: src/features/chat/command-descriptor.ts
 msgid "Checking recent changes…"
+msgstr ""
+
+#: src/features/chat/DraftDock.tsx
+msgid "Checking whether Apply finished."
 msgstr ""
 
 #: src/features/chat/command-descriptor.ts
@@ -716,6 +729,8 @@ msgstr ""
 msgid "Choose Work for new chat, currently {0}"
 msgstr ""
 
+#: src/features/chat/DraftDock.tsx
+#: src/features/editor/DraftReviewHeader.tsx
 #: src/features/editor/surfaces/link/FollowOutcomeDialog.tsx
 #: src/features/project/mobile/MobileResultViewerOverlay.tsx
 #: src/features/project/shell/ResultViewerOverlay.tsx
@@ -1431,8 +1446,17 @@ msgstr ""
 msgid "Files"
 msgstr ""
 
+#: src/features/chat/DraftDock.tsx
+#: src/features/editor/DraftReviewHeader.tsx
+msgid "Finish"
+msgstr ""
+
 #: src/features/project/home/HomeScreen.tsx
 msgid "Finish the current chat attempt"
+msgstr ""
+
+#: src/features/chat/DraftDock.tsx
+msgid "Finishing reopening"
 msgstr ""
 
 #: src/features/project/home/HomeScreen.tsx
@@ -2543,6 +2567,8 @@ msgstr ""
 #: src/core/editor/FigureNodeView.tsx
 #: src/core/editor/images/ImageNodeView.tsx
 #: src/features/account/SettingsDialog.tsx
+#: src/features/chat/DraftDock.tsx
+#: src/features/editor/DraftReviewHeader.tsx
 #: src/features/project/context/ContextEditorMountHost.tsx
 #: src/features/project/EditorWorkRecovery.tsx
 #: src/features/project/home/HomeFeed.tsx
@@ -2809,6 +2835,8 @@ msgid "status"
 msgstr ""
 
 #: src/components/app/composer/Composer.tsx
+#: src/features/chat/DraftDock.tsx
+#: src/features/editor/DraftReviewHeader.tsx
 msgid "Stop"
 msgstr "停止"
 
