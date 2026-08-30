@@ -167,6 +167,68 @@ describe("LocalUntitledOwner", () => {
     expect(f.dependencies.reservations.reserve).toHaveBeenCalledTimes(2);
   });
 
+  it("retains abandon cleanup until provider close succeeds before HL release", async () => {
+    const f = fixture();
+    await f.owner.create(key());
+    vi.mocked(f.session.destroy).mockRejectedValueOnce(new Error("provider-close-failed"));
+
+    await expect(
+      f.owner.abandon({ key: key(), expectedRevision: 1, evidence: "server-row-absent" }),
+    ).rejects.toThrow("provider-close-failed");
+    expect(f.records.has("project-a:document-a")).toBe(true);
+    expect(f.owner.getDetached(key())).not.toBeNull();
+    expect(f.releases).toEqual([]);
+
+    expect(
+      await f.owner.abandon({ key: key(), expectedRevision: 1, evidence: "server-row-absent" }),
+    ).toBe("abandoned");
+    expect(f.records.has("project-a:document-a")).toBe(false);
+    expect(f.releases).toEqual(["document-a"]);
+  });
+
+  it("reports a committed remint while retaining failed old-provider cleanup for teardown", async () => {
+    const f = fixture();
+    const events: string[] = [];
+    vi.mocked(f.session.prepareDetachedReidentity).mockResolvedValueOnce({
+      commit: () => ({
+        closePrevious: vi
+          .fn()
+          .mockImplementationOnce(async () => {
+            events.push("old-close-failed");
+            throw new Error("old-provider-close-failed");
+          })
+          .mockImplementationOnce(async () => void events.push("old-close")),
+      }),
+      abort: async () => undefined,
+    });
+    vi.mocked(f.session.destroy).mockImplementation(async () => void events.push("new-close"));
+    vi.mocked(f.dependencies.lifetime.tryAcquire).mockImplementation(async (_projectId, id) => ({
+      release: async () => {
+        events.push(`release:${id}`);
+        f.releases.push(id);
+      },
+    }));
+    await f.owner.create(key());
+
+    const replacement = await f.owner.remint(key(), key("document-b"));
+    expect(replacement.key).toEqual(key("document-b"));
+    expect(f.records.get("project-a:document-b")?.active).toBe(true);
+    expect(f.releases).toEqual([]);
+
+    await f.owner.destroyAll();
+    expect(events[0]).toBe("old-close-failed");
+    expect(events).toEqual(
+      expect.arrayContaining([
+        "old-close",
+        "release:document-a",
+        "new-close",
+        "release:document-b",
+      ]),
+    );
+    expect(events.indexOf("old-close")).toBeLessThan(events.indexOf("release:document-a"));
+    expect(events.indexOf("new-close")).toBeLessThan(events.indexOf("release:document-b"));
+  });
+
   it("attempts every provider and lease and aggregates teardown failures", async () => {
     const f = fixture();
     const destroy = vi.mocked(f.session.destroy);

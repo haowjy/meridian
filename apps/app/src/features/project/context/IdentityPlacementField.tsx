@@ -296,7 +296,7 @@ export function IdentityPlacementField({
     setConflict(null);
     setRequestError(null);
     setCommitReason(null);
-    clearQueuedIdentityFailure(tab.documentId);
+    clearQueuedIdentityFailure(projectId, tab.documentId);
   };
 
   return (

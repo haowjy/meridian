@@ -39,6 +39,7 @@ export type LocalUntitledRecord = Readonly<{
   home: LocalUntitledHome | null;
   desiredIdentity?: DesiredIdentity;
   materializedResult?: CreateUntitledContextDocumentResponse;
+  createSettlement?: "ambiguous";
   failure?: LocalUntitledIdentityFailure;
   pendingSinceMs?: number | null;
 }>;

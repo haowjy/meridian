@@ -18,7 +18,7 @@ import * as Y from "yjs";
 import type { DocumentSession, DocumentSessionSnapshot } from "@/core/editor/document-session";
 import type { LocalDocumentSessionHandoff } from "@/core/editor/local-document-session-adoption";
 import type { DesiredIdentity } from "./identity-location";
-import type { LocalUntitledRecord } from "./local-untitled-record-store";
+import { encodeLocalUntitledKey, type LocalUntitledRecord } from "./local-untitled-record-store";
 import type { LiveDocumentBinding, ProjectDocumentLiveOpenResult } from "./open-project-document";
 
 const RETRY_BASE_MS = 1_000;
@@ -94,7 +94,12 @@ type ApiPort = {
   create(
     entry: PendingUntitled & { home: UntitledHome },
   ): Promise<CreateUntitledContextDocumentResult>;
-  serverDocumentExists(entry: PendingUntitled & { home: UntitledHome }): Promise<boolean>;
+  confirmCreate(
+    entry: PendingUntitled & { home: UntitledHome },
+  ): Promise<
+    | { status: "present"; result: CreateUntitledContextDocumentResponse }
+    | { status: "definite-no-row" }
+  >;
   move(
     entry: PendingUntitled & { home: UntitledHome },
     source: CreateUntitledContextDocumentResponse,
@@ -108,6 +113,7 @@ export type UntitledReconcilerDeps = {
   api: ApiPort;
   newDocumentId: () => string;
   localOwner: {
+    accountId: string;
     list(): readonly LocalUntitledRecord[];
     read(projectId: string, documentId: string): LocalUntitledRecord | null;
     write(record: LocalUntitledRecord): void;
@@ -143,12 +149,15 @@ export function resolveUntitledHome(activeWorkId: string | null): UntitledHome |
 }
 
 export type ReconciliationRecord = {
+  projectId: string;
   documentId: string;
   /** Monotonic guard for work captured across asynchronous boundaries. */
   revision: number;
   materialization: { phase: "pending"; entry: PendingUntitled } | { phase: "synced" };
   desiredIdentity?: DesiredIdentity;
   materializedResult?: CreateUntitledContextDocumentResponse;
+  /** A create response was lost; only exact lookup may settle this reservation. */
+  createSettlement?: "ambiguous";
   failure?: QueuedIdentityFailure;
   /** Epoch ms for device-only grace; meaningful only while pending. */
   pendingSinceMs: number | null;
@@ -169,12 +178,20 @@ export class UntitledReconciler {
 
   constructor(private readonly deps: UntitledReconcilerDeps) {}
 
+  private key(projectId: string, documentId: string): string {
+    return encodeLocalUntitledKey({
+      accountId: this.deps.localOwner.accountId,
+      projectId,
+      documentId,
+    });
+  }
+
   /** Loads durable records before the tab desk filters provisional tabs. */
   rehydrate(): void {
     for (const durable of this.deps.localOwner.list()) {
       if (durable.active === false) continue;
       const record = fromDurableRecord(durable);
-      if (!this.records.has(record.documentId)) this.records.set(record.documentId, record);
+      this.records.set(this.key(record.projectId, record.documentId), record);
     }
   }
 
@@ -197,20 +214,23 @@ export class UntitledReconciler {
     this.scheduled = false;
   }
 
-  registerCandidate(documentId: string, candidate: Candidate): () => void {
-    this.candidates.set(documentId, candidate);
-    const receipt = this.materializationReceipts.get(documentId);
+  registerCandidate(projectId: string, documentId: string, candidate: Candidate): () => void {
+    const key = this.key(projectId, documentId);
+    this.candidates.set(key, candidate);
+    const receipt = this.materializationReceipts.get(key);
     if (receipt) {
-      this.materializationReceipts.delete(documentId);
+      this.materializationReceipts.delete(key);
       this.publishMaterialization(candidate, receipt);
     }
     return () => {
-      if (this.candidates.get(documentId) === candidate) this.candidates.delete(documentId);
+      if (this.candidates.get(key) === candidate) this.candidates.delete(key);
     };
   }
 
-  setMaterializationReceiptOwners(documentIds: ReadonlySet<string>): void {
-    this.materializationReceiptOwners = new Set(documentIds);
+  setMaterializationReceiptOwners(entries: Iterable<PendingUntitled>): void {
+    this.materializationReceiptOwners = new Set(
+      [...entries].map((entry) => this.key(entry.projectId, entry.documentId)),
+    );
     this.evictUnreferencedMaterializationReceipts();
   }
 
@@ -218,9 +238,11 @@ export class UntitledReconciler {
     if (!this.deps.localOwner.read(entry.projectId, entry.documentId)) {
       throw new Error("Local Untitled must be owned before materialization work is appended");
     }
-    const current = this.records.get(entry.documentId);
+    const key = this.key(entry.projectId, entry.documentId);
+    const current = this.records.get(key);
     if (current?.materialization.phase === "pending") return;
-    this.records.set(entry.documentId, {
+    this.records.set(key, {
+      projectId: entry.projectId,
       documentId: entry.documentId,
       revision: (current?.revision ?? 0) + 1,
       materialization: { phase: "pending", entry },
@@ -232,30 +254,30 @@ export class UntitledReconciler {
     this.schedule();
   }
 
-  has(documentId: string): boolean {
-    return this.records.get(documentId)?.materialization.phase === "pending";
+  has(projectId: string, documentId: string): boolean {
+    return this.records.get(this.key(projectId, documentId))?.materialization.phase === "pending";
   }
 
-  pendingSince(documentId: string): number | null {
-    const record = this.records.get(documentId);
+  pendingSince(projectId: string, documentId: string): number | null {
+    const record = this.records.get(this.key(projectId, documentId));
     return record?.materialization.phase === "pending" ? record.pendingSinceMs : null;
   }
 
-  queuedIdentityFailure(documentId: string): QueuedIdentityFailure | null {
-    return this.records.get(documentId)?.failure ?? null;
+  queuedIdentityFailure(projectId: string, documentId: string): QueuedIdentityFailure | null {
+    return this.records.get(this.key(projectId, documentId))?.failure ?? null;
   }
 
-  clearQueuedIdentityFailure(documentId: string): void {
-    const record = this.records.get(documentId);
+  clearQueuedIdentityFailure(projectId: string, documentId: string): void {
+    const key = this.key(projectId, documentId);
+    const record = this.records.get(key);
     if (!record?.failure) return;
     const next = { ...record, failure: undefined };
     if (next.materialization.phase === "synced" && !next.desiredIdentity) {
-      const projectId = this.projectIdFor(documentId);
       const durable = this.deps.localOwner.read(projectId, documentId);
-      this.records.delete(documentId);
+      this.records.delete(key);
       if (durable) this.deps.localOwner.remove(projectId, documentId, durable.revision);
     } else {
-      this.records.set(documentId, { ...next, revision: record.revision + 1 });
+      this.records.set(key, { ...next, revision: record.revision + 1 });
     }
     this.persistAndEmit();
   }
@@ -267,13 +289,15 @@ export class UntitledReconciler {
 
   /** Last explicit writer identity wins and is durable before this returns. */
   queueIdentity(entry: PendingUntitled, desiredIdentity: DesiredIdentity): void {
-    const current = this.records.get(entry.documentId);
+    const key = this.key(entry.projectId, entry.documentId);
+    const current = this.records.get(key);
     const materialization =
       current?.materialization.phase === "pending"
         ? current.materialization
         : { phase: "pending" as const, entry };
-    this.records.set(entry.documentId, {
+    this.records.set(key, {
       ...current,
+      projectId: entry.projectId,
       documentId: entry.documentId,
       revision: (current?.revision ?? 0) + 1,
       materialization,
@@ -303,13 +327,13 @@ export class UntitledReconciler {
     this.running = true;
     let failed = false;
     try {
-      const pendingDocumentIds = [...this.records.values()]
-        .filter((record) => record.materialization.phase === "pending")
-        .map((record) => record.documentId);
-      for (const documentId of pendingDocumentIds) {
+      const pendingKeys = [...this.records.entries()]
+        .filter(([, record]) => record.materialization.phase === "pending")
+        .map(([key]) => key);
+      for (const key of pendingKeys) {
         if (!this.started) break;
         try {
-          await this.reconcile(documentId);
+          await this.reconcile(key);
         } catch {
           failed = true;
         }
@@ -325,13 +349,13 @@ export class UntitledReconciler {
     }
   }
 
-  private async reconcile(documentId: string): Promise<void> {
-    let record = this.pendingRecord(documentId);
+  private async reconcile(key: string): Promise<void> {
+    let record = this.pendingRecord(key);
     if (!record) return;
     const entry = record.materialization.entry;
     const home = entry.home ?? (await this.deps.api.resolveHome(entry.projectId));
     if (!home) throw new Error("Untitled home is not available yet");
-    record = this.pendingRecord(documentId);
+    record = this.pendingRecord(key);
     if (!record) return;
     if (!record.materialization.entry.home) {
       record = {
@@ -342,7 +366,7 @@ export class UntitledReconciler {
           entry: { ...record.materialization.entry, home },
         },
       };
-      this.records.set(documentId, record);
+      this.records.set(key, record);
       this.persist();
     }
     const resolvedEntry = record.materialization.entry as PendingUntitled & {
@@ -354,17 +378,18 @@ export class UntitledReconciler {
 
   private async reconcileOwned(entry: PendingUntitled & { home: UntitledHome }): Promise<void> {
     const local = this.deps.localOwner;
-    const documentId = entry.documentId;
-    const ownerId = `untitled-reconciler:${documentId}`;
-    const phase = local.phase(entry.projectId, documentId);
+    const { documentId, projectId } = entry;
+    const key = this.key(projectId, documentId);
+    const ownerId = `untitled-reconciler:${key}`;
+    const phase = local.phase(projectId, documentId);
     if (phase === "adopted-live") {
-      const current = this.pendingRecord(documentId);
+      const current = this.pendingRecord(key);
       if (current?.desiredIdentity && current.materializedResult) {
-        const identity = await this.applyDesiredIdentity(entry, current.materializedResult);
+        const identity = await this.applyDesiredIdentity(key, entry, current.materializedResult);
         const receipt = { result: identity.result, identity: identity.identity };
-        const candidate = this.candidates.get(documentId);
+        const candidate = this.candidates.get(key);
         if (candidate) this.publishMaterialization(candidate, receipt);
-        else this.rememberMaterializationReceipt(documentId, receipt);
+        else this.rememberMaterializationReceipt(key, receipt);
       }
       const opened = await local.open({ source: "server", ...entry });
       if (opened.kind !== "opened") throw new Error("Adopted Untitled could not reopen live");
@@ -373,87 +398,97 @@ export class UntitledReconciler {
         await binding.session.waitForDurableSync();
         if (binding.session.getSnapshot().status !== "synced")
           throw syncFailure(binding.session.getSnapshot());
-        const record = this.pendingRecord(documentId);
-        if (record) this.drain(documentId, record.revision);
+        const record = this.pendingRecord(key);
+        if (record) this.drain(key, record.revision);
       } finally {
         binding.release();
       }
       return;
     }
-    let session = local.get(entry.projectId, documentId);
+    let session = local.get(projectId, documentId);
     if (!session) {
-      const restored = await local.restore(entry.projectId, documentId);
+      const restored = await local.restore(projectId, documentId);
       if (restored.documentId !== documentId) {
-        this.redirectOwnedRecord(entry, restored.documentId);
+        this.redirectOwnedRecord(key, entry, restored.documentId);
         return;
       }
       session = restored.session;
     }
-    local.retain(ownerId, entry.projectId, documentId);
+    local.retain(ownerId, projectId, documentId);
     try {
       await session.whenLocalPersistenceSynced();
-      let record = this.pendingRecord(documentId);
+      let record = this.pendingRecord(key);
       if (!record) return;
       const empty = untitledDocumentIsEmpty(session.document.getXmlFragment(session.fragmentName));
-      if (empty && !record.desiredIdentity && !this.candidates.has(documentId)) {
+      let confirmedResult: CreateUntitledContextDocumentResponse | undefined;
+      if (empty && !record.desiredIdentity && !this.candidates.has(key)) {
         const checkedRevision = record.revision;
-        if (!(await this.deps.api.serverDocumentExists(entry))) {
+        const confirmation = await this.deps.api.confirmCreate(entry);
+        if (confirmation.status === "definite-no-row") {
           local.release(ownerId);
-          await local.abandon(
-            entry.projectId,
-            documentId,
-            local.revision(entry.projectId, documentId) ?? -1,
-          );
-          this.drain(documentId, checkedRevision);
+          await local.abandon(projectId, documentId, local.revision(projectId, documentId) ?? -1);
+          this.drain(key, checkedRevision);
           return;
         }
+        confirmedResult = confirmation.result;
       }
 
-      const ownerRevision = local.revision(entry.projectId, documentId);
+      const ownerRevision = local.revision(projectId, documentId);
       if (ownerRevision === null) throw new Error("Local Untitled owner record disappeared");
-      const handoff = await local.prepare(entry.projectId, documentId, ownerRevision);
+      const handoff = await local.prepare(projectId, documentId, ownerRevision);
       let result: CreateUntitledContextDocumentResult;
-      try {
-        result = await this.deps.api.create(entry);
-      } catch (error) {
-        local.abort(entry.projectId, documentId, handoff);
-        throw error;
+      if (confirmedResult) {
+        result = confirmedResult;
+      } else if (record.createSettlement === "ambiguous") {
+        const confirmation = await this.deps.api.confirmCreate(entry);
+        if (confirmation.status === "definite-no-row") {
+          local.abort(projectId, documentId, handoff);
+          this.records.set(key, { ...record, createSettlement: undefined });
+          this.persist();
+          throw new Error("Untitled create definitely did not commit");
+        }
+        result = confirmation.result;
+      } else {
+        try {
+          result = await this.deps.api.create(entry);
+        } catch (error) {
+          this.records.set(key, { ...record, createSettlement: "ambiguous" });
+          this.persist();
+          throw error;
+        }
       }
       if (result.status === "conflict") {
-        await this.remintOwned(entry);
+        await this.remintOwned(key, entry);
         return;
       }
-      record = this.pendingRecord(documentId);
+      record = this.pendingRecord(key);
       if (!record) return;
-      record = { ...record, materializedResult: result };
-      this.records.set(documentId, record);
+      record = { ...record, materializedResult: result, createSettlement: undefined };
+      this.records.set(key, record);
       this.persist();
-      const identity = await this.applyDesiredIdentity(entry, result);
-      const latestAfterIdentity = this.records.get(documentId);
+      const identity = await this.applyDesiredIdentity(key, entry, result);
+      const latestAfterIdentity = this.records.get(key);
       if (latestAfterIdentity) {
-        this.records.set(documentId, {
-          ...latestAfterIdentity,
-          materializedResult: identity.result,
-        });
+        this.records.set(key, { ...latestAfterIdentity, materializedResult: identity.result });
         this.persist();
       }
       const opened = await local.open({
         source: "local-untitled",
-        projectId: entry.projectId,
+        projectId,
         documentId,
         handoff,
       });
       if (opened.kind !== "opened") throw new Error("Materialized Untitled was not admitted");
       const binding = await opened.admission.bind(ownerId);
       const receipt = { result: identity.result, identity: identity.identity, binding };
-      const candidate = this.candidates.get(documentId);
+      const candidate = this.candidates.get(key);
       if (candidate) this.publishMaterialization(candidate, receipt);
-      else this.rememberMaterializationReceipt(documentId, receipt);
+      else this.rememberMaterializationReceipt(key, receipt);
       try {
         await binding.session.waitForDurableSync();
         const snapshot = binding.session.getSnapshot();
         if (snapshot.status !== "synced") throw syncFailure(snapshot);
-        this.drain(documentId, identity.revision);
+        this.drain(key, identity.revision);
       } finally {
         if (!candidate) binding.release();
       }
@@ -462,7 +497,10 @@ export class UntitledReconciler {
     }
   }
 
-  private async remintOwned(entry: PendingUntitled & { home: UntitledHome }): Promise<void> {
+  private async remintOwned(
+    key: string,
+    entry: PendingUntitled & { home: UntitledHome },
+  ): Promise<void> {
     const local = this.deps.localOwner;
     let replacementId = this.deps.newDocumentId();
     let replacement: ReconcilerSession;
@@ -476,33 +514,38 @@ export class UntitledReconciler {
       }
     }
     await replacement.flushLocalPersistence();
-    this.redirectOwnedRecord(entry, replacementId);
+    this.redirectOwnedRecord(key, entry, replacementId);
   }
 
   private redirectOwnedRecord(
+    key: string,
     entry: PendingUntitled & { home: UntitledHome },
     replacementId: string,
   ): void {
-    const record = this.records.get(entry.documentId);
+    const replacementKey = this.key(entry.projectId, replacementId);
+    const record = this.records.get(key);
     if (!record) return;
-    const candidate = this.candidates.get(entry.documentId);
-    this.records.delete(entry.documentId);
-    this.records.set(replacementId, {
+    const candidate = this.candidates.get(key);
+    this.records.delete(key);
+    this.records.set(replacementKey, {
       ...record,
       documentId: replacementId,
       revision: record.revision + 1,
-      materialization: {
-        phase: "pending",
-        entry: { ...entry, documentId: replacementId },
-      },
+      materialization: { phase: "pending", entry: { ...entry, documentId: replacementId } },
     });
-    this.candidates.delete(entry.documentId);
-    if (candidate) this.candidates.set(replacementId, candidate);
+    this.candidates.delete(key);
+    if (candidate) this.candidates.set(replacementKey, candidate);
+    const receipt = this.materializationReceipts.get(key);
+    this.materializationReceipts.delete(key);
+    if (receipt) this.materializationReceipts.set(replacementKey, receipt);
+    if (this.materializationReceiptOwners.delete(key))
+      this.materializationReceiptOwners.add(replacementKey);
     this.persistAndEmit();
     candidate?.onReminted(replacementId);
   }
 
   private async applyDesiredIdentity(
+    key: string,
     entry: PendingUntitled & { home: UntitledHome },
     result: CreateUntitledContextDocumentResponse,
   ): Promise<{
@@ -510,7 +553,7 @@ export class UntitledReconciler {
     result: CreateUntitledContextDocumentResponse;
     identity?: QueuedIdentityReceipt;
   }> {
-    const record = this.records.get(entry.documentId);
+    const record = this.records.get(key);
     const desired = record?.desiredIdentity;
     if (!record) return { revision: -1, result };
     if (!desired) return { revision: record.revision, result };
@@ -519,7 +562,7 @@ export class UntitledReconciler {
       const moved = await this.deps.api.move(entry, result, desired);
       if (moved.status === "retry") throw new Error(`Context move needs retry: ${moved.reason}`);
       if (moved.status === "conflict") {
-        const finished = this.finishIdentityAttempt(entry.documentId, attemptRevision, {
+        const finished = this.finishIdentityAttempt(key, attemptRevision, {
           kind: "conflict",
           name: desired.name,
           scheme: moved.collision.scheme,
@@ -530,7 +573,7 @@ export class UntitledReconciler {
         });
         return { revision: finished ? attemptRevision + 1 : attemptRevision, result };
       }
-      const finished = this.finishIdentityAttempt(entry.documentId, attemptRevision);
+      const finished = this.finishIdentityAttempt(key, attemptRevision);
       const identity: QueuedIdentityReceipt = {
         ...moved,
         path: `/${moved.path}`,
@@ -551,7 +594,7 @@ export class UntitledReconciler {
       };
     } catch (error) {
       if (!isTerminalIdentityError(error)) throw error;
-      const finished = this.finishIdentityAttempt(entry.documentId, attemptRevision, {
+      const finished = this.finishIdentityAttempt(key, attemptRevision, {
         kind: "error",
         name: desired.name,
       });
@@ -560,13 +603,13 @@ export class UntitledReconciler {
   }
 
   private finishIdentityAttempt(
-    documentId: string,
+    key: string,
     attemptRevision: number,
     failure?: QueuedIdentityFailure,
   ): boolean {
-    const record = this.records.get(documentId);
+    const record = this.records.get(key);
     if (!record || record.revision !== attemptRevision) return false;
-    this.records.set(documentId, {
+    this.records.set(key, {
       ...record,
       revision: record.revision + 1,
       desiredIdentity: undefined,
@@ -580,35 +623,32 @@ export class UntitledReconciler {
     candidate.onMaterialized(receipt);
   }
 
-  private rememberMaterializationReceipt(
-    documentId: string,
-    receipt: MaterializationReceipt,
-  ): void {
-    this.materializationReceipts.delete(documentId);
-    this.materializationReceipts.set(documentId, receipt);
+  private rememberMaterializationReceipt(key: string, receipt: MaterializationReceipt): void {
+    this.materializationReceipts.delete(key);
+    this.materializationReceipts.set(key, receipt);
     this.evictUnreferencedMaterializationReceipts();
   }
 
   private evictUnreferencedMaterializationReceipts(): void {
     let unreferencedCount = 0;
-    for (const documentId of this.materializationReceipts.keys()) {
-      if (!this.materializationReceiptOwners.has(documentId)) unreferencedCount += 1;
+    for (const key of this.materializationReceipts.keys()) {
+      if (!this.materializationReceiptOwners.has(key)) unreferencedCount += 1;
     }
     if (unreferencedCount <= MAX_MATERIALIZATION_RECEIPTS) return;
 
-    for (const documentId of this.materializationReceipts.keys()) {
-      if (this.materializationReceiptOwners.has(documentId)) continue;
-      this.materializationReceipts.delete(documentId);
+    for (const key of this.materializationReceipts.keys()) {
+      if (this.materializationReceiptOwners.has(key)) continue;
+      this.materializationReceipts.delete(key);
       unreferencedCount -= 1;
       if (unreferencedCount === MAX_MATERIALIZATION_RECEIPTS) return;
     }
   }
 
-  private drain(documentId: string, processedRevision: number): void {
-    const record = this.records.get(documentId);
+  private drain(key: string, processedRevision: number): void {
+    const record = this.records.get(key);
     if (!record || record.revision !== processedRevision) return;
-    if (record?.failure) {
-      this.records.set(documentId, {
+    if (record.failure) {
+      this.records.set(key, {
         ...record,
         revision: record.revision + 1,
         desiredIdentity: undefined,
@@ -616,20 +656,20 @@ export class UntitledReconciler {
         pendingSinceMs: null,
       });
     } else {
-      const projectId = this.projectIdFor(documentId);
-      const durable = this.deps.localOwner.read(projectId, documentId);
-      this.records.delete(documentId);
-      if (durable) this.deps.localOwner.remove(projectId, documentId, durable.revision);
+      const durable = this.deps.localOwner.read(record.projectId, record.documentId);
+      this.records.delete(key);
+      if (durable)
+        this.deps.localOwner.remove(record.projectId, record.documentId, durable.revision);
     }
     this.persistAndEmit();
   }
 
-  private pendingRecord(documentId: string):
+  private pendingRecord(key: string):
     | (ReconciliationRecord & {
         materialization: { phase: "pending"; entry: PendingUntitled };
       })
     | null {
-    const record = this.records.get(documentId);
+    const record = this.records.get(key);
     return record?.materialization.phase === "pending"
       ? (record as ReconciliationRecord & {
           materialization: { phase: "pending"; entry: PendingUntitled };
@@ -641,10 +681,7 @@ export class UntitledReconciler {
     for (const record of this.records.values()) {
       const entry =
         record.materialization.phase === "pending" ? record.materialization.entry : null;
-      const base = this.deps.localOwner.read(
-        entry?.projectId ?? this.projectIdFor(record.documentId),
-        record.documentId,
-      );
+      const base = this.deps.localOwner.read(record.projectId, record.documentId);
       if (!base) continue;
       this.deps.localOwner.write({
         ...base,
@@ -652,18 +689,11 @@ export class UntitledReconciler {
         home: entry?.home ?? base.home,
         desiredIdentity: record.desiredIdentity,
         materializedResult: record.materializedResult,
+        createSettlement: record.createSettlement,
         failure: record.failure,
         pendingSinceMs: record.pendingSinceMs,
       });
     }
-  }
-
-  private projectIdFor(documentId: string): string {
-    const durable = this.deps.localOwner
-      .list()
-      .find((record) => record.active !== false && record.key.documentId === documentId);
-    if (!durable) throw new Error("Local Untitled durable work disappeared");
-    return durable.key.projectId;
   }
 
   private persistAndEmit(): void {
@@ -702,6 +732,7 @@ function syncFailure(snapshot: DocumentSessionSnapshot): Error {
 
 function fromDurableRecord(record: LocalUntitledRecord): ReconciliationRecord {
   return {
+    projectId: record.key.projectId,
     documentId: record.key.documentId,
     revision: record.workRevision ?? record.revision,
     materialization:
@@ -717,6 +748,7 @@ function fromDurableRecord(record: LocalUntitledRecord): ReconciliationRecord {
         : { phase: "synced" },
     desiredIdentity: record.desiredIdentity,
     materializedResult: record.materializedResult,
+    createSettlement: record.createSettlement,
     failure: record.failure,
     pendingSinceMs: record.pendingSinceMs ?? null,
   };

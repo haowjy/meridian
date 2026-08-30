@@ -41,10 +41,12 @@ export function useUntitledTabBridge({
       .filter(
         (tab) =>
           tab.kind === "new" ||
-          (tab.kind === "tracked" && tab.provisionalName && isUntitledPending(tab.documentId)),
+          (tab.kind === "tracked" &&
+            tab.provisionalName &&
+            isUntitledPending(projectId, tab.documentId)),
       )
       .map((tab) =>
-        registerUntitledCandidate(tab.documentId, {
+        registerUntitledCandidate(projectId, tab.documentId, {
           onReminted: (documentId) => remintNewTab(projectId, tab.documentId, documentId),
           onMaterialized: ({ result, identity, binding }) => {
             const slice = useContextTabsStore.getState().byProject[projectId];

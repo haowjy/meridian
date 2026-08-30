@@ -338,7 +338,7 @@ export function ContextViewerSurfaceController({
 
   function handleCloseTab(documentId: string) {
     const tab = tabs.find((candidate) => candidate.documentId === documentId);
-    if (tab?.kind === "new" && !isUntitledPending(documentId)) {
+    if (tab?.kind === "new" && !isUntitledPending(projectId, documentId)) {
       const key = {
         accountId: localUntitled.accountId,
         projectId,

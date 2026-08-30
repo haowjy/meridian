@@ -32,9 +32,74 @@ function created(documentId = "doc-1"): CreateUntitledContextDocumentResponse {
 }
 
 describe("untitled reconciler lifecycle", () => {
+  it("rehydrates, receipts, and drains same-id work independently across projects", async () => {
+    const rig = new UntitledLifecycleRig();
+    rig.create.setFallback(async (entry) => ({
+      status: "created",
+      documentId: entry.documentId,
+      scheme: "scratch",
+      path: `/${entry.projectId}`,
+      name: entry.projectId,
+    }));
+    rig.append("shared", { projectId: "project-a" });
+    rig.append("shared", { projectId: "project-b" });
+    rig.restart();
+    await rig.advance();
+
+    expect(rig.create.calls.map(([entry]) => entry.projectId).sort()).toEqual([
+      "project-a",
+      "project-b",
+    ]);
+    expect(rig.records()).toEqual([]);
+
+    rig.trackCandidate("shared", "project-a");
+    rig.trackCandidate("shared", "project-b");
+    expect(rig.materialized.map((result) => result.name).sort()).toEqual([
+      "project-a",
+      "project-b",
+    ]);
+  });
+
+  it("keeps the exact reservation after committed create response loss", async () => {
+    const rig = new UntitledLifecycleRig();
+    rig.create.enqueueError(new TypeError("response lost after commit"));
+    rig.exists.enqueueResult(true);
+    rig.start();
+    rig.append("doc-1");
+
+    await rig.advance();
+    expect(rig.isReserved("project-1", "doc-1")).toBe(true);
+    expect(rig.reservationEvents).toEqual(["reserve:project-1:doc-1"]);
+    expect(rig.records()[0]?.createSettlement).toBe("ambiguous");
+
+    await rig.retry();
+    expect(rig.create.calls).toHaveLength(1);
+    expect(rig.reservationEvents).toEqual(["reserve:project-1:doc-1", "adopt:project-1:doc-1"]);
+    expect(rig.records()).toEqual([]);
+  });
+
+  it("aborts only after exact no-row proof and permits a fresh create", async () => {
+    const rig = new UntitledLifecycleRig();
+    rig.create.enqueueError(new TypeError("request rejected"));
+    rig.exists.enqueueResult(false);
+    rig.start();
+    rig.append("doc-1");
+
+    await rig.advance();
+    expect(rig.isReserved("project-1", "doc-1")).toBe(true);
+    await rig.retry();
+    expect(rig.isReserved("project-1", "doc-1")).toBe(false);
+    expect(rig.reservationEvents).toContain("abort:project-1:doc-1");
+
+    await rig.retry();
+    expect(rig.create.calls).toHaveLength(2);
+    expect(rig.records()).toEqual([]);
+  });
+
   it("rehydrates durable work once and tears down online and retry scheduling", async () => {
     const rig = new UntitledLifecycleRig();
     rig.seedRecord({
+      projectId: "project-1",
       documentId: "doc-1",
       revision: 1,
       materialization: {
@@ -293,7 +358,10 @@ describe("collision recovery and durable receipts", () => {
     const owned = new UntitledLifecycleRig();
     owned.start();
     owned.reconciler.setMaterializationReceiptOwners(
-      new Set(Array.from({ length: 17 }, (_, index) => `doc-${index}`)),
+      Array.from({ length: 17 }, (_, index) => ({
+        projectId: "project-1",
+        documentId: `doc-${index}`,
+      })),
     );
     for (let index = 0; index < 17; index += 1) {
       owned.append(`doc-${index}`);
@@ -323,7 +391,7 @@ describe("queued identity outcomes", () => {
 
     await rig.advance();
     expect(rig.records()[0]?.desiredIdentity?.name).toBe("Opening.md");
-    expect(rig.reconciler.queuedIdentityFailure("doc-1")).toBeNull();
+    expect(rig.reconciler.queuedIdentityFailure("project-1", "doc-1")).toBeNull();
     await rig.retry();
 
     expect(rig.move.calls).toHaveLength(2);
@@ -333,6 +401,7 @@ describe("queued identity outcomes", () => {
   it("retries rehydrated identity work immediately when connectivity returns", async () => {
     const rig = new UntitledLifecycleRig();
     rig.seedRecord({
+      projectId: "project-1",
       documentId: "doc-1",
       revision: 1,
       materialization: {
@@ -371,9 +440,9 @@ describe("queued identity outcomes", () => {
     rig.queueIdentity("doc-1", "taken.md", "/");
     await rig.advance();
 
-    expect(rig.reconciler.has("doc-1")).toBe(false);
-    expect(rig.reconciler.pendingSince("doc-1")).toBeNull();
-    expect(rig.reconciler.queuedIdentityFailure("doc-1")).toEqual({
+    expect(rig.reconciler.has("project-1", "doc-1")).toBe(false);
+    expect(rig.reconciler.pendingSince("project-1", "doc-1")).toBeNull();
+    expect(rig.reconciler.queuedIdentityFailure("project-1", "doc-1")).toEqual({
       kind: "conflict",
       name: "taken.md",
       scheme: "scratch",
@@ -381,7 +450,7 @@ describe("queued identity outcomes", () => {
       workId: "work-1",
     });
 
-    rig.reconciler.clearQueuedIdentityFailure("doc-1");
+    rig.reconciler.clearQueuedIdentityFailure("project-1", "doc-1");
     expect(rig.records()).toEqual([]);
   });
 });

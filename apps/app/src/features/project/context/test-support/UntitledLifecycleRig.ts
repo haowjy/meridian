@@ -171,6 +171,8 @@ export class UntitledLifecycleRig {
   readonly materialized: CreateUntitledContextDocumentResponse[] = [];
   readonly identities: MoveContextEntrySuccess[] = [];
   readonly reminted: string[] = [];
+  readonly reservationEvents: string[] = [];
+  readonly reservations = new Map<string, LocalDocumentSessionHandoff>();
 
   readonly home = new OutcomePlan<[string], UntitledHome | null>(async () => UNTITLED_HOME);
   readonly create = new OutcomePlan<[ResolvedEntry], CreateUntitledContextDocumentResult>(
@@ -213,7 +215,7 @@ export class UntitledLifecycleRig {
 
   constructor() {
     const durableKey = (projectId: string, documentId: string) => `${projectId}:${documentId}`;
-    const reservations = new Map<string, LocalDocumentSessionHandoff>();
+    const reservations = this.reservations;
     const ensureRecord = (projectId: string, documentId: string) => {
       const key = durableKey(projectId, documentId);
       let record = this.durableRecords.get(key);
@@ -227,7 +229,7 @@ export class UntitledLifecycleRig {
           pendingSinceMs: null,
         };
         this.durableRecords.set(key, record);
-        this.session(documentId);
+        this.session(documentId, "words", projectId);
       }
       return record;
     };
@@ -250,7 +252,19 @@ export class UntitledLifecycleRig {
       api: {
         resolveHome: this.home.run,
         create: this.create.run,
-        serverDocumentExists: this.exists.run,
+        confirmCreate: async (entry) =>
+          (await this.exists.run(entry))
+            ? {
+                status: "present" as const,
+                result: {
+                  status: "already-materialized" as const,
+                  documentId: entry.documentId,
+                  scheme: "scratch" as const,
+                  path: "/Untitled",
+                  name: "Untitled",
+                },
+              }
+            : { status: "definite-no-row" as const },
         move: this.move.run,
         lookupGeneration: async (_projectId, documentId) => {
           this.lifecycleEvents.push(`lookup:${documentId}`);
@@ -258,6 +272,7 @@ export class UntitledLifecycleRig {
         },
       },
       localOwner: {
+        accountId: "account-1",
         list: () => [...this.durableRecords.values()],
         read: (projectId, documentId) => ensureRecord(projectId, documentId),
         write: (record) =>
@@ -265,9 +280,10 @@ export class UntitledLifecycleRig {
         remove: (projectId, documentId) => {
           this.durableRecords.delete(durableKey(projectId, documentId));
         },
-        get: (_projectId, documentId) => this.sessions.get(documentId) ?? null,
-        restore: async (_projectId, documentId) => ({
-          session: this.session(documentId),
+        get: (projectId, documentId) =>
+          this.sessions.get(durableKey(projectId, documentId)) ?? null,
+        restore: async (projectId, documentId) => ({
+          session: this.session(documentId, "words", projectId),
           documentId,
         }),
         retain: () => undefined,
@@ -275,17 +291,22 @@ export class UntitledLifecycleRig {
         revision: (projectId, documentId) =>
           this.durableRecords.get(durableKey(projectId, documentId))?.revision ?? null,
         prepare: async (projectId, documentId) => {
+          const reservationKey = durableKey(projectId, documentId);
+          const existing = reservations.get(reservationKey);
+          if (existing) return existing;
           const handoff = Object.freeze({}) as LocalDocumentSessionHandoff;
-          reservations.set(durableKey(projectId, documentId), handoff);
+          reservations.set(reservationKey, handoff);
+          this.reservationEvents.push(`reserve:${reservationKey}`);
           return handoff;
         },
         abort: (projectId, documentId, handoff) => {
           if (reservations.get(durableKey(projectId, documentId)) === handoff) {
             reservations.delete(durableKey(projectId, documentId));
+            this.reservationEvents.push(`abort:${durableKey(projectId, documentId)}`);
           }
         },
         open: async (input) => {
-          const session = this.session(input.documentId);
+          const session = this.session(input.documentId, "words", input.projectId);
           const record = this.durableRecords.get(durableKey(input.projectId, input.documentId));
           if (record && input.source === "local-untitled") {
             this.durableRecords.set(durableKey(input.projectId, input.documentId), {
@@ -293,6 +314,7 @@ export class UntitledLifecycleRig {
               phase: "adopted-live",
             });
             reservations.delete(durableKey(input.projectId, input.documentId));
+            this.reservationEvents.push(`adopt:${durableKey(input.projectId, input.documentId)}`);
           }
           this.lifecycleEvents.push(`admit:${input.documentId}`);
           if (session.getSnapshot().status === "access-lost") {
@@ -320,12 +342,12 @@ export class UntitledLifecycleRig {
           };
         },
         remint: async (projectId, from, to) => {
-          const session = this.session(from);
+          const session = this.session(from, "words", projectId);
           const current = this.durableRecords.get(durableKey(projectId, from));
           if (!current) throw new Error("missing durable record");
           reservations.delete(durableKey(projectId, from));
-          this.sessions.delete(from);
-          this.sessions.set(to, session);
+          this.sessions.delete(durableKey(projectId, from));
+          this.sessions.set(durableKey(projectId, to), session);
           this.durableRecords.set(durableKey(projectId, from), { ...current, active: false });
           this.durableRecords.set(durableKey(projectId, to), {
             ...current,
@@ -343,7 +365,7 @@ export class UntitledLifecycleRig {
         },
         abandon: async (projectId, documentId) => {
           this.durableRecords.delete(durableKey(projectId, documentId));
-          this.sessions.delete(documentId);
+          this.sessions.delete(durableKey(projectId, documentId));
         },
         phase: (projectId, documentId) =>
           this.durableRecords.get(durableKey(projectId, documentId))?.phase ?? null,
@@ -374,10 +396,11 @@ export class UntitledLifecycleRig {
       home: entry?.home ?? null,
       desiredIdentity: record.desiredIdentity,
       materializedResult: record.materializedResult,
+      createSettlement: record.createSettlement,
       failure: record.failure,
       pendingSinceMs: record.pendingSinceMs,
     });
-    this.session(record.documentId);
+    this.session(record.documentId, "words", projectId);
   }
 
   seedTree(projectId: string, scheme: "manuscript" | "scratch", workId?: string): void {
@@ -394,17 +417,18 @@ export class UntitledLifecycleRig {
     );
   }
 
-  session(documentId: string, text = "words"): LifecycleSession {
-    let session = this.sessions.get(documentId);
+  session(documentId: string, text = "words", projectId = "project-1"): LifecycleSession {
+    const key = `${projectId}:${documentId}`;
+    let session = this.sessions.get(key);
     if (!session) {
       session = new LifecycleSession(documentWithText(text));
-      this.sessions.set(documentId, session);
+      this.sessions.set(key, session);
     }
     return session;
   }
 
-  replaceSession(documentId: string, session: LifecycleSession): void {
-    this.sessions.set(documentId, session);
+  replaceSession(documentId: string, session: LifecycleSession, projectId = "project-1"): void {
+    this.sessions.set(`${projectId}:${documentId}`, session);
   }
 
   start(): void {
@@ -420,8 +444,8 @@ export class UntitledLifecycleRig {
     this.reconciler.start();
   }
 
-  trackCandidate(documentId: string): void {
-    this.reconciler.registerCandidate(documentId, {
+  trackCandidate(documentId: string, projectId = "project-1"): void {
+    this.reconciler.registerCandidate(projectId, documentId, {
       onReminted: (id) => this.reminted.push(id),
       onMaterialized: ({ result, identity }) => {
         this.materialized.push(result);
@@ -443,7 +467,7 @@ export class UntitledLifecycleRig {
         pendingSinceMs: null,
       });
     }
-    this.session(documentId);
+    this.session(documentId, "words", projectId);
     this.reconciler.append({
       documentId,
       projectId,
@@ -484,10 +508,15 @@ export class UntitledLifecycleRig {
     for (const listener of this.onlineListeners) listener();
   }
 
+  isReserved(projectId: string, documentId: string): boolean {
+    return this.reservations.has(`${projectId}:${documentId}`);
+  }
+
   records(): ReconciliationRecord[] {
     return [...this.durableRecords.values()]
       .filter((record) => record.active !== false)
       .map((record) => ({
+        projectId: record.key.projectId,
         documentId: record.key.documentId,
         revision: record.workRevision ?? record.revision,
         materialization:
@@ -503,6 +532,7 @@ export class UntitledLifecycleRig {
             : { phase: "synced" as const },
         desiredIdentity: record.desiredIdentity,
         materializedResult: record.materializedResult,
+        createSettlement: record.createSettlement,
         failure: record.failure,
         pendingSinceMs: record.pendingSinceMs ?? null,
       }));

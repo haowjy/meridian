@@ -40,6 +40,7 @@ function browserDeps(
     },
     newDocumentId: () => crypto.randomUUID(),
     localOwner: {
+      accountId: localOwner.accountId,
       list: () => localOwner.listWork(),
       read: (projectId, documentId) => localOwner.readWork(localKey(projectId, documentId)),
       write: (record) => localOwner.writeWork(record),
@@ -114,12 +115,27 @@ function browserDeps(
         }
         return result;
       },
-      async serverDocumentExists(entry) {
-        return Boolean(
-          await lookupContextCatalogFile(entry.projectId, entry.home.scheme, entry.home.workId, {
-            entryId: entry.documentId,
-          }),
+      async confirmCreate(entry) {
+        const file = await lookupContextCatalogFile(
+          entry.projectId,
+          entry.home.scheme,
+          entry.home.workId,
+          { entryId: entry.documentId },
         );
+        if (!file) return { status: "definite-no-row" };
+        const result = {
+          status: "already-materialized" as const,
+          documentId: entry.documentId,
+          scheme: entry.home.scheme,
+          path: file.path.startsWith("/") ? file.path : `/${file.path}`,
+          name: file.name,
+          workId: entry.home.workId,
+        };
+        await identityMutations.materialized(entry.projectId, result);
+        return {
+          status: "present",
+          result,
+        };
       },
       async move(entry, source, desired: DesiredIdentity) {
         const { result } = await identityMutations.move(
@@ -173,19 +189,18 @@ export function getUntitledReconciler(
 }
 
 export function registerUntitledCandidate(
+  projectId: string,
   documentId: string,
-  candidate: Parameters<UntitledReconciler["registerCandidate"]>[1],
+  candidate: Parameters<UntitledReconciler["registerCandidate"]>[2],
 ): () => void {
-  return getUntitledReconciler().registerCandidate(documentId, candidate);
+  return getUntitledReconciler().registerCandidate(projectId, documentId, candidate);
 }
 
 export function syncUntitledReceiptOwners(): void {
-  const referencedDocumentIds = new Set(
-    Object.values(useContextTabsStore.getState().byProject).flatMap((desk) =>
-      desk.tabs.map((tab) => tab.documentId),
-    ),
+  const referencedEntries = Object.entries(useContextTabsStore.getState().byProject).flatMap(
+    ([projectId, desk]) => desk.tabs.map((tab) => ({ projectId, documentId: tab.documentId })),
   );
-  getUntitledReconciler().setMaterializationReceiptOwners(referencedDocumentIds);
+  getUntitledReconciler().setMaterializationReceiptOwners(referencedEntries);
 }
 
 export function appendPendingUntitled(entry: PendingUntitled): void {
@@ -194,39 +209,42 @@ export function appendPendingUntitled(entry: PendingUntitled): void {
   // made it eligible for desk persistence so a same-tick reload cannot lose it.
 }
 
-export function isUntitledPending(documentId: string): boolean {
-  return getUntitledReconciler().has(documentId);
+export function isUntitledPending(projectId: string, documentId: string): boolean {
+  return getUntitledReconciler().has(projectId, documentId);
 }
 
-export function useUntitledPending(documentId: string): boolean {
+export function useUntitledPending(projectId: string, documentId: string): boolean {
   const reconciler = typeof window === "undefined" ? null : getUntitledReconciler();
   return useSyncExternalStore(
     reconciler?.subscribe ?? noopSubscribe,
-    () => reconciler?.has(documentId) ?? false,
+    () => reconciler?.has(projectId, documentId) ?? false,
     () => false,
   );
 }
 
-export function useUntitledPendingSince(documentId: string): number | null {
+export function useUntitledPendingSince(projectId: string, documentId: string): number | null {
   const reconciler = typeof window === "undefined" ? null : getUntitledReconciler();
   return useSyncExternalStore(
     reconciler?.subscribe ?? noopSubscribe,
-    () => reconciler?.pendingSince(documentId) ?? null,
+    () => reconciler?.pendingSince(projectId, documentId) ?? null,
     () => null,
   );
 }
 
-export function useQueuedIdentityFailure(documentId: string): QueuedIdentityFailure | null {
+export function useQueuedIdentityFailure(
+  projectId: string,
+  documentId: string,
+): QueuedIdentityFailure | null {
   const reconciler = typeof window === "undefined" ? null : getUntitledReconciler();
   return useSyncExternalStore(
     reconciler?.subscribe ?? noopSubscribe,
-    () => reconciler?.queuedIdentityFailure(documentId) ?? null,
+    () => reconciler?.queuedIdentityFailure(projectId, documentId) ?? null,
     () => null,
   );
 }
 
-export function clearQueuedIdentityFailure(documentId: string): void {
-  getUntitledReconciler().clearQueuedIdentityFailure(documentId);
+export function clearQueuedIdentityFailure(projectId: string, documentId: string): void {
+  getUntitledReconciler().clearQueuedIdentityFailure(projectId, documentId);
 }
 
 export function queueUntitledIdentity(entry: PendingUntitled, desired: DesiredIdentity): void {
