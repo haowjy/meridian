@@ -240,7 +240,7 @@ describe("Editor review handoff", () => {
             pending = acknowledgeBinding?.(admission, new AbortController().signal);
           });
           await act(async () => vi.advanceTimersByTime(10_000));
-          await expect(pending).resolves.toEqual({ kind: "unusable" });
+          await expect(pending).resolves.toEqual({ kind: "unclaimed" });
         },
       );
     } finally {

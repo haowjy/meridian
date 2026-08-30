@@ -12,7 +12,7 @@ export type LiveDocumentBindingState =
 
 export type LiveDocumentAcknowledgement =
   | { kind: "acknowledged"; projectId: string; documentId: string; generation: string }
-  | { kind: "cancelled" | "stale" | "unusable" };
+  | { kind: "cancelled" | "stale" | "unusable" | "unclaimed" };
 
 export type LiveDocumentHostBinding = {
   state: LiveDocumentBindingState;
@@ -24,7 +24,7 @@ export type LiveDocumentHostBinding = {
 };
 
 type InstalledBinding = { binding: LiveDocumentBinding; attempt: number };
-type PendingBinding = { attempt: number; abort: AbortController };
+type PendingBinding = { attempt: number; abort: AbortController; operation: "ordinary" | "apply" };
 
 let hostSequence = 0;
 
@@ -56,19 +56,30 @@ export function useLiveDocumentBinding({
       requireCurrentSync: boolean,
       timeoutMs = 10_000,
       supersedeOrdinary = true,
+      operation: "ordinary" | "apply" = "apply",
     ): Promise<LiveDocumentAcknowledgement> => {
+      const desired = desiredRef.current;
+      if (
+        externalSignal?.aborted ||
+        !desired.mounted ||
+        desired.projectId !== admission.projectId ||
+        desired.documentId !== admission.documentId
+      ) {
+        return { kind: "stale" };
+      }
+      if (operation === "ordinary" && pendingRef.current?.operation === "apply")
+        return { kind: "stale" };
       if (supersedeOrdinary) ordinaryAbortRef.current?.abort();
       const attempt = ++attemptRef.current;
       pendingRef.current?.abort.abort();
       const abort = new AbortController();
-      pendingRef.current = { attempt, abort };
+      pendingRef.current = { attempt, abort, operation };
       const forwardAbort = () => abort.abort();
       externalSignal?.addEventListener("abort", forwardAbort, { once: true });
       if (externalSignal?.aborted) abort.abort();
       let candidate: LiveDocumentBinding | null = null;
       let installed = false;
       try {
-        const desired = desiredRef.current;
         if (
           abort.signal.aborted ||
           !desired.mounted ||
@@ -149,7 +160,13 @@ export function useLiveDocumentBinding({
       .open({ source: "server", projectId, documentId, signal: abort.signal })
       .then((opened) => {
         if (opened.kind !== "opened") return { kind: "unusable" as const };
-        return runCandidate(opened.admission, abort.signal, false, 10_000, false);
+        if (
+          abort.signal.aborted ||
+          desiredRef.current.generation !== generation ||
+          desiredRef.current.documentId !== documentId
+        )
+          return { kind: "stale" as const };
+        return runCandidate(opened.admission, abort.signal, false, 10_000, false, "ordinary");
       })
       .then((result) => {
         if (

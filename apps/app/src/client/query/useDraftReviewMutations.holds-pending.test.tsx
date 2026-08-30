@@ -14,6 +14,45 @@ const { applyDraftMock } = vi.hoisted(() => ({
   applyDraftMock: vi.fn(),
 }));
 
+const owner = {
+  reserveApply: vi.fn(() => ({
+    kind: "reserved",
+    unsent: {
+      reservation: {
+        identity: {
+          accountId: "account-1",
+          projectId: "project-1",
+          workId: "work-1",
+          documentId: "doc-1",
+          draftId: "branch-1",
+        },
+        reservationVersion: 1,
+      },
+    },
+  })),
+  acquireApplyDispatch: vi.fn((unsent) => ({
+    kind: "dispatch-granted",
+    dispatch: { reservation: unsent.reservation, dispatchVersion: 1 },
+  })),
+  recordServerApplied: vi.fn(() => ({
+    kind: "recorded",
+    recovery: {
+      identity: {
+        accountId: "account-1",
+        projectId: "project-1",
+        workId: "work-1",
+        documentId: "doc-1",
+        draftId: "branch-1",
+      },
+      entryVersion: 2,
+    },
+  })),
+};
+
+vi.mock("@/features/project/draft-apply-recovery/DraftApplyRecoveryProvider", () => ({
+  usePostApplyDispositionOwner: () => owner,
+}));
+
 vi.mock("@/client/api/drafts-api", () => ({
   applyDraft: applyDraftMock,
   discardDraft: vi.fn(),
@@ -29,8 +68,8 @@ const flushNotifications = () =>
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-describe("useApplyDraft pending lifecycle", () => {
-  it("holds isPending until the workDrafts refetch settles", async () => {
+describe("useApplyDraft committed outcome", () => {
+  it("does not let freshness refetch hold or reject the committed command", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -80,6 +119,19 @@ describe("useApplyDraft pending lifecycle", () => {
               workId: "work-1",
               documentId: "doc-1",
               draftId: "branch-1",
+              identity: {
+                accountId: "account-1",
+                projectId: "project-1",
+                workId: "work-1",
+                documentId: "doc-1",
+                draftId: "branch-1",
+              },
+              presentation: {
+                documentName: "Chapter",
+                contextPath: "chapter.md",
+                owningWorkLabel: null,
+              },
+              obligations: { draftTab: { kind: "none" }, branch: { kind: "none" } },
             });
           });
           // Flush the resolved server call and the onSuccess invalidation kickoff.
@@ -90,7 +142,7 @@ describe("useApplyDraft pending lifecycle", () => {
           expect(applyDraftMock).toHaveBeenCalledTimes(1);
           expect(fetchCount).toBe(2);
           expect(treeFetchCount).toBe(2);
-          expect(harnessRef.apply?.isPending).toBe(true);
+          expect(harnessRef.apply?.isPending).toBe(false);
 
           await act(async () => {
             releaseRefetch?.();

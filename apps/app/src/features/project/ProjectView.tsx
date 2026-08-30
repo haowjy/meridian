@@ -46,6 +46,7 @@ import {
   EditorReviewHandoffProvider,
   EditorReviewIntentClaimant,
 } from "./dock/editor-review-handoff";
+import { ProjectDraftApplyRecoveryExecutor } from "./draft-apply-recovery/ProjectDraftApplyRecoveryExecutor";
 import { EditorWorkRecovery } from "./EditorWorkRecovery";
 import { type EditorWorkScope, resolveEditorWorkScope } from "./editor-work-scope";
 import { HomePaneController } from "./HomePaneController";
@@ -253,7 +254,9 @@ function HydratedReviewProject({
       projectId={props.projectId}
       openContextRoute={props.onOpenContextTarget}
     >
-      <HydratedReviewScopes {...props} chatWorkId={chatWorkId} chatThreadId={chatThreadId} />
+      <ProjectDraftApplyRecoveryExecutor projectId={props.projectId} inlineDocumentIds={[]}>
+        <HydratedReviewScopes {...props} chatWorkId={chatWorkId} chatThreadId={chatThreadId} />
+      </ProjectDraftApplyRecoveryExecutor>
     </EditorReviewHandoffProvider>
   );
 }

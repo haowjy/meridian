@@ -38,6 +38,7 @@ import {
   getUntitledReconciler,
   syncUntitledReceiptOwners,
 } from "@/features/project/context/untitled-reconciler-browser";
+import { DraftApplyRecoveryProvider } from "@/features/project/draft-apply-recovery/DraftApplyRecoveryProvider";
 import { useProjectSurfacePrefsStore } from "@/features/project/layout";
 import { isDevAutologinEnabled } from "@/server/dev-auth";
 import { loadAccountSettingsWithDeadline } from "./authenticated-account-settings";
@@ -175,7 +176,9 @@ function AuthenticatedAccountProviderTree({
       accountId={user.userId}
       repairProjectCatalog={repairProjectCatalog}
     >
-      <AuthenticatedProviderTree now={now} pathname={pathname} user={user} />
+      <DraftApplyRecoveryProvider accountId={user.userId}>
+        <AuthenticatedProviderTree now={now} pathname={pathname} user={user} />
+      </DraftApplyRecoveryProvider>
     </ContextRemovalAccountProvider>
   );
 }

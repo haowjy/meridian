@@ -30,6 +30,11 @@ import {
   useContextRemovalCoordinator,
   useLiveDocumentSessionRegistry,
 } from "@/features/project/context/ContextRemovalAccountProvider";
+import {
+  usePostApplyAccountId,
+  usePostApplyDispositionOwner,
+  usePostApplySnapshot,
+} from "@/features/project/draft-apply-recovery/DraftApplyRecoveryProvider";
 import { type DraftReviewController, useDraftReviewController } from "./useDraftReviewController";
 
 export type DraftReviewContextValue = {
@@ -93,6 +98,9 @@ function useDraftReviewScopeOwner(
 ): DraftReviewContextValue {
   const queryClient = useQueryClient();
   const contextRemoval = useContextRemovalCoordinator();
+  const dispositionOwner = usePostApplyDispositionOwner();
+  const dispositionSnapshot = usePostApplySnapshot();
+  const accountId = usePostApplyAccountId();
   const registry = useLiveDocumentSessionRegistry();
   const reviewProjectionOwner = useRef(
     `draft-review-projection:${++reviewProjectionOwnerSequence}`,
@@ -102,6 +110,65 @@ function useDraftReviewScopeOwner(
   const drafts = useWorkDrafts(projectId, workId);
   const groups = drafts.groups ?? [];
   const controller = useDraftReviewController(effectiveProjectId, effectiveWorkId, threadId);
+
+  useEffect(() => {
+    if (!projectId || !workId || (drafts.status !== "ready" && drafts.status !== "empty")) return;
+    const tabs = useContextTabsStore.getState().byProject[projectId]?.tabs ?? [];
+    dispositionOwner.reconcileForcedDraftList({
+      accountId,
+      projectId,
+      workId,
+      activeDrafts: (drafts.drafts ?? []).map((draft) => {
+        const tab = tabs.find((candidate) => candidate.documentId === draft.documentId);
+        return {
+          identity: {
+            accountId,
+            projectId,
+            workId,
+            documentId: draft.documentId,
+            draftId: draft.draftId,
+          },
+          presentation: {
+            documentName: draft.documentName,
+            contextPath: draft.contextPath,
+            owningWorkLabel: null,
+          },
+          obligations: {
+            draftTab:
+              draft.isNewDocument &&
+              tab?.kind === "tracked" &&
+              tab.draftOnly &&
+              tab.reviewWorkId === workId &&
+              tab.reviewDraftId === draft.draftId &&
+              tab.tabInstanceToken
+                ? {
+                    kind: "draft-only" as const,
+                    reviewWorkId: workId,
+                    reviewDraftId: draft.draftId,
+                    tabInstanceToken: tab.tabInstanceToken,
+                  }
+                : { kind: "none" as const },
+            branch:
+              controller.inlineReview?.draftId === draft.draftId && controller.reviewRoomName
+                ? {
+                    kind: "generation-qualified" as const,
+                    reviewRoomName: controller.reviewRoomName,
+                  }
+                : { kind: "none" as const },
+          },
+        };
+      }),
+    });
+  }, [
+    accountId,
+    controller.inlineReview?.draftId,
+    controller.reviewRoomName,
+    dispositionOwner,
+    drafts.drafts,
+    drafts.status,
+    projectId,
+    workId,
+  ]);
   // Editor-host concern: this only tells the chat overlay whether the active
   // editor already renders the docked bar for a document. Review-mode truth
   // itself lives in the controller state machine.
@@ -208,10 +275,27 @@ function useDraftReviewScopeOwner(
             controller.inlineReview.draftId !== activeSelection.draftId
           )
             return;
-          return controller.acknowledgeServerApplied(
-            activeSelection.documentId,
-            activeSelection.draftId,
+          const witness = dispositionSnapshot.remoteDraftWitnesses.find(
+            (candidate) =>
+              candidate.identity.projectId === projectId &&
+              candidate.identity.workId === workId &&
+              candidate.identity.documentId === activeSelection.documentId &&
+              candidate.identity.draftId === activeSelection.draftId,
           );
+          if (!witness || !currentTab.reviewDraftId || !currentTab.tabInstanceToken) return;
+          dispositionOwner.recordServerApplied({
+            kind: "remote-new-document-manifest",
+            witness: { identity: witness.identity, witnessVersion: witness.witnessVersion },
+            confirmedAbsent: true,
+            manifestDocumentId: activeSelection.documentId,
+            currentDraftTab: {
+              kind: "draft-only",
+              reviewWorkId: workId,
+              reviewDraftId: currentTab.reviewDraftId,
+              tabInstanceToken: currentTab.tabInstanceToken,
+            },
+          });
+          return;
         }
         controller.exitReview();
         void contextRemoval.discardDraft(projectId, workId, activeSelection.documentId);
@@ -222,7 +306,8 @@ function useDraftReviewScopeOwner(
     return () => attempt.abort();
   }, [
     contextRemoval,
-    controller.acknowledgeServerApplied,
+    dispositionOwner,
+    dispositionSnapshot.remoteDraftWitnesses,
     controller.exitReview,
     controller.inlineReview,
     controller.isServerAppliedAwaitingHost,

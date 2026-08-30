@@ -37,6 +37,7 @@ import type { DocumentSession } from "@/core/editor/document-session";
 import { useDraftReview } from "@/features/chat/DraftReviewProvider";
 import { cn } from "@/lib/utils";
 import { useLiveBindingAcknowledgementHost } from "../dock/editor-review-handoff";
+import { usePostApplyHostWake } from "../draft-apply-recovery/ProjectDraftApplyRecoveryExecutor";
 import { useLocalUntitledOwner } from "./ContextRemovalAccountProvider";
 import { LocalUntitledIdentityRedirect } from "./local-untitled-owner";
 import { untitledDocumentIsEmpty } from "./untitled-reconciler";
@@ -351,15 +352,19 @@ export function ServerTabSessionBoundary({
   documentId: string;
   children: (session: DocumentSession | null, failed: boolean) => ReactNode;
 }) {
+  const generation = useRef(++serverHostGeneration);
   const binding = useLiveDocumentBinding({
     projectId,
     documentId,
     owner: "desktop-server-tab",
   });
   useLiveBindingAcknowledgementHost(projectId, documentId, binding);
+  usePostApplyHostWake(projectId, documentId, generation.current);
   const state = binding.state;
   return children(state.kind === "opened" ? state.session : null, state.kind === "failed");
 }
+
+let serverHostGeneration = 0;
 
 function ActiveEditorProjection({
   documentId,

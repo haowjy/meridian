@@ -143,6 +143,8 @@ export class ProjectDocumentLiveOpener {
       });
       lease = adopted.lease;
     }
+    if (input.signal?.aborted || this.dependencies.epochSignal.aborted)
+      return { kind: "cancelled" };
     return {
       kind: "opened",
       document: resolution.entry,

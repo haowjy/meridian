@@ -91,6 +91,20 @@ vi.mock("@/features/project/context/ContextRemovalAccountProvider", () => ({
     }),
   }),
 }));
+vi.mock("@/features/project/draft-apply-recovery/DraftApplyRecoveryProvider", () => ({
+  usePostApplyAccountId: () => "account-1",
+  usePostApplyDispositionOwner: () => ({
+    reconcileForcedDraftList: vi.fn(),
+    recordServerApplied: vi.fn(),
+  }),
+  usePostApplySnapshot: () => ({
+    nextVersion: 1,
+    reservations: [],
+    items: [],
+    appliedSuppressions: [],
+    remoteDraftWitnesses: [],
+  }),
+}));
 vi.mock("@/client/query/useWorkDrafts", () => ({
   useWorkDrafts: (_projectId: string | null, workId: string | null) => {
     queriedWorkIds.push(workId);
@@ -296,7 +310,7 @@ describe("DraftReviewProvider live lineage invalidation", () => {
     });
   });
 
-  it("commits a draft-only tab when a remotely accepted draft vanishes", async () => {
+  it("leaves remote Apply settlement to the account disposition owner", async () => {
     currentInlineReview = { documentId: "doc-terminal", draftId: "draft-terminal" };
     currentGroups = [activeGroup()];
     currentTabIsDraftOnly = true;
@@ -307,12 +321,8 @@ describe("DraftReviewProvider live lineage invalidation", () => {
       currentGroups = [];
       await act(async () => rerenderProvider?.());
 
-      expect(applyDraftMetadataMock).toHaveBeenCalledWith("project-1", "work-1", "doc-terminal");
-      expect(acknowledgeServerAppliedMock).toHaveBeenCalledWith(
-        "doc-terminal",
-        "draft-terminal",
-        "work-1",
-      );
+      expect(applyDraftMetadataMock).not.toHaveBeenCalled();
+      expect(acknowledgeServerAppliedMock).not.toHaveBeenCalled();
     });
   });
 

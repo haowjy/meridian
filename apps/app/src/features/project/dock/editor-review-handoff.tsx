@@ -122,7 +122,7 @@ export function EditorReviewHandoffProvider({
     const abort = new AbortController();
     return new Promise<LiveDocumentAcknowledgement>((resolve) => {
       let settled = false;
-      const timeout = globalThis.setTimeout(() => settle({ kind: "unusable" }), 10_000);
+      const timeout = globalThis.setTimeout(() => settle({ kind: "unclaimed" }), 1_000);
       const settle = (result: LiveDocumentAcknowledgement) => {
         if (settled) return;
         settled = true;

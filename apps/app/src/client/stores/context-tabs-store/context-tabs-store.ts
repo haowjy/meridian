@@ -36,6 +36,9 @@ export type ContextTab =
       draftOnly?: boolean;
       /** Transient owner of a draft-synthesized review tab; never persisted. */
       reviewWorkId?: string;
+      /** Transient exact draft and tab-generation fence for post-Apply settlement. */
+      reviewDraftId?: string;
+      tabInstanceToken?: string;
       editable: true;
       filetype: Filetype;
       schemaType: YjsTrackedSchemaType;
@@ -53,6 +56,8 @@ export type ContextTab =
       draftOnly?: boolean;
       /** Transient owner of a draft-synthesized review tab; never persisted. */
       reviewWorkId?: string;
+      reviewDraftId?: string;
+      tabInstanceToken?: string;
       editable: false;
       fileType: DocumentFileType;
       mimeType?: string;
@@ -124,15 +129,16 @@ function mergeTabMetadata(existing: ContextTab, incoming: ContextTab): ContextTa
   ) {
     merged.origin = "local-untitled";
   }
-  if (incoming.kind !== "tracked" || incoming.draftOnly) return merged;
-  // A tracked tab from the live context tree proves that a draft-created
-  // document was committed; omitted optional fields must not retain the marker.
-  const {
-    draftOnly: _draftOnly,
-    reviewWorkId: _reviewWorkId,
-    ...liveTab
-  } = merged as ServerContextTab;
-  return liveTab as ContextTab;
+  if (existing.kind !== "new" && existing.draftOnly && !incoming.draftOnly) {
+    return {
+      ...merged,
+      draftOnly: existing.draftOnly,
+      reviewWorkId: existing.reviewWorkId,
+      reviewDraftId: existing.reviewDraftId,
+      tabInstanceToken: existing.tabInstanceToken,
+    } as ContextTab;
+  }
+  return merged;
 }
 
 function upsertTab(slice: ProjectTabsSlice, incoming: ContextTab): ProjectTabsSlice {
@@ -256,14 +262,29 @@ function resolveCommittedDraftMetadata(
   slice: ProjectTabsSlice,
   reviewWorkId: string,
   documentId: string,
+  reviewDraftId?: string,
+  tabInstanceToken?: string,
 ): ProjectTabsSlice | null {
   const tab = slice.tabs.find((candidate) => candidate.documentId === documentId);
-  if (tab?.kind !== "tracked" || !tab.draftOnly || tab.reviewWorkId !== reviewWorkId) return null;
+  if (
+    tab?.kind !== "tracked" ||
+    !tab.draftOnly ||
+    tab.reviewWorkId !== reviewWorkId ||
+    (reviewDraftId !== undefined && tab.reviewDraftId !== reviewDraftId) ||
+    (tabInstanceToken !== undefined && tab.tabInstanceToken !== tabInstanceToken)
+  )
+    return null;
   return {
     ...slice,
     tabs: slice.tabs.map((candidate) => {
       if (candidate.documentId !== documentId || candidate.kind !== "tracked") return candidate;
-      const { draftOnly: _draftOnly, reviewWorkId: _reviewWorkId, ...committed } = candidate;
+      const {
+        draftOnly: _draftOnly,
+        reviewWorkId: _reviewWorkId,
+        reviewDraftId: _reviewDraftId,
+        tabInstanceToken: _tabInstanceToken,
+        ...committed
+      } = candidate;
       return committed;
     }),
   };
@@ -461,15 +482,22 @@ export function commitDraftApplyMetadata(
   projectId: string,
   reviewWorkId: string,
   documentId: string,
-): void {
+  reviewDraftId?: string,
+  tabInstanceToken?: string,
+): boolean {
+  let committed = false;
   useContextTabsStore.setState((state) => {
     const resolved = resolveCommittedDraftMetadata(
       sliceFor(state, projectId),
       reviewWorkId,
       documentId,
+      reviewDraftId,
+      tabInstanceToken,
     );
+    committed = resolved !== null;
     return resolved ? patchSlice(state, projectId, resolved) : state;
   });
+  return committed;
 }
 
 /** Selector helper — returns the tab slice for a project (stable empty default). */

@@ -3,6 +3,10 @@
 import { createContext, useContext, useInsertionEffect, useRef, useState } from "react";
 import { lookupProjectContextAvailability } from "@/client/query/project-context-availability";
 import { createAccountDocumentSessionRuntime } from "@/core/editor/account-document-session-runtime";
+import {
+  AccountPostApplyDispositionOwner,
+  type PostApplyDispositionOwner,
+} from "../draft-apply-recovery/draft-apply-recovery-owner";
 import { ContextRemovalCoordinator } from "./context-removal-coordinator";
 import { LocalUntitledOwner } from "./local-untitled-owner";
 import { BrowserLocalUntitledRecordStore } from "./local-untitled-record-store";
@@ -19,6 +23,7 @@ const LocalUntitledAccountContext = createContext<LocalUntitledOwner | null>(nul
 const LiveDocumentRegistryAccountContext = createContext<AccountFeatureLifetime["registry"] | null>(
   null,
 );
+const PostApplyOwnerAccountContext = createContext<PostApplyDispositionOwner | null>(null);
 
 type AccountFeatureLifetime = ReturnType<typeof createAccountFeatureLifetime>;
 
@@ -28,7 +33,29 @@ function createAccountFeatureLifetime(
 ) {
   const runtime = createAccountDocumentSessionRuntime({ accountId });
   const registry = runtime.registry;
-  const removal = new ContextRemovalCoordinator(accountId, { sessions: registry });
+  const postApplyOwner = new AccountPostApplyDispositionOwner(accountId, {
+    replaceExactRoomNames(roomNames) {
+      if (roomNames.length === 0) registry.releaseBranchRooms?.("post-apply-disposition");
+      else registry.retainBranchRooms?.("post-apply-disposition", roomNames);
+    },
+  });
+  const removal = new ContextRemovalCoordinator(accountId, {
+    sessions: registry,
+    draftTabFence: {
+      currentFence(input) {
+        return postApplyOwner.draftTabMutationFence({
+          identity: {
+            accountId: input.accountId,
+            projectId: input.projectId,
+            workId: input.workId,
+            documentId: input.documentId,
+            draftId: input.draftId,
+          },
+          tabInstanceToken: input.tabInstanceToken,
+        });
+      },
+    },
+  });
   const availability = new ProjectContextAvailabilityCoordinator({
     lookup: lookupProjectContextAvailability,
     apply: (commands) => removal.reconcileDocumentAvailability(commands),
@@ -66,6 +93,7 @@ function createAccountFeatureLifetime(
     availability,
     localOwner,
     opener,
+    postApplyOwner,
     lease: removal.createLifetimeLease(),
   };
 }
@@ -102,6 +130,7 @@ export function ContextRemovalAccountProvider({
     const closing = Promise.resolve()
       .then(async () => {
         old.lease.disposeIfSuspended();
+        old.postApplyOwner.dispose();
         await old.localOwner.destroyAll();
         await old.runtime.finishClose();
         const next = desired.current;
@@ -119,6 +148,7 @@ export function ContextRemovalAccountProvider({
       lifetime.runtime.beginClose();
       lifetime.lease.suspend();
       if (!lifetime.lease.disposeIfSuspended()) return;
+      lifetime.postApplyOwner.dispose();
       void lifetime.localOwner.destroyAll().then(() => lifetime.runtime.finishClose());
     },
     [lifetime],
@@ -189,7 +219,9 @@ function AccountFeatureProviders({
         <LocalUntitledAccountContext.Provider value={lifetime.localOwner}>
           <LiveDocumentRegistryAccountContext.Provider value={lifetime.registry}>
             <ProjectDocumentLiveOpenerContext.Provider value={lifetime.opener}>
-              {children}
+              <PostApplyOwnerAccountContext.Provider value={lifetime.postApplyOwner}>
+                {children}
+              </PostApplyOwnerAccountContext.Provider>
             </ProjectDocumentLiveOpenerContext.Provider>
           </LiveDocumentRegistryAccountContext.Provider>
         </LocalUntitledAccountContext.Provider>
@@ -222,6 +254,12 @@ export function useLiveDocumentSessionRegistry(): AccountFeatureLifetime["regist
   const registry = useContext(LiveDocumentRegistryAccountContext);
   if (!registry) throw new Error("ContextRemovalAccountProvider is required");
   return registry;
+}
+
+export function useAccountPostApplyDispositionOwner(): PostApplyDispositionOwner {
+  const owner = useContext(PostApplyOwnerAccountContext);
+  if (!owner) throw new Error("ContextRemovalAccountProvider is required");
+  return owner;
 }
 
 export function useOptionalProjectContextAvailabilityCoordinator(): ProjectContextAvailabilityCoordinator | null {

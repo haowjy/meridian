@@ -17,7 +17,7 @@ const discardDraftTabMock = vi.fn(async () => ({ kind: "noop" as const }));
 const wholeDraftResponse: unknown = null;
 let wholeDraftResponses: unknown[] = [];
 let reopenAvailable = true;
-let applyPromise: Promise<{ status: "applied"; draftId: string }> | null = null;
+let applyPromise: Promise<{ kind: "live-ready" }> | null = null;
 const draftPreview = {
   status: "active",
   draftId: "draft-1",
@@ -38,7 +38,7 @@ const applyMutateMock = vi.fn(async (_input: unknown) => {
       ? wholeDraftResponses.shift()
       : wholeDraftResponse
         ? wholeDraftResponse
-        : { status: "applied" as const, draftId: "draft-1" };
+        : { kind: "live-ready" as const };
   if (response instanceof Error) throw response;
   return response;
 });
@@ -83,6 +83,14 @@ vi.mock("@/features/project/context/ContextRemovalAccountProvider", () => ({
 }));
 vi.mock("@/features/project/dock/editor-review-handoff", () => ({
   useAcknowledgeLiveBinding: () => acknowledgeLiveBindingMock,
+}));
+vi.mock("@/features/project/draft-apply-recovery/DraftApplyRecoveryProvider", () => ({
+  usePostApplyAccountId: () => "account-1",
+}));
+vi.mock("@/features/project/draft-apply-recovery/ProjectDraftApplyRecoveryExecutor", () => ({
+  useProjectDraftApplyRecovery: () => ({
+    awaitInitialOutcome: async () => ({ kind: "live-ready" }),
+  }),
 }));
 vi.mock("@/client/query/useDraftReviewMutations", () => ({
   useApplyDraft: () => ({ mutateAsync: applyMutateMock }),
@@ -134,7 +142,7 @@ describe("useDraftReviewController", () => {
       expect(applyMutateMock).not.toHaveBeenCalledWith(
         expect.objectContaining({ operationIds: expect.anything() }),
       );
-      expect(applyDraftMetadataMock).toHaveBeenCalledWith("project-1", "work-1", "document-1");
+      expect(applyDraftMetadataMock).not.toHaveBeenCalled();
     });
   });
 
@@ -342,7 +350,7 @@ describe("useDraftReviewController", () => {
         controller?.inlineReviewModelAvailable("draft-1:0:1", "document-1", "draft-1");
       });
 
-      let resolveApply!: (response: { status: "applied"; draftId: string }) => void;
+      let resolveApply!: (response: { kind: "live-ready" }) => void;
       applyPromise = new Promise((resolve) => {
         resolveApply = resolve;
       });
@@ -361,66 +369,10 @@ describe("useDraftReviewController", () => {
       expect(discardMutateMock).not.toHaveBeenCalled();
 
       await act(async () => {
-        resolveApply({ status: "applied", draftId: "draft-1" });
+        resolveApply({ kind: "live-ready" });
         await wholeApply;
       });
       applyPromise = null;
-    });
-  });
-
-  it("retains a server-applied review and retries only the fresh live reopen", async () => {
-    let controller: ReturnType<typeof useDraftReviewController> | null = null;
-    applyMutateMock.mockClear();
-    trackedHost = true;
-    acknowledgementAvailable = false;
-    function Probe() {
-      controller = useDraftReviewController("project-1", "work-1", "thread-1");
-      return null;
-    }
-    await withReactRoot(<Probe />, async () => {
-      await expect(act(async () => controller?.apply("document-1", "draft-1"))).resolves.toEqual({
-        kind: "failed",
-        code: "apply-failed",
-      });
-      expect(applyMutateMock).toHaveBeenCalledTimes(1);
-      expect(applyDraftMetadataMock).not.toHaveBeenCalled();
-      expect(controller?.isServerAppliedAwaitingHost("document-1", "draft-1")).toBe(true);
-      acknowledgementAvailable = true;
-      await act(async () => {
-        await controller?.apply("document-1", "draft-1");
-      });
-      expect(applyMutateMock).toHaveBeenCalledTimes(1);
-      expect(applyDraftMetadataMock).toHaveBeenCalledWith("project-1", "work-1", "document-1");
-      expect(controller?.isServerAppliedAwaitingHost("document-1", "draft-1")).toBe(false);
-    });
-  });
-
-  it("ignores a late host acknowledgement after the reviewed draft is replaced", async () => {
-    trackedHost = true;
-    let acknowledge!: (value: { kind: "acknowledged" }) => void;
-    acknowledgementPromise = new Promise((resolve) => {
-      acknowledge = resolve;
-    });
-    let controller: ReturnType<typeof useDraftReviewController> | null = null;
-    function Probe() {
-      controller = useDraftReviewController("project-1", "work-1", "thread-1");
-      return null;
-    }
-    await withReactRoot(<Probe />, async () => {
-      await act(async () => controller?.enterInlineReview("document-1", "draft-1"));
-      let pending: ReturnType<NonNullable<typeof controller>["apply"]> | undefined;
-      await act(async () => {
-        pending = controller?.apply("document-1", "draft-1");
-        await Promise.resolve();
-      });
-      await act(async () => controller?.enterInlineReview("document-2", "draft-2"));
-      let outcome: Awaited<typeof pending>;
-      await act(async () => {
-        acknowledge({ kind: "acknowledged" });
-        outcome = await pending;
-      });
-      expect(outcome).toEqual({ kind: "failed", code: "apply-failed" });
-      expect(applyDraftMetadataMock).not.toHaveBeenCalled();
     });
   });
 });

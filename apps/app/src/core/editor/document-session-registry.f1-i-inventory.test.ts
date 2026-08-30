@@ -517,7 +517,7 @@ describe("F1-I document-session deletion inventory", () => {
     expect(calls).toEqual([
       {
         file: "apps/app/src/features/project/context/open-project-document.ts",
-        line: 169,
+        line: 171,
       },
     ]);
   });

@@ -10,14 +10,12 @@ describe("context tabs draft-only lifecycle", () => {
     useContextTabsStore.setState({ byProject: {}, _deskHydrated: false });
   });
 
-  it("clears the draft-only marker when a live tree tab refreshes the document", () => {
+  it("preserves the draft-only marker until an exact disposition receipt settles it", () => {
     const store = useContextTabsStore.getState();
     store.openTab("project-1", trackedTab(true));
     store.openTab("project-1", trackedTab(false));
 
-    expect(useContextTabsStore.getState().byProject["project-1"]?.tabs).toEqual([
-      trackedTab(false),
-    ]);
+    expect(useContextTabsStore.getState().byProject["project-1"]?.tabs).toEqual([trackedTab(true)]);
   });
 
   it("resolves applied draft metadata only from its owning review Work", () => {

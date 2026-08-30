@@ -23,6 +23,9 @@ import { Trans } from "@lingui/react/macro";
 import { ChevronRight, Loader2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { useAiDraftLauncher } from "@/features/project/dock/useAiDraftLauncher";
+import { usePostApplySnapshot } from "@/features/project/draft-apply-recovery/DraftApplyRecoveryProvider";
+import { projectDraftDispositionRows } from "@/features/project/draft-apply-recovery/draft-apply-recovery-owner";
+import { useProjectDraftApplyRecovery } from "@/features/project/draft-apply-recovery/ProjectDraftApplyRecoveryExecutor";
 import { contextUriFromWritePath } from "@/lib/context-uri";
 import { cn } from "@/lib/utils";
 import { useChatContextNavigation } from "./ChatContextNavigation";
@@ -35,6 +38,8 @@ export type DraftDockModel = ReturnType<typeof useDraftDock>;
 export function useDraftDock({ generating }: { generating: boolean }) {
   const { groups, controller } = useDraftReview();
   const { openAiDraft } = useAiDraftLauncher();
+  const dispositionSnapshot = usePostApplySnapshot();
+  const recovery = useProjectDraftApplyRecovery();
 
   const applyDraft = useCallback(
     (row: DockRow) => {
@@ -77,7 +82,12 @@ export function useDraftDock({ generating }: { generating: boolean }) {
     generating,
     rows,
     aggregateStats: aggregateDraftStats(rows.map((row) => row.draft)),
-    mounted: rows.length > 0,
+    dispositionRows: projectDraftDispositionRows(dispositionSnapshot, controller.projectId),
+    dispositionSnapshot,
+    recovery,
+    mounted:
+      rows.length > 0 ||
+      projectDraftDispositionRows(dispositionSnapshot, controller.projectId).length > 0,
     isBusy: controller.isDisposing,
     dispositionError: controller.dockDispositionError,
     reviewRow,
@@ -245,6 +255,61 @@ export function DraftDock({ dock }: { dock: DraftDockModel }) {
           ))}
         </div>
       ) : null}
+      {dock.dispositionRows.map((row) => (
+        <div
+          key={
+            row.kind === "recovery"
+              ? `recovery-${row.recovery.entryVersion}`
+              : `unknown-${row.reservation.reservationVersion}`
+          }
+          className="flex min-h-8 items-center gap-2 border-border-subtle border-t px-3 text-caption"
+          data-draft-disposition={row.kind}
+        >
+          <span className="min-w-0 flex-1 truncate">
+            {row.presentation.documentName ?? <Trans>Document</Trans>}
+            {row.kind === "recovery" ? (
+              <span className="ml-2 text-ink-subtle">
+                {row.phase.kind === "disposing" ? (
+                  <Trans>Finishing reopening</Trans>
+                ) : (
+                  <Trans>Applied. Reopening live document.</Trans>
+                )}
+              </span>
+            ) : (
+              <span className="ml-2 text-ink-subtle">
+                <Trans>Checking whether Apply finished.</Trans>
+              </span>
+            )}
+          </span>
+          {row.kind === "apply-outcome-unknown" ? (
+            <QuietButton onClick={() => dock.recovery.checkApplyOutcome(row.reservation)}>
+              <Trans>Check again</Trans>
+            </QuietButton>
+          ) : row.phase.kind === "disposing" ? (
+            <QuietButton onClick={() => dock.recovery.finishDisposition(row.recovery)}>
+              <Trans>Finish</Trans>
+            </QuietButton>
+          ) : (
+            <>
+              <QuietButton onClick={() => dock.recovery.abandon(row.recovery)}>
+                {row.recovery.identity.documentId &&
+                dock.dispositionSnapshot.items.find(
+                  (item) => item.entryVersion === row.recovery.entryVersion,
+                )?.obligations.draftTab.kind === "draft-only" ? (
+                  <Trans>Close</Trans>
+                ) : (
+                  <Trans>Stop</Trans>
+                )}
+              </QuietButton>
+              {row.phase.kind === "awaiting-live" ? (
+                <QuietButton onClick={() => dock.recovery.retry(row.recovery)}>
+                  <Trans>Retry</Trans>
+                </QuietButton>
+              ) : null}
+            </>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
