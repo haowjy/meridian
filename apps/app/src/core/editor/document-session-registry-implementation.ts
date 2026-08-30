@@ -55,6 +55,14 @@ type LocalTransferReservation = {
   settle(): void;
 };
 
+type AdoptionFinalizer = {
+  closeProvider(): Promise<void>;
+  releaseLease(): Promise<void>;
+  providerClosed: boolean;
+  leaseReleased: boolean;
+  inFlight: Promise<void> | null;
+};
+
 function localTransferKey(projectId: ProjectId, documentId: DocumentId): string {
   return `${encodeURIComponent(projectId)}:${encodeURIComponent(documentId)}`;
 }
@@ -101,7 +109,7 @@ export class DocumentSessionRegistry
   private readonly retainedBranchRoomsByOwner = new Map<string, Set<string>>();
   private readonly admissionReservations = new Map<DocumentId, number>();
   private readonly localTransferReservations = new Map<string, LocalTransferReservation>();
-  private readonly pendingAdoptionFinalizers = new Set<() => Promise<void>>();
+  private readonly pendingAdoptionFinalizers = new Set<AdoptionFinalizer>();
   private readonly pendingTeardownTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private liveDocCapWarningEmitted = false;
   private readonly sessionObservers = new Map<
@@ -421,16 +429,19 @@ export class DocumentSessionRegistry
         }>,
     );
     const session = reservation.transfer.session;
-    const finalize = async () => {
-      await cleanup.closePrevious?.();
-      await reservation.transfer.finalize();
+    const finalizer: AdoptionFinalizer = {
+      closeProvider: () => cleanup.closePrevious?.() ?? Promise.resolve(),
+      releaseLease: () => reservation.transfer.finalize(),
+      providerClosed: false,
+      leaseReleased: false,
+      inFlight: null,
     };
     try {
-      await finalize();
+      await this.settleAdoptionFinalizer(finalizer);
     } catch {
       // Canonical authority already committed. Retain the finalizer (and HL)
       // for a later open/teardown retry rather than misreporting adoption.
-      this.pendingAdoptionFinalizers.add(finalize);
+      this.pendingAdoptionFinalizers.add(finalizer);
     }
     try {
       this.attachSessionTransport(session);
@@ -450,10 +461,12 @@ export class DocumentSessionRegistry
 
   closeAccountRuntime(): Promise<void> {
     this.beginCloseAccountRuntime();
-    this.accountTransitionVersion += 1;
-    const coordination = this.coordination;
-    this.coordination = null;
-    return this.retryAdoptionFinalizers().then(() => coordination?.close() ?? this.invalidateAll());
+    return this.retryAdoptionFinalizers().then(async () => {
+      this.accountTransitionVersion += 1;
+      const coordination = this.coordination;
+      this.coordination = null;
+      await (coordination?.close() ?? this.invalidateAll());
+    });
   }
 
   peekLive(lease: LiveDocumentSessionLease): DocumentSession | undefined {
@@ -770,14 +783,36 @@ export class DocumentSessionRegistry
 
   private async retryAdoptionFinalizers(): Promise<void> {
     const pending = [...this.pendingAdoptionFinalizers];
+    const failures: unknown[] = [];
     for (const finalize of pending) {
       try {
-        await finalize();
+        await this.settleAdoptionFinalizer(finalize);
         this.pendingAdoptionFinalizers.delete(finalize);
-      } catch {
+      } catch (error) {
         // The exact finalizer remains owned for the next canonical retry.
+        failures.push(error);
       }
     }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) throw new AggregateError(failures, "Adoption finalization failed");
+  }
+
+  private settleAdoptionFinalizer(finalizer: AdoptionFinalizer): Promise<void> {
+    if (finalizer.inFlight) return finalizer.inFlight;
+    const attempt = (async () => {
+      if (!finalizer.providerClosed) {
+        await finalizer.closeProvider();
+        finalizer.providerClosed = true;
+      }
+      if (!finalizer.leaseReleased) {
+        await finalizer.releaseLease();
+        finalizer.leaseReleased = true;
+      }
+    })().finally(() => {
+      if (finalizer.inFlight === attempt) finalizer.inFlight = null;
+    });
+    finalizer.inFlight = attempt;
+    return attempt;
   }
 
   private removeRetainedProjectLease(projectId: ProjectId, documentId: DocumentId): boolean {

@@ -100,4 +100,29 @@ describe("AccountDocumentSessionRuntime", () => {
       }),
     ).toThrow(/different account/);
   });
+
+  it("retries a rejected finish while preserving the closing epoch", async () => {
+    const finishClose = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("old authority remains"))
+      .mockResolvedValueOnce(undefined);
+    const core = {
+      accountId: "account-a" as AccountId,
+      registry: { admit: vi.fn() } as unknown as LiveDocumentSessionRegistry,
+      localReservation: {} as AccountDocumentSessionCore["localReservation"],
+      localAdoption: {} as AccountDocumentSessionCore["localAdoption"],
+      localConstruction: {} as AccountDocumentSessionCore["localConstruction"],
+      beginClose: vi.fn(),
+      finishClose,
+    } satisfies AccountDocumentSessionCore;
+    const runtime = createAccountDocumentSessionRuntime({ accountId: core.accountId, core });
+
+    await expect(runtime.finishClose()).rejects.toThrow("old authority remains");
+    expect(runtime.epochSignal.aborted).toBe(true);
+    expect(() => runtime.registry.admit("project", "document", "1")).toThrow(/closing/);
+    await expect(runtime.finishClose()).resolves.toBeUndefined();
+    await expect(runtime.finishClose()).resolves.toBeUndefined();
+    expect(finishClose).toHaveBeenCalledTimes(2);
+    expect(core.beginClose).toHaveBeenCalledOnce();
+  });
 });

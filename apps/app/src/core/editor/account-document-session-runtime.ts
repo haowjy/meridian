@@ -144,10 +144,17 @@ export function createAccountDocumentSessionRuntime(
     finishClose() {
       if (finishPromise) return finishPromise;
       beginClose();
-      finishPromise = core.finishClose().then(() => {
-        state = "closed";
-      });
-      return finishPromise;
+      const attempt = core
+        .finishClose()
+        .then(() => {
+          state = "closed";
+        })
+        .catch((error: unknown) => {
+          if (finishPromise === attempt) finishPromise = null;
+          throw error;
+        });
+      finishPromise = attempt;
+      return attempt;
     },
   });
 }
