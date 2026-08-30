@@ -1,5 +1,6 @@
 /** Structural session-registry surface and the temporary pre-F1-I caller bridge. */
 import type {
+  AccountId,
   LiveDocumentSessionAuthority,
   LiveDocumentSessionLease,
 } from "@meridian/contracts/protocol";
@@ -36,8 +37,15 @@ export interface LiveDocumentSessionRegistry extends LiveDocumentSessionAuthorit
   getBranchRoom(roomKey: string): DocumentSession;
   retainBranchRooms(ownerId: string, roomKeys: Iterable<string>): void;
   releaseBranchRooms(ownerId: string): void;
-  setOwnUserId(userId: UserId): void;
-  destroyAll(): void;
+}
+
+export interface LocalUntitledDocumentSessionFactory {
+  createDetached(input: {
+    accountId: AccountId;
+    projectId: ProjectId;
+    documentId: DocumentId;
+    persistenceKey: string;
+  }): DocumentSession;
 }
 
 export type TemporaryUnfencedDocumentSessionRegistry = {
@@ -94,5 +102,6 @@ export function getDocumentSessionRegistry(): TemporaryUnfencedDocumentSessionRe
 }
 
 export function configureDocumentSessionUser(userId: UserId): void {
-  getLiveDocumentSessionRegistry().setOwnUserId(userId);
+  sharedRegistry ??= new DocumentSessionRegistry();
+  sharedRegistry.setOwnUserId(userId);
 }

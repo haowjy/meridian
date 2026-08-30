@@ -132,6 +132,67 @@ function accessLifecycleLock(
   return `${LOCK_PREFIX}access-lifecycle/${encoded(accountId)}/${encoded(projectId)}/${encoded(documentId)}`;
 }
 
+function localUntitledLifetimeLock(
+  accountId: AccountId,
+  projectId: ProjectId,
+  documentId: DocumentId,
+): string {
+  return `${LOCK_PREFIX}local-untitled-lifetime/${encoded(accountId)}/${encoded(projectId)}/${encoded(documentId)}`;
+}
+
+export interface LocalUntitledCrossContextLease {
+  release(): Promise<void>;
+}
+
+export interface LocalUntitledCrossContextLeasePort {
+  tryAcquire(
+    projectId: ProjectId,
+    documentId: DocumentId,
+  ): Promise<LocalUntitledCrossContextLease | null>;
+}
+
+/** Exclusive pre-authority lifetime ownership; all raw lock access stays in this protocol owner. */
+export function createLocalUntitledCrossContextLeasePort(input: {
+  accountId: AccountId;
+  locks?: CrossContextLockManager | null;
+}): LocalUntitledCrossContextLeasePort {
+  const locks = input.locks === undefined ? nativeLocks() : input.locks;
+  if (!locks) {
+    return {
+      tryAcquire: async () => null,
+    };
+  }
+  return {
+    tryAcquire(projectId, documentId) {
+      const acquired = deferred<LocalUntitledCrossContextLease | null>();
+      const release = deferred<void>();
+      const request = locks.request(
+        localUntitledLifetimeLock(input.accountId, projectId, documentId),
+        { mode: "exclusive", ifAvailable: true },
+        async (lock) => {
+          if (!lock) {
+            acquired.resolve(null);
+            return;
+          }
+          let released = false;
+          acquired.resolve({
+            release: async () => {
+              if (!released) {
+                released = true;
+                release.resolve();
+              }
+              await request;
+            },
+          });
+          await release.promise;
+        },
+      );
+      void request.catch(acquired.reject);
+      return acquired.promise;
+    },
+  };
+}
+
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;

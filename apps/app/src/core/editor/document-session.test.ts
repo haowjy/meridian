@@ -157,7 +157,7 @@ describe("DocumentSession status derivation", () => {
   it("appends schema repair verdicts to the session snapshot and emits each change", async () => {
     const session = new DocumentSession({
       roomKey: "doc-schema-repairs",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
     });
     const { snapshots, unsubscribe } = track(session);
     const first = {
@@ -194,7 +194,7 @@ describe("DocumentSession status derivation", () => {
     const firstTransport = makeFakeTransport();
     const firstSession = new DocumentSession({
       roomKey: "doc-superseded",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       transportFactory: firstTransport.factory,
     });
 
@@ -211,7 +211,7 @@ describe("DocumentSession status derivation", () => {
     const secondTransport = makeFakeTransport();
     const secondSession = new DocumentSession({
       roomKey: "doc-superseded",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       transportFactory: secondTransport.factory,
     });
     secondTransport.current().emit({
@@ -237,7 +237,7 @@ describe("DocumentSession status derivation", () => {
     const { factory, current } = makeFakeTransport();
     const session = new DocumentSession({
       roomKey: "doc-storage-blocked",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       transportFactory: factory,
     });
 
@@ -261,7 +261,7 @@ describe("DocumentSession status derivation", () => {
     const { factory, current } = makeFakeTransport();
     const session = new DocumentSession({
       roomKey: "doc-recovered",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       transportFactory: factory,
     });
 
@@ -279,7 +279,7 @@ describe("DocumentSession status derivation", () => {
     const { factory, current } = makeFakeTransport();
     const session = new DocumentSession({
       roomKey: "doc-stale",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       transportFactory: factory,
     });
 
@@ -299,7 +299,7 @@ describe("DocumentSession status derivation", () => {
     const liveTransport = makeFakeTransport();
     const live = new DocumentSession({
       roomKey: "doc-markers",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       ownUserId: "me",
       transportFactory: liveTransport.factory,
     });
@@ -312,7 +312,7 @@ describe("DocumentSession status derivation", () => {
     const branchTransport = makeFakeTransport();
     const branch = new DocumentSession({
       roomKey: "branch:branch-1:gen:1",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       ownUserId: "me",
       transportFactory: branchTransport.factory,
     });
@@ -323,7 +323,7 @@ describe("DocumentSession status derivation", () => {
 
   it("starts detached and attaches transport once without replacing its Y.Doc", async () => {
     const { factory, current } = makeFakeTransport();
-    const session = new DocumentSession({ roomKey: "doc-detached", enableIndexedDb: false });
+    const session = new DocumentSession({ roomKey: "doc-detached", persistence: { kind: "none" } });
     const document = session.document;
 
     expect(session.getSnapshot()).toMatchObject({
@@ -354,7 +354,7 @@ describe("DocumentSession status derivation", () => {
     const { factory } = makeFakeTransport();
     const session = new DocumentSession({
       roomKey: "doc-server-pending",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       transportFactory: factory,
     });
     const synced = session.whenSynced();
@@ -368,7 +368,7 @@ describe("DocumentSession status derivation", () => {
     const { factory, current } = makeFakeTransport();
     const session = new DocumentSession({
       roomKey: "doc-durable",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       transportFactory: factory,
     });
     current().emit({ kind: "connected" });
@@ -392,7 +392,7 @@ describe("DocumentSession status derivation", () => {
     const { factory, current } = makeFakeTransport();
     const session = new DocumentSession({
       roomKey: "doc-denied",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       transportFactory: factory,
     });
     const durable = session.waitForDurableSync();
@@ -437,11 +437,14 @@ describe("DocumentSession status derivation", () => {
   });
 
   it("carries parsed room identity for live and branch rooms", () => {
-    const live = new DocumentSession({ roomKey: "doc-live", enableIndexedDb: false });
+    const live = new DocumentSession({ roomKey: "doc-live", persistence: { kind: "none" } });
     expect(live.room).toEqual({ kind: "live", documentId: "doc-live" });
     expect(live.getSnapshot().roomKey).toBe("doc-live");
 
-    const draft = new DocumentSession({ roomKey: "branch:branch-1:gen:1", enableIndexedDb: false });
+    const draft = new DocumentSession({
+      roomKey: "branch:branch-1:gen:1",
+      persistence: { kind: "none" },
+    });
     expect(draft.room).toEqual({ kind: "branch", branchId: "branch-1", generation: 1 });
     expect(draft.getSnapshot().roomKey).toBe("branch:branch-1:gen:1");
 
@@ -453,7 +456,7 @@ describe("DocumentSession status derivation", () => {
     const { factory, current } = makeFakeTransport();
     const session = new DocumentSession({
       roomKey: "doc-1",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       transportFactory: factory,
     });
     await flushMicrotasks();
@@ -474,7 +477,7 @@ describe("DocumentSession status derivation", () => {
     const { factory } = makeFakeTransport();
     const session = new DocumentSession({
       roomKey: "doc-1",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       transportFactory: factory,
     });
     expect(session.getSnapshot().status).toBe("syncing");
@@ -485,7 +488,7 @@ describe("DocumentSession status derivation", () => {
     const { factory, current } = makeFakeTransport();
     const session = new DocumentSession({
       roomKey: "doc-1",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       transportFactory: factory,
     });
     const { snapshots } = track(session);
@@ -506,7 +509,7 @@ describe("DocumentSession status derivation", () => {
     const { factory, current } = makeFakeTransport();
     const session = new DocumentSession({
       roomKey: "doc-1",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       transportFactory: factory,
     });
     const { snapshots } = track(session);
@@ -538,7 +541,7 @@ describe("DocumentSession status derivation", () => {
     const { factory, current } = makeFakeTransport();
     const session = new DocumentSession({
       roomKey: "doc-1",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       transportFactory: factory,
     });
     await flushMicrotasks();
@@ -554,7 +557,7 @@ describe("DocumentSession status derivation", () => {
     const { factory, current } = makeFakeTransport();
     const session = new DocumentSession({
       roomKey: "draft:draft-1",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       transportFactory: factory,
     });
     await flushMicrotasks();
@@ -576,7 +579,7 @@ describe("DocumentSession status derivation", () => {
     const { factory, current } = makeFakeTransport();
     const session = new DocumentSession({
       roomKey: "doc-1",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       transportFactory: factory,
     });
     const { snapshots } = track(session);
@@ -596,7 +599,7 @@ describe("DocumentSession status derivation", () => {
     const { factory, current } = makeFakeTransport();
     const session = new DocumentSession({
       roomKey: "doc-1",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       transportFactory: factory,
     });
     current().emit({ kind: "connected" });
@@ -610,7 +613,7 @@ describe("DocumentSession status derivation", () => {
   });
 
   it("can suspend and restore local awareness presence without destroying the session", () => {
-    const session = new DocumentSession({ roomKey: "doc-1", enableIndexedDb: false });
+    const session = new DocumentSession({ roomKey: "doc-1", persistence: { kind: "none" } });
     session.presence.setField("user", { name: "Writer", color: "#fff" });
 
     session.suspendPresence();
@@ -624,7 +627,7 @@ describe("DocumentSession status derivation", () => {
   });
 
   it("publishes a field emptied while presence was suspended", () => {
-    const session = new DocumentSession({ roomKey: "doc-1", enableIndexedDb: false });
+    const session = new DocumentSession({ roomKey: "doc-1", persistence: { kind: "none" } });
     session.presence.setField("user", { name: "Writer" });
     session.presence.setField("imageUploads", [{ token: "old" }]);
 
@@ -643,7 +646,7 @@ describe("DocumentSession status derivation", () => {
   });
 
   it("publishes a field first written while presence was suspended", () => {
-    const session = new DocumentSession({ roomKey: "doc-1", enableIndexedDb: false });
+    const session = new DocumentSession({ roomKey: "doc-1", persistence: { kind: "none" } });
     session.presence.setField("user", { name: "Writer" });
 
     session.suspendPresence();
@@ -658,7 +661,7 @@ describe("DocumentSession status derivation", () => {
   });
 
   it("resumes only when the last of two suspensions lets go", () => {
-    const session = new DocumentSession({ roomKey: "doc-1", enableIndexedDb: false });
+    const session = new DocumentSession({ roomKey: "doc-1", persistence: { kind: "none" } });
     session.presence.setField("user", { name: "Writer" });
 
     session.suspendPresence();
@@ -680,7 +683,7 @@ describe("DocumentSession status derivation", () => {
     const persistSchemaFence = vi.fn();
     const session = new DocumentSession({
       roomKey: "doc-fenced",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       persistSchemaFence,
     });
     session.presence.setField("user", { name: "Writer" });
@@ -706,7 +709,7 @@ describe("DocumentSession status derivation", () => {
     const { factory, current } = makeFakeTransport();
     const session = new DocumentSession({
       roomKey: "doc-1",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       transportFactory: factory,
     });
     const before = current();
@@ -724,7 +727,7 @@ describe("DocumentSession status derivation", () => {
     });
     const session = new DocumentSession({
       roomKey: "doc-destroy-rejection",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
       transportFactory: () => ({
         synced: false,
         subscribeStatus: () => () => undefined,
@@ -751,7 +754,7 @@ describe("DocumentSession status derivation", () => {
   it("without a transport, remains detached after local persistence loads", () => {
     const session = new DocumentSession({
       roomKey: "doc-local",
-      enableIndexedDb: false,
+      persistence: { kind: "none" },
     });
     // With no persistence and no transport, watchSync resolves immediately.
     // Run a microtask flush so the recompute lands.

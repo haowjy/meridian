@@ -25,7 +25,10 @@ import {
   type DocumentSessionCrossContextCoordination,
   type LocalSessionAuthority,
 } from "./document-session-cross-context-coordination";
-import type { RetainedLiveDocumentReference } from "./document-session-registry";
+import type {
+  LocalUntitledDocumentSessionFactory,
+  RetainedLiveDocumentReference,
+} from "./document-session-registry";
 import { readSchemaFenceQuarantine, writeSchemaFenceQuarantine } from "./schema-fence";
 
 const LIVE_DOC_SOFT_CAP = 50;
@@ -93,7 +96,16 @@ export class DocumentSessionRegistry
     ) => DocumentSessionCrossContextCoordination = (accountId, local) =>
       createDocumentSessionCrossContextCoordination({ accountId, local }),
     private readonly teardownGraceMs = SESSION_TEARDOWN_GRACE_MS,
-  ) {}
+    accountId?: AccountId,
+  ) {
+    if (!accountId) return;
+    this.accountId = accountId;
+    try {
+      this.coordination = this.createCoordination(accountId, this);
+    } catch (error) {
+      this.authorityFailure = error;
+    }
+  }
 
   async admit(
     projectId: ProjectId,
@@ -236,7 +248,7 @@ export class DocumentSessionRegistry
     this.cancelPendingTeardown(roomKey);
     const existing = this.unleasedRooms.get(roomKey)?.session;
     if (existing) return existing;
-    const session = this.createSession(roomKey, false);
+    const session = this.createSession(roomKey, { kind: "none" });
     this.attachSessionTransport(session);
     session.subscribe((snapshot) => {
       if (snapshot.connectionState?.kind !== "reset") return;
@@ -250,6 +262,30 @@ export class DocumentSessionRegistry
     });
     this.unleasedRooms.set(roomKey, { session, detached: false });
     return session;
+  }
+
+  localUntitledDocumentSessionFactory(): LocalUntitledDocumentSessionFactory {
+    return {
+      createDetached: (input) => {
+        if (input.accountId !== this.accountId) {
+          throw new DocumentSessionAuthorityError(
+            "account-mismatch",
+            "Local Untitled construction belongs to a different account epoch",
+          );
+        }
+        return this.createSession(input.documentId, {
+          kind: "indexeddb",
+          key: input.persistenceKey,
+        });
+      },
+    };
+  }
+
+  closeAccountRuntime(): Promise<void> {
+    this.accountTransitionVersion += 1;
+    const coordination = this.coordination;
+    this.coordination = null;
+    return coordination?.close() ?? this.invalidateAll();
   }
 
   peekLive(lease: LiveDocumentSessionLease): DocumentSession | undefined {
@@ -508,11 +544,14 @@ export class DocumentSessionRegistry
     this.cancelPendingTeardown(lease.documentId);
     if (state.session) return state.session;
     state.persistenceGeneration ??= lease.generation;
-    const session = this.createSession(
-      lease.documentId,
-      true,
-      documentSessionPersistenceKey(lease.accountId, lease.documentId, state.persistenceGeneration),
-    );
+    const session = this.createSession(lease.documentId, {
+      kind: "indexeddb",
+      key: documentSessionPersistenceKey(
+        lease.accountId,
+        lease.documentId,
+        state.persistenceGeneration,
+      ),
+    });
     state.session = session;
     if (attach) this.attachSessionTransport(session);
     this.maybeWarnLiveDocCap();
@@ -521,13 +560,11 @@ export class DocumentSessionRegistry
 
   private createSession(
     roomKey: string,
-    enableIndexedDb: boolean,
-    persistenceKey?: string,
+    persistence: { kind: "indexeddb"; key: string } | { kind: "none" },
   ): DocumentSession {
     const session = new DocumentSession({
       roomKey,
-      enableIndexedDb,
-      persistenceKey,
+      persistence,
       ownUserId: this.accountId,
       persistSchemaFence: (fence) => writeSchemaFenceQuarantine(roomKey, fence),
     });
@@ -822,7 +859,7 @@ export class DocumentSessionRegistry
       }
       return existing.session;
     }
-    const session = this.createSession(documentId, false);
+    const session = this.createSession(documentId, { kind: "none" });
     this.unleasedRooms.set(documentId, { session, detached });
     if (!detached) this.attachSessionTransport(session);
     return session;

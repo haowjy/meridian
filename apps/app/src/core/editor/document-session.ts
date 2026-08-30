@@ -61,6 +61,7 @@ export type { SchemaFence } from "./schema-fence";
 
 import { SessionMarkerStore } from "./session-marker-store";
 
+/** Transitional callers may derive a key, but DocumentSession never derives one implicitly. */
 export function roomSessionPersistenceKey(roomKey: string): string {
   return `meridian:document:${collabSchemaKeyTag()}:${roomKey}`;
 }
@@ -172,10 +173,8 @@ export type DocumentSessionTransportFactory = (opts: {
 export type DocumentSessionOptions = {
   /** Hocuspocus room key: live documents use the bare document id, drafts use `draft:<draftId>`, branch review rooms use `branch:<branchId>:gen:<generation>`. */
   roomKey: string;
-  /** Defaults to y-indexeddb's document name, scoped to Meridian app content. */
-  persistenceKey?: string;
-  /** Tests and SSR can disable IndexedDB; browser sessions enable it by default. */
-  enableIndexedDb?: boolean;
+  /** Persistence identity is always explicit; a room name never silently becomes a database key. */
+  persistence: { kind: "indexeddb"; key: string } | { kind: "none" };
   /** Plugs the server document-sync provider into the session-owned Y.Doc. */
   transportFactory?: DocumentSessionTransportFactory;
   /** Registry-owned persistence hook for the first fence transition. */
@@ -184,10 +183,6 @@ export type DocumentSessionOptions = {
 };
 
 type Listener = (snapshot: DocumentSessionSnapshot) => void;
-
-function canUseIndexedDb(): boolean {
-  return typeof indexedDB !== "undefined";
-}
 
 export class DocumentSession {
   readonly roomKey: string;
@@ -229,8 +224,7 @@ export class DocumentSession {
 
   constructor({
     roomKey,
-    persistenceKey = roomSessionPersistenceKey(roomKey),
-    enableIndexedDb = canUseIndexedDb(),
+    persistence,
     transportFactory,
     persistSchemaFence,
     ownUserId = null,
@@ -245,9 +239,9 @@ export class DocumentSession {
     this.markerStore = new SessionMarkerStore(ownUserId);
     this.awareness = new Awareness(this.document);
     this.localPresence = createLocalPresence(this.awareness);
-    if (enableIndexedDb) {
+    if (persistence.kind === "indexeddb") {
       deleteStaleVersionedIndexedDb(roomKey);
-      this.persistence = new IndexeddbPersistence(persistenceKey, this.document);
+      this.persistence = new IndexeddbPersistence(persistence.key, this.document);
     } else {
       this.persistence = null;
     }

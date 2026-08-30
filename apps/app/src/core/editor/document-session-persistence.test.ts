@@ -29,7 +29,7 @@ describe("DocumentSession persistence cleanup", () => {
   it("preserves IndexedDB when a never-attached session is destroyed", async () => {
     const session = new DocumentSession({
       roomKey: "doc-never-materialized",
-      enableIndexedDb: true,
+      persistence: { kind: "indexeddb", key: "test:document-session" },
     });
 
     await session.destroy();
@@ -39,7 +39,10 @@ describe("DocumentSession persistence cleanup", () => {
   });
 
   it("preserves an attached room cache unless cleanup is explicitly requested", async () => {
-    const session = new DocumentSession({ roomKey: "doc-materialized", enableIndexedDb: true });
+    const session = new DocumentSession({
+      roomKey: "doc-materialized",
+      persistence: { kind: "indexeddb", key: "test:document-session" },
+    });
     session.attachTransport(() => ({ destroy: vi.fn() }));
 
     await session.destroy();
@@ -49,7 +52,10 @@ describe("DocumentSession persistence cleanup", () => {
   });
 
   it("can explicitly clear an attached room cache after server deletion", async () => {
-    const session = new DocumentSession({ roomKey: "doc-deleted", enableIndexedDb: true });
+    const session = new DocumentSession({
+      roomKey: "doc-deleted",
+      persistence: { kind: "indexeddb", key: "test:document-session" },
+    });
     session.attachTransport(() => ({ destroy: vi.fn() }));
 
     await session.destroy({ clearPersistence: true });
@@ -59,7 +65,10 @@ describe("DocumentSession persistence cleanup", () => {
   });
 
   it("can explicitly clear a detached empty room cache after confirmed cleanup", async () => {
-    const session = new DocumentSession({ roomKey: "doc-empty", enableIndexedDb: true });
+    const session = new DocumentSession({
+      roomKey: "doc-empty",
+      persistence: { kind: "indexeddb", key: "test:document-session" },
+    });
 
     await session.destroy({ clearPersistence: true });
 
@@ -69,7 +78,10 @@ describe("DocumentSession persistence cleanup", () => {
 
   it("settles whenSynced when a detached session is destroyed before local sync", async () => {
     persistence.createWhenSynced.mockReturnValue(new Promise(() => {}));
-    const session = new DocumentSession({ roomKey: "doc-local-pending", enableIndexedDb: true });
+    const session = new DocumentSession({
+      roomKey: "doc-local-pending",
+      persistence: { kind: "indexeddb", key: "test:document-session" },
+    });
     const synced = session.whenSynced();
 
     await session.destroy();
@@ -88,7 +100,7 @@ describe("DocumentSession persistence cleanup", () => {
 
     const session = new DocumentSession({
       roomKey: "doc-local-replay",
-      enableIndexedDb: true,
+      persistence: { kind: "indexeddb", key: "test:document-session" },
       transportFactory,
     });
 
@@ -107,7 +119,7 @@ describe("DocumentSession persistence cleanup", () => {
     const transportFactory = vi.fn(() => ({ destroy: vi.fn() }));
     const session = new DocumentSession({
       roomKey: "doc-local-blocked",
-      enableIndexedDb: true,
+      persistence: { kind: "indexeddb", key: "test:document-session" },
       transportFactory,
     });
 
