@@ -475,11 +475,11 @@ describe("F1-I document-session deletion inventory", () => {
       },
       {
         file: "apps/app/src/features/project/context/open-project-document.ts",
-        line: 121,
+        line: 129,
       },
       {
         file: "apps/app/src/features/project/context/open-project-document.ts",
-        line: 127,
+        line: 135,
       },
     ]);
   });

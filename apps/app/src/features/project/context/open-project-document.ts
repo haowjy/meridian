@@ -32,7 +32,15 @@ import {
   isProjectContextTreeScheme,
   type ProjectContextTreeScheme,
 } from "@meridian/contracts/protocol";
-import { useCallback, useEffect, useMemo } from "react";
+import {
+  createContext,
+  createElement,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+} from "react";
 
 import { projectCatalogFile } from "@/client/query/useContextCatalog";
 import { useContextTabsActions } from "@/client/stores";
@@ -253,26 +261,49 @@ function schemeForEntry(entry: CatalogFileEntry): ProjectContextTreeScheme | nul
   return isProjectContextTreeScheme(scheme) ? scheme : null;
 }
 
-export function useOpenProjectDocument(projectId: string | undefined): OpenProjectDocument {
+type ProjectDocumentNavigationOwner = {
+  projectId: string;
+  adapter: ProjectDocumentNavigationAdapter;
+};
+
+const ProjectDocumentNavigationContext = createContext<ProjectDocumentNavigationOwner | null>(null);
+
+/** Project-route composition owner for every document-opening door in the route. */
+export function ProjectDocumentNavigationProvider({
+  projectId,
+  children,
+}: {
+  projectId: string;
+  children: ReactNode;
+}) {
   const opener = useProjectDocumentLiveOpener();
   const openContextRoute = useProjectContextRoute();
   const { openTab } = useContextTabsActions();
-  const adapter = useMemo(
-    () =>
-      new ProjectDocumentNavigationAdapter({
+  const owner = useMemo<ProjectDocumentNavigationOwner>(
+    () => ({
+      projectId,
+      adapter: new ProjectDocumentNavigationAdapter({
         opener,
         openTab,
         openRoute: openContextRoute,
       }),
-    [openContextRoute, openTab, opener],
+    }),
+    [openContextRoute, openTab, opener, projectId],
   );
-  useEffect(() => () => adapter.dispose(), [adapter]);
+  useEffect(() => () => owner.adapter.dispose(), [owner]);
+
+  return createElement(ProjectDocumentNavigationContext.Provider, { value: owner }, children);
+}
+
+export function useOpenProjectDocument(projectId: string | undefined): OpenProjectDocument {
+  const owner = useContext(ProjectDocumentNavigationContext);
 
   return useCallback(
     async (request) => {
-      if (!projectId) return { kind: "unavailable", reason: "failed" };
-      return adapter.open(projectId, request);
+      if (!projectId || owner?.projectId !== projectId)
+        return { kind: "unavailable", reason: "failed" };
+      return owner.adapter.open(projectId, request);
     },
-    [adapter, projectId],
+    [owner, projectId],
   );
 }
