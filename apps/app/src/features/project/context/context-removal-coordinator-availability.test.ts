@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useContextTabsStore } from "@/client/stores";
 import { type ProjectSearch, parseProjectSearch } from "../routing/project-route";
 import { ContextRemovalCoordinator } from "./context-removal-coordinator";
+import { resolveDeskRoute } from "./context-route-desk-owner";
 
 const projectId = "project-1";
 const documentId = "00000000-0000-4000-8000-000000000001";
@@ -184,6 +185,14 @@ describe("ContextRemovalCoordinator availability batches", () => {
       workId: "work-2",
     });
     expect(routes).toEqual([{ documentId, scheme: "scratch", path: "/new.md", workId: "work-2" }]);
+    expect(
+      resolveDeskRoute({
+        tabs: useContextTabsStore.getState().byProject[projectId]?.tabs ?? [],
+        selectedDocumentId:
+          useContextTabsStore.getState().byProject[projectId]?.selectedTabIdByWork["work-2"],
+        locator: { scheme: "scratch", path: "/new.md", workId: "work-2" },
+      }),
+    ).toMatchObject({ kind: "owner", identity: { kind: "server", documentId } });
     expect(sessions.revokeDocument).not.toHaveBeenCalled();
     expect(sessions.revokeAccess).not.toHaveBeenCalled();
 
