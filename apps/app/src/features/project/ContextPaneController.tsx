@@ -449,26 +449,23 @@ export function ContextViewerSurfaceController({
       active={active}
       resumeDocumentName={lastContextRoute ? contextRouteFileName(lastContextRoute.path) : null}
       onResumeDocument={handleResumeDocument}
-      onNewDocument={() => {
+      onNewDocument={async () => {
         if (!routeWorkId) return;
         const documentId = crypto.randomUUID();
-        void localUntitled
-          .create({
-            accountId: localUntitled.dependencies.accountId,
-            projectId,
-            documentId,
-          })
-          .then((opened) => {
-            if (opened.kind !== "opened") return;
-            openTab(projectId, {
-              kind: "new",
-              documentId,
-              name: "Untitled",
-              workId: routeWorkId,
-            });
-            selectTab(projectId, routeWorkId, documentId);
-            onSelectContextPath("", "scratch");
-          });
+        const opened = await localUntitled.create({
+          accountId: localUntitled.dependencies.accountId,
+          projectId,
+          documentId,
+        });
+        if (opened.kind !== "opened") return;
+        openTab(projectId, {
+          kind: "new",
+          documentId,
+          name: "Untitled",
+          workId: routeWorkId,
+        });
+        selectTab(projectId, routeWorkId, documentId);
+        onSelectContextPath("", "scratch");
       }}
       onUntitledBecameNonEmpty={handleUntitledBecameNonEmpty}
       onCommitted={(documentId, next, ownership) => {

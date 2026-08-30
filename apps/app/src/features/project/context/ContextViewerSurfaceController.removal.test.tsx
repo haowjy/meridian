@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 /** Production desktop route materialization under a pending removal repair. */
 
+import "fake-indexeddb/auto";
+
 import type { ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { act, useState } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
@@ -103,6 +105,17 @@ beforeEach(() => {
 });
 
 it("persists and admits the real New action without an empty working-set route", async () => {
+  const originalLocks = navigator.locks;
+  Object.defineProperty(navigator, "locks", {
+    configurable: true,
+    value: {
+      request: async (
+        _name: string,
+        _options: LockOptions,
+        callback: (lock: Lock) => Promise<unknown>,
+      ) => callback({ name: "test", mode: "exclusive" } as Lock),
+    },
+  });
   localStorage.clear();
   const writes: Array<{ key: string; value: string }> = [];
   const originalSetItem = Storage.prototype.setItem;
@@ -206,6 +219,7 @@ it("persists and admits the real New action without an empty working-set route",
     });
   } finally {
     setItem.mockRestore();
+    Object.defineProperty(navigator, "locks", { configurable: true, value: originalLocks });
   }
 });
 

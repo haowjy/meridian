@@ -10,15 +10,25 @@ const rig = vi.hoisted(() => ({
     | ((snapshot: readonly { projectId: string; documentId: string }[]) => void),
 }));
 
-vi.mock("@/core/editor/document-session-registry", () => ({
-  getLiveDocumentSessionRegistry: () => ({
-    observeRetainedLiveDocuments: (observer: typeof rig.retainedObserver) => {
-      rig.retainedObserver = observer;
-      observer?.([]);
-      return () => {
-        rig.retainedObserver = null;
-      };
+vi.mock("@/core/editor/account-document-session-runtime", () => ({
+  createAccountDocumentSessionRuntime: ({ accountId }: { accountId: string }) => ({
+    accountId,
+    epochSignal: new AbortController().signal,
+    registry: {
+      observeRetainedLiveDocuments: (observer: typeof rig.retainedObserver) => {
+        rig.retainedObserver = observer;
+        observer?.([]);
+        return () => {
+          rig.retainedObserver = null;
+        };
+      },
     },
+    localLifetime: { tryAcquire: async () => null },
+    localConstruction: { createDetached: vi.fn() },
+    localReservation: { reserve: vi.fn() },
+    localAdoption: { admitAndAdopt: vi.fn() },
+    beginClose: vi.fn(),
+    finishClose: vi.fn(async () => undefined),
   }),
 }));
 vi.mock("@/client/query/project-context-availability", () => ({
