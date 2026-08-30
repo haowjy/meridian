@@ -77,6 +77,38 @@ describe("ProjectContextAvailabilityCoordinator", () => {
     expect(batches[1]).toEqual([]);
   });
 
+  it("retries an equal committed delete after the effect owner throws", () => {
+    const apply = vi.fn((_commands: readonly ProjectDocumentAvailabilityCommand[]) => {
+      if (apply.mock.calls.length === 1) throw new Error("owner failed");
+    });
+    const coordinator = new ProjectContextAvailabilityCoordinator({
+      lookup: async (projectId) => result(projectId, []),
+      repairProjectCatalog: async () => undefined,
+      apply,
+    });
+    const receipt = {
+      projectId: "project-1",
+      deletedDocumentIds: [id(1)],
+      generation: "28" as const,
+    };
+
+    expect(() => coordinator.acceptCommittedDelete(receipt)).toThrow("owner failed");
+    coordinator.acceptCommittedDelete(receipt);
+    coordinator.acceptCommittedDelete(receipt);
+
+    expect(apply).toHaveBeenCalledTimes(2);
+    expect(apply.mock.calls[1]?.[0]).toEqual([
+      {
+        kind: "terminal-remove",
+        projectId: "project-1",
+        documentId: id(1),
+        generation: "28",
+        cause: "document-deleted",
+        commandId: `availability/v1/terminal-remove/project-1/${id(1)}/28`,
+      },
+    ]);
+  });
+
   it("drains 257 sorted IDs through three requests, at most two concurrent, and one effect batch", async () => {
     let concurrent = 0;
     let maxConcurrent = 0;
