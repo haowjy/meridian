@@ -36,7 +36,7 @@ import { aggregateDraftStats, DraftStatsLabel, draftStats } from "./draft-stats"
 export type DraftDockModel = ReturnType<typeof useDraftDock>;
 
 export function useDraftDock({ generating }: { generating: boolean }) {
-  const { groups, controller } = useDraftReview();
+  const { serverActiveGroups, groups, controller } = useDraftReview();
   const { openAiDraft } = useAiDraftLauncher();
   const dispositionSnapshot = usePostApplySnapshot();
   const recovery = useProjectDraftApplyRecovery();
@@ -51,6 +51,7 @@ export function useDraftDock({ generating }: { generating: boolean }) {
   );
 
   const rows = useMemo(() => dockRows(groups), [groups]);
+  const serverActiveRows = useMemo(() => dockRows(serverActiveGroups), [serverActiveGroups]);
 
   const reviewRow = useCallback(
     (row: DockRow) => {
@@ -81,7 +82,8 @@ export function useDraftDock({ generating }: { generating: boolean }) {
   const model = {
     generating,
     rows,
-    aggregateStats: aggregateDraftStats(rows.map((row) => row.draft)),
+    serverActiveCount: serverActiveRows.length,
+    aggregateStats: aggregateDraftStats(serverActiveRows.map((row) => row.draft)),
     dispositionRows: projectDraftDispositionRows(dispositionSnapshot, controller.projectId),
     dispositionSnapshot,
     recovery,
@@ -129,8 +131,8 @@ export function DraftDock({ dock }: { dock: DraftDockModel }) {
 
   if (!dock.mounted) return null;
 
-  const multi = dock.rows.length > 1;
-  const single = dock.rows.length === 1;
+  const multi = dock.serverActiveCount > 1;
+  const single = dock.serverActiveCount === 1 && dock.rows.length === 1;
   const firstPending = dock.rows[0] ?? null;
   const identity = single ? (dock.rows[0].documentName ?? t`Document`) : null;
 
@@ -171,7 +173,7 @@ export function DraftDock({ dock }: { dock: DraftDockModel }) {
               <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-jade-text" />
               {/* min() keeps the 12ch floor from padding short names with dead space */}
               <span className="min-w-[min(12ch,max-content)] shrink truncate">
-                {single ? identity : <Trans>{dock.rows.length} documents</Trans>}
+                {single ? identity : <Trans>{dock.serverActiveCount} documents</Trans>}
               </span>
               {dock.aggregateStats ? (
                 <span className="shrink-0 whitespace-nowrap text-ink-subtle">
@@ -271,10 +273,17 @@ export function DraftDock({ dock }: { dock: DraftDockModel }) {
         >
           <span className="min-w-0 flex-1 truncate">
             {row.presentation.documentName ?? <Trans>Document</Trans>}
+            {row.presentation.owningWorkLabel ? (
+              <span className="ml-1 text-ink-subtle">({row.presentation.owningWorkLabel})</span>
+            ) : null}
             {row.kind === "recovery" ? (
               <span className="ml-2 text-ink-subtle">
                 {row.phase.kind === "disposing" ? (
-                  <Trans>Finishing reopening</Trans>
+                  row.phase.outcome === "writer-abandoned" ? (
+                    <Trans>Finishing close</Trans>
+                  ) : (
+                    <Trans>Finishing reopening</Trans>
+                  )
                 ) : (
                   <Trans>Applied. Reopening live document.</Trans>
                 )}
@@ -291,7 +300,11 @@ export function DraftDock({ dock }: { dock: DraftDockModel }) {
             </QuietButton>
           ) : row.phase.kind === "disposing" ? (
             <QuietButton onClick={() => dock.recovery.finishDisposition(row.recovery)}>
-              <Trans>Finish</Trans>
+              {row.phase.outcome === "writer-abandoned" ? (
+                <Trans>Finish close</Trans>
+              ) : (
+                <Trans>Finish reopening</Trans>
+              )}
             </QuietButton>
           ) : (
             <>

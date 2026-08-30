@@ -114,7 +114,11 @@ export function DraftReviewHeader({ documentId, draftId }: DraftReviewHeaderProp
                 className="text-button"
                 onClick={() => recoveryCommands.finishDisposition(recoveryRef)}
               >
-                <Trans>Finish</Trans>
+                {recoveryItem.phase.outcome === "writer-abandoned" ? (
+                  <Trans>Finish close</Trans>
+                ) : (
+                  <Trans>Finish reopening</Trans>
+                )}
               </button>
             ) : null}
           </>

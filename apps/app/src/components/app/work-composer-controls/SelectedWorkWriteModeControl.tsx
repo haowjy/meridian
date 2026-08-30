@@ -13,7 +13,7 @@ import {
 } from "@/components/app/composer-toolbar";
 import { Button } from "@/components/ui/button";
 import { dropdownRowVariants } from "@/components/ui/dropdown-presentation";
-import { usePostApplyCommandGroups } from "@/features/project/draft-apply-recovery/DraftApplyRecoveryProvider";
+import { usePostApplyDraftGroupProjections } from "@/features/project/draft-apply-recovery/DraftApplyRecoveryProvider";
 
 type WriteModeInteraction =
   | { workId: string; page: "choices"; phase: "idle" | "applying" }
@@ -50,7 +50,7 @@ export function useSelectedWorkWriteModeToolbarControl({
   const update = useUpdateWorkWriteMode(projectId, work.id);
   const drafts = useWorkDrafts(projectId, work.id);
   const groups = activeWorkDraftGroups(
-    usePostApplyCommandGroups(drafts.groups, projectId, work.id),
+    usePostApplyDraftGroupProjections(drafts.groups, projectId, work.id).commandEligibleGroups,
   );
   const firstGroup =
     [...groups]

@@ -13,7 +13,6 @@ import {
 } from "react";
 import { listWorkDrafts } from "@/client/api/drafts-api";
 import { projectQueryKeys } from "@/client/query/project-query-keys";
-import { useContextTabsStore } from "@/client/stores";
 import {
   useContextRemovalCoordinator,
   useProjectDocumentLiveOpener,
@@ -56,19 +55,54 @@ const EMPTY_POST_APPLY_SNAPSHOT = {
   appliedSuppressions: [],
   remoteDraftWitnesses: [],
 } as const;
-const EMPTY_CONTEXT_TABS: readonly never[] = [];
+
+export function postApplyHostDemandKey(input: {
+  inlineDocumentIds: readonly string[];
+  desktopHostDocumentIds: readonly string[];
+  mobileContextPath: string | null;
+}): string {
+  return `${input.inlineDocumentIds.join(",")}:${input.mobileContextPath ?? ""}:${input.desktopHostDocumentIds.join(",")}`;
+}
+
+export function postApplyHostRequired(input: {
+  documentId: string;
+  inlineDocumentIds: readonly string[];
+  desktopHostDocumentIds: readonly string[];
+  mobileContextPath: string | null;
+  recoveryItems: readonly {
+    identity: { projectId: string; documentId: string };
+    presentation: { contextPath: string | null };
+  }[];
+  projectId: string;
+}): boolean {
+  return (
+    input.inlineDocumentIds.includes(input.documentId) ||
+    input.desktopHostDocumentIds.includes(input.documentId) ||
+    (input.mobileContextPath !== null &&
+      input.recoveryItems.some(
+        (item) =>
+          item.identity.projectId === input.projectId &&
+          item.identity.documentId === input.documentId &&
+          item.presentation.contextPath === input.mobileContextPath,
+      ))
+  );
+}
 
 export function ProjectDraftApplyRecoveryExecutor({
   projectId,
   scopeKey,
   mobileContextPath,
   inlineDocumentIds,
+  desktopHostDocumentIds,
+  workLabels,
   children,
 }: {
   projectId: string;
   scopeKey: string;
   mobileContextPath: string | null;
   inlineDocumentIds: readonly string[];
+  desktopHostDocumentIds: readonly string[];
+  workLabels: Readonly<Record<string, string>>;
   children: React.ReactNode;
 }) {
   const owner = usePostApplyDispositionOwner();
@@ -77,19 +111,18 @@ export function ProjectDraftApplyRecoveryExecutor({
   const opener = useProjectDocumentLiveOpener();
   const acknowledge = useAcknowledgeLiveBinding();
   const removal = useContextRemovalCoordinator();
-  const tabs = useContextTabsStore(
-    (state) => state.byProject[projectId]?.tabs ?? EMPTY_CONTEXT_TABS,
-  );
   const running = useRef<{
     grant: PostApplyAttemptGrant;
     abort: AbortController;
     scopeKey: string;
   } | null>(null);
+  const consumedDispositionEdges = useRef(new Set<string>());
   const [executorRevision, advanceExecutor] = useState(0);
-  const demandKey = `${inlineDocumentIds.join(",")}:${mobileContextPath ?? ""}:${tabs
-    .filter((tab) => tab.kind === "tracked")
-    .map((tab) => `${tab.documentId}:${tab.draftOnly ? "draft" : "live"}`)
-    .join(",")}`;
+  const demandKey = postApplyHostDemandKey({
+    inlineDocumentIds,
+    desktopHostDocumentIds,
+    mobileContextPath,
+  });
   const demandRevision = useRef({ key: demandKey, revision: 0 });
   if (demandRevision.current.key !== demandKey)
     demandRevision.current = { key: demandKey, revision: demandRevision.current.revision + 1 };
@@ -97,17 +130,16 @@ export function ProjectDraftApplyRecoveryExecutor({
   const currentDemand = useCallback(
     (documentId: string) => ({
       revision: demandRevision.current.revision,
-      required:
-        inlineDocumentIds.includes(documentId) ||
-        tabs.some((tab) => tab.documentId === documentId && tab.kind === "tracked") ||
-        snapshot.items.some(
-          (item) =>
-            item.identity.projectId === projectId &&
-            item.identity.documentId === documentId &&
-            item.presentation.contextPath === mobileContextPath,
-        ),
+      required: postApplyHostRequired({
+        documentId,
+        inlineDocumentIds,
+        desktopHostDocumentIds,
+        mobileContextPath,
+        recoveryItems: snapshot.items,
+        projectId,
+      }),
     }),
-    [inlineDocumentIds, mobileContextPath, projectId, snapshot.items, tabs],
+    [desktopHostDocumentIds, inlineDocumentIds, mobileContextPath, projectId, snapshot.items],
   );
 
   const settleContext = useCallback(
@@ -142,10 +174,23 @@ export function ProjectDraftApplyRecoveryExecutor({
       running.current = null;
     }
     if (running.current) return;
+    const currentDispositionEdges = new Set(
+      snapshot.items.flatMap((item) =>
+        item.identity.projectId === projectId && item.phase.kind === "disposing"
+          ? [`${item.entryVersion}:${item.phase.dispositionToken}`]
+          : [],
+      ),
+    );
+    for (const edge of consumedDispositionEdges.current) {
+      if (!currentDispositionEdges.has(edge)) consumedDispositionEdges.current.delete(edge);
+    }
     const disposing = snapshot.items.find(
       (item) => item.identity.projectId === projectId && item.phase.kind === "disposing",
     );
     if (disposing?.phase.kind === "disposing") {
+      const edge = `${disposing.entryVersion}:${disposing.phase.dispositionToken}`;
+      if (consumedDispositionEdges.current.has(edge)) return;
+      consumedDispositionEdges.current.add(edge);
       settleContext({
         recovery: { identity: disposing.identity, entryVersion: disposing.entryVersion },
         dispositionToken: disposing.phase.dispositionToken,
@@ -315,7 +360,7 @@ export function ProjectDraftApplyRecoveryExecutor({
                 presentation: {
                   documentName: draft.documentName,
                   contextPath: draft.contextPath,
-                  owningWorkLabel: null,
+                  owningWorkLabel: workLabels[reservation.identity.workId] ?? null,
                 },
                 obligations: { draftTab: { kind: "none" }, branch: { kind: "none" } },
               })),
@@ -333,7 +378,7 @@ export function ProjectDraftApplyRecoveryExecutor({
       matchingHostMounted: ({ recovery }) =>
         void owner.requestRetry({ recovery, trigger: "matching-host-mounted" }),
     }),
-    [owner, queryClient, settleContext],
+    [owner, queryClient, settleContext, workLabels],
   );
   return <CommandsContext.Provider value={commands}>{children}</CommandsContext.Provider>;
 }

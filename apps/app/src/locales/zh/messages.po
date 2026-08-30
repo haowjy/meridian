@@ -112,7 +112,7 @@ msgstr ""
 msgid "{0} additional balance"
 msgstr ""
 
-#. placeholder {0}: dock.rows.length
+#. placeholder {0}: dock.serverActiveCount
 #: src/features/chat/DraftDock.tsx
 msgid "{0} documents"
 msgstr ""
@@ -1448,11 +1448,25 @@ msgstr ""
 
 #: src/features/chat/DraftDock.tsx
 #: src/features/editor/DraftReviewHeader.tsx
-msgid "Finish"
+#~ msgid "Finish"
+#~ msgstr ""
+
+#: src/features/chat/DraftDock.tsx
+#: src/features/editor/DraftReviewHeader.tsx
+msgid "Finish close"
+msgstr ""
+
+#: src/features/chat/DraftDock.tsx
+#: src/features/editor/DraftReviewHeader.tsx
+msgid "Finish reopening"
 msgstr ""
 
 #: src/features/project/home/HomeScreen.tsx
 msgid "Finish the current chat attempt"
+msgstr ""
+
+#: src/features/chat/DraftDock.tsx
+msgid "Finishing close"
 msgstr ""
 
 #: src/features/chat/DraftDock.tsx

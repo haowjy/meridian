@@ -109,6 +109,7 @@ export function useDraftReviewController(
   projectId: string,
   workId: string,
   threadId: string | null = null,
+  owningWorkLabel: string | null = null,
 ): DraftReviewController {
   const queryClient = useQueryClient();
   const accountId = usePostApplyAccountId();
@@ -245,7 +246,7 @@ export function useDraftReviewController(
         presentation: {
           documentName: tab?.name ?? null,
           contextPath: tab && tab.kind !== "new" ? tab.path : null,
-          owningWorkLabel: null,
+          owningWorkLabel,
         },
         obligations: {
           draftTab:

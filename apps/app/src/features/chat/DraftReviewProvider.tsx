@@ -35,10 +35,12 @@ import {
   usePostApplyDispositionOwner,
   usePostApplySnapshot,
 } from "@/features/project/draft-apply-recovery/DraftApplyRecoveryProvider";
+import { projectPostApplyDraftGroups } from "@/features/project/draft-apply-recovery/draft-group-projections";
 import { type DraftReviewController, useDraftReviewController } from "./useDraftReviewController";
 
 export type DraftReviewContextValue = {
   controller: DraftReviewController;
+  serverActiveGroups: ThreadDraftGroup[];
   groups: ThreadDraftGroup[];
   drafts: ThreadDraftsStatus;
   groupForDocument: (documentId: string | null | undefined) => ThreadDraftGroup | null;
@@ -58,6 +60,7 @@ let reviewProjectionOwnerSequence = 0;
 export type DraftReviewProviderProps = {
   projectId: string | null;
   workId: string | null;
+  owningWorkLabel?: string | null;
   /** Focused thread, when this review surface is thread-owned; threads cache invalidation. */
   threadId?: string | null;
   children: ReactNode;
@@ -66,10 +69,11 @@ export type DraftReviewProviderProps = {
 export function DraftReviewProvider({
   projectId,
   workId,
+  owningWorkLabel = null,
   threadId = null,
   children,
 }: DraftReviewProviderProps) {
-  const value = useDraftReviewScopeValue({ projectId, workId, threadId });
+  const value = useDraftReviewScopeValue({ projectId, workId, owningWorkLabel, threadId });
   return <DraftReviewBoundary value={value}>{children}</DraftReviewBoundary>;
 }
 
@@ -86,14 +90,16 @@ export function DraftReviewBoundary({
 export function useDraftReviewScopeValue({
   projectId,
   workId,
+  owningWorkLabel = null,
   threadId = null,
 }: Omit<DraftReviewProviderProps, "children">): DraftReviewContextValue {
-  return useDraftReviewScopeOwner(projectId, workId, threadId);
+  return useDraftReviewScopeOwner(projectId, workId, owningWorkLabel ?? null, threadId);
 }
 
 function useDraftReviewScopeOwner(
   projectId: string | null,
   workId: string | null,
+  owningWorkLabel: string | null,
   threadId: string | null,
 ): DraftReviewContextValue {
   const queryClient = useQueryClient();
@@ -109,34 +115,25 @@ function useDraftReviewScopeOwner(
   const effectiveWorkId = workId ?? "";
   const drafts = useWorkDrafts(projectId, workId);
   const rawGroups = drafts.groups ?? [];
-  const groups = useMemo(
+  const projections = useMemo(
     () =>
-      rawGroups.flatMap((group) => {
-        const visible = group.drafts.filter((draft) => {
-          if (!projectId || !workId) return true;
-          const matches = (identity: {
-            accountId: string;
-            projectId: string;
-            workId: string;
-            documentId: string;
-            draftId: string;
-          }) =>
-            identity.accountId === accountId &&
-            identity.projectId === projectId &&
-            identity.workId === workId &&
-            identity.documentId === draft.documentId &&
-            identity.draftId === draft.draftId;
-          return !(
-            dispositionSnapshot.reservations.some((item) => matches(item.identity)) ||
-            dispositionSnapshot.items.some((item) => matches(item.identity)) ||
-            dispositionSnapshot.appliedSuppressions.some((item) => matches(item.identity))
-          );
-        });
-        return visible.length > 0 ? [{ ...group, drafts: visible }] : [];
-      }),
+      projectPostApplyDraftGroups(
+        rawGroups,
+        dispositionSnapshot,
+        accountId,
+        projectId ?? "",
+        workId ?? "",
+      ),
     [accountId, dispositionSnapshot, projectId, rawGroups, workId],
   );
-  const controller = useDraftReviewController(effectiveProjectId, effectiveWorkId, threadId);
+  const serverActiveGroups = projections.serverActiveGroups ?? [];
+  const groups = projections.commandEligibleGroups ?? [];
+  const controller = useDraftReviewController(
+    effectiveProjectId,
+    effectiveWorkId,
+    threadId,
+    owningWorkLabel,
+  );
 
   useEffect(() => {
     if (!projectId || !workId || (drafts.status !== "ready" && drafts.status !== "empty")) return;
@@ -158,7 +155,7 @@ function useDraftReviewScopeOwner(
           presentation: {
             documentName: draft.documentName,
             contextPath: draft.contextPath,
-            owningWorkLabel: null,
+            owningWorkLabel,
           },
           obligations: {
             draftTab:
@@ -194,6 +191,7 @@ function useDraftReviewScopeOwner(
     drafts.drafts,
     drafts.status,
     projectId,
+    owningWorkLabel,
     workId,
   ]);
   // Editor-host concern: this only tells the chat overlay whether the active
@@ -507,6 +505,7 @@ function useDraftReviewScopeOwner(
   const value = useMemo<DraftReviewContextValue>(
     () => ({
       controller,
+      serverActiveGroups,
       groups,
       drafts,
       groupForDocument,
@@ -514,7 +513,15 @@ function useDraftReviewScopeOwner(
       activeEditorDocumentId,
       setActiveEditorDocumentId,
     }),
-    [controller, groups, drafts, groupForDocument, reviewRoomNameForDraft, activeEditorDocumentId],
+    [
+      controller,
+      serverActiveGroups,
+      groups,
+      drafts,
+      groupForDocument,
+      reviewRoomNameForDraft,
+      activeEditorDocumentId,
+    ],
   );
 
   return value;

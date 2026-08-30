@@ -29,7 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { usePostApplyCommandGroups } from "../draft-apply-recovery/DraftApplyRecoveryProvider";
+import { usePostApplyDraftGroupProjections } from "../draft-apply-recovery/DraftApplyRecoveryProvider";
 import type { ProjectRouteCommands } from "../routing/project-route";
 import { WorkAssociatedChats } from "./WorkAssociatedChats";
 import { WorkDialog, type WorkDialogAction } from "./WorkDialog";
@@ -212,7 +212,9 @@ function Drafts({
   controller: WorkMetadataController;
 }) {
   const query = useWorkDrafts(projectId, work.id);
-  const groups = activeWorkDraftGroups(usePostApplyCommandGroups(query.groups, projectId, work.id));
+  const groups = activeWorkDraftGroups(
+    usePostApplyDraftGroupProjections(query.groups, projectId, work.id).commandEligibleGroups,
+  );
   const workId = parseRequestId(work.id);
   return (
     <ResourceSection title={t`Pending drafts`}>

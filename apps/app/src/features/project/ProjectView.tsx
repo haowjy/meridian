@@ -11,13 +11,17 @@
  * destination keeps the tab strip and editor/viewer body only.
  */
 import { t } from "@lingui/core/macro";
-import type { ProjectContextTreeScheme, Work } from "@meridian/contracts/protocol";
+import {
+  isWorkScopedProjectContextScheme,
+  type ProjectContextTreeScheme,
+  type Work,
+} from "@meridian/contracts/protocol";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ProjectRouteData } from "@/client/query/project-route-data";
 import { useContextCatalogWake } from "@/client/query/useContextCatalog";
 import { useWorks } from "@/client/query/useWorks";
-import { useContextTabsStore } from "@/client/stores";
+import { useContextTabs, useContextTabsStore } from "@/client/stores";
 import {
   hydrateWorkingSet,
   retryWorkingSetHydration,
@@ -76,7 +80,6 @@ import { WorkPaneController } from "./WorkPaneController";
 const MAIN_MIN_WIDTH = 360;
 const COMPACT_DESKTOP_QUERY = "(max-width: 899px)";
 const NARROW_DESKTOP_QUERY = "(max-width: 767px)";
-const NO_INLINE_DOCUMENTS: readonly string[] = [];
 
 export type ProjectViewProps = {
   projectId: string;
@@ -255,16 +258,7 @@ function HydratedReviewProject({
       projectId={props.projectId}
       openContextRoute={props.onOpenContextTarget}
     >
-      <ProjectDraftApplyRecoveryExecutor
-        projectId={props.projectId}
-        scopeKey={`${chatWorkId ?? ""}:${props.editorWorkId ?? ""}`}
-        mobileContextPath={
-          props.activeContextScheme === "manuscript" ? props.activeContextPath : null
-        }
-        inlineDocumentIds={NO_INLINE_DOCUMENTS}
-      >
-        <HydratedReviewScopes {...props} chatWorkId={chatWorkId} chatThreadId={chatThreadId} />
-      </ProjectDraftApplyRecoveryExecutor>
+      <HydratedReviewScopes {...props} chatWorkId={chatWorkId} chatThreadId={chatThreadId} />
     </EditorReviewHandoffProvider>
   );
 }
@@ -277,20 +271,51 @@ function HydratedReviewScopes({
   const chatReview = useDraftReviewScopeValue({
     projectId: props.projectId,
     workId: chatWorkId,
+    owningWorkLabel: props.chatWork?.name ?? null,
     threadId: chatThreadId,
   });
   const editorReview = useDraftReviewScopeValue({
     projectId: props.projectId,
     workId: props.editorWorkId,
+    owningWorkLabel:
+      props.availableWorks.find((work) => work.id === props.editorWorkId)?.name ?? null,
     threadId: null,
   });
-  return <HydratedProject {...props} chatReview={chatReview} editorReview={editorReview} />;
-}
-
-function HydratedProject(props: ReviewScopedProjectProps) {
   const usePhone = usePhoneShell();
+  const { tabs } = useContextTabs(props.projectId);
+  const workLabels = useMemo(
+    () => Object.fromEntries(props.availableWorks.map((work) => [work.id, work.name])),
+    [props.availableWorks],
+  );
   if (usePhone === null) return null;
-  return usePhone ? <MobileProject {...props} /> : <DesktopProject {...props} />;
+  const desktopHostDocumentIds =
+    usePhone || props.editorScope.status !== "ready" || !props.contextLive
+      ? []
+      : tabs.flatMap((tab) => {
+          if (tab.kind !== "tracked") return [];
+          if (isWorkScopedProjectContextScheme(tab.scheme) && tab.workId !== props.editorWorkId)
+            return [];
+          return [tab.documentId];
+        });
+  const inlineDocumentIds = [
+    chatReview.controller.inlineReview?.documentId,
+    editorReview.controller.inlineReview?.documentId,
+  ].filter((documentId): documentId is string => Boolean(documentId));
+  const scopedProps = { ...props, chatReview, editorReview };
+  return (
+    <ProjectDraftApplyRecoveryExecutor
+      projectId={props.projectId}
+      scopeKey={`${chatWorkId ?? ""}:${props.editorWorkId ?? ""}`}
+      mobileContextPath={
+        usePhone && props.activeContextScheme === "manuscript" ? props.activeContextPath : null
+      }
+      inlineDocumentIds={inlineDocumentIds}
+      desktopHostDocumentIds={desktopHostDocumentIds}
+      workLabels={workLabels}
+    >
+      {usePhone ? <MobileProject {...scopedProps} /> : <DesktopProject {...scopedProps} />}
+    </ProjectDraftApplyRecoveryExecutor>
+  );
 }
 
 /** A PaneHeader expand control derived from a stable surface id. */

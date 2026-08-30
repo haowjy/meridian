@@ -4,6 +4,7 @@ import { createContext, type ReactNode, useContext, useSyncExternalStore } from 
 import type { ThreadDraftGroup } from "@/client/query/useWorkDrafts";
 import { useAccountPostApplyDispositionOwner } from "../context/ContextRemovalAccountProvider";
 import type { PostApplyDispositionOwner, PostApplySnapshot } from "./draft-apply-recovery-owner";
+import { type DraftGroupProjections, projectPostApplyDraftGroups } from "./draft-group-projections";
 
 const PostApplyDispositionContext = createContext<{
   accountId: string;
@@ -56,38 +57,22 @@ export function useOptionalPostApplyDisposition(): {
   return useContext(PostApplyDispositionContext);
 }
 
-export function usePostApplyCommandGroups(
+export function usePostApplyDraftGroupProjections(
   groups: readonly ThreadDraftGroup[] | null,
   projectId: string,
   workId: string,
-): ThreadDraftGroup[] | null {
+): DraftGroupProjections {
   const disposition = useOptionalPostApplyDisposition();
   const snapshot = useSyncExternalStore(
     disposition?.owner.subscribe ?? (() => () => undefined),
     disposition?.owner.getSnapshot ?? (() => EMPTY_SNAPSHOT),
     disposition?.owner.getSnapshot ?? (() => EMPTY_SNAPSHOT),
   );
-  if (!groups) return null;
-  return groups.flatMap((group) => {
-    const visible = group.drafts.filter((draft) => {
-      const matches = (identity: {
-        accountId: string;
-        projectId: string;
-        workId: string;
-        documentId: string;
-        draftId: string;
-      }) =>
-        identity.accountId === disposition?.accountId &&
-        identity.projectId === projectId &&
-        identity.workId === workId &&
-        identity.documentId === draft.documentId &&
-        identity.draftId === draft.draftId;
-      return !(
-        snapshot.reservations.some((item) => matches(item.identity)) ||
-        snapshot.items.some((item) => matches(item.identity)) ||
-        snapshot.appliedSuppressions.some((item) => matches(item.identity))
-      );
-    });
-    return visible.length > 0 ? [{ ...group, drafts: visible }] : [];
-  });
+  return projectPostApplyDraftGroups(
+    groups,
+    snapshot,
+    disposition?.accountId ?? null,
+    projectId,
+    workId,
+  );
 }
