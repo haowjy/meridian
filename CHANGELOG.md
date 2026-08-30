@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+- `apps/app`: route committed recursive-delete receipts through the canonical
+  generation-fenced availability batch so descendant tabs, routes, working-set
+  state, and document sessions settle atomically; remove the parallel
+  acknowledged-delete proof hierarchy.
+
 - `apps/server`: conceal malformed foreign Context identities behind the same
   project-final availability result as missing documents.
 - `apps/server`: read Work catalog authorization, lifecycle, revision, rows,

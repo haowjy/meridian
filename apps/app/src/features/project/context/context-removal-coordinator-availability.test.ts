@@ -570,7 +570,7 @@ describe("availability owner batch publication and settlement", () => {
               kind: "tracked",
               documentId,
               scheme: "manuscript",
-              path: "Only.md",
+              path: "/populated/child.md",
               name: "Only.md",
               editable: true,
               filetype: "markdown",
@@ -585,7 +585,8 @@ describe("availability owner batch publication and settlement", () => {
     let search: ProjectSearch = {
       screen: "context",
       scheme: "manuscript",
-      path: "Only.md",
+      path: "/populated/child.md",
+      folder: "/populated",
       work: "work-1",
     };
     const route = {
@@ -598,7 +599,7 @@ describe("availability owner batch publication and settlement", () => {
     coordinator.registerRoutePort(projectId, route, "work-1");
     const revision = coordinator.beginRouteSelection(projectId, {
       scheme: "manuscript",
-      path: "Only.md",
+      path: "/populated/child.md",
       workId: "work-1",
     });
     coordinator.bindRouteSelection(projectId, revision, { kind: "server", documentId });
@@ -622,6 +623,47 @@ describe("availability owner batch publication and settlement", () => {
     expect(coordinator.getProjectSnapshot(projectId)).toMatchObject({
       selection: { status: "none" },
       admitted: null,
+      removalFence: { removedDocumentIds: [documentId] },
+    });
+  });
+
+  it("clears a bound route-only identity on exact terminal availability", () => {
+    let search: ProjectSearch = {
+      screen: "context",
+      scheme: "manuscript",
+      path: "/populated/child.md",
+      folder: "/populated",
+      work: "work-1",
+    };
+    const route = {
+      readSearch: () => search,
+      updateSearch: (_projectId: string, update: (value: ProjectSearch) => ProjectSearch) => {
+        search = update(search);
+      },
+    };
+    const coordinator = new ContextRemovalCoordinator("account-1", { route });
+    coordinator.registerRoutePort(projectId, route, "work-1");
+    const revision = coordinator.beginRouteSelection(projectId, {
+      scheme: "manuscript",
+      path: "/populated/child.md",
+      workId: "work-1",
+    });
+    coordinator.bindRouteSelection(projectId, revision, { kind: "server", documentId });
+
+    coordinator.reconcileDocumentAvailability([
+      {
+        kind: "terminal-remove",
+        commandId: `availability/v1/terminal-remove/${projectId}/${documentId}/28`,
+        projectId,
+        documentId,
+        generation: "28",
+        cause: "document-deleted",
+      },
+    ]);
+
+    expect(search).toEqual({ screen: "context", work: "work-1" });
+    expect(coordinator.getProjectSnapshot(projectId)).toMatchObject({
+      selection: { status: "none" },
       removalFence: { removedDocumentIds: [documentId] },
     });
   });

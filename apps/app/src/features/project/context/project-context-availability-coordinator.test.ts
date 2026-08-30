@@ -21,6 +21,62 @@ function result(
 }
 
 describe("ProjectContextAvailabilityCoordinator", () => {
+  it("accepts one normalized generation-fenced committed-delete batch", async () => {
+    const batches: ProjectDocumentAvailabilityCommand[][] = [];
+    let deletedAccepted = false;
+    const coordinator = new ProjectContextAvailabilityCoordinator({
+      lookup: async (projectId, documentIds) =>
+        result(
+          projectId,
+          documentIds.map((documentId) =>
+            deletedAccepted && documentId === id(2)
+              ? { kind: "not-visible", documentId, checkedGeneration: "30" }
+              : {
+                  kind: "available",
+                  documentId,
+                  generation: documentId === id(1) ? "29" : "27",
+                  authority: { kind: "project", projectId },
+                  entry: { entryId: documentId } as never,
+                },
+          ),
+        ),
+      repairProjectCatalog: async () => undefined,
+      apply: (commands) => batches.push([...commands]),
+    });
+    const lease = coordinator.attachProject("project-1");
+    lease.watch("tabs", [{ documentId: id(1) }, { documentId: id(2) }]);
+    await coordinator.recheck("project-1", [id(1), id(2)]);
+    batches.length = 0;
+
+    deletedAccepted = true;
+    coordinator.acceptCommittedDelete({
+      projectId: "project-1",
+      deletedDocumentIds: [id(2), id(1), id(2)],
+      generation: "28",
+    });
+    coordinator.acceptCommittedDelete({
+      projectId: "project-1",
+      deletedDocumentIds: [id(2)],
+      generation: "28",
+    });
+
+    expect(batches).toEqual([
+      [
+        {
+          kind: "terminal-remove",
+          projectId: "project-1",
+          documentId: id(2),
+          generation: "28",
+          cause: "document-deleted",
+          commandId: `availability/v1/terminal-remove/project-1/${id(2)}/28`,
+        },
+      ],
+    ]);
+
+    await coordinator.recheck("project-1", [id(2)]);
+    expect(batches[1]).toEqual([]);
+  });
+
   it("drains 257 sorted IDs through three requests, at most two concurrent, and one effect batch", async () => {
     let concurrent = 0;
     let maxConcurrent = 0;

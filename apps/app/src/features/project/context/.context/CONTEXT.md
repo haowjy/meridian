@@ -60,8 +60,8 @@ scheme-scoped environment. Mobile renders one level at a time via route params.
 
 The writer-facing destination is **Editor**. One account-scoped,
 framework-independent `ContextRemovalCoordinator` owns every live removal
-transition: explicit close, locally acknowledged delete, Work pruning, and draft
-discard. Account construction precedes authenticated descendants. A project becomes
+transition: explicit close, generation-bearing terminal availability, Work pruning,
+and draft discard. Account construction precedes authenticated descendants. A project becomes
 live only after desk hydration, concrete Editor Work readiness, and one raw
 bootstrap/validation operation. Strict replay and pre-live Work interruption adopt
 that operation with fresh attempt tokens; after first completion, Work interruption
@@ -69,10 +69,11 @@ only suspends the live host and can never restore raw bootstrap authority.
 The leaf route host registers first, then the rendered desktop or phone document host
 settles revisioned route identity in layout phase.
 
-Acknowledged delete carries the server-confirmed exact ID batch plus a request-time
-discriminated target and same-locator route witness. Admission is synchronous and
-idempotent by `commandId`, including terminal invalid first use, and precedes tree
-invalidation. Candidate identity is a pure typed selection/obligation protocol:
+Committed delete receipts carry the server-confirmed exact ID batch and availability
+generation directly into the project availability coordinator before tree invalidation.
+That generation-fenced coordinator normalizes the IDs and emits one deterministic
+`terminal-remove` batch; it is the sole server-deletion authority. Candidate identity
+remains a pure typed selection/obligation protocol for represented local transitions:
 browser locators own only their revision while admitted continuity independently owns
 memory and persistence. Receipt cardinality supplies no identity, and late or
 superseded settlement cannot repair a newer route. The protocol emits exact planning
@@ -290,7 +291,8 @@ replaces a pending one; Escape/blur semantics are the shared
 Deleting a file in `manuscript://` only refetches that scheme's tree for
 presentation metadata. Tree absence never proves document removal. The exact
 successful mutation result is the deletion evidence that the removal coordinator
-consumes before the tree invalidation can affect presentation.
+receives through the project availability coordinator before tree invalidation can
+affect presentation.
 
 ## Downlinks
 

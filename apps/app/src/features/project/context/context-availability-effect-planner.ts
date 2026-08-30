@@ -189,7 +189,12 @@ export function planContextAvailabilityBatch(
           : ("authority-unavailable" as const),
       documentIds: [id],
     };
-    const transition = reduceRepresentedRemoval(selection, tabs, intent, command.commandId);
+    const transition = reduceRepresentedRemoval(
+      selection,
+      tabs,
+      intent,
+      command.kind === "terminal-remove",
+    );
     selection = transition.selection;
     const selectedTabId = input.project.activeWorkId
       ? (selectedTabIdByWork[input.project.activeWorkId] ?? null)

@@ -246,7 +246,7 @@ describe("context removal planner", () => {
       selectedTabId: "desktop",
       admitted: null,
       route: { cleanup: null, current: phoneSelection },
-      intent: { cause: "acknowledged-delete", documentIds: ["desktop"] },
+      intent: { cause: "catalog-unavailable", documentIds: ["desktop"] },
     });
 
     expect(plan.outcome.kind).toBe("empty-desk");
@@ -283,7 +283,7 @@ describe("context removal planner", () => {
           identity: { kind: "server", documentId: "replacement" },
         },
       },
-      intent: { cause: "acknowledged-delete", documentIds: ["removed"] },
+      intent: { cause: "catalog-unavailable", documentIds: ["removed"] },
     });
 
     expect(plan.admitted).toBeNull();
@@ -304,7 +304,7 @@ describe("context removal planner", () => {
         },
         current: { ...phoneSelection, kind: "proven-removed" },
       },
-      intent: { cause: "acknowledged-delete", documentIds: ["phone"] },
+      intent: { cause: "catalog-unavailable", documentIds: ["phone"] },
     });
 
     expect(plan.outcome.kind).toBe("route-only-removal");
@@ -329,7 +329,7 @@ describe("context removal planner", () => {
       selectedTabId: "local",
       admitted: null,
       route: { cleanup: null, current: { kind: "none" } },
-      intent: { cause: "acknowledged-delete", documentIds: ["local", "draft"] },
+      intent: { cause: "catalog-unavailable", documentIds: ["local", "draft"] },
     });
 
     expect(plan.outcome.kind).toBe("noop");
@@ -353,7 +353,7 @@ describe("context removal planner", () => {
       selectedTabId: null,
       admitted: current.locator,
       route: { cleanup, current },
-      intent: { cause: "acknowledged-delete", documentIds: ["a"] },
+      intent: { cause: "catalog-unavailable", documentIds: ["a"] },
     });
 
     expect(plan.nextSelectedTabId).toBeNull();
@@ -388,7 +388,7 @@ describe("context removal planner", () => {
         },
         current,
       },
-      intent: { cause: "acknowledged-delete", documentIds: ["a"] },
+      intent: { cause: "catalog-unavailable", documentIds: ["a"] },
     });
 
     expect(plan.nextSelectedTabId).toBe("c");

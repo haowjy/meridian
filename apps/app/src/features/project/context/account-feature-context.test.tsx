@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, StrictMode, useCallback, useLayoutEffect, useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { useContextTabsStore } from "@/client/stores";
 import {
   AccountFeatureTestProvider,
@@ -96,77 +96,6 @@ describe("AccountFeatureTestProvider", () => {
     );
   });
 
-  it("synchronously revokes A before an already-queued response runs during keyed A to B", async () => {
-    let setAccount: ((accountId: string) => void) | null = null;
-    let admission: ReturnType<ContextRemovalCoordinator["acceptAcknowledgedDelete"]> | null = null;
-    let layoutAdmission: ReturnType<ContextRemovalCoordinator["acceptAcknowledgedDelete"]> | null =
-      null;
-    let oldCoordinator: ContextRemovalCoordinator | null = null;
-    let command: Parameters<ContextRemovalCoordinator["acceptAcknowledgedDelete"]>[0] | null = null;
-    const childLayouts: string[] = [];
-    function Child({ accountId }: { accountId: string }) {
-      const coordinator = useContextRemovalCoordinator();
-      useLayoutEffect(() => {
-        childLayouts.push(accountId);
-        if (accountId === "account-b") {
-          if (!oldCoordinator || !command) throw new Error("old response was not captured");
-          layoutAdmission = oldCoordinator.acceptAcknowledgedDelete(command);
-          return;
-        }
-        oldCoordinator = coordinator;
-        const revision = coordinator.beginRouteSelection("project-1", {
-          scheme: "manuscript",
-          path: "/a.md",
-          workId: "work-1",
-        });
-        coordinator.bindRouteSelection("project-1", revision, {
-          kind: "server",
-          documentId: "a",
-        });
-        command = {
-          ...coordinator.captureDeleteInitiation("project-1", {
-            kind: "file",
-            locator: { scheme: "manuscript", path: "/a.md", workId: "work-1" },
-            documentId: "a",
-          }),
-          cause: "acknowledged-delete",
-          confirmed: { status: "deleted", deletedDocumentIds: ["a"] },
-        };
-      }, [accountId, coordinator]);
-      return null;
-    }
-    function Harness() {
-      const [accountId, updateAccount] = useState("account-a");
-      setAccount = updateAccount;
-      return (
-        <TestAccountProvider accountId={accountId}>
-          <Child accountId={accountId} />
-        </TestAccountProvider>
-      );
-    }
-    useContextTabsStore.setState({
-      byProject: {
-        "project-1": { tabs: [tracked("a", "/a.md")], selectedTabIdByWork: { "work-1": "a" } },
-      },
-      _deskHydrated: true,
-    });
-    await withReactRoot(<Harness />, async () => {
-      const queued = Promise.resolve().then(() => {
-        if (!oldCoordinator || !command) throw new Error("old response was not captured");
-        admission = oldCoordinator.acceptAcknowledgedDelete(command);
-      });
-      act(() => setAccount?.("account-b"));
-      await queued;
-      expect(childLayouts).toEqual(["account-a"]);
-      expect(admission).toEqual({ status: "rejected", reason: "coordinator_disposed" });
-      await act(async () => {
-        for (let index = 0; index < 10; index += 1) await Promise.resolve();
-      });
-      expect(childLayouts).toEqual(["account-a", "account-b"]);
-      expect(layoutAdmission).toEqual({ status: "rejected", reason: "coordinator_disposed" });
-    });
-  });
-
   it("constructs authority before descendants and isolates A to B to A", async () => {
     useContextTabsStore.setState({
       byProject: {
@@ -237,83 +166,6 @@ describe("AccountFeatureTestProvider", () => {
           removalFence: null,
         }),
       ]);
-    });
-  });
-
-  it("makes the disposed account instance inert before delayed callbacks reach global stores", async () => {
-    let setAccount: ((accountId: string) => void) | null = null;
-    let oldCoordinator: ContextRemovalCoordinator | null = null;
-    let delayedCommand:
-      | Parameters<ContextRemovalCoordinator["acceptAcknowledgedDelete"]>[0]
-      | null = null;
-    const oldListener = vi.fn();
-
-    function Child({ accountId }: { accountId: string }) {
-      const coordinator = useContextRemovalCoordinator();
-      useLayoutEffect(() => {
-        if (accountId !== "account-a") return;
-        oldCoordinator = coordinator;
-        coordinator.subscribe("project-1", oldListener);
-        const revision = coordinator.beginRouteSelection("project-1", {
-          scheme: "manuscript",
-          path: "/a.md",
-          workId: "work-1",
-        });
-        coordinator.bindRouteSelection("project-1", revision, {
-          kind: "server",
-          documentId: "a",
-        });
-        delayedCommand = {
-          ...coordinator.captureDeleteInitiation("project-1", {
-            kind: "file",
-            locator: { scheme: "manuscript", path: "/a.md", workId: "work-1" },
-            documentId: "a",
-          }),
-          cause: "acknowledged-delete",
-          confirmed: { status: "deleted", deletedDocumentIds: ["a"] },
-        };
-      }, [accountId, coordinator]);
-      return null;
-    }
-    function Harness() {
-      const [accountId, updateAccount] = useState("account-a");
-      setAccount = updateAccount;
-      return (
-        <TestAccountProvider accountId={accountId}>
-          <Child accountId={accountId} />
-        </TestAccountProvider>
-      );
-    }
-
-    useContextTabsStore.setState({
-      byProject: {
-        "project-1": { tabs: [tracked("a", "/a.md")], selectedTabIdByWork: { "work-1": "a" } },
-      },
-      _deskHydrated: true,
-    });
-    await withReactRoot(<Harness />, async () => {
-      await act(async () => setAccount?.("account-b"));
-      useContextTabsStore.setState({
-        byProject: {
-          "project-1": { tabs: [tracked("b", "/b.md")], selectedTabIdByWork: { "work-1": "b" } },
-        },
-        _deskHydrated: true,
-      });
-      oldListener.mockClear();
-      const service = oldCoordinator;
-      const command = delayedCommand;
-      if (!service || !command) throw new Error("old command was not captured");
-
-      expect(service.acceptAcknowledgedDelete(command)).toEqual({
-        status: "rejected",
-        reason: "coordinator_disposed",
-      });
-      service.applyDraftMetadata("project-1", "work-1", "b");
-      expect(useContextTabsStore.getState().byProject["project-1"]).toMatchObject({
-        tabs: [{ documentId: "b" }],
-        selectedTabIdByWork: { "work-1": "b" },
-      });
-      expect(oldListener).not.toHaveBeenCalled();
     });
   });
 });
