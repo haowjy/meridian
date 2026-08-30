@@ -25,10 +25,13 @@ const acknowledgeServerAppliedMock = vi.fn(
   },
 );
 const exitReviewMock = vi.fn();
+const recordServerAppliedMock = vi.fn();
+const discardRemoteDraftWitnessMock = vi.fn(() => true);
 let currentGroups: ThreadDraftGroup[] = [];
 let currentInlineReview: { documentId: string; draftId: string } | null = null;
 let currentReviewRoomName: string | null = null;
 let currentTabIsDraftOnly = false;
+let hasRemoteWitness = false;
 let rerenderProvider: (() => void) | null = null;
 let controllerMounts = 0;
 let controllerUnmounts = 0;
@@ -66,6 +69,8 @@ vi.mock("@/client/stores", () => ({
                   documentId: "doc-terminal",
                   draftOnly: true,
                   reviewWorkId: "work-1",
+                  reviewDraftId: "draft-terminal",
+                  tabInstanceToken: "tab-terminal",
                 },
               ]
             : [],
@@ -95,14 +100,38 @@ vi.mock("@/features/project/draft-apply-recovery/DraftApplyRecoveryProvider", ()
   usePostApplyAccountId: () => "account-1",
   usePostApplyDispositionOwner: () => ({
     reconcileForcedDraftList: vi.fn(),
-    recordServerApplied: vi.fn(),
+    recordServerApplied: recordServerAppliedMock,
+    discardRemoteDraftWitness: discardRemoteDraftWitnessMock,
   }),
   usePostApplySnapshot: () => ({
     nextVersion: 1,
     reservations: [],
     items: [],
     appliedSuppressions: [],
-    remoteDraftWitnesses: [],
+    remoteDraftWitnesses: hasRemoteWitness
+      ? [
+          {
+            identity: {
+              accountId: "account-1",
+              projectId: "project-1",
+              workId: "work-1",
+              documentId: "doc-terminal",
+              draftId: "draft-terminal",
+            },
+            witnessVersion: 1,
+            presentation: { documentName: "New document", contextPath: null },
+            obligations: {
+              draftTab: {
+                kind: "draft-only",
+                reviewWorkId: "work-1",
+                reviewDraftId: "draft-terminal",
+                tabInstanceToken: "tab-terminal",
+              },
+              branch: { kind: "none" },
+            },
+          },
+        ]
+      : [],
   }),
 }));
 vi.mock("@/client/query/useWorkDrafts", () => ({
@@ -246,6 +275,9 @@ describe("DraftReviewProvider live lineage invalidation", () => {
     currentInlineReview = null;
     currentReviewRoomName = null;
     currentTabIsDraftOnly = false;
+    hasRemoteWitness = false;
+    recordServerAppliedMock.mockClear();
+    discardRemoteDraftWitnessMock.mockClear();
     controllerMounts = 0;
     controllerUnmounts = 0;
     queriedWorkIds = [];
@@ -314,6 +346,7 @@ describe("DraftReviewProvider live lineage invalidation", () => {
     currentInlineReview = { documentId: "doc-terminal", draftId: "draft-terminal" };
     currentGroups = [activeGroup()];
     currentTabIsDraftOnly = true;
+    hasRemoteWitness = true;
     getQueryDataMock.mockReturnValue([]);
     fetchQueryMock.mockResolvedValue(contextTreeResponse(true));
 
@@ -323,6 +356,27 @@ describe("DraftReviewProvider live lineage invalidation", () => {
 
       expect(applyDraftMetadataMock).not.toHaveBeenCalled();
       expect(acknowledgeServerAppliedMock).not.toHaveBeenCalled();
+      expect(recordServerAppliedMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("classifies a witnessed remote Apply after the inline observer is gone", async () => {
+    currentGroups = [activeGroup()];
+    currentTabIsDraftOnly = true;
+    hasRemoteWitness = true;
+    getQueryDataMock.mockReturnValue([]);
+    fetchQueryMock.mockResolvedValue(contextTreeResponse(true));
+
+    await withReactRoot(<ProviderHarness />, async () => {
+      currentGroups = [];
+      await act(async () => rerenderProvider?.());
+
+      expect(recordServerAppliedMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "remote-new-document-manifest",
+          manifestDocumentId: "doc-terminal",
+        }),
+      );
     });
   });
 
@@ -330,6 +384,7 @@ describe("DraftReviewProvider live lineage invalidation", () => {
     currentInlineReview = { documentId: "doc-terminal", draftId: "draft-terminal" };
     currentGroups = [activeGroup()];
     currentTabIsDraftOnly = true;
+    hasRemoteWitness = true;
     getQueryDataMock.mockReturnValue([]);
     fetchQueryMock.mockResolvedValue(contextTreeResponse(false));
 
@@ -345,6 +400,7 @@ describe("DraftReviewProvider live lineage invalidation", () => {
     currentInlineReview = { documentId: "doc-terminal", draftId: "draft-terminal" };
     currentGroups = [activeGroup()];
     currentTabIsDraftOnly = true;
+    hasRemoteWitness = true;
     getQueryDataMock.mockReturnValue([]);
     fetchQueryMock.mockRejectedValue(new Error("offline"));
 
@@ -361,6 +417,7 @@ describe("DraftReviewProvider live lineage invalidation", () => {
     currentInlineReview = { documentId: "doc-terminal", draftId: "draft-terminal" };
     currentGroups = [activeGroup()];
     currentTabIsDraftOnly = true;
+    hasRemoteWitness = true;
     getQueryDataMock.mockReturnValue(activeGroup().drafts);
     fetchQueryMock.mockResolvedValue(contextTreeResponse(false));
 

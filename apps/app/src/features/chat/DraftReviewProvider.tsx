@@ -244,9 +244,7 @@ function useDraftReviewScopeOwner(
 
   useEffect(() => {
     const activeSelection = controller.inlineReview;
-    if (activeSelection == null) return;
-    if (drafts.status !== "ready" && drafts.status !== "empty") return;
-    if (controller.isDisposing) return;
+    if (!activeSelection || (drafts.status !== "ready" && drafts.status !== "empty")) return;
     const matchingIdentity = (identity: {
       accountId: string;
       projectId: string;
@@ -264,32 +262,93 @@ function useDraftReviewScopeOwner(
       dispositionSnapshot.items.some((item) => matchingIdentity(item.identity))
     )
       return;
-    const settled = dispositionSnapshot.appliedSuppressions.find((item) =>
-      matchingIdentity(item.identity),
-    );
-    if (settled?.terminalDisposition) {
+    if (
+      dispositionSnapshot.appliedSuppressions.some(
+        (item) => matchingIdentity(item.identity) && item.terminalDisposition,
+      )
+    ) {
       controller.exitReview();
       return;
     }
-    const documentDrafts =
-      groups.find((group) => group.documentId === activeSelection.documentId)?.drafts ?? [];
-    if (documentDrafts.some((draft) => draft.draftId === activeSelection.draftId)) return;
+    const activeDrafts = drafts.drafts ?? rawGroups.flatMap((group) => group.drafts);
+    if (
+      activeDrafts.some(
+        (draft) =>
+          draft.documentId === activeSelection.documentId &&
+          draft.draftId === activeSelection.draftId,
+      )
+    )
+      return;
     if (!projectId || !workId) {
       controller.exitReview();
       return;
     }
-    const tabs = useContextTabsStore.getState();
-    const tab = tabs.byProject[projectId]?.tabs.find(
-      (candidate) => candidate.documentId === activeSelection.documentId,
-    );
-    if (tab?.kind !== "tracked" || !tab.draftOnly || tab.reviewWorkId !== workId) {
+    const tab = useContextTabsStore
+      .getState()
+      .byProject[projectId]?.tabs.find(
+        (candidate) => candidate.documentId === activeSelection.documentId,
+      );
+    if (
+      tab?.kind !== "tracked" ||
+      !tab.draftOnly ||
+      tab.reviewWorkId !== workId ||
+      tab.reviewDraftId !== activeSelection.draftId ||
+      !tab.tabInstanceToken
+    )
       controller.exitReview();
+  }, [
+    accountId,
+    controller.exitReview,
+    controller.inlineReview,
+    dispositionSnapshot.appliedSuppressions,
+    dispositionSnapshot.items,
+    dispositionSnapshot.reservations,
+    drafts.drafts,
+    drafts.status,
+    projectId,
+    rawGroups,
+    workId,
+  ]);
+
+  useEffect(() => {
+    if (drafts.status !== "ready" && drafts.status !== "empty") return;
+    if (controller.isDisposing) return;
+    if (!projectId || !workId) {
       return;
     }
+    const tabs = useContextTabsStore.getState();
+    const activeDrafts = drafts.drafts ?? rawGroups.flatMap((group) => group.drafts);
+    const candidates = dispositionSnapshot.remoteDraftWitnesses.flatMap((witness) => {
+      if (
+        witness.identity.accountId !== accountId ||
+        witness.identity.projectId !== projectId ||
+        witness.identity.workId !== workId ||
+        activeDrafts.some(
+          (draft) =>
+            draft.documentId === witness.identity.documentId &&
+            draft.draftId === witness.identity.draftId,
+        )
+      )
+        return [];
+      const tab = tabs.byProject[projectId]?.tabs.find(
+        (candidate) => candidate.documentId === witness.identity.documentId,
+      );
+      if (
+        tab?.kind !== "tracked" ||
+        !tab.draftOnly ||
+        tab.reviewWorkId !== workId ||
+        tab.reviewDraftId !== witness.identity.draftId ||
+        !tab.tabInstanceToken
+      )
+        return [];
+      return [{ witness, tab }];
+    });
+    if (candidates.length === 0) return;
 
     // The active-only list cannot say why a remote disposition removed the
-    // draft. For draft-created documents, manifest membership is authoritative:
-    // Apply materializes the document; Discard does not.
+    // draft. The account witness survives provider replacement, so every
+    // returned scope classifies its exact absent draft-created rows rather than
+    // tying recovery to whichever row happens to be selected inline.
     const treeQuery = contextCatalogQueryOptions(
       queryClient,
       projectId,
@@ -303,51 +362,63 @@ function useDraftReviewScopeOwner(
         if (attempt.signal.aborted) return;
         const catalog = projectCatalogView(projectId, "manuscript", view);
         const currentTabs = useContextTabsStore.getState();
-        const currentTab = currentTabs.byProject[projectId]?.tabs.find(
-          (candidate) => candidate.documentId === activeSelection.documentId,
-        );
-        if (
-          attempt.signal.aborted ||
-          currentTab?.kind !== "tracked" ||
-          !currentTab.draftOnly ||
-          currentTab.reviewWorkId !== workId
-        )
-          return;
         const currentDrafts =
           queryClient.getQueryData<ThreadDraftListItem[]>(
             projectQueryKeys.workDrafts(projectId, workId),
           ) ?? [];
-        if (currentDrafts.some((draft) => draft.documentId === activeSelection.documentId)) return;
-        if (catalog.findDocument(activeSelection.documentId)) {
+        for (const { witness } of candidates) {
           if (
-            controller.inlineReview?.documentId !== activeSelection.documentId ||
-            controller.inlineReview.draftId !== activeSelection.draftId
+            currentDrafts.some(
+              (draft) =>
+                draft.documentId === witness.identity.documentId &&
+                draft.draftId === witness.identity.draftId,
+            )
           )
-            return;
-          const witness = dispositionSnapshot.remoteDraftWitnesses.find(
-            (candidate) =>
-              candidate.identity.projectId === projectId &&
-              candidate.identity.workId === workId &&
-              candidate.identity.documentId === activeSelection.documentId &&
-              candidate.identity.draftId === activeSelection.draftId,
+            continue;
+          const currentTab = currentTabs.byProject[projectId]?.tabs.find(
+            (candidate) => candidate.documentId === witness.identity.documentId,
           );
-          if (!witness || !currentTab.reviewDraftId || !currentTab.tabInstanceToken) return;
-          dispositionOwner.recordServerApplied({
-            kind: "remote-new-document-manifest",
-            witness: { identity: witness.identity, witnessVersion: witness.witnessVersion },
-            confirmedAbsent: true,
-            manifestDocumentId: activeSelection.documentId,
-            currentDraftTab: {
-              kind: "draft-only",
-              reviewWorkId: workId,
-              reviewDraftId: currentTab.reviewDraftId,
-              tabInstanceToken: currentTab.tabInstanceToken,
-            },
-          });
-          return;
+          if (
+            currentTab?.kind !== "tracked" ||
+            !currentTab.draftOnly ||
+            currentTab.reviewWorkId !== workId ||
+            currentTab.reviewDraftId !== witness.identity.draftId ||
+            !currentTab.tabInstanceToken
+          )
+            continue;
+          const witnessRef = {
+            identity: witness.identity,
+            witnessVersion: witness.witnessVersion,
+          };
+          if (catalog.findDocument(witness.identity.documentId)) {
+            dispositionOwner.recordServerApplied({
+              kind: "remote-new-document-manifest",
+              witness: witnessRef,
+              confirmedAbsent: true,
+              manifestDocumentId: witness.identity.documentId,
+              currentDraftTab: {
+                kind: "draft-only",
+                reviewWorkId: workId,
+                reviewDraftId: currentTab.reviewDraftId,
+                tabInstanceToken: currentTab.tabInstanceToken,
+              },
+            });
+            continue;
+          }
+          if (
+            dispositionOwner.discardRemoteDraftWitness({
+              witness: witnessRef,
+              evidence: "manifest-proven-discard",
+            })
+          ) {
+            if (
+              controller.inlineReview?.documentId === witness.identity.documentId &&
+              controller.inlineReview.draftId === witness.identity.draftId
+            )
+              controller.exitReview();
+            void contextRemoval.discardDraft(projectId, workId, witness.identity.documentId);
+          }
         }
-        controller.exitReview();
-        void contextRemoval.discardDraft(projectId, workId, activeSelection.documentId);
       })
       // A failed membership check must leave the tab intact rather than guess
       // that a remotely applied document was discarded.
@@ -361,15 +432,11 @@ function useDraftReviewScopeOwner(
     controller.inlineReview,
     controller.isDisposing,
     drafts.status,
-    effectiveProjectId,
-    groups,
     accountId,
-    dispositionSnapshot.appliedSuppressions,
-    dispositionSnapshot.items,
-    dispositionSnapshot.reservations,
+    drafts.drafts,
     projectId,
     queryClient,
-    registry,
+    rawGroups,
     workId,
   ]);
 
