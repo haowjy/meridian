@@ -315,7 +315,8 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
           changes: contextCatalogCommits.changes,
         })
         .from(contextCatalogCommits)
-        .where(eq(contextCatalogCommits.scopeKey, scopeKey));
+        .where(eq(contextCatalogCommits.scopeKey, scopeKey))
+        .orderBy(contextCatalogCommits.firstRevision);
       expect(headAfter?.revision).toBe((headBefore?.revision ?? 0) + 1);
       expect(otherAfter?.entry).not.toEqual(otherBefore?.entry);
       expect(wakes).toHaveLength(1);
