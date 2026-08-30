@@ -9,6 +9,9 @@
   project-final same-ID moves while preserving newer writer navigation and live
   document sessions.
 
+- `apps/app`: make generation-bearing project-final availability commands the
+  sole remote terminal-removal boundary while preserving local Untitled tabs.
+
 - `apps/app`: make document-session ownership exclusively lease-qualified, keep local Untitled persistence explicit, and remove the unfenced registry facade and unqualified persistence-key surface.
 
 - `database`, `contracts`, `apps/server`, `apps/app`: add the authoritative

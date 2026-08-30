@@ -49,7 +49,10 @@ function scenario(initialSearch: ProjectSearch = { screen: "context" }) {
   };
   const workingSet = {
     readRecentRoutes: () => routes,
-    replaceRecentRoutes: (_id: string, routes: readonly WorkingSetRoute[]) => [...routes],
+    replaceRecentRoutes: (_id: string, next: readonly WorkingSetRoute[]) => {
+      routes = [...next];
+      return routes;
+    },
     reconcileContextRoutes: (_projectId: string, input: ReconcileContextRoutesInput) => {
       routes = reconcileSnapshotContextRoutes(
         { recentRoutes: routes, lastThreadId: null },
@@ -204,7 +207,7 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
     expect(rig.search().path).toBe(path);
   });
 
-  it("evicts active and background server tabs while preserving local-new state", () => {
+  it("terminal availability evicts server tabs while preserving local-new state", () => {
     const local: ContextTab = {
       kind: "new",
       documentId: "local-new",
@@ -233,12 +236,21 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
     });
     rig.coordinator.bindRouteSelection(projectId, revision, identityFor("active"));
 
-    rig.coordinator.catalogUnavailable(projectId, ["active", "background", "local-new"]);
+    rig.coordinator.reconcileDocumentAvailability(
+      ["active", "background", "local-new"].map((documentId) => ({
+        kind: "terminal-remove" as const,
+        commandId: `availability/v1/terminal-remove/${projectId}/${documentId}/8`,
+        projectId,
+        documentId,
+        generation: "8",
+        cause: "document-deleted" as const,
+      })),
+    );
 
     expect(useContextTabsStore.getState().byProject[projectId]?.tabs).toEqual([local]);
     expect(rig.routes()).toEqual([]);
     expect(rig.coordinator.getProjectSnapshot(projectId).removalFence).toMatchObject({
-      removedDocumentIds: ["active", "background", "local-new"],
+      removedDocumentIds: ["active", "background"],
     });
   });
 
