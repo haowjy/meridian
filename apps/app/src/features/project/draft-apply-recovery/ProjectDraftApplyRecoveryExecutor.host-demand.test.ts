@@ -6,12 +6,7 @@ const base = {
   documentId: "doc-1",
   inlineDocumentIds: [] as string[],
   desktopHostDocumentIds: [] as string[],
-  mobileContextPath: null,
-  recoveryItems: [] as {
-    identity: { projectId: string; documentId: string };
-    presentation: { contextPath: string | null };
-  }[],
-  projectId: "project-1",
+  mobileHostDocumentId: null,
 };
 
 describe("post-Apply host demand", () => {
@@ -32,13 +27,13 @@ describe("post-Apply host demand", () => {
       postApplyHostDemandKey({
         inlineDocumentIds: [],
         desktopHostDocumentIds: [],
-        mobileContextPath: null,
+        mobileHostDocumentId: null,
       }),
     ).not.toBe(
       postApplyHostDemandKey({
         inlineDocumentIds: [],
         desktopHostDocumentIds: ["doc-1"],
-        mobileContextPath: null,
+        mobileHostDocumentId: null,
       }),
     );
   });

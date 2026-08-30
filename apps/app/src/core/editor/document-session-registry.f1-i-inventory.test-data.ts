@@ -581,7 +581,7 @@ export const F1_I_DOCUMENT_SESSION_INVENTORY = {
       kind: "unqualified-owner",
       symbol: "useCatalogWorkingSetReconciler",
       file: "apps/app/src/features/project/ProjectView.tsx",
-      line: 137,
+      line: 142,
     },
     {
       kind: "unqualified-owner",

@@ -13,19 +13,17 @@
  */
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
-import type { ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { AlertCircle, Loader2 } from "lucide-react";
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef } from "react";
-import { useContextCatalogView } from "@/client/query/useContextCatalog";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from "react";
 import { useDraftReview } from "@/features/chat/DraftReviewProvider";
 import { PassageNotice } from "@/features/editor/PassageNotice";
 import { useContextRemovalCoordinator } from "../context/ContextRemovalAccountProvider";
 import { ContextViewerBareHost } from "../context/ContextViewerHost";
-import { contextTabFromFile } from "../context/context-tab-from-file";
 import { useContextRemovalProject } from "../context/use-context-removal-project";
 import { useLiveDocumentBinding } from "../context/use-live-document-binding";
 import { useLiveBindingAcknowledgementHost } from "../dock/editor-review-handoff";
 import { usePostApplyHostWake } from "../draft-apply-recovery/ProjectDraftApplyRecoveryExecutor";
+import type { MobileDocumentRoute } from "./mobile-document-route";
 
 let mobileHostGeneration = 0;
 
@@ -36,42 +34,21 @@ const EditorView = lazy(() =>
 export type MobileDocumentHostProps = {
   projectId: string;
   editorWorkId: string | null;
-  activeContextScheme: ProjectContextTreeScheme | null;
-  activeContextPath: string | null;
+  route: MobileDocumentRoute;
 };
 
-export function MobileDocumentHost({
-  projectId,
-  editorWorkId,
-  activeContextScheme,
-  activeContextPath,
-}: MobileDocumentHostProps) {
+export function MobileDocumentHost({ projectId, editorWorkId, route }: MobileDocumentHostProps) {
   const workId = editorWorkId;
   const projectionOwner = useRef({});
   const hostGeneration = useRef(++mobileHostGeneration);
   const contextRemoval = useContextRemovalCoordinator();
   const removalState = useContextRemovalProject(projectId);
   const { controller, reviewRoomNameForDraft, setActiveEditorDocumentId } = useDraftReview();
-  const hasRouteDocument = activeContextScheme !== null && activeContextPath !== null;
-  const { catalog, isError, isFetching } = useContextCatalogView(
-    projectId,
-    activeContextScheme ?? "kb",
-    { enabled: hasRouteDocument, workId: editorWorkId },
-  );
-
-  const activeTab = useMemo(() => {
-    if (
-      !hasRouteDocument ||
-      activeContextScheme === null ||
-      activeContextPath === null ||
-      !catalog
-    ) {
-      return null;
-    }
-    const found = catalog.findPath(activeContextPath);
-    const file = found?.kind === "file" ? found : null;
-    return file ? contextTabFromFile(activeContextScheme, file, workId) : null;
-  }, [activeContextPath, activeContextScheme, catalog, hasRouteDocument, workId]);
+  const hasRouteDocument = route.requested;
+  const activeContextScheme = route.scheme;
+  const activeContextPath = route.path;
+  const activeTab = route.tab;
+  const { catalogResolved, isError, isFetching } = route;
 
   useLayoutEffect(() => {
     if (!hasRouteDocument || activeContextScheme === null || activeContextPath === null) return;
@@ -88,7 +65,7 @@ export function MobileDocumentHost({
         kind: "server",
         documentId: activeTab.documentId,
       });
-    } else if (selection.status === "candidate" && catalog && !isFetching && !isError) {
+    } else if (selection.status === "candidate" && catalogResolved && !isFetching && !isError) {
       contextRemoval.rejectRouteCandidate(projectId, selection.revision);
     }
   }, [
@@ -101,7 +78,7 @@ export function MobileDocumentHost({
     isError,
     projectId,
     removalState.selection,
-    catalog,
+    catalogResolved,
     workId,
   ]);
 
@@ -176,7 +153,7 @@ export function MobileDocumentHost({
   }
 
   if (!activeTab) {
-    if (isFetching && !catalog) {
+    if (isFetching && !catalogResolved) {
       return (
         <DocumentStatus tone="muted">
           <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -184,7 +161,7 @@ export function MobileDocumentHost({
         </DocumentStatus>
       );
     }
-    if (isError || catalog) {
+    if (isError || catalogResolved) {
       return (
         <DocumentStatus tone="error">
           <AlertCircle className="size-4" aria-hidden />

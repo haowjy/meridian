@@ -59,39 +59,28 @@ const EMPTY_POST_APPLY_SNAPSHOT = {
 export function postApplyHostDemandKey(input: {
   inlineDocumentIds: readonly string[];
   desktopHostDocumentIds: readonly string[];
-  mobileContextPath: string | null;
+  mobileHostDocumentId: string | null;
 }): string {
-  return `${input.inlineDocumentIds.join(",")}:${input.mobileContextPath ?? ""}:${input.desktopHostDocumentIds.join(",")}`;
+  return `${input.inlineDocumentIds.join(",")}:${input.mobileHostDocumentId ?? ""}:${input.desktopHostDocumentIds.join(",")}`;
 }
 
 export function postApplyHostRequired(input: {
   documentId: string;
   inlineDocumentIds: readonly string[];
   desktopHostDocumentIds: readonly string[];
-  mobileContextPath: string | null;
-  recoveryItems: readonly {
-    identity: { projectId: string; documentId: string };
-    presentation: { contextPath: string | null };
-  }[];
-  projectId: string;
+  mobileHostDocumentId: string | null;
 }): boolean {
   return (
     input.inlineDocumentIds.includes(input.documentId) ||
     input.desktopHostDocumentIds.includes(input.documentId) ||
-    (input.mobileContextPath !== null &&
-      input.recoveryItems.some(
-        (item) =>
-          item.identity.projectId === input.projectId &&
-          item.identity.documentId === input.documentId &&
-          item.presentation.contextPath === input.mobileContextPath,
-      ))
+    input.mobileHostDocumentId === input.documentId
   );
 }
 
 export function ProjectDraftApplyRecoveryExecutor({
   projectId,
   scopeKey,
-  mobileContextPath,
+  mobileHostDocumentId,
   inlineDocumentIds,
   desktopHostDocumentIds,
   workLabels,
@@ -99,7 +88,7 @@ export function ProjectDraftApplyRecoveryExecutor({
 }: {
   projectId: string;
   scopeKey: string;
-  mobileContextPath: string | null;
+  mobileHostDocumentId: string | null;
   inlineDocumentIds: readonly string[];
   desktopHostDocumentIds: readonly string[];
   workLabels: Readonly<Record<string, string>>;
@@ -121,7 +110,7 @@ export function ProjectDraftApplyRecoveryExecutor({
   const demandKey = postApplyHostDemandKey({
     inlineDocumentIds,
     desktopHostDocumentIds,
-    mobileContextPath,
+    mobileHostDocumentId,
   });
   const demandRevision = useRef({ key: demandKey, revision: 0 });
   if (demandRevision.current.key !== demandKey)
@@ -134,12 +123,10 @@ export function ProjectDraftApplyRecoveryExecutor({
         documentId,
         inlineDocumentIds,
         desktopHostDocumentIds,
-        mobileContextPath,
-        recoveryItems: snapshot.items,
-        projectId,
+        mobileHostDocumentId,
       }),
     }),
-    [desktopHostDocumentIds, inlineDocumentIds, mobileContextPath, projectId, snapshot.items],
+    [desktopHostDocumentIds, inlineDocumentIds, mobileHostDocumentId],
   );
 
   const settleContext = useCallback(
@@ -167,6 +154,16 @@ export function ProjectDraftApplyRecoveryExecutor({
     [owner, removal],
   );
 
+  const executeDisposition = useCallback(
+    (disposition: DispositionGrant) => {
+      const edge = `${disposition.recovery.entryVersion}:${disposition.dispositionToken}`;
+      if (consumedDispositionEdges.current.has(edge)) return;
+      consumedDispositionEdges.current.add(edge);
+      settleContext(disposition);
+    },
+    [settleContext],
+  );
+
   useEffect(() => {
     const current = running.current;
     if (current && !owner.currentItem(current.grant.recovery)) {
@@ -188,10 +185,7 @@ export function ProjectDraftApplyRecoveryExecutor({
       (item) => item.identity.projectId === projectId && item.phase.kind === "disposing",
     );
     if (disposing?.phase.kind === "disposing") {
-      const edge = `${disposing.entryVersion}:${disposing.phase.dispositionToken}`;
-      if (consumedDispositionEdges.current.has(edge)) return;
-      consumedDispositionEdges.current.add(edge);
-      settleContext({
+      executeDisposition({
         recovery: { identity: disposing.identity, entryVersion: disposing.entryVersion },
         dispositionToken: disposing.phase.dispositionToken,
         outcome: disposing.phase.outcome,
@@ -250,7 +244,7 @@ export function ProjectDraftApplyRecoveryExecutor({
           return;
         }
         const disposition = owner.beginLiveSettlement(grant);
-        if (disposition) settleContext(disposition);
+        if (disposition) executeDisposition(disposition);
       })
       .catch(() =>
         owner.failAttempt({
@@ -272,7 +266,7 @@ export function ProjectDraftApplyRecoveryExecutor({
     owner,
     projectId,
     scopeKey,
-    settleContext,
+    executeDisposition,
     snapshot.items,
   ]);
 
@@ -330,16 +324,20 @@ export function ProjectDraftApplyRecoveryExecutor({
       abandon(recovery) {
         running.current?.abort.abort();
         const disposition = owner.beginAbandonment(recovery);
-        if (disposition) settleContext(disposition);
+        if (disposition) executeDisposition(disposition);
       },
       finishDisposition(recovery) {
         const item = owner.currentItem(recovery);
         if (item?.phase.kind !== "disposing") return;
-        settleContext({
+        const disposition = {
           recovery,
           dispositionToken: item.phase.dispositionToken,
           outcome: item.phase.outcome,
-        });
+        };
+        consumedDispositionEdges.current.delete(
+          `${recovery.entryVersion}:${item.phase.dispositionToken}`,
+        );
+        executeDisposition(disposition);
       },
       checkApplyOutcome(reservation) {
         const check = owner.beginApplyOutcomeCheck(reservation);
@@ -378,7 +376,7 @@ export function ProjectDraftApplyRecoveryExecutor({
       matchingHostMounted: ({ recovery }) =>
         void owner.requestRetry({ recovery, trigger: "matching-host-mounted" }),
     }),
-    [owner, queryClient, settleContext, workLabels],
+    [executeDisposition, owner, queryClient, workLabels],
   );
   return <CommandsContext.Provider value={commands}>{children}</CommandsContext.Provider>;
 }

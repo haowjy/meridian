@@ -68,6 +68,11 @@ import {
   useProjectSurfacePrefsStore,
 } from "./layout";
 import { MobileProject } from "./mobile/MobileProject";
+import {
+  type MobileDocumentRoute,
+  mobileEditableDocumentId,
+  useMobileDocumentRoute,
+} from "./mobile/mobile-document-route";
 import type {
   ContextRouteTarget,
   ProjectRouteCommands,
@@ -251,6 +256,7 @@ export type ResolvedProjectViewProps = ProjectViewProps & {
 export type ReviewScopedProjectProps = ResolvedProjectViewProps & {
   chatReview: DraftReviewContextValue;
   editorReview: DraftReviewContextValue;
+  mobileDocumentRoute: MobileDocumentRoute;
 };
 
 function HydratedReviewProject({
@@ -277,6 +283,17 @@ function HydratedReviewScopes({
   const editorReviewState = useDraftReviewStateOwner();
   const usePhone = usePhoneShell();
   const { tabs } = useContextTabs(props.projectId);
+  const mobileDocumentRoute = useMobileDocumentRoute({
+    enabled:
+      usePhone === true &&
+      props.activeScreen === "context" &&
+      props.contextLive &&
+      props.editorScope.status === "ready",
+    projectId: props.projectId,
+    scheme: props.activeContextScheme,
+    path: props.activeContextPath,
+    workId: props.editorWorkId,
+  });
   const workLabels = useMemo(
     () => Object.fromEntries(props.availableWorks.map((work) => [work.id, work.name])),
     [props.availableWorks],
@@ -299,9 +316,7 @@ function HydratedReviewScopes({
     <ProjectDraftApplyRecoveryExecutor
       projectId={props.projectId}
       scopeKey={`${chatWorkId ?? ""}:${props.editorWorkId ?? ""}`}
-      mobileContextPath={
-        usePhone && props.activeContextScheme === "manuscript" ? props.activeContextPath : null
-      }
+      mobileHostDocumentId={mobileEditableDocumentId(mobileDocumentRoute)}
       inlineDocumentIds={inlineDocumentIds}
       desktopHostDocumentIds={desktopHostDocumentIds}
       workLabels={workLabels}
@@ -312,6 +327,7 @@ function HydratedReviewScopes({
         chatThreadId={chatThreadId}
         chatReviewState={chatReviewState}
         editorReviewState={editorReviewState}
+        mobileDocumentRoute={mobileDocumentRoute}
         usePhone={usePhone}
       />
     </ProjectDraftApplyRecoveryExecutor>
@@ -324,6 +340,7 @@ function HydratedReviewControllers({
   chatReviewState,
   editorReviewState,
   usePhone,
+  mobileDocumentRoute,
   ...props
 }: ResolvedProjectViewProps & {
   chatWorkId: string | null;
@@ -331,6 +348,7 @@ function HydratedReviewControllers({
   chatReviewState: DraftReviewStateOwner;
   editorReviewState: DraftReviewStateOwner;
   usePhone: boolean;
+  mobileDocumentRoute: MobileDocumentRoute;
 }) {
   const chatReview = useDraftReviewScopeValue({
     projectId: props.projectId,
@@ -347,7 +365,7 @@ function HydratedReviewControllers({
     stateOwner: editorReviewState,
     threadId: null,
   });
-  const scopedProps = { ...props, chatReview, editorReview };
+  const scopedProps = { ...props, chatReview, editorReview, mobileDocumentRoute };
   return usePhone ? <MobileProject {...scopedProps} /> : <DesktopProject {...scopedProps} />;
 }
 

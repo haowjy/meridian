@@ -35,7 +35,10 @@ const { ProjectDraftApplyRecoveryExecutor, useProjectDraftApplyRecovery } = awai
   "./ProjectDraftApplyRecoveryExecutor"
 );
 
-function disposingOwner(): { value: PostApplyDispositionOwner; recovery: DraftRecoveryRef } {
+function recordedOwner(contextPath: string | null = "chapter.md"): {
+  value: PostApplyDispositionOwner;
+  recovery: DraftRecoveryRef;
+} {
   const value = new AccountPostApplyDispositionOwner("account-a", {
     replaceExactRoomNames() {},
   });
@@ -50,7 +53,7 @@ function disposingOwner(): { value: PostApplyDispositionOwner; recovery: DraftRe
     identity,
     presentation: {
       documentName: "Chapter",
-      contextPath: "chapter.md",
+      contextPath,
       owningWorkLabel: "Work A",
     },
     obligations: {
@@ -72,10 +75,29 @@ function disposingOwner(): { value: PostApplyDispositionOwner; recovery: DraftRe
     responseDraftId: "draft-a",
   });
   if (recorded.kind !== "recorded") throw new Error("record");
-  const attempt = value.beginAttempt(recorded.recovery);
+  return { value, recovery: recorded.recovery };
+}
+
+function disposingOwner(): { value: PostApplyDispositionOwner; recovery: DraftRecoveryRef } {
+  const recorded = recordedOwner();
+  const value = recorded.value;
+  const { recovery } = recorded;
+  const attempt = value.beginAttempt(recovery);
   if (!attempt) throw new Error("attempt");
   if (!value.beginLiveSettlement(attempt)) throw new Error("disposition");
-  return { value, recovery: recorded.recovery };
+  return recorded;
+}
+
+function awaitingOwner(): { value: PostApplyDispositionOwner; recovery: DraftRecoveryRef } {
+  const recorded = recordedOwner();
+  const attempt = recorded.value.beginAttempt(recorded.recovery);
+  if (!attempt) throw new Error("attempt");
+  recorded.value.failAttempt({ ...attempt, failure: "host-missing" });
+  return recorded;
+}
+
+function queuedOwner(): { value: PostApplyDispositionOwner; recovery: DraftRecoveryRef } {
+  return recordedOwner(null);
 }
 
 function Commands({
@@ -101,7 +123,7 @@ async function proveQuiescent(failure: "stale" | "throw") {
     <ProjectDraftApplyRecoveryExecutor
       projectId="project-a"
       scopeKey="work-a"
-      mobileContextPath={null}
+      mobileHostDocumentId={null}
       inlineDocumentIds={[]}
       desktopHostDocumentIds={[]}
       workLabels={{}}
@@ -133,7 +155,7 @@ describe("ProjectDraftApplyRecoveryExecutor terminal settlement", () => {
       <ProjectDraftApplyRecoveryExecutor
         projectId="project-a"
         scopeKey="work-a"
-        mobileContextPath={null}
+        mobileHostDocumentId={null}
         inlineDocumentIds={[]}
         desktopHostDocumentIds={[]}
         workLabels={{}}
@@ -149,5 +171,101 @@ describe("ProjectDraftApplyRecoveryExecutor terminal settlement", () => {
       await act(async () => await new Promise((resolve) => setTimeout(resolve, 20)));
       expect(settle).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it.each([
+    ["stale", "Finish"],
+    ["throw", "Finish"],
+    ["stale", "remount"],
+    ["throw", "remount"],
+  ] as const)("consumes direct abandonment once for %s until exact %s", async (failure, retry) => {
+    const fixture = awaitingOwner();
+    owner = fixture.value;
+    settle.mockReset();
+    if (failure === "stale") settle.mockReturnValue({ kind: "stale-obligation" });
+    else
+      settle.mockImplementation(() => {
+        throw new Error("persistent fault");
+      });
+    let commands: ReturnType<typeof useProjectDraftApplyRecovery> | null = null;
+    const executor = (child: React.ReactNode) => (
+      <ProjectDraftApplyRecoveryExecutor
+        projectId="project-a"
+        scopeKey="work-a"
+        mobileHostDocumentId={null}
+        inlineDocumentIds={[]}
+        desktopHostDocumentIds={[]}
+        workLabels={{}}
+      >
+        {child}
+      </ProjectDraftApplyRecoveryExecutor>
+    );
+
+    await withReactRoot(
+      executor(<Commands capture={(value) => (commands = value)} />),
+      async () => {
+        await act(async () => await new Promise((resolve) => setTimeout(resolve, 20)));
+        expect(settle).not.toHaveBeenCalled();
+        act(() => commands?.abandon(fixture.recovery));
+        expect(settle).toHaveBeenCalledOnce();
+        await act(async () => await new Promise((resolve) => setTimeout(resolve, 20)));
+        expect(settle).toHaveBeenCalledOnce();
+        expect(owner.currentItem(fixture.recovery)?.phase.kind).toBe("disposing");
+        if (retry === "Finish") {
+          act(() => commands?.finishDisposition(fixture.recovery));
+          expect(settle).toHaveBeenCalledTimes(2);
+          await act(async () => await new Promise((resolve) => setTimeout(resolve, 20)));
+          expect(settle).toHaveBeenCalledTimes(2);
+        }
+      },
+      { drainMacrotask: true },
+    );
+
+    if (retry === "remount") {
+      await withReactRoot(executor(<div />), async () => {
+        await act(async () => await new Promise((resolve) => setTimeout(resolve, 20)));
+        expect(settle).toHaveBeenCalledTimes(2);
+      });
+    }
+  });
+
+  it("keeps an unclaimed routed mobile host out of no-host verification", async () => {
+    const fixture = queuedOwner();
+    owner = fixture.value;
+    const bind = vi.fn();
+    open.mockReset().mockResolvedValue({
+      kind: "opened",
+      admission: {
+        projectId: "project-a",
+        documentId: "document-a",
+        generation: "1",
+        bind,
+      },
+    });
+    acknowledge.mockReset().mockResolvedValue({ kind: "unclaimed" });
+    settle.mockReset();
+
+    await withReactRoot(
+      <ProjectDraftApplyRecoveryExecutor
+        projectId="project-a"
+        scopeKey="work-a"
+        mobileHostDocumentId="document-a"
+        inlineDocumentIds={[]}
+        desktopHostDocumentIds={[]}
+        workLabels={{}}
+      >
+        <div />
+      </ProjectDraftApplyRecoveryExecutor>,
+      async () => {
+        await act(async () => await new Promise((resolve) => setTimeout(resolve, 20)));
+        expect(bind).not.toHaveBeenCalled();
+        expect(settle).not.toHaveBeenCalled();
+        expect(owner.currentItem(fixture.recovery)?.phase).toMatchObject({
+          kind: "awaiting-live",
+          lastFailure: "host-missing",
+        });
+      },
+      { drainMacrotask: true },
+    );
   });
 });

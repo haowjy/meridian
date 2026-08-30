@@ -3,6 +3,7 @@
 
 import { act, StrictMode, useCallback, useEffect, useMemo, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { CatalogContextView } from "@/client/query/context-catalog-projection";
 import {
   DraftReviewBoundary,
   type DraftReviewContextValue,
@@ -22,6 +23,7 @@ import {
 } from "../dock/editor-review-handoff";
 import type { OpenContextRoute } from "../routing/ProjectContextRoute";
 import { MobileDocumentHost } from "./MobileDocumentHost";
+import { resolveMobileDocumentRoute } from "./mobile-document-route";
 
 const mocks = vi.hoisted(() => ({
   editorProps: [] as Array<Record<string, unknown>>,
@@ -106,6 +108,18 @@ const file = {
   schemaType: "document" as const,
 };
 const catalog = { findPath: vi.fn((_path: string) => file) };
+
+function mobileRoute(path: string | null) {
+  return resolveMobileDocumentRoute({
+    enabled: path !== null,
+    scheme: path ? "manuscript" : null,
+    path,
+    workId: target.workId,
+    catalog: catalog as unknown as CatalogContextView,
+    isError: false,
+    isFetching: false,
+  });
+}
 
 vi.mock("@/client/query/useContextCatalog", () => ({
   useContextCatalogView: () => ({
@@ -205,8 +219,7 @@ function PhoneRouteHarness({ navigate }: { navigate: OpenContextRoute }) {
           <MobileDocumentHost
             projectId="project-1"
             editorWorkId={route.workId}
-            activeContextScheme="manuscript"
-            activeContextPath={route.contextPath}
+            route={mobileRoute(route.contextPath)}
           />
           <RemovalObserver />
         </DraftReviewBoundary>
@@ -241,8 +254,7 @@ function DirectMobileHarness() {
       <MobileDocumentHost
         projectId="project-1"
         editorWorkId={target.workId}
-        activeContextScheme={path ? "manuscript" : null}
-        activeContextPath={path}
+        route={mobileRoute(path)}
       />
     </DraftReviewBoundary>
   );
