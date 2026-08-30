@@ -110,6 +110,8 @@ export class ProjectDocumentLiveOpener {
         input.documentId,
       );
     } catch {
+      if (input.signal?.aborted || this.dependencies.epochSignal.aborted)
+        return { kind: "cancelled" };
       return { kind: "unavailable", reason: "failed" };
     }
     if (input.signal?.aborted || this.dependencies.epochSignal.aborted)
@@ -128,20 +130,26 @@ export class ProjectDocumentLiveOpener {
       return { kind: "cancelled" };
 
     let lease: LiveDocumentSessionLease;
-    if (input.source === "server") {
-      lease = await this.dependencies.registry.admit(
-        input.projectId,
-        input.documentId,
-        resolution.generation,
-      );
-    } else {
-      const adopted = await this.dependencies.adoption.admitAndAdopt({
-        projectId: input.projectId,
-        documentId: input.documentId,
-        generation: resolution.generation,
-        handoff: input.handoff,
-      });
-      lease = adopted.lease;
+    try {
+      if (input.source === "server") {
+        lease = await this.dependencies.registry.admit(
+          input.projectId,
+          input.documentId,
+          resolution.generation,
+        );
+      } else {
+        const adopted = await this.dependencies.adoption.admitAndAdopt({
+          projectId: input.projectId,
+          documentId: input.documentId,
+          generation: resolution.generation,
+          handoff: input.handoff,
+        });
+        lease = adopted.lease;
+      }
+    } catch {
+      if (input.signal?.aborted || this.dependencies.epochSignal.aborted)
+        return { kind: "cancelled" };
+      return { kind: "unavailable", reason: "failed" };
     }
     if (input.signal?.aborted || this.dependencies.epochSignal.aborted)
       return { kind: "cancelled" };
