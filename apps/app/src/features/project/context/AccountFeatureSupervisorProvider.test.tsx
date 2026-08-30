@@ -68,6 +68,54 @@ function controlledLifetime(accountId: string) {
   };
 }
 
+function compositionLifetime(accountId: string): AccountFeatureLifetime {
+  return {
+    accountId,
+    state: "open",
+    attachComposition: () => ({ token: 1, release: () => undefined }),
+    resumeFeatureLease: () => undefined,
+    suspendFeatureLease: () => undefined,
+    registry: { observeRetainedLiveDocuments: () => () => undefined },
+    availability: {
+      attachProject: () => ({ release: () => undefined, watch: () => undefined }),
+      recheckWatchedProjects: async () => undefined,
+    },
+    removal: { retryPendingSessionEffects: async () => undefined },
+    localOwner: {},
+    postApplyOwner: {},
+    opener: {},
+  } as unknown as AccountFeatureLifetime;
+}
+
+it("withholds descendants when a mounted route resolves a conflicting account", async () => {
+  const supervisor = new AccountFeatureSupervisor((accountId) => compositionLifetime(accountId));
+  supervisor.setAuthIntent({ loading: false, subject: "subject-a" });
+  let changeAccount!: (accountId: string) => void;
+
+  function Harness() {
+    const [accountId, setAccountId] = useState("account-a");
+    changeAccount = setAccountId;
+    return (
+      <AccountFeatureSupervisorContext.Provider value={supervisor}>
+        <AccountFeatureComposition
+          authSubject="subject-a"
+          accountId={accountId}
+          repairProjectCatalog={async () => undefined}
+        >
+          <p>Private account content for {accountId}</p>
+        </AccountFeatureComposition>
+      </AccountFeatureSupervisorContext.Provider>
+    );
+  }
+
+  await withReactRoot(<Harness />, async () => {
+    expect(document.body.textContent).toContain("Private account content for account-a");
+    await act(async () => changeAccount("account-b"));
+    expect(document.body.textContent).not.toContain("Private account content for account-b");
+    expect(supervisor.getSnapshot().kind).toBe("identity-inconsistent");
+  });
+});
+
 it("keeps one A obligation through route error, reset, and root retry", async () => {
   auth.value = { user: { id: "subject-a" }, loading: false };
   const a = controlledLifetime("account-a");

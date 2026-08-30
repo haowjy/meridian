@@ -49,7 +49,13 @@ export function AccountFeatureComposition({
   );
   const declarationRef = useRef<AccountFeatureDeclaration | null>(null);
   const auth = supervisor.getAuthDeclaration();
-  if (declarationRef.current?.auth.subject !== authSubject) declarationRef.current = null;
+  if (
+    declarationRef.current &&
+    (declarationRef.current.auth.subject !== authSubject ||
+      declarationRef.current.account.id !== accountId)
+  ) {
+    declarationRef.current = null;
+  }
   if (!declarationRef.current && auth?.subject === authSubject) {
     declarationRef.current = Object.freeze({ auth, account: Object.freeze({ id: accountId }) });
   }
