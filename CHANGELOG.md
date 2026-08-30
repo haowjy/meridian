@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+- `apps/app`: atomically advance canonical Editor routes and working state for
+  project-final same-ID moves while preserving newer writer navigation and live
+  document sessions.
+
 - `apps/app`: make document-session ownership exclusively lease-qualified, keep local Untitled persistence explicit, and remove the unfenced registry facade and unqualified persistence-key surface.
 
 - `database`, `contracts`, `apps/server`, `apps/app`: add the authoritative

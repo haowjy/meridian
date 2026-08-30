@@ -105,7 +105,7 @@ export function planContextAvailabilityBatch(
       }
         ? Scheme
         : never;
-      const path = entry.path.join("/");
+      const path = `/${entry.path.join("/")}`;
       const targetWorkId = isWorkScopedProjectContextScheme(scheme)
         ? entry.scope.kind === "work"
           ? entry.scope.workId

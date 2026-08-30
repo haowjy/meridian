@@ -27,6 +27,7 @@ import {
   type ContextRouteRepair,
   type ContextRouteTarget,
   type ProjectSearch,
+  projectSearchEquals,
 } from "../routing/project-route";
 import {
   type ContextAvailabilityLocalBatchPlan,
@@ -1287,8 +1288,4 @@ function availabilitySessionEffect(
       generation: command.generation,
     },
   ];
-}
-
-function projectSearchEquals(left: ProjectSearch, right: ProjectSearch): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
 }
