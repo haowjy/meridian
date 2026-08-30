@@ -261,6 +261,9 @@ describe("MobileDocumentHost review binding", () => {
       kind: "opened",
       document: file,
       admission: {
+        projectId: "project-1",
+        documentId: target.documentId,
+        generation: "1",
         bind: async () => ({
           projectId: "project-1",
           documentId: target.documentId,
@@ -320,6 +323,9 @@ describe("MobileDocumentHost review binding", () => {
         kind: "opened",
         document: file,
         admission: {
+          projectId: "project-1",
+          documentId: input.documentId,
+          generation: "1",
           bind: async () => ({
             projectId: "project-1",
             documentId: input.documentId,

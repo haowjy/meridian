@@ -22,7 +22,12 @@ describe("ServerTabSessionBoundary", () => {
       open: vi.fn(async () => ({
         kind: "opened" as const,
         document: {} as never,
-        admission: { bind },
+        admission: {
+          projectId: "project-a",
+          documentId: "document-a",
+          generation: "1",
+          bind,
+        },
       })),
     };
     let setWarm!: (warm: boolean) => void;

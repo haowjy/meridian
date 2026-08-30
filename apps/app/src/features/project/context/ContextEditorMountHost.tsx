@@ -36,6 +36,7 @@ import { Button } from "@/components/ui/button";
 import type { DocumentSession } from "@/core/editor/document-session";
 import { useDraftReview } from "@/features/chat/DraftReviewProvider";
 import { cn } from "@/lib/utils";
+import { useLiveBindingAcknowledgementHost } from "../dock/editor-review-handoff";
 import { useLocalUntitledOwner } from "./ContextRemovalAccountProvider";
 import { LocalUntitledIdentityRedirect } from "./local-untitled-owner";
 import { untitledDocumentIsEmpty } from "./untitled-reconciler";
@@ -355,7 +356,9 @@ export function ServerTabSessionBoundary({
     documentId,
     owner: "desktop-server-tab",
   });
-  return children(binding.kind === "opened" ? binding.session : null, binding.kind === "failed");
+  useLiveBindingAcknowledgementHost(projectId, documentId, binding);
+  const state = binding.state;
+  return children(state.kind === "opened" ? state.session : null, state.kind === "failed");
 }
 
 function ActiveEditorProjection({

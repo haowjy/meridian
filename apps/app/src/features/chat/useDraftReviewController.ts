@@ -21,10 +21,12 @@ import {
 import { getDraftPreview } from "@/client/api/drafts-api";
 import { projectQueryKeys } from "@/client/query/project-query-keys";
 import { useApplyDraft, useDiscardDraft } from "@/client/query/useDraftReviewMutations";
+import { useContextTabsStore } from "@/client/stores";
 import {
   useContextRemovalCoordinator,
   useProjectDocumentLiveOpener,
 } from "@/features/project/context/ContextRemovalAccountProvider";
+import { useAcknowledgeLiveBinding } from "@/features/project/dock/editor-review-handoff";
 import {
   type DraftBatchErrorCode,
   type DraftCommandOutcome,
@@ -40,6 +42,8 @@ import {
 } from "./draft-review-session";
 
 export type { DraftReviewSelection, InlineDraftReview, InlineReviewMessageCode };
+
+type QualifiedDraftSelection = DraftReviewSelection & { projectId: string; workId: string };
 
 /**
  * The single review-runtime claim: the mounted editor a review card can scroll
@@ -98,6 +102,8 @@ export type DraftReviewController = {
   focusReviewOperation: (operationId: string) => void;
   discardOperation: (operationId: string) => Promise<DraftCommandOutcome>;
   apply: (documentId: string, draftId: string) => Promise<DraftCommandOutcome>;
+  acknowledgeServerApplied: (documentId: string, draftId: string) => Promise<DraftCommandOutcome>;
+  isServerAppliedAwaitingHost: (documentId: string, draftId: string) => boolean;
   discard: (documentId: string, draftId: string) => Promise<DraftCommandOutcome>;
   disposeDrafts: (
     mode: "apply" | "discard",
@@ -113,12 +119,18 @@ export function useDraftReviewController(
   const queryClient = useQueryClient();
   const contextRemoval = useContextRemovalCoordinator();
   const liveOpener = useProjectDocumentLiveOpener();
+  const acknowledgeLiveBinding = useAcknowledgeLiveBinding();
   const applyMutation = useApplyDraft();
   const discardMutation = useDiscardDraft();
   const [state, dispatch] = useReducer(draftReviewReducer, EMPTY_DRAFT_REVIEW_STATE);
   const commandPortsRef = useRef<DraftReviewCommandPorts | null>(null);
-  const pendingReopenRef = useRef(new Map<string, () => void>());
-  const serverAppliedDraftsRef = useRef(new Set<string>());
+  const serverAppliedRef = useRef<QualifiedDraftSelection | null>(null);
+  const applyAttemptRef = useRef<{
+    selection: QualifiedDraftSelection;
+    generation: number;
+    abort: AbortController;
+  } | null>(null);
+  const nextApplyAttemptRef = useRef(0);
   const reviewSession = useMemo(
     () =>
       new DraftReviewSession(() => {
@@ -137,6 +149,7 @@ export function useDraftReviewController(
   const [reviewRoomName, setReviewRoomName] = useState<string | null>(null);
   const [reviewRoomError, setReviewRoomError] = useState(false);
   const stateRef = useRef(state);
+  const activeRef = useRef(true);
   const inlineRuntimeRef = useRef<InlineReviewRuntime | null>(null);
   const activeReviewRequestRef = useRef<(DraftReviewSelection & { attemptId: number }) | null>(
     null,
@@ -144,14 +157,15 @@ export function useDraftReviewController(
   const nextReviewAttemptIdRef = useRef(0);
   stateRef.current = state;
 
-  useEffect(
-    () => () => {
-      for (const release of pendingReopenRef.current.values()) release();
-      pendingReopenRef.current.clear();
-      serverAppliedDraftsRef.current.clear();
-    },
-    [],
-  );
+  useEffect(() => {
+    activeRef.current = true;
+    return () => {
+      activeRef.current = false;
+      applyAttemptRef.current?.abort.abort();
+      applyAttemptRef.current = null;
+      serverAppliedRef.current = null;
+    };
+  }, []);
 
   const inlineReview = inlineReviewFromState(state);
   const inlineReviewMessage = state.inlineReviewMessage;
@@ -223,7 +237,19 @@ export function useDraftReviewController(
 
   commandPortsRef.current = {
     apply: async ({ documentId, draftId }) => {
-      if (!serverAppliedDraftsRef.current.has(draftId)) {
+      const selection = { projectId, workId, documentId, draftId };
+      const initialSurface = stateRef.current.surface;
+      const requiresInlineMatch =
+        initialSurface.kind === "inline" &&
+        initialSurface.documentId === documentId &&
+        initialSurface.draftId === draftId;
+      const selectionIsCurrent = () =>
+        activeRef.current &&
+        (!requiresInlineMatch ||
+          (stateRef.current.surface.kind === "inline" &&
+            stateRef.current.surface.documentId === documentId &&
+            stateRef.current.surface.draftId === draftId));
+      if (!sameQualifiedSelection(serverAppliedRef.current, selection)) {
         await applyMutation.mutateAsync({
           projectId,
           workId,
@@ -231,13 +257,61 @@ export function useDraftReviewController(
           documentId,
           draftId,
         });
-        serverAppliedDraftsRef.current.add(draftId);
+        if (!selectionIsCurrent()) throw new Error("Applied draft selection changed");
+        serverAppliedRef.current = selection;
       }
-      const opened = await liveOpener.open({ source: "server", projectId, documentId });
+      const generation = ++nextApplyAttemptRef.current;
+      applyAttemptRef.current?.abort.abort();
+      const abort = new AbortController();
+      applyAttemptRef.current = { selection, generation, abort };
+      const opened = await liveOpener.open({
+        source: "server",
+        projectId,
+        documentId,
+        signal: abort.signal,
+      });
       if (opened.kind !== "opened") throw new Error("Applied draft is not available live");
-      const binding = await opened.admission.bind(`draft-apply-reopen:${documentId}:${draftId}`);
-      pendingReopenRef.current.get(draftId)?.();
-      pendingReopenRef.current.set(draftId, () => binding.release());
+      if (
+        !selectionIsCurrent() ||
+        !currentApplyAttempt(applyAttemptRef.current, selection, generation)
+      ) {
+        throw new Error("Applied draft selection changed");
+      }
+
+      const tab = useContextTabsStore
+        .getState()
+        .byProject?.[projectId]?.tabs.find((candidate) => candidate.documentId === documentId);
+      const inline = stateRef.current.surface;
+      const desiredHost =
+        tab?.kind === "tracked" ||
+        (inline.kind === "inline" &&
+          inline.documentId === documentId &&
+          inline.draftId === draftId);
+      if (desiredHost) {
+        const acknowledged = await acknowledgeLiveBinding(opened.admission, abort.signal);
+        if (acknowledged.kind !== "acknowledged") {
+          throw new Error("Applied draft host did not acknowledge the live binding");
+        }
+      } else {
+        const binding = await opened.admission.bind(
+          `draft-apply-verification:${projectId}:${workId}:${documentId}:${generation}`,
+        );
+        try {
+          await binding.session.waitForCurrentSync(10_000);
+          const snapshot = binding.session.getSnapshot();
+          if (snapshot.status !== "synced" || snapshot.schemaFence !== null) {
+            throw new Error("Applied draft verification binding is unusable");
+          }
+        } finally {
+          binding.release();
+        }
+      }
+      if (
+        !selectionIsCurrent() ||
+        !currentApplyAttempt(applyAttemptRef.current, selection, generation)
+      ) {
+        throw new Error("Applied draft acknowledgement became stale");
+      }
     },
     discard: async ({ documentId, draftId }, input) => {
       await discardMutation.mutateAsync({
@@ -259,15 +333,15 @@ export function useDraftReviewController(
       dispatch({ type: "batchSettled", error });
     },
     draftApplied: ({ documentId, draftId }) => {
+      const selection = { projectId, workId, documentId, draftId };
+      if (!sameQualifiedSelection(serverAppliedRef.current, selection)) return;
       dispatch({ type: "applySucceeded", documentId, draftId });
       contextRemoval.applyDraftMetadata(projectId, workId, documentId);
-      pendingReopenRef.current.get(draftId)?.();
-      pendingReopenRef.current.delete(draftId);
-      serverAppliedDraftsRef.current.delete(draftId);
+      applyAttemptRef.current?.abort.abort();
+      applyAttemptRef.current = null;
+      serverAppliedRef.current = null;
     },
     draftFailed: (selection, code) => {
-      pendingReopenRef.current.get(selection.draftId)?.();
-      pendingReopenRef.current.delete(selection.draftId);
       dispatch({ type: "draftCommandFailed", selection, code });
     },
     draftDiscarded: ({ documentId, draftId }) => {
@@ -278,6 +352,12 @@ export function useDraftReviewController(
 
   const enterInlineReview = useCallback(
     (documentId: string, draftId: string) => {
+      const pending = serverAppliedRef.current;
+      if (pending && (pending.documentId !== documentId || pending.draftId !== draftId)) {
+        applyAttemptRef.current?.abort.abort();
+        applyAttemptRef.current = null;
+        serverAppliedRef.current = null;
+      }
       dispatch({ type: "enterInline", documentId, draftId });
       loadInlineReviewRoom(documentId, draftId);
     },
@@ -287,6 +367,14 @@ export function useDraftReviewController(
   const exitInlineReview = useCallback(() => {
     const inline = stateRef.current.surface.kind === "inline" ? stateRef.current.surface : null;
     if (inline) {
+      if (
+        serverAppliedRef.current?.documentId === inline.documentId &&
+        serverAppliedRef.current.draftId === inline.draftId
+      ) {
+        applyAttemptRef.current?.abort.abort();
+        applyAttemptRef.current = null;
+        serverAppliedRef.current = null;
+      }
       void queryClient.invalidateQueries({
         queryKey: projectQueryKeys.workDraftPreview(
           projectId,
@@ -303,6 +391,9 @@ export function useDraftReviewController(
   }, [projectId, queryClient, workId]);
 
   const exitReview = useCallback(() => {
+    applyAttemptRef.current?.abort.abort();
+    applyAttemptRef.current = null;
+    serverAppliedRef.current = null;
     activeReviewRequestRef.current = null;
     setReviewRoomName(null);
     setReviewRoomError(false);
@@ -362,6 +453,24 @@ export function useDraftReviewController(
     [reviewSession],
   );
 
+  const acknowledgeServerApplied = useCallback(
+    (documentId: string, draftId: string): Promise<DraftCommandOutcome> => {
+      serverAppliedRef.current = { projectId, workId, documentId, draftId };
+      return reviewSession.applyReviewedDraft({ documentId, draftId });
+    },
+    [projectId, reviewSession, workId],
+  );
+  const isServerAppliedAwaitingHost = useCallback(
+    (documentId: string, draftId: string) =>
+      sameQualifiedSelection(serverAppliedRef.current, {
+        projectId,
+        workId,
+        documentId,
+        draftId,
+      }),
+    [projectId, workId],
+  );
+
   const discard = useCallback(
     (documentId: string, draftId: string): Promise<DraftCommandOutcome> =>
       reviewSession.discardDraft({ documentId, draftId }),
@@ -403,6 +512,8 @@ export function useDraftReviewController(
       focusReviewOperation,
       discardOperation,
       apply,
+      acknowledgeServerApplied,
+      isServerAppliedAwaitingHost,
       discard,
       disposeDrafts,
     }),
@@ -432,6 +543,8 @@ export function useDraftReviewController(
       focusReviewOperation,
       discardOperation,
       apply,
+      acknowledgeServerApplied,
+      isServerAppliedAwaitingHost,
       discard,
       disposeDrafts,
     ],
@@ -439,3 +552,31 @@ export function useDraftReviewController(
 }
 
 const EMPTY_OPERATION_IDS = new Set<string>();
+
+function sameQualifiedSelection(
+  left: QualifiedDraftSelection | null,
+  right: QualifiedDraftSelection,
+): boolean {
+  return (
+    left?.projectId === right.projectId &&
+    left.workId === right.workId &&
+    left.documentId === right.documentId &&
+    left.draftId === right.draftId
+  );
+}
+
+function currentApplyAttempt(
+  current: {
+    selection: QualifiedDraftSelection;
+    generation: number;
+    abort: AbortController;
+  } | null,
+  selection: QualifiedDraftSelection,
+  generation: number,
+): boolean {
+  return (
+    current?.generation === generation &&
+    !current.abort.signal.aborted &&
+    sameQualifiedSelection(current.selection, selection)
+  );
+}

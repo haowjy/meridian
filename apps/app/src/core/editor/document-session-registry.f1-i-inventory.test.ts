@@ -491,11 +491,33 @@ describe("F1-I document-session deletion inventory", () => {
       },
       {
         file: "apps/app/src/features/project/context/open-project-document.ts",
-        line: 129,
+        line: 132,
       },
       {
         file: "apps/app/src/features/project/context/open-project-document.ts",
-        line: 135,
+        line: 138,
+      },
+    ]);
+  });
+
+  it("keeps lease-qualified unavailable-session restart inside the opener", () => {
+    const calls = sourceFiles(join(appRoot, "src")).flatMap((file) => {
+      const source = readFileSync(file, "utf8");
+      return source.split("\n").flatMap((line, index) =>
+        line.match(/\.restartUnavailableRoom\s*\(/)
+          ? [
+              {
+                file: `apps/app/${relative(appRoot, file).split(sep).join("/")}`,
+                line: index + 1,
+              },
+            ]
+          : [],
+      );
+    });
+    expect(calls).toEqual([
+      {
+        file: "apps/app/src/features/project/context/open-project-document.ts",
+        line: 169,
       },
     ]);
   });

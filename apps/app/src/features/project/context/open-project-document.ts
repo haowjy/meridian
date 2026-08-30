@@ -91,7 +91,10 @@ export class ProjectDocumentLiveOpener {
       availability: {
         resolveForOpen(projectId: ProjectId, documentId: DocumentId): Promise<ExactOpenResolution>;
       };
-      registry: Pick<LiveDocumentSessionRegistry, "admit" | "retain" | "get" | "release">;
+      registry: Pick<
+        LiveDocumentSessionRegistry,
+        "admit" | "retain" | "get" | "release" | "restartUnavailableRoom"
+      >;
       adoption: LocalDocumentSessionAdoptionPort;
       epochSignal: AbortSignal;
     },
@@ -157,6 +160,14 @@ export class ProjectDocumentLiveOpener {
         registry.retain(ownerId, [lease]);
         try {
           const session = registry.get(lease);
+          const snapshot = session.getSnapshot();
+          if (
+            snapshot.status === "access-lost" ||
+            snapshot.connectionState?.kind === "unauthorized" ||
+            snapshot.connectionState?.kind === "terminal"
+          ) {
+            await registry.restartUnavailableRoom(lease);
+          }
           let released = false;
           return Object.freeze({
             projectId: lease.projectId,

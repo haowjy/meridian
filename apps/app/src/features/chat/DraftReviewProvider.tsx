@@ -29,7 +29,6 @@ import type { DocumentSession } from "@/core/editor/document-session";
 import {
   useContextRemovalCoordinator,
   useLiveDocumentSessionRegistry,
-  useProjectDocumentLiveOpener,
 } from "@/features/project/context/ContextRemovalAccountProvider";
 import { type DraftReviewController, useDraftReviewController } from "./useDraftReviewController";
 
@@ -95,7 +94,6 @@ function useDraftReviewScopeOwner(
   const queryClient = useQueryClient();
   const contextRemoval = useContextRemovalCoordinator();
   const registry = useLiveDocumentSessionRegistry();
-  const liveOpener = useProjectDocumentLiveOpener();
   const reviewProjectionOwner = useRef(
     `draft-review-projection:${++reviewProjectionOwnerSequence}`,
   );
@@ -155,6 +153,8 @@ function useDraftReviewScopeOwner(
     if (activeSelection == null) return;
     if (drafts.status !== "ready" && drafts.status !== "empty") return;
     if (controller.isDisposing) return;
+    if (controller.isServerAppliedAwaitingHost(activeSelection.documentId, activeSelection.draftId))
+      return;
     const documentDrafts =
       groups.find((group) => group.documentId === activeSelection.documentId)?.drafts ?? [];
     if (documentDrafts.some((draft) => draft.draftId === activeSelection.draftId)) return;
@@ -179,16 +179,19 @@ function useDraftReviewScopeOwner(
       projectId,
       contextCatalogScope(projectId, "manuscript", null),
     );
+    const attempt = new AbortController();
     void queryClient
       .cancelQueries({ queryKey: treeQuery.queryKey })
       .then(() => queryClient.fetchQuery({ ...treeQuery, staleTime: 0 }))
       .then((view) => {
+        if (attempt.signal.aborted) return;
         const catalog = projectCatalogView(projectId, "manuscript", view);
         const currentTabs = useContextTabsStore.getState();
         const currentTab = currentTabs.byProject[projectId]?.tabs.find(
           (candidate) => candidate.documentId === activeSelection.documentId,
         );
         if (
+          attempt.signal.aborted ||
           currentTab?.kind !== "tracked" ||
           !currentTab.draftOnly ||
           currentTab.reviewWorkId !== workId
@@ -200,21 +203,15 @@ function useDraftReviewScopeOwner(
           ) ?? [];
         if (currentDrafts.some((draft) => draft.documentId === activeSelection.documentId)) return;
         if (catalog.findDocument(activeSelection.documentId)) {
-          return liveOpener
-            .open({ source: "server", projectId, documentId: activeSelection.documentId })
-            .then(async (opened) => {
-              if (opened.kind !== "opened") return;
-              const binding = await opened.admission.bind(
-                `remote-draft-reopen:${activeSelection.draftId}`,
-              );
-              try {
-                if (controller.inlineReview?.draftId !== activeSelection.draftId) return;
-                controller.exitReview();
-                contextRemoval.applyDraftMetadata(projectId, workId, activeSelection.documentId);
-              } finally {
-                binding.release();
-              }
-            });
+          if (
+            controller.inlineReview?.documentId !== activeSelection.documentId ||
+            controller.inlineReview.draftId !== activeSelection.draftId
+          )
+            return;
+          return controller.acknowledgeServerApplied(
+            activeSelection.documentId,
+            activeSelection.draftId,
+          );
         }
         controller.exitReview();
         void contextRemoval.discardDraft(projectId, workId, activeSelection.documentId);
@@ -222,15 +219,17 @@ function useDraftReviewScopeOwner(
       // A failed membership check must leave the tab intact rather than guess
       // that a remotely applied document was discarded.
       .catch(() => undefined);
+    return () => attempt.abort();
   }, [
     contextRemoval,
+    controller.acknowledgeServerApplied,
     controller.exitReview,
     controller.inlineReview,
+    controller.isServerAppliedAwaitingHost,
     controller.isDisposing,
     drafts.status,
     effectiveProjectId,
     groups,
-    liveOpener,
     projectId,
     queryClient,
     registry,

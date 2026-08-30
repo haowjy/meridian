@@ -24,6 +24,7 @@ import { ContextViewerBareHost } from "../context/ContextViewerHost";
 import { contextTabFromFile } from "../context/context-tab-from-file";
 import { useContextRemovalProject } from "../context/use-context-removal-project";
 import { useLiveDocumentBinding } from "../context/use-live-document-binding";
+import { useLiveBindingAcknowledgementHost } from "../dock/editor-review-handoff";
 
 const EditorView = lazy(() =>
   import("@/features/editor/EditorView").then((m) => ({ default: m.EditorView })),
@@ -133,31 +134,33 @@ export function MobileDocumentHost({
     documentId: activeTab?.editable ? activeTab.documentId : null,
     owner: "mobile-project-document-host",
   });
+  useLiveBindingAcknowledgementHost(projectId, activeEditorDocumentId, live);
+  const liveState = live.state;
 
   useEffect(() => {
-    if (live.kind !== "opened" || live.documentId !== activeEditorDocumentId) {
+    if (liveState.kind !== "opened" || liveState.documentId !== activeEditorDocumentId) {
       setActiveEditorDocumentId(null, null, false, projectionOwner.current);
       return;
     }
     setActiveEditorDocumentId(
       activeEditorDocumentId,
-      live.session,
+      liveState.session,
       Boolean(reviewDraftId),
       projectionOwner.current,
     );
     return () => setActiveEditorDocumentId(null, null, false, projectionOwner.current);
-  }, [activeEditorDocumentId, live, reviewDraftId, setActiveEditorDocumentId]);
+  }, [activeEditorDocumentId, liveState, reviewDraftId, setActiveEditorDocumentId]);
 
   useEffect(() => {
     if (
       !selectedReviewDraftId ||
-      live.kind !== "opened" ||
-      live.documentId !== activeEditorDocumentId
+      liveState.kind !== "opened" ||
+      liveState.documentId !== activeEditorDocumentId
     )
       return;
-    live.session.suspendPresence();
-    return () => live.session.resumePresence();
-  }, [activeEditorDocumentId, live, selectedReviewDraftId]);
+    liveState.session.suspendPresence();
+    return () => liveState.session.resumePresence();
+  }, [activeEditorDocumentId, liveState, selectedReviewDraftId]);
 
   if (!activeContextScheme || !activeContextPath) {
     return (
@@ -194,8 +197,10 @@ export function MobileDocumentHost({
   }
 
   const liveSession =
-    live.kind === "opened" && live.documentId === activeTab.documentId ? live.session : null;
-  if (live.kind === "failed" && live.documentId === activeTab.documentId) {
+    liveState.kind === "opened" && liveState.documentId === activeTab.documentId
+      ? liveState.session
+      : null;
+  if (liveState.kind === "failed" && liveState.documentId === activeTab.documentId) {
     return (
       <DocumentStatus tone="error">
         <AlertCircle className="size-4" aria-hidden />

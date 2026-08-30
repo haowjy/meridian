@@ -37,12 +37,15 @@ describe("ProjectDocumentLiveOpener", () => {
       documentId: "document-a",
       generation: "4",
     };
-    const session = {} as never;
+    const session = {
+      getSnapshot: () => ({ status: "synced", connectionState: null }),
+    } as never;
     const registry = {
       admit: vi.fn(async () => lease),
       retain: vi.fn(),
       get: vi.fn(() => session),
       release: vi.fn(),
+      restartUnavailableRoom: vi.fn(),
     };
     const opener = new ProjectDocumentLiveOpener({
       availability: { resolveForOpen: vi.fn(async () => available) },
@@ -86,7 +89,9 @@ describe("ProjectDocumentLiveOpener", () => {
   });
 
   it("branches locally only after resolution and preserves the adopted session", async () => {
-    const session = {} as never;
+    const session = {
+      getSnapshot: () => ({ status: "synced", connectionState: null }),
+    } as never;
     const adoption = {
       admitAndAdopt: vi.fn(async () => ({
         lease: {
@@ -105,6 +110,7 @@ describe("ProjectDocumentLiveOpener", () => {
         retain: vi.fn(),
         get: vi.fn(() => session),
         release: vi.fn(),
+        restartUnavailableRoom: vi.fn(),
       } as never,
       adoption,
       epochSignal: new AbortController().signal,
@@ -166,12 +172,15 @@ describe("ProjectDocumentLiveOpener", () => {
       documentId: "document-a",
       generation: "4",
     };
-    const session = {} as never;
+    const session = {
+      getSnapshot: () => ({ status: "synced", connectionState: null }),
+    } as never;
     const registry = {
       admit: vi.fn(async () => lease),
       retain: vi.fn(),
       get: vi.fn(() => session),
       release: vi.fn(),
+      restartUnavailableRoom: vi.fn(),
     };
     const opener = new ProjectDocumentLiveOpener({
       availability: { resolveForOpen: vi.fn(async () => available) },
@@ -194,6 +203,43 @@ describe("ProjectDocumentLiveOpener", () => {
     expect(registry.retain).toHaveBeenCalledTimes(2);
     a.release();
     b.release();
+  });
+
+  it.each([
+    { status: "access-lost", connectionState: null },
+    { status: "offline", connectionState: { kind: "unauthorized" } },
+    { status: "offline", connectionState: { kind: "terminal" } },
+  ])("repairs a retained unavailable session through its exact lease before bind", async (snapshot) => {
+    const lease = {
+      accountId: "account-a",
+      projectId: "project-a",
+      documentId: "document-a",
+      generation: "4",
+    };
+    const session = { getSnapshot: () => ({ ...snapshot, schemaFence: null }) } as never;
+    const registry = {
+      admit: vi.fn(async () => lease),
+      retain: vi.fn(),
+      get: vi.fn(() => session),
+      release: vi.fn(),
+      restartUnavailableRoom: vi.fn(async () => true),
+    };
+    const opener = new ProjectDocumentLiveOpener({
+      availability: { resolveForOpen: vi.fn(async () => available) },
+      registry: registry as never,
+      adoption: { admitAndAdopt: vi.fn() },
+      epochSignal: new AbortController().signal,
+    });
+
+    const opened = await opener.open({
+      source: "server",
+      projectId: "project-a",
+      documentId: "document-a",
+    });
+    if (opened.kind !== "opened") throw new Error("open failed");
+    await opened.admission.bind("tab-a");
+
+    expect(registry.restartUnavailableRoom).toHaveBeenCalledWith(lease);
   });
 });
 

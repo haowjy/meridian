@@ -248,6 +248,21 @@ function HydratedReviewProject({
   chatThreadId,
   ...props
 }: ResolvedProjectViewProps & { chatWorkId: string | null; chatThreadId: string | null }) {
+  return (
+    <EditorReviewHandoffProvider
+      projectId={props.projectId}
+      openContextRoute={props.onOpenContextTarget}
+    >
+      <HydratedReviewScopes {...props} chatWorkId={chatWorkId} chatThreadId={chatThreadId} />
+    </EditorReviewHandoffProvider>
+  );
+}
+
+function HydratedReviewScopes({
+  chatWorkId,
+  chatThreadId,
+  ...props
+}: ResolvedProjectViewProps & { chatWorkId: string | null; chatThreadId: string | null }) {
   const chatReview = useDraftReviewScopeValue({
     projectId: props.projectId,
     workId: chatWorkId,
@@ -258,15 +273,7 @@ function HydratedReviewProject({
     workId: props.editorWorkId,
     threadId: null,
   });
-
-  return (
-    <EditorReviewHandoffProvider
-      projectId={props.projectId}
-      openContextRoute={props.onOpenContextTarget}
-    >
-      <HydratedProject {...props} chatReview={chatReview} editorReview={editorReview} />
-    </EditorReviewHandoffProvider>
-  );
+  return <HydratedProject {...props} chatReview={chatReview} editorReview={editorReview} />;
 }
 
 function HydratedProject(props: ReviewScopedProjectProps) {

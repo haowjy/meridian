@@ -18,6 +18,12 @@ const queryClientMock = {
 };
 const applyDraftMetadataMock = vi.fn();
 const discardDraftMock = vi.fn(async () => ({ kind: "noop" as const }));
+const acknowledgeServerAppliedMock = vi.fn(
+  async (_documentId: string, _draftId: string, workId = "work-1") => {
+    applyDraftMetadataMock("project-1", workId, _documentId);
+    return { kind: "applied" };
+  },
+);
 const exitReviewMock = vi.fn();
 let currentGroups: ThreadDraftGroup[] = [];
 let currentInlineReview: { documentId: string; draftId: string } | null = null;
@@ -106,6 +112,9 @@ vi.mock("./useDraftReviewController", () => ({
     return {
       workId,
       exitReview: exitReviewMock,
+      acknowledgeServerApplied: (documentId: string, draftId: string) =>
+        acknowledgeServerAppliedMock(documentId, draftId, workId),
+      isServerAppliedAwaitingHost: vi.fn(() => false),
       inlineReview: currentInlineReview,
       reviewRoomName: currentReviewRoomName,
     };
@@ -215,6 +224,7 @@ describe("DraftReviewProvider live lineage invalidation", () => {
     fetchQueryMock.mockReset();
     getQueryDataMock.mockReset();
     applyDraftMetadataMock.mockClear();
+    acknowledgeServerAppliedMock.mockClear();
     discardDraftMock.mockClear();
     exitReviewMock.mockClear();
     docUpdateHandlers.clear();
@@ -298,6 +308,11 @@ describe("DraftReviewProvider live lineage invalidation", () => {
       await act(async () => rerenderProvider?.());
 
       expect(applyDraftMetadataMock).toHaveBeenCalledWith("project-1", "work-1", "doc-terminal");
+      expect(acknowledgeServerAppliedMock).toHaveBeenCalledWith(
+        "doc-terminal",
+        "draft-terminal",
+        "work-1",
+      );
     });
   });
 
