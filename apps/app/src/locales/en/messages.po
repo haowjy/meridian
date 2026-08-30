@@ -3186,6 +3186,10 @@ msgstr "This document changed elsewhere. Reopen it and try again."
 msgid "This document is not taking changes right now."
 msgstr "This document is not taking changes right now."
 
+#: src/features/project/context/ContextEditorMountHost.tsx
+msgid "This document is open in another tab"
+msgstr "This document is open in another tab"
+
 #: src/features/editor/surfaces/table/table-copy.ts
 #: src/features/editor/surfaces/toolbar/toolbar-copy.ts
 msgid "This document is read only right now."
