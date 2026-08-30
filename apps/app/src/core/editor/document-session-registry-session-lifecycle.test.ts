@@ -57,7 +57,7 @@ describe("DocumentSessionRegistry session lifecycle", () => {
     await vi.waitFor(() => expect(providers).toHaveLength(1));
     const provider = providers[0];
     const diagnostic = new Error("live grace destroy failed");
-    provider.destroy.mockRejectedValue(diagnostic);
+    provider.destroy.mockRejectedValueOnce(diagnostic).mockResolvedValueOnce(undefined);
     const unhandled: unknown[] = [];
     const observeUnhandled = (reason: unknown) => unhandled.push(reason);
     process.on("unhandledRejection", observeUnhandled);
@@ -66,7 +66,11 @@ describe("DocumentSessionRegistry session lifecycle", () => {
       await vi.waitFor(() => expect(registry.hasLive(lease)).toBe(false));
       expect(session.getSnapshot().status).toBe("destroyed");
       expect(provider.destroy).toHaveBeenCalledOnce();
-      await expect(session.destroy()).rejects.toBe(diagnostic);
+      expect(() => registry.get(lease)).toThrow(
+        expect.objectContaining({ kind: "authority-unavailable" }),
+      );
+      await expect(registry.closeAccountRuntime()).resolves.toBeUndefined();
+      expect(provider.destroy).toHaveBeenCalledTimes(2);
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(unhandled).toEqual([]);
     } finally {
@@ -80,7 +84,10 @@ describe("DocumentSessionRegistry session lifecycle", () => {
     const roomKey = "branch:branch-grace-rejection:gen:1";
     registry.retainBranchRooms("review", [roomKey]);
     const session = registry.getBranchRoom(roomKey);
-    providers.at(-1)?.destroy.mockRejectedValue(new Error("branch grace destroy failed"));
+    providers
+      .at(-1)
+      ?.destroy.mockRejectedValueOnce(new Error("branch grace destroy failed"))
+      .mockResolvedValueOnce(undefined);
     const unhandled: unknown[] = [];
     const observeUnhandled = (reason: unknown) => unhandled.push(reason);
     process.on("unhandledRejection", observeUnhandled);
@@ -88,6 +95,10 @@ describe("DocumentSessionRegistry session lifecycle", () => {
       registry.releaseBranchRooms("review");
       await vi.waitFor(() => expect(session.getSnapshot().status).toBe("destroyed"));
       expect(session.getSnapshot().status).toBe("destroyed");
+      expect(() => registry.getBranchRoom(roomKey)).toThrow(
+        expect.objectContaining({ kind: "authority-unavailable" }),
+      );
+      await expect(registry.closeAccountRuntime()).resolves.toBeUndefined();
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(unhandled).toEqual([]);
     } finally {
@@ -118,7 +129,10 @@ describe("DocumentSessionRegistry session lifecycle", () => {
     const registry = new DocumentSessionRegistry(undefined, 0);
     const roomKey = "branch:branch-reset-rejection:gen:1";
     const first = registry.getBranchRoom(roomKey);
-    providers.at(-1)?.destroy.mockRejectedValue(new Error("reset destroy failed"));
+    providers
+      .at(-1)
+      ?.destroy.mockRejectedValueOnce(new Error("reset destroy failed"))
+      .mockResolvedValueOnce(undefined);
     const unhandled: unknown[] = [];
     const observeUnhandled = (reason: unknown) => unhandled.push(reason);
     process.on("unhandledRejection", observeUnhandled);
@@ -129,9 +143,11 @@ describe("DocumentSessionRegistry session lifecycle", () => {
         code: WS_CLOSE.BRANCH_STALE.code,
       });
       await vi.waitFor(() => expect(first.getSnapshot().status).toBe("destroyed"));
-      const second = registry.getBranchRoom(roomKey);
       expect(first.getSnapshot().status).toBe("destroyed");
-      expect(second).not.toBe(first);
+      expect(() => registry.getBranchRoom(roomKey)).toThrow(
+        expect.objectContaining({ kind: "authority-unavailable" }),
+      );
+      await expect(registry.closeAccountRuntime()).resolves.toBeUndefined();
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(unhandled).toEqual([]);
     } finally {

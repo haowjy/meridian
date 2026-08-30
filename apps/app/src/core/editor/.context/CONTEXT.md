@@ -15,7 +15,12 @@ Yjs document session. It must stay structurally aligned with
 - The account document-session runtime constructs the only production registry
   for one immutable account epoch. Account close fences admission synchronously,
   then drains local providers, lifetime leases, and adopted-session finalizers
-  before the epoch can close. Live rooms are acquired only through
+  before the epoch can close. Active registry maps are lookup state, not teardown
+  ownership: every removed live or branch session transfers to the private
+  teardown owner, and its qualified room remains quarantined until the exact
+  session's retryable destroy ledger succeeds. Coordination close likewise
+  retains reconciliation, local-session, HA-before-HD hold, and authority-store
+  stages across rejected attempts. Live rooms are acquired only through
   project-qualified availability leases and use explicit
   account/document/generation persistence; review rooms use the opaque,
   generation-fenced `reviewRoomName` vended by the preview. Switching live ↔

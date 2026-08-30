@@ -61,11 +61,18 @@ type LifetimeHold = {
 };
 type DocumentHolds = {
   document: LifetimeHold;
+  documentReleased: boolean;
   projects: Map<ProjectId, LifetimeHold>;
 };
 type LocalAdmission = {
   generation: AvailabilityGeneration;
   incarnation: AvailabilityGeneration;
+};
+type CoordinationLifecycle = "open" | "closing" | "closed";
+type CoordinationCloseLedger = {
+  reconciliation: "pending" | "settled" | "not-applicable";
+  localSessions: "pending" | "settled";
+  store: "pending" | "settled";
 };
 
 export class DocumentSessionCoordinationError extends Error {
@@ -251,10 +258,15 @@ class Coordination implements DocumentSessionCrossContextCoordination {
   private readonly wakeChannel: WakeChannel | null;
   private reconcilePromise: Promise<void> | null = null;
   private readonly readiness: Promise<void>;
-  private closePromise: Promise<void> | null = null;
+  private closeAttempt: Promise<void> | null = null;
+  private readonly closeLedger: CoordinationCloseLedger = {
+    reconciliation: "pending",
+    localSessions: "pending",
+    store: "pending",
+  };
   private timer: ReturnType<typeof setTimeout> | null = null;
   private admissionsFenced = false;
-  private closed = false;
+  private lifecycle: CoordinationLifecycle = "open";
   private versionChanged = false;
   private readonly removeLifecycleListeners: () => void;
 
@@ -265,6 +277,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     private readonly local: LocalSessionAuthority,
     private readonly intervalMs: number,
     createWakeChannel: ((accountId: AccountId, wake: () => void) => WakeChannel | null) | null,
+    private readonly lifetimeHoldFactory: ((name: string) => Promise<LifetimeHold>) | null,
   ) {
     this.store = new DocumentSessionAuthorityStore(
       accountId,
@@ -497,7 +510,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       | "account-close",
   ): Promise<void> {
     if (_reason !== "account-close") await this.requireReady();
-    if (this.closed && _reason !== "account-close") return;
+    if (this.lifecycle !== "open" && _reason !== "account-close") return;
     if (this.reconcilePromise) return this.reconcilePromise;
     const reconciliation = this.runReconciliation();
     this.reconcilePromise = reconciliation;
@@ -510,21 +523,32 @@ class Coordination implements DocumentSessionCrossContextCoordination {
   }
 
   close(): Promise<void> {
-    if (this.closePromise) return this.closePromise;
     this.beginClose();
-    this.closed = true;
+    if (this.lifecycle === "closed") return Promise.resolve();
+    if (this.closeAttempt) return this.closeAttempt;
+    const attempt = this.finishClose();
+    this.closeAttempt = attempt;
+    void attempt
+      .finally(() => {
+        if (this.closeAttempt === attempt) this.closeAttempt = null;
+      })
+      .catch(() => undefined);
+    return attempt;
+  }
+
+  beginClose(): void {
+    if (this.lifecycle !== "open") return;
+    this.lifecycle = "closing";
+    this.admissionsFenced = true;
     this.abort.abort(new Error("Document authority closed"));
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     this.removeLifecycleListeners();
-    this.wakeChannel?.close();
-    const close = this.finishClose();
-    this.closePromise = close;
-    return close;
-  }
-
-  beginClose(): void {
-    this.admissionsFenced = true;
+    try {
+      this.wakeChannel?.close();
+    } catch {
+      // Wake delivery is advisory and carries no teardown authority.
+    }
   }
 
   private async finishClose(): Promise<void> {
@@ -536,21 +560,53 @@ class Coordination implements DocumentSessionCrossContextCoordination {
         errors.push(error);
       }
     };
-    let available = false;
-    try {
-      await this.readiness;
-      available = true;
-    } catch {
-      // Failed readiness still owns the same local teardown barrier.
+    if (this.closeLedger.reconciliation === "pending") {
+      let available = false;
+      try {
+        await this.readiness;
+        available = true;
+      } catch {
+        this.closeLedger.reconciliation = "not-applicable";
+      }
+      if (available && this.versionChanged) {
+        this.closeLedger.reconciliation = "not-applicable";
+      } else if (available) {
+        await settle(async () => {
+          await this.runReconciliation(true);
+          this.closeLedger.reconciliation = "settled";
+        });
+      }
     }
-    if (available && !this.versionChanged) {
-      await settle(() => this.reconcilePending("account-close"));
+    if (this.closeLedger.localSessions === "pending") {
+      await settle(async () => {
+        await this.local.invalidateAll();
+        this.closeLedger.localSessions = "settled";
+      });
     }
-    await settle(() => this.local.invalidateAll());
-    await settle(() => this.releaseAllHolds());
-    await settle(() => this.store.close());
+    if (this.closeLedger.localSessions === "settled") await settle(() => this.releaseAllHolds());
+    if (
+      this.closeLedger.reconciliation !== "pending" &&
+      this.closeLedger.localSessions === "settled" &&
+      this.holds.size === 0 &&
+      this.closeLedger.store === "pending"
+    ) {
+      await settle(async () => {
+        await this.store.close();
+        this.closeLedger.store = "settled";
+      });
+    }
     if (errors.length === 1) throw errors[0];
     if (errors.length > 1) throw new AggregateError(errors, "Document authority teardown failed");
+    if (
+      this.closeLedger.reconciliation !== "pending" &&
+      this.closeLedger.localSessions === "settled" &&
+      this.holds.size === 0 &&
+      this.closeLedger.store === "settled"
+    ) {
+      this.lifecycle = "closed";
+      return;
+    }
+    throw new Error("Document authority teardown did not reach its terminal state");
   }
 
   private async requireReady(): Promise<void> {
@@ -563,30 +619,31 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     this.assertOpen();
   }
 
-  private async runReconciliation(): Promise<void> {
+  private async runReconciliation(closing = false): Promise<void> {
     const rooms = await this.store.listPendingDrains();
     for (const room of rooms) {
       if (room.pendingDrain) await this.drainLocal(room.documentId, room.pendingDrain);
     }
     for (const room of rooms) {
       if (!room.pendingDrain) continue;
-      await this.withOperation(room.documentId, async () => {
-        await this.helpPendingUnderOperation(room.documentId);
+      await this.operationFor(closing, room.documentId, async () => {
+        await this.helpPendingUnderOperation(room.documentId, closing);
       });
-      await this.runPurgeWorker(room.documentId);
+      await this.runPurgeWorker(room.documentId, closing);
     }
     for (const purge of await this.store.pendingPurges()) {
-      await this.runPurgeWorker(purge.documentId);
+      await this.runPurgeWorker(purge.documentId, closing);
     }
   }
 
-  private async helpPendingUnderOperation(documentId: DocumentId): Promise<void> {
+  private async helpPendingUnderOperation(documentId: DocumentId, closing = false): Promise<void> {
     const pending = (await this.store.readRoom(documentId)).pendingDrain;
     if (!pending) return;
     this.signalWake();
     await this.drainLocal(documentId, pending);
     if (pending.kind === "document") {
-      await this.withExclusiveLifecycle(
+      await this.exclusiveLifecycleFor(
+        closing,
         documentLifecycleLock(this.accountId, documentId),
         async () => {
           await this.store.finishDocumentDrain({
@@ -598,7 +655,8 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       );
       return;
     }
-    await this.withExclusiveLifecycle(
+    await this.exclusiveLifecycleFor(
+      closing,
       accessLifecycleLock(this.accountId, pending.projectId, documentId),
       async () => {
         const cleared = await this.tryExclusiveLifecycle(
@@ -644,16 +702,27 @@ class Coordination implements DocumentSessionCrossContextCoordination {
         incarnation: pending.incarnation,
       });
       const holds = this.holds.get(documentId);
-      for (const [projectId] of matching) {
-        projects.delete(projectId);
-        const hold = holds?.projects.get(projectId);
-        holds?.projects.delete(projectId);
-        await hold?.release();
+      const releases = await Promise.allSettled(
+        matching.map(async ([projectId]) => {
+          await holds?.projects.get(projectId)?.release();
+          holds?.projects.delete(projectId);
+          projects.delete(projectId);
+        }),
+      );
+      const failures = releases.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1) {
+        throw new AggregateError(failures, "Access lifecycle hold release failed");
       }
       if (projects.size === 0) {
+        if (holds && !holds.documentReleased) {
+          await holds.document.release();
+          holds.documentReleased = true;
+        }
         this.admissions.delete(documentId);
         this.holds.delete(documentId);
-        await holds?.document.release();
       }
       return;
     }
@@ -668,17 +737,18 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       generation: pending.generation,
       incarnation: pending.incarnation,
     });
-    projects.delete(pending.projectId);
     const holds = this.holds.get(documentId);
     const accessHold = holds?.projects.get(pending.projectId);
+    if (disposition === "locally-empty" && holds && !holds.documentReleased) {
+      await holds.document.release();
+      holds.documentReleased = true;
+    }
+    await accessHold?.release();
     holds?.projects.delete(pending.projectId);
+    projects.delete(pending.projectId);
     if (disposition === "locally-empty") {
       this.admissions.delete(documentId);
       this.holds.delete(documentId);
-      await holds?.document.release();
-      await accessHold?.release();
-    } else {
-      await accessHold?.release();
     }
   }
 
@@ -692,7 +762,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       const document = await this.acquireLifetime(
         documentLifecycleLock(this.accountId, documentId),
       );
-      holds = { document, projects: new Map() };
+      holds = { document, documentReleased: false, projects: new Map() };
       this.holds.set(documentId, holds);
       documentAcquired = true;
     }
@@ -705,8 +775,8 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       return { document: documentAcquired, access: true };
     } catch (error) {
       if (documentAcquired) {
-        this.holds.delete(documentId);
         await holds.document.release();
+        this.holds.delete(documentId);
       }
       throw error;
     }
@@ -721,16 +791,18 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     if (!holds) return;
     if (acquired.access) {
       const access = holds.projects.get(projectId);
-      holds.projects.delete(projectId);
       await access?.release();
+      holds.projects.delete(projectId);
     }
     if (acquired.document) {
-      this.holds.delete(documentId);
+      if (holds.projects.size > 0) return;
       await holds.document.release();
+      this.holds.delete(documentId);
     }
   }
 
   private async acquireLifetime(name: string): Promise<LifetimeHold> {
+    if (this.lifetimeHoldFactory) return this.lifetimeHoldFactory(name);
     const acquired = deferred<void>();
     const released = deferred<void>();
     let callbackEntered = false;
@@ -772,6 +844,23 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     );
   }
 
+  private operationFor<T>(
+    closing: boolean,
+    documentId: DocumentId,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    if (!closing) return this.withOperation(documentId, callback);
+    return this.locks.request(
+      operationLock(this.accountId, documentId),
+      { mode: "exclusive" },
+      async (lock) => {
+        if (!lock) throw new Error("Close operation lock unexpectedly unavailable");
+        if (this.lifecycle !== "closing") throw new Error("Close operation requires closing state");
+        return callback();
+      },
+    );
+  }
+
   private withExclusiveLifecycle<T>(name: string, callback: () => Promise<T>): Promise<T> {
     return this.locks.request(
       name,
@@ -781,6 +870,19 @@ class Coordination implements DocumentSessionCrossContextCoordination {
         return callback();
       },
     );
+  }
+
+  private exclusiveLifecycleFor<T>(
+    closing: boolean,
+    name: string,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    if (!closing) return this.withExclusiveLifecycle(name, callback);
+    return this.locks.request(name, { mode: "exclusive" }, async (lock) => {
+      if (!lock) throw new Error("Close lifecycle lock unexpectedly unavailable");
+      if (this.lifecycle !== "closing") throw new Error("Close lifecycle requires closing state");
+      return callback();
+    });
   }
 
   private async tryExclusiveLifecycle(
@@ -794,8 +896,8 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     });
   }
 
-  private async runPurgeWorker(documentId: DocumentId): Promise<boolean> {
-    const snapshot = await this.withOperation(documentId, () =>
+  private async runPurgeWorker(documentId: DocumentId, closing = false): Promise<boolean> {
+    const snapshot = await this.operationFor(closing, documentId, () =>
       this.store.snapshotPurge(documentId),
     );
     if (!snapshot) return true;
@@ -832,7 +934,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
   }
 
   private scheduleScan(): void {
-    if (this.closed || this.holds.size === 0 || this.timer) return;
+    if (this.lifecycle !== "open" || this.holds.size === 0 || this.timer) return;
     this.timer = setTimeout(() => {
       this.timer = null;
       void this.reconcilePending("scan").catch(() => undefined);
@@ -858,20 +960,26 @@ class Coordination implements DocumentSessionCrossContextCoordination {
   }
 
   private async releaseAllHolds(): Promise<void> {
-    const holds = [...this.holds.values()];
-    this.holds.clear();
-    this.admissions.clear();
     const errors: unknown[] = [];
-    for (const document of holds) {
-      for (const access of document.projects.values()) {
-        try {
+    for (const [documentId, document] of [...this.holds]) {
+      const accessResults = await Promise.allSettled(
+        [...document.projects].map(async ([projectId, access]) => {
           await access.release();
-        } catch (error) {
-          errors.push(error);
-        }
+          document.projects.delete(projectId);
+          const admissions = this.admissions.get(documentId);
+          admissions?.delete(projectId);
+          if (admissions?.size === 0) this.admissions.delete(documentId);
+        }),
+      );
+      for (const result of accessResults) {
+        if (result.status === "rejected") errors.push(result.reason);
       }
+      if (document.projects.size > 0) continue;
       try {
-        await document.document.release();
+        if (!document.documentReleased) await document.document.release();
+        document.documentReleased = true;
+        this.holds.delete(documentId);
+        this.admissions.delete(documentId);
       } catch (error) {
         errors.push(error);
       }
@@ -881,7 +989,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
   }
 
   private assertOpen(): void {
-    if (this.closed || this.versionChanged) {
+    if (this.lifecycle !== "open" || this.versionChanged) {
       throw new DocumentSessionCoordinationError(
         "account-mismatch",
         "Document authority is closed or changed",
@@ -908,6 +1016,7 @@ export function createDocumentSessionCrossContextCoordination(input: {
   secureContext?: boolean;
   createWakeChannel?: ((accountId: AccountId, wake: () => void) => WakeChannel | null) | null;
   reconcileIntervalMs?: number;
+  acquireLifetimeHold?: (name: string) => Promise<{ release(): Promise<void> }>;
 }): DocumentSessionCrossContextCoordination {
   const secure = input.secureContext ?? globalThis.isSecureContext === true;
   const locks = input.locks === undefined ? nativeLocks() : input.locks;
@@ -925,5 +1034,6 @@ export function createDocumentSessionCrossContextCoordination(input: {
     input.local,
     input.reconcileIntervalMs ?? PENDING_DRAIN_RECONCILE_MS,
     input.createWakeChannel === undefined ? nativeWakeChannel : input.createWakeChannel,
+    input.acquireLifetimeHold ?? null,
   );
 }

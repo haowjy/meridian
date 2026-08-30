@@ -8,11 +8,11 @@ import {
   DraftReviewBoundary,
   type DraftReviewContextValue,
 } from "@/features/chat/DraftReviewProvider";
-import { withReactRoot } from "@/test-support/react-dom-harness";
 import {
-  ContextRemovalAccountProvider,
+  AccountFeatureTestProvider,
   useContextRemovalCoordinator,
-} from "../context/ContextRemovalAccountProvider";
+} from "@/test-support/account-feature-provider";
+import { withReactRoot } from "@/test-support/react-dom-harness";
 import { ProjectContextRemovalController } from "../context/ProjectContextRemovalController";
 import { useContextRemovalProject } from "../context/use-context-removal-project";
 import type { AiDraftLaunchTarget } from "../dock/editor-review-handoff";
@@ -53,8 +53,8 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../context/ContextRemovalAccountProvider", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../context/ContextRemovalAccountProvider")>();
+vi.mock("../context/account-feature-context", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../context/account-feature-context")>();
   return {
     ...actual,
     useProjectDocumentLiveOpener: () => mocks.liveOpener,
@@ -290,10 +290,10 @@ describe("MobileDocumentHost review binding", () => {
     const navigate = vi.fn().mockResolvedValue(undefined);
     await withReactRoot(
       <StrictMode>
-        <ContextRemovalAccountProvider accountId="account-1">
+        <AccountFeatureTestProvider accountId="account-1">
           <CoordinatorCapture />
           <PhoneRouteHarness navigate={navigate} />
-        </ContextRemovalAccountProvider>
+        </AccountFeatureTestProvider>
       </StrictMode>,
       async () => {
         await act(async () => {
@@ -345,9 +345,9 @@ describe("MobileDocumentHost review binding", () => {
     });
 
     await withReactRoot(
-      <ContextRemovalAccountProvider accountId="account-1">
+      <AccountFeatureTestProvider accountId="account-1">
         <DirectMobileHarness />
-      </ContextRemovalAccountProvider>,
+      </AccountFeatureTestProvider>,
       async () => {
         await act(async () => undefined);
         await act(async () => setDirectPath?.("chapters/second.md"));
@@ -366,9 +366,9 @@ describe("MobileDocumentHost review binding", () => {
       kind === "not-editable" ? { kind, document: file } : { kind, reason: "not-visible" },
     );
     await withReactRoot(
-      <ContextRemovalAccountProvider accountId="account-1">
+      <AccountFeatureTestProvider accountId="account-1">
         <DirectMobileHarness />
-      </ContextRemovalAccountProvider>,
+      </AccountFeatureTestProvider>,
       async () => {
         await act(async () => undefined);
         expect(mocks.editorProps).toHaveLength(0);

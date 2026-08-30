@@ -14,7 +14,7 @@ const open = vi.fn();
 const acknowledge = vi.fn();
 
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ setQueryData() {} }) }));
-vi.mock("../context/ContextRemovalAccountProvider", () => ({
+vi.mock("../context/account-feature-context", () => ({
   useContextRemovalCoordinator: () => ({ settleDraftRecovery: settle }),
   useProjectDocumentLiveOpener: () => ({ open }),
 }));

@@ -17,7 +17,7 @@ import { AlertCircle, Loader2 } from "lucide-react";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from "react";
 import { useDraftReview } from "@/features/chat/DraftReviewProvider";
 import { PassageNotice } from "@/features/editor/PassageNotice";
-import { useContextRemovalCoordinator } from "../context/ContextRemovalAccountProvider";
+import { useContextRemovalCoordinator } from "../context/account-feature-context";
 import { ContextViewerBareHost } from "../context/ContextViewerHost";
 import { useContextRemovalProject } from "../context/use-context-removal-project";
 import { useLiveDocumentBinding } from "../context/use-live-document-binding";

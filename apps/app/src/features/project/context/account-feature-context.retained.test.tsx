@@ -36,12 +36,12 @@ vi.mock("@/client/query/project-context-availability", () => ({
 }));
 
 import {
-  ContextRemovalAccountProvider,
+  AccountFeatureTestProvider,
   useProjectContextAvailabilityCoordinator,
-} from "./ContextRemovalAccountProvider";
+} from "@/test-support/account-feature-provider";
 import type { ProjectContextAvailabilityCoordinator } from "./project-context-availability-coordinator";
 
-describe("ContextRemovalAccountProvider retained producer", () => {
+describe("AccountFeatureTestProvider retained producer", () => {
   it("keeps a detached retained-only project watched without a project view", async () => {
     let availability: ProjectContextAvailabilityCoordinator | null = null;
     function Capture() {
@@ -54,9 +54,9 @@ describe("ContextRemovalAccountProvider retained producer", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     await withReactRoot(
       <QueryClientProvider client={queryClient}>
-        <ContextRemovalAccountProvider accountId="account-1">
+        <AccountFeatureTestProvider accountId="account-1">
           <Capture />
-        </ContextRemovalAccountProvider>
+        </AccountFeatureTestProvider>
       </QueryClientProvider>,
       async () => {
         rig.retainedObserver?.([{ projectId: "project-retained", documentId: "document-only" }]);

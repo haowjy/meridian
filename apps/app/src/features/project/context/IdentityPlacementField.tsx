@@ -16,7 +16,7 @@ import type { ContextTab } from "@/client/stores";
 import { IconButton } from "@/components/ui/icon-button";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { useLocalUntitledOwner } from "./ContextRemovalAccountProvider";
+import { useLocalUntitledOwner } from "./account-feature-context";
 import { invalidContextEntryNameReason } from "./context-entry-name";
 import { schemeLabel } from "./context-schemes";
 import {

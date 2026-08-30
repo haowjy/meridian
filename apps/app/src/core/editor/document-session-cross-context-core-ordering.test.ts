@@ -277,10 +277,18 @@ describe("document session cross-context coordination", () => {
     const accountId = "account-versionchange-rejection";
     const locks = new FifoWebLocks();
     const diagnostic = new Error("provider destroy failed on versionchange");
+    let rejectFirst!: (error: Error) => void;
+    const firstFailure = new Promise<void>((_resolve, reject) => {
+      rejectFirst = reject;
+    });
     class RejectingLocalAuthority extends LocalAuthority {
+      private rejected = false;
       override async invalidateAll(): Promise<void> {
         await super.invalidateAll();
-        throw diagnostic;
+        if (!this.rejected) {
+          this.rejected = true;
+          await firstFailure;
+        }
       }
     }
     const local = new RejectingLocalAuthority();
@@ -301,8 +309,11 @@ describe("document session cross-context coordination", () => {
       });
       await vi.waitFor(() => expect(local.invalidated).toBe(1));
       const joiningClose = value.close();
+      rejectFirst(diagnostic);
       const joinedDiagnostic = await joiningClose.catch((error: unknown) => error);
       expect(joinedDiagnostic).toBe(diagnostic);
+      expect(locks.activeNames()).toHaveLength(2);
+      await expect(value.close()).resolves.toBeUndefined();
       await upgraded;
       expect(local.leases.size).toBe(0);
       expect(locks.activeNames()).toEqual([]);
@@ -382,6 +393,47 @@ describe("document session cross-context coordination", () => {
       "meridian:f1d:v1:document-lifecycle/account-sole-access/doc",
       "meridian:f1d:v1:access-lifecycle/account-sole-access/project-b/doc",
     ]);
+  });
+
+  it.each([
+    "access",
+    "document",
+  ] as const)("retains and retries a rejected %s hold release during account close", async (failure) => {
+    const calls = { access: 0, document: 0 };
+    const value = createDocumentSessionCrossContextCoordination({
+      accountId: `account-close-${failure}-retry`,
+      idb: indexedDB,
+      locks: new FifoWebLocks(),
+      local: new LocalAuthority(),
+      secureContext: true,
+      createWakeChannel: null,
+      acquireLifetimeHold: async (name) => {
+        const kind = name.includes("access-lifecycle") ? "access" : "document";
+        return {
+          release: async () => {
+            calls[kind] += 1;
+            if (kind === failure && calls[kind] === 1) {
+              throw new Error(`${kind} release failed once`);
+            }
+          },
+        };
+      },
+    });
+    await value.admit("project", "doc", "1");
+
+    const firstA = value.close();
+    const firstB = value.close();
+    expect(firstA).toBe(firstB);
+    await expect(firstA).rejects.toThrow(`${failure} release failed once`);
+    await expect(firstB).rejects.toThrow(`${failure} release failed once`);
+    if (failure === "access") expect(calls.document).toBe(0);
+
+    await expect(value.close()).resolves.toBeUndefined();
+    expect(calls[failure]).toBe(2);
+    expect(calls.access).toBe(failure === "access" ? 2 : 1);
+    expect(calls.document).toBe(failure === "document" ? 2 : 1);
+    await expect(value.close()).resolves.toBeUndefined();
+    expect(calls[failure]).toBe(2);
   });
 
   it("unwinds a partial HD acquisition so later lifecycle exclusion grants", async () => {

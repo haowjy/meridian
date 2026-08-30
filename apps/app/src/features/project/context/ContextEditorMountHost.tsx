@@ -38,7 +38,7 @@ import { useDraftReview } from "@/features/chat/DraftReviewProvider";
 import { cn } from "@/lib/utils";
 import { useLiveBindingAcknowledgementHost } from "../dock/editor-review-handoff";
 import { usePostApplyHostWake } from "../draft-apply-recovery/ProjectDraftApplyRecoveryExecutor";
-import { useLocalUntitledOwner } from "./ContextRemovalAccountProvider";
+import { useLocalUntitledOwner } from "./account-feature-context";
 import { LocalUntitledIdentityRedirect } from "./local-untitled-owner";
 import { untitledDocumentIsEmpty } from "./untitled-reconciler";
 import { useLiveDocumentBinding } from "./use-live-document-binding";

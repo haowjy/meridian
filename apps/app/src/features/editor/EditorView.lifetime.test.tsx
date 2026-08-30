@@ -145,7 +145,7 @@ vi.mock("@/features/change-trail/trail-detail-query", () => ({
 vi.mock("@/features/chat/DraftReviewProvider", () => ({
   useDraftReview: () => ({ controller }),
 }));
-vi.mock("@/features/project/context/ContextRemovalAccountProvider", () => ({
+vi.mock("@/features/project/context/account-feature-context", () => ({
   useLiveDocumentSessionRegistry: () => registry,
 }));
 vi.mock("./useInlineReviewSync", () => ({ useInlineReviewSync: () => {} }));

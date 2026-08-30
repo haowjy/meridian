@@ -57,7 +57,7 @@ vi.mock("@/client/api/drafts-api", () => ({
   getDraftPreview: (_projectId: string, _workId: string, _documentId: string, draftId: string) =>
     Promise.resolve(draftPreviews.get(draftId) ?? draftPreview),
 }));
-vi.mock("@/features/project/context/ContextRemovalAccountProvider", () => ({
+vi.mock("@/features/project/context/account-feature-context", () => ({
   useContextRemovalCoordinator: () => ({
     applyDraftMetadata: applyDraftMetadataMock,
     discardDraft: discardDraftTabMock,

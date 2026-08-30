@@ -39,7 +39,7 @@ import {
 } from "@/components/ui/dropdown-presentation";
 import { OverflowMenu } from "@/components/ui/overflow-menu";
 import { cn } from "@/lib/utils";
-import { useContextRemovalCoordinator } from "./ContextRemovalAccountProvider";
+import { useContextRemovalCoordinator } from "./account-feature-context";
 import { contextTreeOverflowTriggerClassName } from "./context-row-geometry";
 
 // ─── Action types ────────────────────────────────────────────────────────────

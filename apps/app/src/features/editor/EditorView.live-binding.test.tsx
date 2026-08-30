@@ -20,7 +20,7 @@ vi.mock("@lingui/react/macro", () => ({
   Trans: ({ children }: { children?: unknown }) => children,
 }));
 
-vi.mock("@/features/project/context/ContextRemovalAccountProvider", () => ({
+vi.mock("@/features/project/context/account-feature-context", () => ({
   useLiveDocumentSessionRegistry: () => registry,
 }));
 vi.mock("./editor-bind-horizon", () => ({

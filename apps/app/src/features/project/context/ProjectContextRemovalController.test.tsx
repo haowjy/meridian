@@ -1,11 +1,11 @@
 import { act, useLayoutEffect, useState } from "react";
 import { describe, expect, it } from "vitest";
 import { useContextTabsStore } from "@/client/stores";
-import { withReactRoot } from "@/test-support/react-dom-harness";
 import {
-  ContextRemovalAccountProvider,
+  AccountFeatureTestProvider,
   useContextRemovalCoordinator,
-} from "./ContextRemovalAccountProvider";
+} from "@/test-support/account-feature-provider";
+import { withReactRoot } from "@/test-support/react-dom-harness";
 import type { ContextRemovalCoordinator } from "./context-removal-coordinator";
 import { ProjectContextRemovalController } from "./ProjectContextRemovalController";
 import { useContextRemovalProject } from "./use-context-removal-project";
@@ -59,7 +59,7 @@ describe("ProjectContextRemovalController", () => {
       return null;
     }
     await withReactRoot(
-      <ContextRemovalAccountProvider accountId="account-1">
+      <AccountFeatureTestProvider accountId="account-1">
         <ProjectContextRemovalController
           projectId="project-1"
           activeScreen="context"
@@ -70,7 +70,7 @@ describe("ProjectContextRemovalController", () => {
         />
         <SettlingHost projectId="project-1" />
         <Observer />
-      </ContextRemovalAccountProvider>,
+      </AccountFeatureTestProvider>,
       () => {
         expect(observed?.selection).toMatchObject({
           status: "bound",
@@ -104,7 +104,7 @@ describe("ProjectContextRemovalController", () => {
       _deskHydrated: true,
     });
     await withReactRoot(
-      <ContextRemovalAccountProvider accountId="account-1">
+      <AccountFeatureTestProvider accountId="account-1">
         <ProjectContextRemovalController
           projectId="project-1"
           activeScreen="home"
@@ -113,7 +113,7 @@ describe("ProjectContextRemovalController", () => {
           editorWorkId="work-2"
           route={route}
         />
-      </ContextRemovalAccountProvider>,
+      </AccountFeatureTestProvider>,
       async () => {
         await act(async () => undefined);
         expect(useContextTabsStore.getState().byProject["project-1"]?.tabs).toHaveLength(0);
@@ -166,7 +166,7 @@ describe("ProjectContextRemovalController", () => {
       const [screen, updateScreen] = useState<"context" | typeof offScreen>("context");
       setScreen = updateScreen;
       return (
-        <ContextRemovalAccountProvider accountId="account-1">
+        <AccountFeatureTestProvider accountId="account-1">
           <Capture />
           <ProjectContextRemovalController
             projectId="project-1"
@@ -177,7 +177,7 @@ describe("ProjectContextRemovalController", () => {
             route={route}
           />
           <SettlingHost projectId="project-1" />
-        </ContextRemovalAccountProvider>
+        </AccountFeatureTestProvider>
       );
     }
 
@@ -221,7 +221,7 @@ describe("ProjectContextRemovalController", () => {
     });
   });
 
-  it("disposes account state on provider release", async () => {
+  it("retains account state when only the route composition releases", async () => {
     let coordinator: ContextRemovalCoordinator | null = null;
     function Capture() {
       coordinator = useContextRemovalCoordinator();
@@ -241,18 +241,15 @@ describe("ProjectContextRemovalController", () => {
       return null;
     }
     await withReactRoot(
-      <ContextRemovalAccountProvider accountId="account-1">
+      <AccountFeatureTestProvider accountId="account-1">
         <Capture />
-      </ContextRemovalAccountProvider>,
+      </AccountFeatureTestProvider>,
       () => undefined,
     );
     if (!coordinator) throw new Error("expected coordinator");
     expect(
       (coordinator as ContextRemovalCoordinator).getProjectSnapshot("project-1").selection,
-    ).toEqual({
-      status: "none",
-      revision: 0,
-    });
+    ).toMatchObject({ status: "bound", revision: 1 });
   });
 
   it("releases the host without destroying account-owned project revision", async () => {
@@ -266,7 +263,7 @@ describe("ProjectContextRemovalController", () => {
       const [hostVisible, updateHostVisible] = useState(true);
       setHostVisible = updateHostVisible;
       return (
-        <ContextRemovalAccountProvider accountId="account-1">
+        <AccountFeatureTestProvider accountId="account-1">
           <Capture />
           {hostVisible ? (
             <>
@@ -281,7 +278,7 @@ describe("ProjectContextRemovalController", () => {
               <SettlingHost projectId="project-1" />
             </>
           ) : null}
-        </ContextRemovalAccountProvider>
+        </AccountFeatureTestProvider>
       );
     }
 

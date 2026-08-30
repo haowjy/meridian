@@ -2,7 +2,7 @@
 
 import { createContext, type ReactNode, useContext, useSyncExternalStore } from "react";
 import type { ThreadDraftGroup } from "@/client/query/useWorkDrafts";
-import { useAccountPostApplyDispositionOwner } from "../context/ContextRemovalAccountProvider";
+import { useAccountPostApplyDispositionOwner } from "../context/account-feature-context";
 import type { PostApplyDispositionOwner, PostApplySnapshot } from "./draft-apply-recovery-owner";
 import { type DraftGroupProjections, projectPostApplyDraftGroups } from "./draft-group-projections";
 

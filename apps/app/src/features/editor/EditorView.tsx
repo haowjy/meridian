@@ -42,7 +42,7 @@ import {
 } from "@/core/editor/mounted-editor";
 import { usePrefetchTrailDetails } from "@/features/change-trail/trail-detail-query";
 import { useDraftReview } from "@/features/chat/DraftReviewProvider";
-import { useLiveDocumentSessionRegistry } from "@/features/project/context/ContextRemovalAccountProvider";
+import { useLiveDocumentSessionRegistry } from "@/features/project/context/account-feature-context";
 import { cn } from "@/lib/utils";
 import { EditorChromeHost } from "./chrome/EditorChromeHost";
 import { EditorSurfaceFrame } from "./EditorSurfaceFrame";

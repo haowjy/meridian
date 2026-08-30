@@ -7,13 +7,13 @@ import type { ProjectContextTreeScheme } from "@meridian/contracts/protocol";
 import { act, useState } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { type ContextTab, rehydrateContextDesks, useContextTabsStore } from "@/client/stores";
+import {
+  AccountFeatureTestProvider,
+  useContextRemovalCoordinator,
+} from "@/test-support/account-feature-provider";
 import { withReactRoot } from "@/test-support/react-dom-harness";
 import { ContextViewerSurfaceController } from "../ContextPaneController";
 import type { ProjectSearch } from "../routing/project-route";
-import {
-  ContextRemovalAccountProvider,
-  useContextRemovalCoordinator,
-} from "./ContextRemovalAccountProvider";
 import type {
   ContextRemovalCoordinator,
   ContextRemovalRoutePort,
@@ -146,7 +146,7 @@ it("persists and admits the real New action without an empty working-set route",
       else commit();
     };
     return (
-      <ContextRemovalAccountProvider accountId="new-action-account">
+      <AccountFeatureTestProvider accountId="new-action-account">
         <CaptureCoordinator />
         <ProjectContextRemovalController
           projectId="project"
@@ -176,7 +176,7 @@ it("persists and admits the real New action without an empty working-set route",
           onSelectContextPath={updateRoute}
           onOpenContextTarget={(target) => updateRoute(target.path, target.scheme)}
         />
-      </ContextRemovalAccountProvider>
+      </AccountFeatureTestProvider>
     );
   }
 
@@ -251,7 +251,7 @@ it("guarded-redirects a selected materialized local owner before admitting its s
   function Harness() {
     const [path, setPath] = useState("");
     return (
-      <ContextRemovalAccountProvider accountId="materialized-redirect-account">
+      <AccountFeatureTestProvider accountId="materialized-redirect-account">
         <CaptureCoordinator />
         <ProjectContextRemovalController
           projectId="project"
@@ -278,7 +278,7 @@ it("guarded-redirects a selected materialized local owner before admitting its s
           onSelectContextPath={vi.fn()}
           onOpenContextTarget={vi.fn()}
         />
-      </ContextRemovalAccountProvider>
+      </AccountFeatureTestProvider>
     );
   }
 
@@ -327,7 +327,7 @@ it("restores the exact older local owner across A to B to A through mounted cont
       setWorkId(next);
     };
     return (
-      <ContextRemovalAccountProvider accountId="untitled-owner-account">
+      <AccountFeatureTestProvider accountId="untitled-owner-account">
         <CaptureCoordinator />
         <ProjectContextRemovalController
           projectId="project"
@@ -353,7 +353,7 @@ it("restores the exact older local owner across A to B to A through mounted cont
           onSelectContextPath={vi.fn()}
           onOpenContextTarget={vi.fn()}
         />
-      </ContextRemovalAccountProvider>
+      </AccountFeatureTestProvider>
     );
   }
 
@@ -399,7 +399,7 @@ it.each([
   };
 
   await withReactRoot(
-    <ContextRemovalAccountProvider accountId={`account-${_case}`}>
+    <AccountFeatureTestProvider accountId={`account-${_case}`}>
       <CaptureCoordinator />
       <ProjectContextRemovalController
         projectId="project"
@@ -420,7 +420,7 @@ it.each([
         onSelectContextPath={vi.fn()}
         onOpenContextTarget={vi.fn()}
       />
-    </ContextRemovalAccountProvider>,
+    </AccountFeatureTestProvider>,
     () => {
       if (!coordinator) throw new Error("coordinator did not mount");
       expect(coordinator.getProjectSnapshot("project")).toMatchObject({
@@ -450,7 +450,7 @@ it.each([
   };
 
   await withReactRoot(
-    <ContextRemovalAccountProvider accountId="account-1">
+    <AccountFeatureTestProvider accountId="account-1">
       <CaptureCoordinator />
       <ProjectContextRemovalController
         projectId="project"
@@ -471,7 +471,7 @@ it.each([
         onSelectContextPath={vi.fn()}
         onOpenContextTarget={vi.fn()}
       />
-    </ContextRemovalAccountProvider>,
+    </AccountFeatureTestProvider>,
     async () => {
       const service = coordinator;
       if (!service) throw new Error("coordinator did not mount");

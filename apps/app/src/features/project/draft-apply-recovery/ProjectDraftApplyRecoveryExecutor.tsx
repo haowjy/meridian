@@ -16,7 +16,7 @@ import { projectQueryKeys } from "@/client/query/project-query-keys";
 import {
   useContextRemovalCoordinator,
   useProjectDocumentLiveOpener,
-} from "../context/ContextRemovalAccountProvider";
+} from "../context/account-feature-context";
 import { useAcknowledgeLiveBinding } from "../dock/editor-review-handoff";
 import {
   useOptionalPostApplyDisposition,

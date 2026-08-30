@@ -8,6 +8,6 @@ export const ProjectDocumentLiveOpenerContext = createContext<ProjectDocumentLiv
 
 export function useProjectDocumentLiveOpener(): ProjectDocumentLiveOpener {
   const opener = useContext(ProjectDocumentLiveOpenerContext);
-  if (!opener) throw new Error("ContextRemovalAccountProvider is required");
+  if (!opener) throw new Error("AccountFeatureComposition is required");
   return opener;
 }
