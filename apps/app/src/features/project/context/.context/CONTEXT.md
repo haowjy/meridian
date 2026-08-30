@@ -116,13 +116,9 @@ still remove it. Server working-set bootstrap merges validated device-owned
 `untitled-reconciler-browser.ts` binds APIs, the account-local owner, and React
 hooks. The account/project/document-qualified `LocalUntitledOwner` record is
 the sole durable pre-authority work source, including its monotonic work
-revision, materialization phase and crash-durable create settlement, desired
-identity, failure receipt, home, and pending timestamp. Explicit writer actions
-and recovery receipts are therefore crash-safe. Create settlement is one durable
-`ready | confirmation-required | confirmed(result)` state: the marker precedes
-POST, the result precedes identity/admission, and recovery confirmation uses the
-account's project-final availability coordinator. Reconciliation re-reads the
-live revision after every
+revision, materialization phase and result, desired identity, failure receipt,
+home, and pending timestamp. Explicit writer actions and recovery receipts are
+therefore crash-safe. Reconciliation re-reads the live revision after every
 await; an attempt may clear identity work or drain a record only when that exact
 revision is still current, so the last explicit writer identity wins. Events
 only schedule the same deferred, idempotent sweep. The sweep creates through
