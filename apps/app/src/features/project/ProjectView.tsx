@@ -76,6 +76,7 @@ import { WorkPaneController } from "./WorkPaneController";
 const MAIN_MIN_WIDTH = 360;
 const COMPACT_DESKTOP_QUERY = "(max-width: 899px)";
 const NARROW_DESKTOP_QUERY = "(max-width: 767px)";
+const NO_INLINE_DOCUMENTS: readonly string[] = [];
 
 export type ProjectViewProps = {
   projectId: string;
@@ -260,7 +261,7 @@ function HydratedReviewProject({
         mobileContextPath={
           props.activeContextScheme === "manuscript" ? props.activeContextPath : null
         }
-        inlineDocumentIds={[]}
+        inlineDocumentIds={NO_INLINE_DOCUMENTS}
       >
         <HydratedReviewScopes {...props} chatWorkId={chatWorkId} chatThreadId={chatThreadId} />
       </ProjectDraftApplyRecoveryExecutor>

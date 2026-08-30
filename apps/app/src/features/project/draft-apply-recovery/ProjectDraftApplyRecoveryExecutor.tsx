@@ -56,6 +56,7 @@ const EMPTY_POST_APPLY_SNAPSHOT = {
   appliedSuppressions: [],
   remoteDraftWitnesses: [],
 } as const;
+const EMPTY_CONTEXT_TABS: readonly never[] = [];
 
 export function ProjectDraftApplyRecoveryExecutor({
   projectId,
@@ -76,7 +77,9 @@ export function ProjectDraftApplyRecoveryExecutor({
   const opener = useProjectDocumentLiveOpener();
   const acknowledge = useAcknowledgeLiveBinding();
   const removal = useContextRemovalCoordinator();
-  const tabs = useContextTabsStore((state) => state.byProject[projectId]?.tabs ?? []);
+  const tabs = useContextTabsStore(
+    (state) => state.byProject[projectId]?.tabs ?? EMPTY_CONTEXT_TABS,
+  );
   const running = useRef<{
     grant: PostApplyAttemptGrant;
     abort: AbortController;
