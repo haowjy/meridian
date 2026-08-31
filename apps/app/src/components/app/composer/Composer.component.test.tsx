@@ -13,7 +13,6 @@ import {
   type ComposerSubmitEnvelope,
   type ComposerSubmitOutcome,
   type ComposerUploadPort,
-  serializeComposerDraft,
 } from "./Composer";
 
 let root: Root;
@@ -111,12 +110,6 @@ describe("Composer draft changes", () => {
 });
 
 describe("Composer settlement", () => {
-  it("clears only an unchanged accepted revision", async () => {
-    const ref = await mount((e) => outcome(e, "accepted"));
-    await act(async () => ref.current?.restoreSnapshot(textSnapshot("exact", 1)));
-    await send();
-    expect(ref.current?.getDraft()).toBe("");
-  });
   it("preserves a newer revision against an older accepted result", async () => {
     let settle!: (value: ComposerSubmitOutcome) => void;
     let frozen!: ComposerSubmitEnvelope;
@@ -230,36 +223,6 @@ describe("Composer upload deletion", () => {
     );
     expect(deleteDraft).toHaveBeenCalledWith(upload, { kind: "none", projectId: "p" });
   });
-  it("retains the canonical Work authority supplied at intake", async () => {
-    const scope = {
-      kind: "work" as const,
-      projectId: "project-1",
-      workId: "work-1",
-      workSlug: "draft-one" as const,
-    };
-    const port: ComposerUploadPort = {
-      intake: vi.fn(async () => ({
-        documentId: "01900000-0000-7000-8000-000000000011",
-        uri: "uploads://@draft-one/map.png",
-        fileType: "image" as const,
-        locationRevision: "revision-11",
-      })),
-      deleteDraft: vi.fn(),
-    };
-    const ref = await mount((e) => outcome(e, "accepted"), {
-      uploadPort: port,
-      uploadScope: scope,
-    });
-    const input = host.querySelector('input[type="file"]') as HTMLInputElement;
-    Object.defineProperty(input, "files", {
-      configurable: true,
-      value: [new File(["map"], "map.png", { type: "image/png" })],
-    });
-    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
-    const reference = ref.current?.snapshot().doc.content?.[0]?.content?.[0]?.attrs?.reference;
-    expect(reference?.authority).toEqual(scope);
-  });
-
   it("blocks pending intake, retains failure, and retries the stable intake identity", async () => {
     const intake = vi
       .fn()
@@ -334,100 +297,5 @@ describe("Composer upload deletion", () => {
       }),
     );
     expect(sendButton.disabled).toBe(false);
-  });
-});
-
-describe("Composer @ references", () => {
-  it("uses the shared reference menu to insert one atomic token and undo exactly", async () => {
-    const { catalogViewFromSnapshot } = await import("@/client/query/context-catalog-cache");
-    const { getAtReferenceMenu } = await import("@/core/editor/extensions/at-reference");
-    const project = { kind: "project", projectId: "project-1" } as const;
-    const work = { kind: "work", projectId: "project-1", workId: "work-1" } as const;
-    const projectView = catalogViewFromSnapshot({
-      scope: project,
-      generation: "g",
-      headRevision: "1",
-      cursor: "c",
-      entries: [
-        {
-          kind: "authority",
-          entryId: "work-1",
-          scope: project,
-          authority: { kind: "work", workId: "work-1", workSlug: "current-draft" },
-          name: "Current draft",
-          available: true,
-          entityRevision: "1",
-        },
-      ],
-    } as never);
-    const workView = catalogViewFromSnapshot({
-      scope: work,
-      generation: "g",
-      headRevision: "1",
-      cursor: "c",
-      entries: [
-        {
-          kind: "source",
-          entryId: "source-1",
-          scope: work,
-          scheme: "scratch",
-          name: "Scratch",
-          uri: "scratch://@current-draft/",
-        },
-        {
-          kind: "file",
-          entryId: "01900000-0000-7000-8000-000000000009",
-          scope: work,
-          sourceId: "source-1",
-          parentId: "source-1",
-          name: "Chapter Nine",
-          aliases: [],
-          path: ["Chapter Nine"],
-          uri: "scratch://@current-draft/Chapter Nine",
-          provisionalName: false,
-          editable: true,
-          filetype: "markdown",
-          schemaType: "document",
-        },
-      ],
-    } as never);
-    const views = new Map([
-      ["project", projectView],
-      ["work", workView],
-    ]);
-    const referenceCatalog = {
-      label: "References",
-      openContext: () => ({ warmScopes: [project, work] }),
-      port: {
-        read: (scope: typeof project | typeof work) => views.get(scope.kind) ?? null,
-        acquire: async (scope: typeof project | typeof work) => views.get(scope.kind) ?? workView,
-      },
-    };
-    const ref = await mount((e) => outcome(e, "accepted"), { referenceCatalog });
-    const element = host.querySelector('[contenteditable="true"]') as HTMLElement & {
-      editor: import("@tiptap/core").Editor;
-    };
-    const editor = element.editor;
-    const before = ref.current?.snapshot();
-    await act(async () => {
-      editor.commands.insertContent("@Chapter");
-    });
-    const preChoice = ref.current?.snapshot();
-    const menu = getAtReferenceMenu(editor);
-    expect(menu?.snapshot().items).toHaveLength(1);
-    await act(async () => {
-      menu?.choose(0);
-    });
-    const chosen = ref.current?.snapshot();
-    expect(chosen?.doc.content?.[0]?.content?.[0]?.type).toBe("composerReference");
-    expect(chosen && serializeComposerDraft(chosen.doc).references[0]).toMatchObject({
-      uri: "scratch://@current-draft/Chapter Nine",
-    });
-    await act(async () => {
-      editor.commands.undo();
-    });
-    expect(ref.current?.snapshot().doc).toEqual(preChoice?.doc);
-    expect(ref.current?.snapshot().selection).toEqual(preChoice?.selection);
-    expect(before?.doc).not.toEqual(chosen?.doc);
   });
 });

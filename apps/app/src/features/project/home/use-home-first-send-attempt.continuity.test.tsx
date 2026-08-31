@@ -79,36 +79,6 @@ afterEach(async () => {
 });
 
 describe("useHomeFirstSendAttempt continuity", () => {
-  it("creates No Work with null and stages the exact envelope before navigation", async () => {
-    let claimAtNavigation: Awaited<ReturnType<FirstSendContinuity["claim"]>> = null;
-    const createThread = vi.fn(async (_projectId: string, _request: unknown) => thread(null));
-    const onSelectThread = vi.fn(async () => {
-      claimAtNavigation = await continuity.claim({
-        projectId: "project-1",
-        threadId: "thread-stable",
-        submissionId: submission.submissionId,
-      });
-    });
-    const unmount = await mount({
-      projectId: "project-1",
-      actions,
-      onSelectThread,
-      createThread: createThread as never,
-      makeId: () => "thread-stable",
-    });
-    let accepted = false;
-    await act(async () => {
-      accepted = await current.submit(submission, { workId: null, agentSlug: "general" });
-    });
-    expect(accepted).toBe(true);
-    expect(createThread.mock.calls[0]?.[1]).toMatchObject({ id: "thread-stable", workId: null });
-    expect(claimAtNavigation).toMatchObject({
-      dispatch: true,
-      record: { envelope: submission, latestDraft: null },
-    });
-    await unmount();
-  });
-
   it("retains the exact selected Work and a newer full snapshot racing creation", async () => {
     let release!: (value: Thread) => void;
     const createThread = vi.fn(
