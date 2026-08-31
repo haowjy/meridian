@@ -21,18 +21,16 @@ import { ResultViewerOverlay } from "./ResultViewerOverlay";
 /**
  * Thread-context rail (Chat destination, right edge).
  *
- * Three sections, labels locked by the project design brief:
+ * Two sections, labels locked by the project design brief:
  *
- *   1. **Uploads** — files the user uploaded into this chat
- *      (`thread_documents`, the `.uploads` namespace).
- *   2. **Recent**  — documents the agent recently read/touched
+ *   1. **Recent**  — documents the agent recently read/touched
  *      (`turn_document_touches`, deduped by document).
- *   3. **Results** — promoted artifacts the agent produced (project-scoped,
+ *   2. **Results** — promoted artifacts the agent produced (project-scoped,
  *      not thread-scoped). Owns its own state machine in `ResultsRailSection`
  *      and reuses the existing read-only viewers in a modal overlay.
  *
- * Both live document sections share one `DocumentRailSection` primitive
- * that owns the loading/empty/error/disabled state machine and the count
+ * Recent uses `DocumentRailSection`, which owns its
+ * loading/empty/error/disabled state machine and count
  * suppression rules. Counts only render in `empty`/`ready` — anything else
  * (disabled, loading, error) hides the count so we never fabricate `0`
  * over the top of a hint that says "couldn't load". The Results section

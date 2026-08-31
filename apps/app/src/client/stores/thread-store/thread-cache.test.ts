@@ -190,7 +190,7 @@ describe("createThreadCache terminal invalidation", () => {
     const client = new QueryClient();
     const direct = [
       threadQueryKeys.snapshot("thread-1"),
-      threadQueryKeys.uploads("thread-1"),
+      threadQueryKeys.recentDocuments("thread-1"),
     ] as const;
     const unrelated = [
       threadQueryKeys.snapshot("thread-2"),
