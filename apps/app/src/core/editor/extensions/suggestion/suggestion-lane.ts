@@ -82,7 +82,7 @@ export const defaultSuggestionLaneDriver = <TCatalog, TCandidate, TRow, TMeta>(
  * menu shows it, which is the same thing until a lane has something to say about
  * a row that the query cannot answer (the slash menu's refusals).
  */
-export type SuggestionLaneSpec<TCatalog, TItem, TEntry extends TItem = TItem, TMeta = null> = {
+export type SuggestionLaneSpec<TCatalog, TCandidate, TRow = TCandidate, TMeta = null> = {
   /** Extension name, storage key, and the plugin key's name. */
   name: string;
   /** The text that opens the menu: `/`, `[[`, `@`. */
@@ -104,9 +104,9 @@ export type SuggestionLaneSpec<TCatalog, TItem, TEntry extends TItem = TItem, TM
    */
   allows: (doc: PMNode, from: number) => boolean;
   /** What matched what the writer has typed after the trigger. */
-  items: (catalog: TCatalog, query: string) => readonly TItem[];
+  items: (catalog: TCatalog, query: string) => readonly TCandidate[];
   /** Stable identity across reorder and same-session catalog refreshes. */
-  rowId: (entry: TEntry) => string;
+  rowId: (entry: TRow) => string;
   /**
    * How the visible list reads where the caret is — per-row state that depends
    * on the document rather than the query. Asked once per update, so every row
@@ -117,10 +117,10 @@ export type SuggestionLaneSpec<TCatalog, TItem, TEntry extends TItem = TItem, TM
     editor: Editor;
     catalog: TCatalog;
     range: Range;
-    items: readonly TItem[];
-  }) => readonly TEntry[];
+    items: readonly TCandidate[];
+  }) => readonly TRow[];
   /** Rows this lane will refuse (law 5). Absent means every row works. */
-  choosable?: (entry: TEntry) => boolean;
+  choosable?: (entry: TRow) => boolean;
   /** What the menu needs that a row does not carry. Absent means nothing. */
   meta?: (catalog: TCatalog) => TMeta;
   /** What a choice writes into the document, over the trigger's own range. */
@@ -128,15 +128,15 @@ export type SuggestionLaneSpec<TCatalog, TItem, TEntry extends TItem = TItem, TM
     editor: Editor;
     catalog: TCatalog;
     range: Range;
-    entry: TEntry;
+    entry: TRow;
     action: SuggestionChoiceAction;
   }) => void;
-  driver: SuggestionLaneDriverFactory<TCatalog, TItem, TEntry, TMeta>;
+  driver: SuggestionLaneDriverFactory<TCatalog, TCandidate, TRow, TMeta>;
   /**
    * Overrides the current three-key behavior for a richer lane. The menu owns
    * navigation and action intent; the host only registers the returned chords.
    */
-  keyBindings?: (menu: SuggestionMenu<TEntry, TMeta>) => SuggestionKeyBindings;
+  keyBindings?: (menu: SuggestionMenu<TRow, TMeta>) => SuggestionKeyBindings;
   /** Hierarchical retreat. False tells the host to dismiss the root. */
   backtrack?: (input: { editor: Editor; catalog: TCatalog; range: Range }) => boolean;
 };
@@ -150,13 +150,13 @@ export type SuggestionLane<TCatalog, TEntry, TMeta = null> = {
   getMenu: (editor: Editor | null | undefined) => SuggestionMenu<TEntry, TMeta> | null;
 };
 
-export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TItem, TMeta = null>(
-  spec: SuggestionLaneSpec<TCatalog, TItem, TEntry, TMeta>,
-): SuggestionLane<TCatalog, TEntry, TMeta> {
+export function createSuggestionLane<TCatalog, TCandidate, TRow = TCandidate, TMeta = null>(
+  spec: SuggestionLaneSpec<TCatalog, TCandidate, TRow, TMeta>,
+): SuggestionLane<TCatalog, TRow, TMeta> {
   const pluginKey = new PluginKey(spec.name);
   const catalogFencePluginKey = new PluginKey(`${spec.name}CatalogFence`);
 
-  type LaneStorage = { driver: SuggestionDriver<TItem, TEntry, TMeta> | null };
+  type LaneStorage = { driver: SuggestionDriver<TCandidate, TRow, TMeta> | null };
 
   const extension = Extension.create<SuggestionLaneOptions<TCatalog>, LaneStorage>({
     name: spec.name,
@@ -171,8 +171,8 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
       const options = this.options;
       const catalog = options.catalog;
       const defaultProject = (
-        frame: SuggestionDriverFrame<TItem>,
-      ): SuggestionMenuModel<TEntry, TMeta> | null => {
+        frame: SuggestionDriverFrame<TCandidate>,
+      ): SuggestionMenuModel<TRow, TMeta> | null => {
         const current = catalog();
         if (!current) return null;
         const entries = spec.entries
@@ -182,7 +182,7 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
               range: frame.triggerRange,
               items: frame.candidates,
             })
-          : (frame.candidates as unknown as readonly TEntry[]);
+          : (frame.candidates as unknown as readonly TRow[]);
         return {
           rows: entries,
           rowId: spec.rowId,
@@ -207,7 +207,9 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
       };
       const driver = spec.driver({ editor, catalog, defaultProject });
       this.storage.driver = driver;
-      const frameFrom = (props: SuggestionProps<TItem, TEntry>): SuggestionDriverFrame<TItem> => ({
+      const frameFrom = (
+        props: SuggestionProps<TCandidate, TRow>,
+      ): SuggestionDriverFrame<TCandidate> => ({
         query: props.query,
         text: props.text,
         triggerRange: props.range,
@@ -217,7 +219,7 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
         requestExit: () => exitSuggestion(editor.view, pluginKey),
       });
       return [
-        Suggestion<TItem, TEntry>({
+        Suggestion<TCandidate, TRow>({
           editor,
           pluginKey,
           char: spec.char,
@@ -273,7 +275,7 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
     },
   });
 
-  const getMenu = (editor: Editor | null | undefined): SuggestionMenu<TEntry, TMeta> | null => {
+  const getMenu = (editor: Editor | null | undefined): SuggestionMenu<TRow, TMeta> | null => {
     if (!editor || editor.isDestroyed) return null;
     // TipTap's storage registry is keyed by extension-name literals, and a lane
     // brings its name at runtime. The cast is the price of one mechanism
