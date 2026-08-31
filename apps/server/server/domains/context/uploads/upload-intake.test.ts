@@ -126,6 +126,7 @@ describe("UploadIntake", () => {
       documentId: "00000000-0000-4000-8000-000000000001",
       uri: owner === "work" ? "uploads://@revision-pass/chapter.md" : "uploads://@/chapter.md",
       fileType: "markdown",
+      locationRevision: "revision-1",
     });
     expect(content.persist).toHaveBeenCalledOnce();
   });

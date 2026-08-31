@@ -19,6 +19,7 @@ import { t } from "@lingui/core/macro";
 import type { Thread, ThreadLiveState, Turn, Work } from "@meridian/contracts/protocol";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { uploadIntakePort } from "@/client/api/upload-intake-api";
 import { useMeridianAgent } from "@/client/copilot/MeridianCopilotProvider";
 import { threadQueryKeys } from "@/client/query/thread-query-keys";
 import { announceError, useThreadActions, useThreadStore } from "@/client/stores";
@@ -28,6 +29,7 @@ import {
   type ComposerHandle,
 } from "@/components/app/composer";
 import { DEFAULT_AGENT_SLUG } from "@/features/agents";
+import { useReferenceBrowserCatalog } from "@/features/editor/references/useReferenceBrowserCatalog";
 import { displayThreadTitle } from "@/lib/thread-title";
 import { AgentOnlyComposerToolbar, ChatComposerToolbar } from "./ChatComposerToolbar";
 import { ChatSurface } from "./ChatSurface";
@@ -87,6 +89,11 @@ export function ChatView({
   const composerAgentSlug = threadStarted ? boundAgentSlug : draftAgentSlug;
 
   const pageTitle = activeThread?.title ? displayThreadTitle(activeThread.title) : t`New chat`;
+  const referenceCatalog = useReferenceBrowserCatalog(
+    projectId,
+    activeWork?.id,
+    t`Reference a file`,
+  );
 
   useThreadNavigationAnnounce(threadId, pageTitle, composerRef);
 
@@ -121,7 +128,8 @@ export function ChatView({
   const generating = isStreaming && draftMode;
   const dock = useDraftDock({ generating });
 
-  function handleSubmit(text: string): boolean {
+  function handleSubmit(envelope: import("@/components/app/composer").ComposerSubmitEnvelope) {
+    const text = envelope.text;
     requestTailFollow();
     const optimisticUserTurn = actions.appendUserTurn(threadId, text);
 
@@ -140,7 +148,11 @@ export function ChatView({
         // until a later acknowledgement or reload can reconcile the write.
         void queryClient.invalidateQueries({ queryKey: threadQueryKeys.snapshot(threadId) });
       });
-    return true;
+    return {
+      kind: "accepted" as const,
+      submissionId: envelope.submissionId,
+      acceptedRevision: envelope.acceptedRevision,
+    };
   }
 
   function handleStop() {
@@ -166,6 +178,15 @@ export function ChatView({
             ref={composerRef}
             variant="pinned"
             streaming={isStreaming}
+            referenceCatalog={referenceCatalog}
+            uploadPort={uploadIntakePort}
+            uploadScope={
+              projectId
+                ? activeWork
+                  ? { kind: "work", projectId, workId: activeWork.id, workSlug: activeWork.slug }
+                  : { kind: "none", projectId }
+                : undefined
+            }
             onSubmit={handleSubmit}
             onStop={handleStop}
             toolbarLeft={

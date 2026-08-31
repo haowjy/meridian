@@ -26,13 +26,14 @@ describe("POST context upload", () => {
   it.each([
     [null, { kind: "none", projectId: "project-1" }],
     ["work-1", { kind: "work", projectId: "project-1", workId: "work-1" }],
-  ])("passes authoritative owner %s and returns only the server trio", async (workId, owner) => {
+  ])("passes authoritative owner %s and returns the identity, classification, and deletion revision", async (workId, owner) => {
     const intake = vi.fn(async () => ({
       ok: true as const,
       value: {
         documentId: "document-1",
         uri: workId ? "uploads://@draft/cover.png" : "uploads://@/cover.png",
         fileType: "image" as const,
+        locationRevision: "revision-1",
       },
     }));
     vi.mocked(resolveContextRoute).mockResolvedValue({
@@ -50,6 +51,7 @@ describe("POST context upload", () => {
       documentId: "document-1",
       uri: workId ? "uploads://@draft/cover.png" : "uploads://@/cover.png",
       fileType: "image",
+      locationRevision: "revision-1",
     });
     expect(intake).toHaveBeenCalledWith(
       expect.objectContaining({ intakeId: "intake-1", byteDigest: digest, owner }),

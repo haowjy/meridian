@@ -3,12 +3,14 @@ import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import type { ProjectChatItem } from "@meridian/contracts/protocol";
 import { useCallback, useEffect, useState } from "react";
+import { uploadIntakePort } from "@/client/api/upload-intake-api";
 import { useHomeChatFeed } from "@/client/query/useHomeChatFeed";
 import { useWorks } from "@/client/query/useWorks";
 import { useAnnouncement, useThreadActions } from "@/client/stores";
 import { Composer } from "@/components/app/composer";
 import { InlineErrorRow } from "@/components/app/InlineErrorRow";
 import { DEFAULT_AGENT_SLUG } from "@/features/agents";
+import { useReferenceBrowserCatalog } from "@/features/editor/references/useReferenceBrowserCatalog";
 import { resolveCatalogWork } from "../catalog-work-resolution";
 import { HomeFeed } from "./HomeFeed";
 import { NewThreadComposerToolbar } from "./NewThreadComposerToolbar";
@@ -79,6 +81,11 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
         : { status: "ready", works: worksQuery.works ?? [] },
   );
   const selectedWork = worksQuery.works?.find(({ id }) => id === chosenWorkId) ?? null;
+  const referenceCatalog = useReferenceBrowserCatalog(
+    projectId,
+    selectedWork?.id,
+    t`Reference a file`,
+  );
   const handleModePendingChange = useCallback((pending: boolean) => setModePending(pending), []);
 
   const rowProps = {
@@ -114,9 +121,16 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
           : firstSend.submitLocked
             ? t`Finish the current chat attempt`
             : undefined;
-  const submit = (text: string, draftRevision: number) => {
-    if (!selectedWork || modePending) return false;
-    return firstSend.submit(
+  const submit = async (envelope: import("@/components/app/composer").ComposerSubmitEnvelope) => {
+    const text = envelope.text;
+    const draftRevision = envelope.acceptedRevision;
+    if (!selectedWork || modePending)
+      return {
+        kind: "rejected" as const,
+        submissionId: envelope.submissionId,
+        acceptedRevision: envelope.acceptedRevision,
+      };
+    const accepted = await firstSend.submit(
       text,
       {
         workId: selectedWork.id,
@@ -124,6 +138,11 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
       },
       draftRevision,
     );
+    return {
+      kind: accepted ? ("accepted" as const) : ("rejected" as const),
+      submissionId: envelope.submissionId,
+      acceptedRevision: envelope.acceptedRevision,
+    };
   };
 
   return (
@@ -148,6 +167,18 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
                   variant="hero"
                   autoFocus={finePointer}
                   onSubmit={submit}
+                  referenceCatalog={referenceCatalog}
+                  uploadPort={uploadIntakePort}
+                  uploadScope={
+                    selectedWork
+                      ? {
+                          kind: "work",
+                          projectId,
+                          workId: selectedWork.id,
+                          workSlug: selectedWork.slug,
+                        }
+                      : { kind: "none", projectId }
+                  }
                   onDraftChange={firstSend.updateDraft}
                   submitDisabled={!worksReady || modePending || firstSend.submitLocked}
                   submitDisabledReason={submitDisabledReason}

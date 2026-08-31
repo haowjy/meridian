@@ -1,4 +1,5 @@
 import type { Range } from "@tiptap/core";
+import { closeHistory } from "@tiptap/pm/history";
 import { yUndoPluginKey } from "@tiptap/y-tiptap";
 import type {
   ReferenceBrowserOpenContext,
@@ -13,6 +14,12 @@ import { allowsAtTrigger } from "./at-trigger";
 
 export type AtReferenceCatalog = {
   port: ReferenceCatalogPort;
+  /** Host-owned terminal transaction; trigger/browser/menu ownership stays shared. */
+  insertReference?: (
+    editor: import("@tiptap/core").Editor,
+    range: Range,
+    row: Extract<ReferenceRow, { kind: "file" }>,
+  ) => boolean;
   openContext: () => ReferenceBrowserOpenContext | null;
   label: string;
 };
@@ -26,7 +33,6 @@ function insertReference(
   range: Range,
   row: Extract<ReferenceRow, { kind: "file" }>,
 ) {
-  yUndoPluginKey.getState(editor.state)?.undoManager.stopCapturing();
   const reference = row.action.reference;
   if (row.fileKind === "asset") {
     return editor
@@ -83,7 +89,11 @@ const lane = createSuggestionLane<
         editor.chain().focus().insertContentAt(triggerRange, prefix).run();
       },
       onSelect: ({ row, triggerRange }) => {
-        insertReference(editor, triggerRange, row);
+        yUndoPluginKey.getState(editor.state)?.undoManager.stopCapturing();
+        editor.view.dispatch(closeHistory(editor.state.tr));
+        const hostInsert = catalog()?.insertReference;
+        if (hostInsert) hostInsert(editor, triggerRange, row);
+        else insertReference(editor, triggerRange, row);
       },
     }),
   keyBindings: (menu) => ({

@@ -1,0 +1,378 @@
+// @vitest-environment jsdom
+/** Real TipTap settlement and upload-ownership behavior. */
+import { act, createRef } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@lingui/core/macro", () => ({ t: (value: TemplateStringsArray) => value.join("") }));
+vi.mock("./placeholders", () => ({ useComposerPlaceholder: () => "Write" }));
+
+import {
+  Composer,
+  type ComposerHandle,
+  type ComposerSubmitEnvelope,
+  type ComposerSubmitOutcome,
+  type ComposerUploadPort,
+  serializeComposerDraft,
+} from "./Composer";
+
+let root: Root;
+let host: HTMLDivElement;
+async function mount(
+  onSubmit: (
+    value: ComposerSubmitEnvelope,
+  ) => ComposerSubmitOutcome | Promise<ComposerSubmitOutcome>,
+  extra: Record<string, unknown> = {},
+) {
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  const ref = createRef<ComposerHandle>();
+  await act(async () => root.render(<Composer ref={ref} onSubmit={onSubmit} {...extra} />));
+  return ref;
+}
+async function send() {
+  await act(async () =>
+    (host.querySelector('button[aria-label="Send message"]') as HTMLButtonElement).click(),
+  );
+}
+afterEach(async () => {
+  if (root) await act(async () => root.unmount());
+  document.body.replaceChildren();
+});
+const outcome = (
+  envelope: ComposerSubmitEnvelope,
+  kind: ComposerSubmitOutcome["kind"],
+): ComposerSubmitOutcome => ({
+  kind,
+  submissionId: envelope.submissionId,
+  acceptedRevision: envelope.acceptedRevision,
+});
+describe("Composer draft changes", () => {
+  it("emits one authoritative snapshot with atomic JSON, selection, and owned uploads", async () => {
+    const onDraftChange = vi.fn();
+    const ref = await mount((e) => outcome(e, "accepted"), { onDraftChange });
+    const upload = {
+      intakeId: "intake-change",
+      documentId: "01900000-0000-7000-8000-000000000007",
+      uri: "uploads://@/change.png" as const,
+      locationRevision: "revision-7",
+    };
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "composerReference",
+              attrs: {
+                reference: {
+                  documentId: upload.documentId,
+                  uri: upload.uri,
+                  fileType: "image",
+                  authority: { kind: "none", projectId: "project-1" },
+                  label: "change",
+                  spelling: "[[change]]",
+                  imageCapable: true,
+                  upload,
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    await act(async () =>
+      ref.current?.restoreSnapshot({
+        revision: 4,
+        doc,
+        selection: { anchor: 1, head: 2 },
+        ownedUploads: [upload],
+      }),
+    );
+    expect(onDraftChange).toHaveBeenCalledTimes(1);
+    const change = onDraftChange.mock.calls[0]?.[0];
+    expect(change.text).toBe("[[change]]");
+    expect(change.snapshot.doc).toEqual(doc);
+    expect(change.snapshot.selection).toEqual({ anchor: 1, head: 2 });
+    expect(change.snapshot.ownedUploads).toEqual([upload]);
+    expect(change.snapshot.revision).toBe(ref.current?.snapshot().revision);
+  });
+});
+
+describe("Composer settlement", () => {
+  it("clears only an unchanged accepted revision", async () => {
+    const ref = await mount((e) => outcome(e, "accepted"));
+    await act(async () => ref.current?.restoreDraft({ id: "a", text: "exact" }));
+    await send();
+    expect(ref.current?.getDraft()).toBe("");
+  });
+  it("preserves a newer revision against an older accepted result", async () => {
+    let settle!: (value: ComposerSubmitOutcome) => void;
+    let frozen!: ComposerSubmitEnvelope;
+    const ref = await mount((e) => {
+      frozen = e;
+      return new Promise((r) => {
+        settle = r;
+      });
+    });
+    await act(async () => ref.current?.restoreDraft({ id: "a", text: "first" }));
+    await send();
+    await act(async () => ref.current?.restoreDraft({ id: "b", text: "newer" }));
+    await act(async () => settle(outcome(frozen, "accepted")));
+    expect(ref.current?.getDraft()).toBe("newer\n\nfirst");
+  });
+  it("restores the exact snapshot and backward selection on definite rejection", async () => {
+    let frozen!: ComposerSubmitEnvelope;
+    const ref = await mount((e) => {
+      frozen = e;
+      return outcome(e, "rejected");
+    });
+    await act(async () =>
+      ref.current?.restoreSnapshot({
+        revision: 4,
+        doc: {
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: "abcdef" }] }],
+        },
+        selection: { anchor: 5, head: 3 },
+        ownedUploads: [],
+      }),
+    );
+    await send();
+    expect(ref.current?.snapshot().doc).toEqual(frozen.draft.doc);
+    expect(ref.current?.snapshot().selection).toEqual({ anchor: 5, head: 3 });
+  });
+  it("leaves an ambiguous draft visible and locked", async () => {
+    const ref = await mount((e) => outcome(e, "ambiguous"));
+    await act(async () => ref.current?.restoreDraft({ id: "a", text: "uncertain" }));
+    await send();
+    expect(ref.current?.getDraft()).toBe("uncertain");
+    expect(
+      (host.querySelector('button[aria-label="Send message"]') as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+});
+describe("Composer upload deletion", () => {
+  it("deletes a detached ready draft upload but never an accepted clear", async () => {
+    const deleteDraft = vi.fn(async () => {});
+    const port: ComposerUploadPort = { intake: vi.fn(), deleteDraft };
+    const ref = await mount((e) => outcome(e, "accepted"), {
+      uploadPort: port,
+      uploadScope: { kind: "none", projectId: "p" },
+    });
+    const upload = {
+      intakeId: "i",
+      documentId: "01900000-0000-7000-8000-000000000001",
+      uri: "uploads://@/map.png" as const,
+      locationRevision: "r1",
+    };
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "composerReference",
+              attrs: {
+                reference: {
+                  documentId: upload.documentId,
+                  uri: upload.uri,
+                  fileType: "image",
+                  authority: { kind: "none", projectId: "p" },
+                  label: "map",
+                  spelling: "[[map]]",
+                  imageCapable: true,
+                  upload,
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    await act(async () =>
+      ref.current?.restoreSnapshot({
+        revision: 1,
+        doc,
+        selection: { anchor: 1, head: 2 },
+        ownedUploads: [upload],
+      }),
+    );
+    await send();
+    expect(deleteDraft).not.toHaveBeenCalled();
+    await act(async () =>
+      ref.current?.restoreSnapshot({
+        revision: 2,
+        doc,
+        selection: { anchor: 1, head: 2 },
+        ownedUploads: [upload],
+      }),
+    );
+    await act(async () =>
+      ref.current?.restoreSnapshot({
+        revision: 3,
+        doc: { type: "doc", content: [{ type: "paragraph" }] },
+        selection: { anchor: 1, head: 1 },
+        ownedUploads: [],
+      }),
+    );
+    expect(deleteDraft).toHaveBeenCalledWith(upload, { kind: "none", projectId: "p" });
+  });
+  it("retains the canonical Work authority supplied at intake", async () => {
+    const scope = {
+      kind: "work" as const,
+      projectId: "project-1",
+      workId: "work-1",
+      workSlug: "draft-one" as const,
+    };
+    const port: ComposerUploadPort = {
+      intake: vi.fn(async () => ({
+        documentId: "01900000-0000-7000-8000-000000000011",
+        uri: "uploads://@draft-one/map.png",
+        fileType: "image" as const,
+        locationRevision: "revision-11",
+      })),
+      deleteDraft: vi.fn(),
+    };
+    const ref = await mount((e) => outcome(e, "accepted"), {
+      uploadPort: port,
+      uploadScope: scope,
+    });
+    const input = host.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File(["map"], "map.png", { type: "image/png" })],
+    });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    const reference = ref.current?.snapshot().doc.content?.[0]?.content?.[0]?.attrs?.reference;
+    expect(reference?.authority).toEqual(scope);
+  });
+
+  it("blocks pending intake, retains failure, and retries the stable intake identity", async () => {
+    const intake = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("storage failed"))
+      .mockResolvedValueOnce({
+        documentId: "01900000-0000-7000-8000-000000000002",
+        uri: "uploads://@/note.txt",
+        fileType: "text",
+        locationRevision: "r2",
+      });
+    const port: ComposerUploadPort = { intake, deleteDraft: vi.fn() };
+    const ref = await mount((e) => outcome(e, "accepted"), {
+      uploadPort: port,
+      uploadScope: { kind: "none", projectId: "p" },
+    });
+    const input = host.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["note"], "note.txt", { type: "text/plain" });
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    const failed = host.querySelector('[data-composer-upload="failed"]') as HTMLElement;
+    expect(failed).not.toBeNull();
+    expect(
+      (host.querySelector('button[aria-label="Send message"]') as HTMLButtonElement).disabled,
+    ).toBe(true);
+    await act(async () => failed.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(intake).toHaveBeenCalledTimes(2);
+    expect(intake.mock.calls[1]?.[0].intakeId).toBe(intake.mock.calls[0]?.[0].intakeId);
+    expect(ref.current?.snapshot().ownedUploads[0]).toMatchObject({ locationRevision: "r2" });
+  });
+});
+
+describe("Composer @ references", () => {
+  it("uses the shared reference menu to insert one atomic token and undo exactly", async () => {
+    const { catalogViewFromSnapshot } = await import("@/client/query/context-catalog-cache");
+    const { getAtReferenceMenu } = await import("@/core/editor/extensions/at-reference");
+    const project = { kind: "project", projectId: "project-1" } as const;
+    const work = { kind: "work", projectId: "project-1", workId: "work-1" } as const;
+    const projectView = catalogViewFromSnapshot({
+      scope: project,
+      generation: "g",
+      headRevision: "1",
+      cursor: "c",
+      entries: [
+        {
+          kind: "authority",
+          entryId: "work-1",
+          scope: project,
+          authority: { kind: "work", workId: "work-1", workSlug: "current-draft" },
+          name: "Current draft",
+          available: true,
+          entityRevision: "1",
+        },
+      ],
+    } as never);
+    const workView = catalogViewFromSnapshot({
+      scope: work,
+      generation: "g",
+      headRevision: "1",
+      cursor: "c",
+      entries: [
+        {
+          kind: "source",
+          entryId: "source-1",
+          scope: work,
+          scheme: "scratch",
+          name: "Scratch",
+          uri: "scratch://@current-draft/",
+        },
+        {
+          kind: "file",
+          entryId: "01900000-0000-7000-8000-000000000009",
+          scope: work,
+          sourceId: "source-1",
+          parentId: "source-1",
+          name: "Chapter Nine",
+          aliases: [],
+          path: ["Chapter Nine"],
+          uri: "scratch://@current-draft/Chapter Nine",
+          provisionalName: false,
+          editable: true,
+          filetype: "markdown",
+          schemaType: "document",
+        },
+      ],
+    } as never);
+    const views = new Map([
+      ["project", projectView],
+      ["work", workView],
+    ]);
+    const referenceCatalog = {
+      label: "References",
+      openContext: () => ({ warmScopes: [project, work] }),
+      port: {
+        read: (scope: typeof project | typeof work) => views.get(scope.kind) ?? null,
+        acquire: async (scope: typeof project | typeof work) => views.get(scope.kind) ?? workView,
+      },
+    };
+    const ref = await mount((e) => outcome(e, "accepted"), { referenceCatalog });
+    const element = host.querySelector('[contenteditable="true"]') as HTMLElement & {
+      editor: import("@tiptap/core").Editor;
+    };
+    const editor = element.editor;
+    const before = ref.current?.snapshot();
+    await act(async () => {
+      editor.commands.insertContent("@Chapter");
+    });
+    const preChoice = ref.current?.snapshot();
+    const menu = getAtReferenceMenu(editor);
+    expect(menu?.snapshot().items).toHaveLength(1);
+    await act(async () => {
+      menu?.choose(0);
+    });
+    const chosen = ref.current?.snapshot();
+    expect(chosen?.doc.content?.[0]?.content?.[0]?.type).toBe("composerReference");
+    expect(chosen && serializeComposerDraft(chosen.doc).references[0]).toMatchObject({
+      uri: "scratch://@current-draft/Chapter Nine",
+    });
+    await act(async () => {
+      editor.commands.undo();
+    });
+    expect(ref.current?.snapshot().doc).toEqual(preChoice?.doc);
+    expect(ref.current?.snapshot().selection).toEqual(preChoice?.selection);
+    expect(before?.doc).not.toEqual(chosen?.doc);
+  });
+});

@@ -24,6 +24,17 @@ import { useThreadHandoff } from "./useThreadHandoff";
 vi.mock("@lingui/core/macro", () => ({
   t: (strings: TemplateStringsArray) => strings.join(""),
 }));
+
+async function composerText(expected: string) {
+  for (let index = 0; index < 20; index += 1) {
+    const value =
+      (host.querySelector('[contenteditable="true"]') as HTMLElement | null)?.textContent ?? "";
+    if (value === expected) return value;
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  }
+  return (host.querySelector('[contenteditable="true"]') as HTMLElement | null)?.textContent ?? "";
+}
+
 vi.mock("@/components/app/composer/placeholders", () => ({
   useComposerPlaceholder: () => "Write",
 }));
@@ -86,7 +97,16 @@ function Destination({
     [],
   );
   useThreadHandoff(threadId, controller, actions, undefined, restoreDraft);
-  return <Composer ref={composerRef} onSubmit={() => true} />;
+  return (
+    <Composer
+      ref={composerRef}
+      onSubmit={(envelope) => ({
+        kind: "accepted",
+        submissionId: envelope.submissionId,
+        acceptedRevision: envelope.acceptedRevision,
+      })}
+    />
+  );
 }
 
 let capturedActions: ThreadStoreActions | null = null;
@@ -170,7 +190,7 @@ describe("useThreadHandoff first-send settlement", () => {
       "immutable first message",
       expect.objectContaining({ optimisticUserTurnId: "turn_local_1" }),
     );
-    expect((host.querySelector("textarea") as HTMLTextAreaElement).value).toBe("newer Home draft");
+    expect(await composerText("newer Home draft")).toBe("newer Home draft");
   });
 
   it("rolls back and restores a provider-retained draft after an HTTP 409 refusal", async () => {
@@ -216,9 +236,7 @@ describe("useThreadHandoff first-send settlement", () => {
     });
 
     await renderDestination(controller, "thread-1", true);
-    expect((host.querySelector("textarea") as HTMLTextAreaElement).value).toBe(
-      "exact first message",
-    );
+    expect(await composerText("exact first message")).toBe("exact first message");
     expect(capturedFirstSend).toBeUndefined();
     expect(append).toHaveBeenCalledTimes(1);
   });
@@ -243,14 +261,12 @@ describe("useThreadHandoff first-send settlement", () => {
     expect(capturedActions).not.toBeNull();
 
     await renderDestination(controller, "thread-1", true);
-    expect((host.querySelector("textarea") as HTMLTextAreaElement).value).toBe(
-      "exact first message",
-    );
+    expect(await composerText("exact first message")).toBe("exact first message");
     expect(controller.submit).toHaveBeenCalledTimes(1);
 
     await renderDestination(controller, null);
     await renderDestination(controller, "thread-1", true);
-    expect((host.querySelector("textarea") as HTMLTextAreaElement).value).toBe("");
+    expect(await composerText("")).toBe("");
   });
 
   it("does not deliver a failed draft to a Composer for another thread", async () => {
@@ -268,10 +284,10 @@ describe("useThreadHandoff first-send settlement", () => {
     await renderDestination(controller, "thread-1");
     await renderDestination(controller, "thread-2");
     await act(async () => admission.reject("definite"));
-    expect((host.querySelector("textarea") as HTMLTextAreaElement).value).toBe("");
+    expect(await composerText("")).toBe("");
 
     await renderDestination(controller, "thread-1");
-    expect((host.querySelector("textarea") as HTMLTextAreaElement).value).toBe("thread one draft");
+    expect(await composerText("thread one draft")).toBe("thread one draft");
   });
 
   it("quarantines an ambiguous settlement across remount without restoring or retrying", async () => {
@@ -291,7 +307,7 @@ describe("useThreadHandoff first-send settlement", () => {
     await act(async () => admission.reject("ambiguous"));
     await renderDestination(controller, "thread-1", true);
 
-    expect((host.querySelector("textarea") as HTMLTextAreaElement).value).toBe("");
+    expect(await composerText("")).toBe("");
     expect(controller.submit).toHaveBeenCalledTimes(1);
   });
 });

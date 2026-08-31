@@ -237,6 +237,7 @@ export function createUploadIntake(deps: {
             documentId: reservation.documentId,
             uri: reservation.canonicalUri,
             fileType: reservation.fileType,
+            locationRevision: reservation.locationRevision,
           },
         };
       }
@@ -273,6 +274,7 @@ export function createUploadIntake(deps: {
             documentId: finalized.documentId,
             uri: finalized.canonicalUri,
             fileType: finalized.fileType,
+            locationRevision: finalized.locationRevision,
           },
         };
       } catch (cause) {
