@@ -9,32 +9,6 @@ export type ThreadDocumentRelationship = "editing" | "reading" | "created";
 
 export type ThreadDocumentKind = "tracked" | "binary";
 
-export interface ThreadUploadDocumentItem {
-  threadId: string;
-  documentId: string;
-  relationship: ThreadDocumentRelationship;
-  name: string;
-  extension: string;
-  sizeBytes: number | null;
-  editable: boolean;
-  filetype: Filetype | null;
-  schemaType: YjsTrackedSchemaType | null;
-  fileType: DocumentFileType | null;
-  mimeType: string | null;
-  kind: ThreadDocumentKind;
-  firstTouchedAt: string;
-  lastTouchedAt: string;
-  updatedAt: string;
-}
-
-export interface UploadThreadDocumentResponse {
-  upload: ThreadUploadDocumentItem;
-}
-
-export interface ListThreadUploadsResponse {
-  uploads: ThreadUploadDocumentItem[];
-}
-
 export interface ThreadRecentDocumentItem {
   threadId: string;
   documentId: string;

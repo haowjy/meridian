@@ -49,7 +49,9 @@ recover that ID across all project and authorized Work schemes, returning its
 canonical scheme/path/Work authority. Returned `name` values are full filenames.
 
 Routes: `read.get.ts`, `create.post.ts`, `create-untitled.post.ts`,
-`rename.post.ts`, `move.post.ts`, `delete.post.ts`, `upload.post.ts`.
+`rename.post.ts`, `move.post.ts`, `delete.post.ts`, `upload.post.ts`, and the
+identity-bound `upload.delete.ts`. Upload routes delegate all authority,
+classification, collision, persistence, and deletion decisions to `UploadIntake`.
 
 Metadata browsing uses the sibling catalog routes: complete compact snapshot,
 whole-commit changes, direct children, and stable-ID/canonical-URI lookup. Every

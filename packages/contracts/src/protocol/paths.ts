@@ -193,10 +193,6 @@ export function apiThreadCancelPath(threadId: string, turnId: string): string {
   return `${API_THREADS_PATH}/${threadId}/turns/${turnId}/cancel`;
 }
 
-export function apiThreadUploadsPath(threadId: string): string {
-  return `${API_THREADS_PATH}/${threadId}/uploads`;
-}
-
 export function apiThreadRecentDocumentsPath(threadId: string, opts?: { limit?: number }): string {
   const search = new URLSearchParams();
   if (opts?.limit != null) {

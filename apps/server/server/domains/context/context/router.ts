@@ -306,7 +306,9 @@ export function createContextPortRouter(deps: ContextPortRouterDeps): ContextPor
       if (!r.ok) return r;
       const { adapter, path, canonical } = r.value;
       if (!adapter.capabilities.writable) return Err({ code: "permission_denied", uri: canonical });
-      if (!adapter.capabilities.creatable) return entryCreationDenied(canonical);
+      if (!adapter.capabilities.creatable && !options?.documentId) {
+        return entryCreationDenied(canonical);
+      }
       return callAdapter(canonical, () => adapter.createTrackedDocument(path, content, options));
     },
 
