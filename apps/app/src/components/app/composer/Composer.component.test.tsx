@@ -87,7 +87,7 @@ describe("Composer draft changes", () => {
       ref.current?.restoreSnapshot({
         revision: 4,
         doc,
-        selection: { from: 1, to: 2 },
+        selection: { anchor: 1, head: 2 },
         ownedUploads: [upload],
       }),
     );
@@ -95,7 +95,7 @@ describe("Composer draft changes", () => {
     const change = onDraftChange.mock.calls[0]?.[0];
     expect(change.text).toBe("[[change]]");
     expect(change.snapshot.doc).toEqual(doc);
-    expect(change.snapshot.selection).toEqual({ from: 1, to: 2 });
+    expect(change.snapshot.selection).toEqual({ anchor: 1, head: 2 });
     expect(change.snapshot.ownedUploads).toEqual([upload]);
     expect(change.snapshot.revision).toBe(ref.current?.snapshot().revision);
   });
@@ -123,7 +123,7 @@ describe("Composer settlement", () => {
     await act(async () => settle(outcome(frozen, "accepted")));
     expect(ref.current?.getDraft()).toBe("newer\n\nfirst");
   });
-  it("restores the exact snapshot and selection on definite rejection", async () => {
+  it("restores the exact snapshot and backward selection on definite rejection", async () => {
     let frozen!: ComposerSubmitEnvelope;
     const ref = await mount((e) => {
       frozen = e;
@@ -136,13 +136,13 @@ describe("Composer settlement", () => {
           type: "doc",
           content: [{ type: "paragraph", content: [{ type: "text", text: "abcdef" }] }],
         },
-        selection: { from: 3, to: 5 },
+        selection: { anchor: 5, head: 3 },
         ownedUploads: [],
       }),
     );
     await send();
     expect(ref.current?.snapshot().doc).toEqual(frozen.draft.doc);
-    expect(ref.current?.snapshot().selection).toEqual({ from: 3, to: 5 });
+    expect(ref.current?.snapshot().selection).toEqual({ anchor: 5, head: 3 });
   });
   it("leaves an ambiguous draft visible and locked", async () => {
     const ref = await mount((e) => outcome(e, "ambiguous"));
@@ -160,7 +160,7 @@ describe("Composer upload deletion", () => {
     const port: ComposerUploadPort = { intake: vi.fn(), deleteDraft };
     const ref = await mount((e) => outcome(e, "accepted"), {
       uploadPort: port,
-      uploadScope: { projectId: "p", workId: null },
+      uploadScope: { kind: "none", projectId: "p" },
     });
     const upload = {
       intakeId: "i",
@@ -197,7 +197,7 @@ describe("Composer upload deletion", () => {
       ref.current?.restoreSnapshot({
         revision: 1,
         doc,
-        selection: { from: 1, to: 2 },
+        selection: { anchor: 1, head: 2 },
         ownedUploads: [upload],
       }),
     );
@@ -207,7 +207,7 @@ describe("Composer upload deletion", () => {
       ref.current?.restoreSnapshot({
         revision: 2,
         doc,
-        selection: { from: 1, to: 2 },
+        selection: { anchor: 1, head: 2 },
         ownedUploads: [upload],
       }),
     );
@@ -215,12 +215,42 @@ describe("Composer upload deletion", () => {
       ref.current?.restoreSnapshot({
         revision: 3,
         doc: { type: "doc", content: [{ type: "paragraph" }] },
-        selection: { from: 1, to: 1 },
+        selection: { anchor: 1, head: 1 },
         ownedUploads: [],
       }),
     );
-    expect(deleteDraft).toHaveBeenCalledWith(upload, { projectId: "p", workId: null });
+    expect(deleteDraft).toHaveBeenCalledWith(upload, { kind: "none", projectId: "p" });
   });
+  it("retains the canonical Work authority supplied at intake", async () => {
+    const scope = {
+      kind: "work" as const,
+      projectId: "project-1",
+      workId: "work-1",
+      workSlug: "draft-one" as const,
+    };
+    const port: ComposerUploadPort = {
+      intake: vi.fn(async () => ({
+        documentId: "01900000-0000-7000-8000-000000000011",
+        uri: "uploads://@draft-one/map.png",
+        fileType: "image" as const,
+        locationRevision: "revision-11",
+      })),
+      deleteDraft: vi.fn(),
+    };
+    const ref = await mount((e) => outcome(e, "accepted"), {
+      uploadPort: port,
+      uploadScope: scope,
+    });
+    const input = host.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File(["map"], "map.png", { type: "image/png" })],
+    });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    const reference = ref.current?.snapshot().doc.content?.[0]?.content?.[0]?.attrs?.reference;
+    expect(reference?.authority).toEqual(scope);
+  });
+
   it("blocks pending intake, retains failure, and retries the stable intake identity", async () => {
     const intake = vi
       .fn()
@@ -234,7 +264,7 @@ describe("Composer upload deletion", () => {
     const port: ComposerUploadPort = { intake, deleteDraft: vi.fn() };
     const ref = await mount((e) => outcome(e, "accepted"), {
       uploadPort: port,
-      uploadScope: { projectId: "p", workId: null },
+      uploadScope: { kind: "none", projectId: "p" },
     });
     const input = host.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(["note"], "note.txt", { type: "text/plain" });

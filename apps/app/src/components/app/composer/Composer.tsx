@@ -1,13 +1,6 @@
 /** Shared TipTap draft owner for every message-authoring surface. */
 import { t } from "@lingui/core/macro";
-import type {
-  ReferenceOccurrence,
-  SubmittedReference,
-  UploadIntakeResult,
-  UserMessageBlock,
-} from "@meridian/contracts/protocol";
-import type { JSONContent } from "@tiptap/core";
-import { mergeAttributes, Node } from "@tiptap/core";
+import type { UploadIntakeResult } from "@meridian/contracts/protocol";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { ArrowUp, Paperclip, RotateCcw } from "lucide-react";
@@ -29,41 +22,42 @@ import { AtReferenceExtension } from "@/core/editor/extensions/at-reference";
 import { editorSuggestionHost } from "@/core/editor/suggestion-host";
 import { AtReferenceMenu } from "@/features/editor/surfaces/link/AtReferenceMenu";
 import { cn } from "@/lib/utils";
+import {
+  type ComposerDraftChange,
+  type ComposerDraftSnapshot,
+  type ComposerOwnedUpload,
+  type ComposerPendingUploadAttrs,
+  ComposerReferenceNode,
+  type ComposerSubmitEnvelope,
+  ComposerUploadNode,
+  composerOwnedUploadReferences,
+  composerReferenceContent,
+  composerSelection,
+  plainComposerDoc,
+  restoreComposerSelection,
+  serializeComposerDraft,
+} from "./composer-document";
 import { useComposerPlaceholder } from "./placeholders";
 
-export type ComposerDraftRevision = number;
-export type ComposerSelection = Readonly<{ from: number; to: number }>;
-export type ComposerOwnedUpload = Readonly<{
-  intakeId: string;
-  documentId: string;
-  uri: UploadIntakeResult["uri"];
-  locationRevision: string;
-}>;
-export type ComposerDraftSnapshot = Readonly<{
-  revision: ComposerDraftRevision;
-  doc: JSONContent;
-  selection: ComposerSelection;
-  ownedUploads: readonly ComposerOwnedUpload[];
-}>;
-export type ComposerDraftChange = Readonly<{
-  /** Derived convenience projection; snapshot is the authoring authority. */
-  text: string;
-  snapshot: ComposerDraftSnapshot;
-}>;
-export type ComposerSubmitEnvelope = Readonly<{
-  submissionId: string;
-  acceptedRevision: ComposerDraftRevision;
-  text: string;
-  blocks: readonly UserMessageBlock[];
-  references: readonly SubmittedReference[];
-  draft: ComposerDraftSnapshot;
-}>;
+export type {
+  ComposerDraftChange,
+  ComposerDraftRevision,
+  ComposerDraftSnapshot,
+  ComposerOwnedUpload,
+  ComposerSelection,
+  ComposerSubmitEnvelope,
+} from "./composer-document";
+export { serializeComposerDraft } from "./composer-document";
+
 export type ComposerSubmitOutcome =
   | Readonly<{ kind: "accepted"; submissionId: string; acceptedRevision: number }>
   | Readonly<{ kind: "rejected"; submissionId: string; acceptedRevision: number }>
   | Readonly<{ kind: "ambiguous"; submissionId: string; acceptedRevision: number }>;
 
-export type ComposerUploadScope = Readonly<{ projectId: string; workId: string | null }>;
+export type ComposerUploadScope = Extract<
+  AuthoritativeReference["authority"],
+  { kind: "work" | "none" }
+>;
 export type ComposerUploadPort = Readonly<{
   intake: (input: {
     file: File;
@@ -72,64 +66,6 @@ export type ComposerUploadPort = Readonly<{
   }) => Promise<UploadIntakeResult>;
   deleteDraft: (input: ComposerOwnedUpload, scope: ComposerUploadScope) => Promise<void>;
 }>;
-
-type ReferenceAttrs = AuthoritativeReference & {
-  spelling: string;
-  imageCapable: boolean;
-  upload: ComposerOwnedUpload | null;
-};
-type PendingAttrs = {
-  intakeId: string;
-  name: string;
-  state: "pending" | "failed";
-  error: string | null;
-};
-
-const ReferenceNode = Node.create({
-  name: "composerReference",
-  group: "inline",
-  inline: true,
-  atom: true,
-  selectable: true,
-  addAttributes: () => ({ reference: { default: null } }),
-  parseHTML: () => [{ tag: "span[data-composer-reference]" }],
-  renderHTML: ({ node, HTMLAttributes }) => {
-    const value = node.attrs.reference as ReferenceAttrs;
-    return [
-      "span",
-      mergeAttributes(HTMLAttributes, {
-        "data-composer-reference": "",
-        role: "button",
-        tabindex: "0",
-        "aria-label": `${value.fileType}: ${value.label}`,
-      }),
-      value.spelling,
-    ];
-  },
-});
-const UploadNode = Node.create({
-  name: "composerUpload",
-  group: "inline",
-  inline: true,
-  atom: true,
-  selectable: true,
-  addAttributes: () => ({ upload: { default: null } }),
-  parseHTML: () => [{ tag: "span[data-composer-upload]" }],
-  renderHTML: ({ node, HTMLAttributes }) => {
-    const value = node.attrs.upload as PendingAttrs;
-    return [
-      "span",
-      mergeAttributes(HTMLAttributes, {
-        "data-composer-upload": value.state,
-        "data-intake-id": value.intakeId,
-        role: "button",
-        tabindex: "0",
-        "aria-label": `${value.state} upload: ${value.name}`,
-      }),
-      value.state === "pending" ? `${value.name}…` : `${value.name} (failed)`,
-    ];
-  },
-});
 
 export type ComposerProps = {
   onSubmit: (
@@ -162,90 +98,6 @@ export type ComposerHandle = {
     imageCapable?: boolean,
   ) => void;
 };
-
-export function serializeComposerDraft(
-  doc: JSONContent,
-  revision = 0,
-  selection: ComposerSelection = { from: 1, to: 1 },
-): ComposerSubmitEnvelope {
-  const blocks: UserMessageBlock[] = [];
-  const references = new Map<string, SubmittedReference>();
-  const ownedUploads: ComposerOwnedUpload[] = [];
-  let text = "";
-  const emitText = (value: string) => {
-    if (!value) return;
-    text += value;
-    const last = blocks.at(-1);
-    if (last?.type === "text") last.text += value;
-    else blocks.push({ type: "text", text: value });
-  };
-  const walk = (node: JSONContent, top = false) => {
-    if (node.type === "text") return emitText(node.text ?? "");
-    if (node.type === "hardBreak") return emitText("\n");
-    if (node.type === "composerReference") {
-      const value = node.attrs?.reference as ReferenceAttrs;
-      const occurrence: ReferenceOccurrence = {
-        type: "reference",
-        text: value.spelling,
-        documentId: value.documentId,
-        uri: value.uri,
-      };
-      blocks.push(occurrence);
-      text += value.spelling;
-      if (value.imageCapable)
-        blocks.push({ type: "image", documentId: value.documentId, uri: value.uri });
-      const key = `${value.documentId}\0${value.uri}`;
-      const proposed: SubmittedReference = value.upload
-        ? {
-            documentId: value.documentId,
-            uri: value.uri,
-            purpose: "draft-upload",
-            intakeId: value.upload.intakeId,
-          }
-        : { documentId: value.documentId, uri: value.uri, purpose: "reference" };
-      if (!references.has(key) || proposed.purpose === "draft-upload")
-        references.set(key, proposed);
-      if (
-        value.upload &&
-        !ownedUploads.some((upload) => upload.intakeId === value.upload?.intakeId)
-      )
-        ownedUploads.push(value.upload);
-      return;
-    }
-    const children = node.content ?? [];
-    children.forEach((child, index) => {
-      walk(child);
-      if (top && node.type === "doc" && child.type === "paragraph" && index < children.length - 1)
-        emitText("\n");
-    });
-  };
-  walk(doc, true);
-  const draft = { revision, doc, selection, ownedUploads } as const;
-  return {
-    submissionId: crypto.randomUUID(),
-    acceptedRevision: revision,
-    text,
-    blocks,
-    references: [...references.values()],
-    draft,
-  };
-}
-
-function plainDoc(text: string): JSONContent {
-  const lines = text.split("\n");
-  return {
-    type: "doc",
-    content: [
-      {
-        type: "paragraph",
-        content: lines.flatMap((line, index) => [
-          ...(index ? [{ type: "hardBreak" }] : []),
-          ...(line ? [{ type: "text", text: line }] : []),
-        ]),
-      },
-    ],
-  };
-}
 
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(props, ref) {
   const {
@@ -289,8 +141,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     extensions: [
       StarterKit.configure({ hardBreak: {} }),
       ChromeKernelExtension,
-      ReferenceNode,
-      UploadNode,
+      ComposerReferenceNode,
+      ComposerUploadNode,
       AtReferenceExtension.configure({
         catalog: () => {
           const catalog = referenceCatalogRef.current;
@@ -303,17 +155,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               return current
                 .chain()
                 .focus()
-                .insertContentAt(range, {
-                  type: "composerReference",
-                  attrs: {
-                    reference: {
-                      ...reference,
-                      spelling,
-                      imageCapable: row.fileKind === "asset" && reference.fileType === "image",
-                      upload: null,
-                    },
-                  },
-                })
+                .insertContentAt(
+                  range,
+                  composerReferenceContent({
+                    ...reference,
+                    spelling,
+                    imageCapable: row.fileKind === "asset" && reference.fileType === "image",
+                    upload: null,
+                  }),
+                )
                 .run();
             },
           };
@@ -338,7 +188,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           view.state.doc.descendants((node, pos) => {
             if (
               node.type.name === "composerUpload" &&
-              (node.attrs.upload as PendingAttrs).intakeId === intakeId
+              (node.attrs.upload as ComposerPendingUploadAttrs).intakeId === intakeId
             )
               position = pos;
           });
@@ -348,7 +198,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       },
       handleClickOn: (_view, position, node) => {
         if (node.type.name !== "composerUpload") return false;
-        const value = node.attrs.upload as PendingAttrs;
+        const value = node.attrs.upload as ComposerPendingUploadAttrs;
         if (value.state !== "failed") return false;
         const file = intakeFilesRef.current.get(value.intakeId);
         if (!file) return false;
@@ -365,30 +215,28 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       for (const restoration of queued) {
         const text = serializeComposerDraft(current.getJSON()).text;
         current.commands.setContent(
-          plainDoc(text ? `${restoration.text}\n\n${text}` : restoration.text),
+          plainComposerDoc(text ? `${restoration.text}\n\n${text}` : restoration.text),
         );
       }
     },
     onTransaction: ({ editor: current, transaction }) => {
       if (!transaction.docChanged) return;
       if (!suppressDetachRef.current && uploadPortRef.current && scopeRef.current) {
-        const before = serializeComposerDraft(transaction.before.toJSON()).draft.ownedUploads;
+        const before = composerOwnedUploadReferences(transaction.before.toJSON());
         const afterIds = new Set(
-          serializeComposerDraft(current.getJSON()).draft.ownedUploads.map(
-            (upload) => upload.intakeId,
-          ),
+          composerOwnedUploadReferences(current.getJSON()).map(({ upload }) => upload.intakeId),
         );
         for (const removed of before) {
-          if (!afterIds.has(removed.intakeId)) {
-            void uploadPortRef.current.deleteDraft(removed, scopeRef.current);
-          }
+          if (!afterIds.has(removed.upload.intakeId))
+            void uploadPortRef.current.deleteDraft(removed.upload, removed.authority);
         }
       }
       revision.current += 1;
-      const envelope = serializeComposerDraft(current.getJSON(), revision.current, {
-        from: current.state.selection.from,
-        to: current.state.selection.to,
-      });
+      const envelope = serializeComposerDraft(
+        current.getJSON(),
+        revision.current,
+        composerSelection(current.state.selection),
+      );
       setHasContent(envelope.text.length > 0 || envelope.references.length > 0);
       if (!suppressDraftChangeRef.current)
         onDraftChange?.({ text: envelope.text, snapshot: envelope.draft });
@@ -398,14 +246,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (!editor)
       return {
         revision: revision.current,
-        doc: plainDoc(""),
-        selection: { from: 1, to: 1 },
+        doc: plainComposerDoc(""),
+        selection: { anchor: 1, head: 1 },
         ownedUploads: [],
       };
-    const envelope = serializeComposerDraft(editor.getJSON(), revision.current, {
-      from: editor.state.selection.from,
-      to: editor.state.selection.to,
-    });
+    const envelope = serializeComposerDraft(
+      editor.getJSON(),
+      revision.current,
+      composerSelection(editor.state.selection),
+    );
     return envelope.draft;
   }, [editor]);
   const restoreSnapshot = useCallback(
@@ -413,17 +262,18 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       if (!editor) return;
       suppressDraftChangeRef.current = true;
       editor.commands.setContent(value.doc, { emitUpdate: false });
-      editor.commands.setTextSelection(value.selection);
+      restoreComposerSelection(editor, value.selection);
       suppressDraftChangeRef.current = false;
       revision.current += 1;
       {
         const projection = serializeComposerDraft(editor.getJSON());
         setHasContent(projection.text.length > 0 || projection.references.length > 0);
       }
-      const envelope = serializeComposerDraft(editor.getJSON(), revision.current, {
-        from: editor.state.selection.from,
-        to: editor.state.selection.to,
-      });
+      const envelope = serializeComposerDraft(
+        editor.getJSON(),
+        revision.current,
+        composerSelection(editor.state.selection),
+      );
       onDraftChange?.({ text: envelope.text, snapshot: envelope.draft });
     },
     [editor, onDraftChange],
@@ -439,17 +289,16 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         if (!editor || restored.current.has(id)) return true;
         restored.current.add(id);
         const current = serializeComposerDraft(editor.getJSON()).text;
-        editor.commands.setContent(plainDoc(current ? `${text}\n\n${current}` : text));
+        editor.commands.setContent(plainComposerDoc(current ? `${text}\n\n${current}` : text));
         return true;
       },
       insertReference: (reference, spelling, imageCapable = false) => {
         editor
           ?.chain()
           .focus()
-          .insertContent({
-            type: "composerReference",
-            attrs: { reference: { ...reference, spelling, imageCapable, upload: null } },
-          })
+          .insertContent(
+            composerReferenceContent({ ...reference, spelling, imageCapable, upload: null }),
+          )
           .run();
       },
     }),
@@ -461,7 +310,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     for (const restoration of queued) {
       const current = serializeComposerDraft(editor.getJSON()).text;
       editor.commands.setContent(
-        plainDoc(current ? `${restoration.text}\n\n${current}` : restoration.text),
+        plainComposerDoc(current ? `${restoration.text}\n\n${current}` : restoration.text),
       );
     }
   }, [editor]);
@@ -475,10 +324,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   async function submit() {
     if (!editor || submitDisabled || pending || locked || inFlight.current || editor.isEmpty)
       return;
-    const envelope = serializeComposerDraft(editor.getJSON(), revision.current, {
-      from: editor.state.selection.from,
-      to: editor.state.selection.to,
-    });
+    const envelope = serializeComposerDraft(
+      editor.getJSON(),
+      revision.current,
+      composerSelection(editor.state.selection),
+    );
     inFlight.current = envelope;
     const outcome = await Promise.resolve(onSubmit(envelope)).catch(
       (): ComposerSubmitOutcome => ({
@@ -511,7 +361,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (!editor || !resolvedUploadPort || !scopeRef.current) return;
     const intakeId = retryIntakeId ?? crypto.randomUUID();
     intakeFilesRef.current.set(intakeId, file);
-    const attrs: PendingAttrs = { intakeId, name: file.name, state: "pending", error: null };
+    const attrs: ComposerPendingUploadAttrs = {
+      intakeId,
+      name: file.name,
+      state: "pending",
+      error: null,
+    };
     if (retryPosition === undefined) {
       editor
         .chain()
@@ -533,7 +388,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       editor.state.doc.descendants((node, pos) => {
         if (
           node.type.name === "composerUpload" &&
-          (node.attrs.upload as PendingAttrs).intakeId === intakeId
+          (node.attrs.upload as ComposerPendingUploadAttrs).intakeId === intakeId
         )
           position = pos;
       });
@@ -541,32 +396,27 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         editor
           .chain()
           .setNodeSelection(position)
-          .insertContent({
-            type: "composerReference",
-            attrs: {
-              reference: {
-                ...ready,
-                authority: scope.workId
-                  ? { kind: "work", projectId: scope.projectId, workId: scope.workId, workSlug: "" }
-                  : { kind: "none", projectId: scope.projectId },
-                label: file.name,
-                spelling: `[[${file.name}]]`,
-                imageCapable: ready.fileType === "image",
-                upload: {
-                  intakeId,
-                  documentId: ready.documentId,
-                  uri: ready.uri,
-                  locationRevision: ready.locationRevision,
-                },
+          .insertContent(
+            composerReferenceContent({
+              ...ready,
+              authority: scope,
+              label: file.name,
+              spelling: `[[${file.name}]]`,
+              imageCapable: ready.fileType === "image",
+              upload: {
+                intakeId,
+                documentId: ready.documentId,
+                uri: ready.uri,
+                locationRevision: ready.locationRevision,
               },
-            },
-          })
+            }),
+          )
           .run();
     } catch (error) {
       editor.state.doc.descendants((node, pos) => {
         if (
           node.type.name === "composerUpload" &&
-          (node.attrs.upload as PendingAttrs).intakeId === intakeId
+          (node.attrs.upload as ComposerPendingUploadAttrs).intakeId === intakeId
         )
           editor
             .chain()

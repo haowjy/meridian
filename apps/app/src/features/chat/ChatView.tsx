@@ -180,7 +180,13 @@ export function ChatView({
             streaming={isStreaming}
             referenceCatalog={referenceCatalog}
             uploadPort={uploadIntakePort}
-            uploadScope={projectId ? { projectId, workId: activeWork?.id ?? null } : undefined}
+            uploadScope={
+              projectId
+                ? activeWork
+                  ? { kind: "work", projectId, workId: activeWork.id, workSlug: activeWork.slug }
+                  : { kind: "none", projectId }
+                : undefined
+            }
             onSubmit={handleSubmit}
             onStop={handleStop}
             toolbarLeft={

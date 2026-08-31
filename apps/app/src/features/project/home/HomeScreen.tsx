@@ -169,7 +169,16 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
                   onSubmit={submit}
                   referenceCatalog={referenceCatalog}
                   uploadPort={uploadIntakePort}
-                  uploadScope={{ projectId, workId: selectedWork?.id ?? null }}
+                  uploadScope={
+                    selectedWork
+                      ? {
+                          kind: "work",
+                          projectId,
+                          workId: selectedWork.id,
+                          workSlug: selectedWork.slug,
+                        }
+                      : { kind: "none", projectId }
+                  }
                   onDraftChange={firstSend.updateDraft}
                   submitDisabled={!worksReady || modePending || firstSend.submitLocked}
                   submitDisabledReason={submitDisabledReason}

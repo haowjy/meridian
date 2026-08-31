@@ -41,7 +41,7 @@ describe("one ordered Composer serializer", () => {
         ],
       },
       7,
-      { from: 3, to: 9 },
+      { anchor: 3, head: 9 },
     );
     expect(result.text).toBe(
       "Compare [[Gate Map]]\nwith [[Gate Map]]\nuploads://@/Gate Map.png and [[Gate Map]]",
@@ -55,7 +55,7 @@ describe("one ordered Composer serializer", () => {
         .map((b) => b.text)
         .join(""),
     ).toBe(result.text);
-    expect(result.draft.selection).toEqual({ from: 3, to: 9 });
+    expect(result.draft.selection).toEqual({ anchor: 3, head: 9 });
     expect(result.acceptedRevision).toBe(7);
   });
   it("gives created provenance precedence and retains deletion identity", () => {

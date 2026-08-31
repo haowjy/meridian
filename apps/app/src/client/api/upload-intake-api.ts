@@ -8,7 +8,7 @@ import type {
 import { readResponsePayload } from "./http-client";
 
 function url(scope: ComposerUploadScope) {
-  const query = scope.workId ? `?workId=${encodeURIComponent(scope.workId)}` : "";
+  const query = scope.kind === "work" ? `?workId=${encodeURIComponent(scope.workId)}` : "";
   return `/api/projects/${encodeURIComponent(scope.projectId)}/context/uploads/upload${query}`;
 }
 async function response<T>(request: Promise<Response>): Promise<T> {

@@ -243,7 +243,7 @@ describe("useHomeFirstSendAttempt lifecycle", () => {
                 type: "doc",
                 content: [{ type: "paragraph", content: [{ type: "text", text: "Follow-up" }] }],
               },
-              selection: { from: 10, to: 10 },
+              selection: { anchor: 10, head: 10 },
               ownedUploads: [],
             },
           }),
