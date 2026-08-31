@@ -90,11 +90,14 @@ type DeleteTarget = EntryActionTarget & { workId: string | null };
 export function ContextEntryMenu({
   children,
   allowCreate,
+  allowDelete,
   onAction,
 }: {
   children: React.ReactNode;
   /** From `schemeAllowsCreation(scheme)` — hides New file / New folder. */
   allowCreate: boolean;
+  /** Upload intake owns deletion; its tree projection cannot issue generic deletes. */
+  allowDelete: boolean;
   onAction: (action: EntryAction) => void;
 }) {
   const { dispatch, onCloseAutoFocus } = useMenuActionDispatch(onAction);
@@ -110,7 +113,11 @@ export function ContextEntryMenu({
           )}
           onCloseAutoFocus={onCloseAutoFocus}
         >
-          <ContextActionItems allowCreate={allowCreate} onAction={dispatch} />
+          <ContextActionItems
+            allowCreate={allowCreate}
+            allowDelete={allowDelete}
+            onAction={dispatch}
+          />
         </ContextMenuPrimitive.Content>
       </ContextMenuPrimitive.Portal>
     </ContextMenuPrimitive.Root>
@@ -149,6 +156,7 @@ function useMenuActionDispatch(onAction: (action: EntryAction) => void) {
 
 export function EntryKebabButton({
   allowCreate,
+  allowDelete,
   onAction,
   className,
   align = "start",
@@ -156,6 +164,8 @@ export function EntryKebabButton({
 }: {
   /** From `schemeAllowsCreation(scheme)` — hides New file / New folder. */
   allowCreate: boolean;
+  /** Upload intake owns deletion; its tree projection cannot issue generic deletes. */
+  allowDelete: boolean;
   onAction: (action: EntryAction) => void;
   className?: string;
   align?: "start" | "center" | "end";
@@ -170,7 +180,11 @@ export function EntryKebabButton({
       onCloseAutoFocus={onCloseAutoFocus}
       triggerClassName={cn(contextTreeOverflowTriggerClassName, className)}
     >
-      <DropdownActionItems allowCreate={allowCreate} onAction={dispatch} />
+      <DropdownActionItems
+        allowCreate={allowCreate}
+        allowDelete={allowDelete}
+        onAction={dispatch}
+      />
     </OverflowMenu>
   );
 }
@@ -179,12 +193,16 @@ export function EntryKebabButton({
 
 function ContextActionItems({
   allowCreate,
+  allowDelete,
   onAction,
 }: {
   allowCreate: boolean;
+  allowDelete: boolean;
   onAction: (action: EntryAction) => void;
 }) {
-  const actions = visibleEntryActions(allowCreate);
+  const actions = visibleEntryActions(allowCreate).filter(
+    (spec) => allowDelete || spec.action !== "delete",
+  );
   return (
     <>
       {actions.map((spec, index) => {
@@ -215,12 +233,16 @@ function ContextActionItems({
 
 function DropdownActionItems({
   allowCreate,
+  allowDelete,
   onAction,
 }: {
   allowCreate: boolean;
+  allowDelete: boolean;
   onAction: (action: EntryAction) => void;
 }) {
-  const actions = visibleEntryActions(allowCreate);
+  const actions = visibleEntryActions(allowCreate).filter(
+    (spec) => allowDelete || spec.action !== "delete",
+  );
   return actions.map((spec, index) => {
     const Icon = spec.icon;
     const startsGroup = index > 0 && actions[index - 1]?.group !== spec.group;

@@ -6,6 +6,7 @@ import {
   documents,
   projects,
   uploadIntakes,
+  users,
   works,
 } from "@meridian/database/schema";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
@@ -13,6 +14,7 @@ import { currentDrizzleDb, runInDrizzleTransaction } from "../../../shared/drizz
 import type { ContextCatalogMutationPort } from "../ports/context-catalog.js";
 import type {
   ReserveUploadResult,
+  UploadHardIdentity,
   UploadIntakeRepository,
   UploadReservation,
 } from "./upload-intake.js";
@@ -30,6 +32,12 @@ function suffixed(filename: string, suffix: number): string {
   if (suffix === 1) return filename;
   const { name, extension } = renderName(filename);
   return `${name} (${suffix})${extension ? `.${extension}` : ""}`;
+}
+
+async function lockIntakeKey(db: Database, projectId: string, intakeId: string): Promise<void> {
+  await currentDrizzleDb(db).execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${`upload-intake:${projectId}:${intakeId}`}, 0))`,
+  );
 }
 
 function mapRow(row: IntakeRow, workSlug: string | null): UploadReservation {
@@ -137,6 +145,8 @@ export function createDrizzleUploadIntakeRepository(
     transaction: (operation) => runInDrizzleTransaction(db, operation),
     async reserve(input): Promise<ReserveUploadResult> {
       return runInDrizzleTransaction(db, async () => {
+        const activeDb = currentDrizzleDb(db);
+        await lockIntakeKey(db, input.owner.projectId, input.intakeId);
         const existing = await readReservation(db, input.owner.projectId, input.intakeId);
         if (existing) {
           return existing.fingerprint === input.fingerprint
@@ -145,7 +155,6 @@ export function createDrizzleUploadIntakeRepository(
         }
         const owner = await resolveOwner(db, input.owner, input.actorUserId);
         if (!owner) return { kind: "owner_unavailable" };
-        const activeDb = currentDrizzleDb(db);
         await activeDb.execute(
           sql`select pg_advisory_xact_lock(hashtextextended(${owner.sourceId}, 0))`,
         );
@@ -202,8 +211,17 @@ export function createDrizzleUploadIntakeRepository(
             canonicalUri,
             locationRevision: crypto.randomUUID(),
           })
+          .onConflictDoNothing({
+            target: [uploadIntakes.projectId, uploadIntakes.intakeId],
+          })
           .returning();
-        if (!created) throw new Error("Failed to reserve upload intake");
+        if (!created) {
+          const winner = await readReservation(db, input.owner.projectId, input.intakeId);
+          if (!winner) throw new Error("Upload intake winner was not readable");
+          return winner.fingerprint === input.fingerprint
+            ? { kind: "existing", reservation: winner }
+            : { kind: "conflict" };
+        }
         return { kind: "reserved", reservation: mapRow(created, owner.workSlug) };
       });
     },
@@ -229,6 +247,12 @@ export function createDrizzleUploadIntakeRepository(
             eq(uploadIntakes.state, "object_stored"),
           ),
         );
+    },
+    async lockForFinalize(projectId, intakeId) {
+      await lockIntakeKey(db, projectId, intakeId);
+      const reservation = await readReservation(db, projectId, intakeId);
+      if (!reservation) throw new Error("Upload reservation unavailable during finalize");
+      return reservation;
     },
     async finalize(projectId, intakeId) {
       const [row] = await currentDrizzleDb(db)
@@ -315,6 +339,53 @@ export function createDrizzleUploadIntakeRepository(
             eq(uploadIntakes.state, "finalized"),
           ),
         );
+    },
+    async lockIdentityForDeletion(identity: UploadHardIdentity) {
+      const activeDb = currentDrizzleDb(db);
+      const identityRows =
+        identity.kind === "project"
+          ? await activeDb.execute(
+              sql`select id from projects where id = ${identity.projectId} for update`,
+            )
+          : await activeDb.execute(
+              sql`select id from users where id = ${identity.userId} for update`,
+            );
+      if (identityRows.length === 0) {
+        return { exists: false, documentIds: [], objectKeys: [] };
+      }
+      const rows = await activeDb
+        .select({
+          documentId: uploadIntakes.documentId,
+          objectKey: uploadIntakes.objectKey,
+          storageUrl: uploadIntakes.storageUrl,
+        })
+        .from(uploadIntakes)
+        .where(
+          identity.kind === "project"
+            ? eq(uploadIntakes.projectId, identity.projectId as never)
+            : sql`exists (
+                select 1 from projects
+                where projects.id = ${uploadIntakes.projectId}
+                  and projects.user_id = ${identity.userId}
+              )`,
+        )
+        .for("update");
+      return {
+        exists: true,
+        documentIds: rows.map((row) => row.documentId),
+        objectKeys: rows.flatMap((row) => (row.storageUrl ? [row.objectKey] : [])),
+      };
+    },
+    async deleteIdentity(identity, documentIds) {
+      const activeDb = currentDrizzleDb(db);
+      if (documentIds.length > 0) {
+        await activeDb.delete(documents).where(inArray(documents.id, [...documentIds] as never[]));
+      }
+      if (identity.kind === "project") {
+        await activeDb.delete(projects).where(eq(projects.id, identity.projectId as never));
+      } else {
+        await activeDb.delete(users).where(eq(users.id, identity.userId as never));
+      }
     },
   };
 }

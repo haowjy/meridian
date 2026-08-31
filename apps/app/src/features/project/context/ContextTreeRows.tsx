@@ -160,9 +160,10 @@ function DirRow({
   }
 
   const allowCreate = schemeAllowsCreation(env.scheme);
+  const allowDelete = env.scheme !== "uploads";
   return (
     <>
-      <ContextEntryMenu allowCreate={allowCreate} onAction={handleAction}>
+      <ContextEntryMenu allowCreate={allowCreate} allowDelete={allowDelete} onAction={handleAction}>
         {/* biome-ignore lint/a11y/useSemanticElements: row nests a separate kebab button. */}
         <div
           role="button"
@@ -180,7 +181,11 @@ function DirRow({
           <Twistie expanded={isOpen} />
           <RowIcon icon={isOpen ? FolderOpen : Folder} />
           <span className="ml-0.5 min-w-0 flex-1 truncate">{dir.name}</span>
-          <EntryKebabButton allowCreate={allowCreate} onAction={handleAction} />
+          <EntryKebabButton
+            allowCreate={allowCreate}
+            allowDelete={allowDelete}
+            onAction={handleAction}
+          />
         </div>
       </ContextEntryMenu>
       {isOpen ? (
@@ -233,8 +238,9 @@ function FileRow({
 
   const active = env.scheme === env.activeScheme && file.path === env.activePath;
   const allowCreate = schemeAllowsCreation(env.scheme);
+  const allowDelete = env.scheme !== "uploads";
   return (
-    <ContextEntryMenu allowCreate={allowCreate} onAction={handleAction}>
+    <ContextEntryMenu allowCreate={allowCreate} allowDelete={allowDelete} onAction={handleAction}>
       {/* biome-ignore lint/a11y/useSemanticElements: row nests a separate kebab button. */}
       <div
         role="button"
@@ -255,7 +261,11 @@ function FileRow({
         <span className="h-7 w-4 shrink-0" aria-hidden />
         <RowIcon icon={fileKindIcon(file)} />
         <span className="ml-0.5 min-w-0 flex-1 truncate">{file.name}</span>
-        <EntryKebabButton allowCreate={allowCreate} onAction={handleAction} />
+        <EntryKebabButton
+          allowCreate={allowCreate}
+          allowDelete={allowDelete}
+          onAction={handleAction}
+        />
       </div>
     </ContextEntryMenu>
   );

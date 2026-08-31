@@ -18,6 +18,9 @@ persisted file classification.
 - Upload identity lookup used by download, recent-document, and future runtime
   adapters. Thread provenance is `thread_documents`; it is never upload storage
   ownership.
+- Hard project/account identity cleanup locks and enumerates exact intake keys,
+  removes binary objects and upload document/Yjs identity, then permits the SQL
+  identity cascade. Cleanup failure retains the identity for retry.
 
 ## Invariants
 
@@ -27,8 +30,12 @@ persisted file classification.
   Uploads sources are flat and provisioned by intake.
 - A same-key retry either returns the original trio or conflicts on the complete
   normalized actor/owner/name/MIME/byte-digest fingerprint.
+- The intake key serializes before owner/path allocation. Source serialization
+  remains only the collision-safe flat-name boundary.
 - Catalog visibility and finalized intake state share the ContextFS ambient SQL
   transaction. Object compensation runs only for definite non-commit; unknown
   outcomes retain the stable key for recovery.
 - Intake never writes `thread_documents`. Explicit deletion cannot target a
   replacement at the same path.
+- Restorable project soft deletion retains upload bytes. Only hard identity
+  cleanup removes external state before its SQL cascade.

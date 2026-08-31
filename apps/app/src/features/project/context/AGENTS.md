@@ -26,6 +26,8 @@ Shared across both shells:
 - **Entry actions** (`ContextEntryActions.tsx`): desktop has two triggers
   (right-click context menu + hover kebab) rendered from one ordered action
   specification. Add an action once; both primitive-specific renderers inherit it.
+  Uploads omits generic Delete because only the identity/revision-bound intake
+  contract may delete an upload.
 - **Validation** (`context-entry-name.ts`): collision check, empty rejection,
   whitespace warning.
 
