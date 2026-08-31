@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+- `apps/app`: finish workspace preparation after authenticated SPA login by
+  sourcing the account subject from the current authenticated route.
+
 - `apps/app`: add one renderer-neutral reference identity/ranking policy and
   hierarchical browser over the normalized scoped Context catalog, with strict
   lexical tiers, canonical Work/no-Work terminals, semantic segment navigation,

@@ -1,5 +1,5 @@
 /** Test composition for feature suites that need one complete account lifetime. */
-import { useLayoutEffect, useState } from "react";
+import { useState } from "react";
 import {
   AccountFeatureComposition,
   AccountFeatureSupervisorContext,
@@ -18,9 +18,6 @@ export function AccountFeatureTestProvider({
   children: React.ReactNode;
 }) {
   const [supervisor] = useState(() => new AccountFeatureSupervisor(undefined, () => undefined));
-  useLayoutEffect(() => {
-    supervisor.setAuthSubject(accountId);
-  }, [supervisor, accountId]);
   return (
     <AccountFeatureSupervisorContext.Provider value={supervisor}>
       <AccountFeatureComposition
