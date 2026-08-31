@@ -25,10 +25,37 @@ function tracked(documentId: string, path: string): Extract<ContextTab, { kind: 
 }
 
 function setDesk(tabs: ContextTab[], selectedTabId: string | null) {
+  const normalized = tabs.map((tab) =>
+    tab.kind !== "new" && tab.draftOnly
+      ? {
+          ...tab,
+          tabInstanceId: tab.tabInstanceId ?? `${tab.documentId}-instance`,
+          reviewDraftId: tab.reviewDraftId ?? `${tab.documentId}-draft`,
+          tabInstanceToken: tab.tabInstanceToken ?? `${tab.documentId}-token`,
+        }
+      : tab,
+  );
+  const durable = normalized.filter((tab) => !tab.draftOnly);
+  const review = normalized.filter((tab) => tab.draftOnly);
   useContextTabsStore.setState({
     byProject: {
-      [projectId]: { tabs, selectedTabIdByWork: selectedTabId ? { "work-1": selectedTabId } : {} },
+      [projectId]: {
+        tabs: durable,
+        selectedTabIdByWork:
+          selectedTabId && durable.some((tab) => tab.documentId === selectedTabId)
+            ? { "work-1": selectedTabId }
+            : {},
+      },
     },
+    _reviewOverlayByProject:
+      review.length === 0
+        ? {}
+        : {
+            [projectId]: {
+              tabs: review,
+              selectedTabIdByWork: selectedTabId ? { "work-1": selectedTabId } : {},
+            },
+          },
     _deskHydrated: false,
   });
 }
@@ -193,7 +220,7 @@ describe("ContextRemovalCoordinator exact evidence protocol", () => {
     "writer-close",
     "work-prune",
     "draft-discard",
-  ] as const)("settles the named %s command against its represented pending route", (cause) => {
+  ] as const)("settles the named %s command against its represented pending route", async (cause) => {
     const tab = {
       ...tracked("a", "/a.md"),
       ...(cause === "work-prune" ? { scheme: "scratch" as const, workId: "work-1" } : {}),
@@ -220,7 +247,7 @@ describe("ContextRemovalCoordinator exact evidence protocol", () => {
 
     if (cause === "writer-close") rig.coordinator.writerClose(projectId, "a");
     else if (cause === "work-prune") rig.coordinator.changeWorkSelection(projectId, "work-2", null);
-    else rig.coordinator.discardDraft(projectId, "work-1", "a");
+    else await rig.coordinator.discardDraft(projectId, "work-1", "a");
     expect(useContextTabsStore.getState().byProject[projectId]?.tabs).toEqual([]);
     expect(rig.routes()).toEqual([]);
 

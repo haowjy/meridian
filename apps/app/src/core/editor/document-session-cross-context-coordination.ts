@@ -8,9 +8,12 @@ import type {
 import type { DocumentId, ProjectId } from "@meridian/contracts/runtime";
 
 import {
+  type BindablePersistenceAuthority,
   compareAvailabilityGeneration,
   DocumentSessionAuthorityStore,
+  type LocalAdoptionPendingReceipt,
   type PendingDrain,
+  type TerminalLineageReceipt,
 } from "./document-session-authority-store";
 
 const LOCK_PREFIX = "meridian:f1d:v1:";
@@ -40,19 +43,34 @@ export interface LocalSessionAuthority {
     projectId: ProjectId;
     generation: AvailabilityGeneration;
     persistenceGeneration: AvailabilityGeneration;
+    exactDatabaseName: string;
   }): void;
   drainDocument(input: {
     documentId: DocumentId;
     generation: AvailabilityGeneration;
     incarnation: AvailabilityGeneration | null;
+    exactDatabaseName?: string | null;
   }): Promise<void>;
   drainAccess(input: {
     documentId: DocumentId;
     projectId: ProjectId;
     generation: AvailabilityGeneration;
     incarnation: AvailabilityGeneration | null;
+    exactDatabaseName?: string | null;
   }): Promise<"other-local-project-remains" | "locally-empty">;
   invalidateAll(): Promise<void>;
+}
+
+export interface LocalLineageTerminalPort {
+  continueTerminal(
+    input: TerminalLineageReceipt,
+    run: (operation: LocalLineageTerminalOperation) => Promise<void>,
+  ): Promise<"completed" | "owned-elsewhere">;
+}
+
+export interface LocalLineageTerminalOperation {
+  publish(): Promise<void>;
+  acknowledge(): Promise<void>;
 }
 
 type WakeChannel = { post(): void; close(): void };
@@ -66,7 +84,8 @@ type DocumentHolds = {
 };
 type LocalAdmission = {
   generation: AvailabilityGeneration;
-  incarnation: AvailabilityGeneration;
+  incarnation: import("./document-session-authority-store").BindablePersistenceAuthority;
+  exactDatabaseName: string;
 };
 type CoordinationLifecycle = "open" | "closing" | "closed";
 type CoordinationCloseLedger = {
@@ -83,6 +102,7 @@ export class DocumentSessionCoordinationError extends Error {
       | "older-command"
       | "command-collision"
       | "purge-pending"
+      | "adoption-pending"
       | "account-mismatch",
     message: string,
   ) {
@@ -96,18 +116,50 @@ export interface DocumentSessionCrossContextCoordination {
     projectId: ProjectId,
     documentId: DocumentId,
     generation: AvailabilityGeneration,
-  ): Promise<LiveDocumentSessionLease & { persistenceGeneration: AvailabilityGeneration }>;
-  admitAndRun?<T>(
+  ): Promise<
+    LiveDocumentSessionLease & {
+      persistenceGeneration: AvailabilityGeneration;
+      exactDatabaseName: string;
+    }
+  >;
+  connectLocalLineageTerminal(port: LocalLineageTerminalPort): void;
+  beginLocalAdoption(receipt: LocalAdoptionPendingReceipt): Promise<LocalAdoptionPendingReceipt>;
+  abortLocalAdoption(receipt: LocalAdoptionPendingReceipt): Promise<"aborted" | "stale">;
+  inspectLocalLineage(input: {
+    documentId: DocumentId;
+    lineageHandle: string;
+    exactDatabaseName: string;
+  }): Promise<"clear" | "adopting" | "bindable" | "terminal" | "mismatch">;
+  recoverLocalAdoption(
     projectId: ProjectId,
     documentId: DocumentId,
     generation: AvailabilityGeneration,
-    run: (
-      admitted: LiveDocumentSessionLease & { persistenceGeneration: AvailabilityGeneration },
-    ) => Promise<T>,
-  ): Promise<{
-    admitted: LiveDocumentSessionLease & { persistenceGeneration: AvailabilityGeneration };
-    value: T;
-  }>;
+    lineageHandle: string,
+  ): Promise<
+    LiveDocumentSessionLease & {
+      persistenceGeneration: AvailabilityGeneration;
+      exactDatabaseName: string;
+    }
+  >;
+  commitLocalAdoption(
+    projectId: ProjectId,
+    generation: AvailabilityGeneration,
+    pending: LocalAdoptionPendingReceipt,
+    transfer: Readonly<{
+      prepareCommit(
+        admitted: LiveDocumentSessionLease & {
+          persistenceGeneration: AvailabilityGeneration;
+          exactDatabaseName: string;
+        },
+      ): void;
+      completeCommit(): Promise<void>;
+    }>,
+  ): Promise<
+    LiveDocumentSessionLease & {
+      persistenceGeneration: AvailabilityGeneration;
+      exactDatabaseName: string;
+    }
+  >;
   revokeDocument(
     projectId: ProjectId,
     documentId: DocumentId,
@@ -153,9 +205,9 @@ function accessLifecycleLock(
 function localUntitledLifetimeLock(
   accountId: AccountId,
   projectId: ProjectId,
-  documentId: DocumentId,
+  lineageHandle: string,
 ): string {
-  return `${LOCK_PREFIX}local-untitled-lifetime/${encoded(accountId)}/${encoded(projectId)}/${encoded(documentId)}`;
+  return `meridian:f1j:v2:local-untitled-lineage-lifetime/${encoded(accountId)}/${encoded(projectId)}/${encoded(lineageHandle)}`;
 }
 
 export interface LocalUntitledCrossContextLease {
@@ -165,8 +217,55 @@ export interface LocalUntitledCrossContextLease {
 export interface LocalUntitledCrossContextLeasePort {
   tryAcquire(
     projectId: ProjectId,
-    documentId: DocumentId,
+    lineageHandle: string,
   ): Promise<LocalUntitledCrossContextLease | null>;
+}
+
+export interface LocalIdentityReservationPort {
+  tryReserve(
+    projectId: ProjectId,
+    documentId: DocumentId,
+  ): Promise<{ kind: "unavailable" } | { kind: "reserved"; release(): Promise<void> }>;
+}
+
+export function createLocalIdentityReservationPort(input: {
+  accountId: AccountId;
+  locks?: CrossContextLockManager | null;
+}): LocalIdentityReservationPort {
+  const locks = input.locks === undefined ? nativeLocks() : input.locks;
+  if (!locks) return { tryReserve: async () => ({ kind: "unavailable" }) };
+  return {
+    async tryReserve(projectId, documentId) {
+      const acquired = deferred<{ release(): Promise<void> } | null>();
+      const release = deferred<void>();
+      const request = locks.request(
+        `meridian:f1j:v2:local-untitled-identity-reservation/${encoded(input.accountId)}/${encoded(projectId)}/${encoded(documentId)}`,
+        { mode: "exclusive", ifAvailable: true },
+        async (lock) => {
+          if (!lock) {
+            acquired.resolve(null);
+            return;
+          }
+          let released = false;
+          acquired.resolve({
+            release: async () => {
+              if (!released) {
+                released = true;
+                release.resolve();
+              }
+              await request;
+            },
+          });
+          await release.promise;
+        },
+      );
+      void request.catch(acquired.reject);
+      const reservation = await acquired.promise;
+      return reservation
+        ? { kind: "reserved" as const, release: reservation.release }
+        : { kind: "unavailable" as const };
+    },
+  };
 }
 
 /** Exclusive pre-authority lifetime ownership; all raw lock access stays in this protocol owner. */
@@ -181,11 +280,11 @@ export function createLocalUntitledCrossContextLeasePort(input: {
     };
   }
   return {
-    tryAcquire(projectId, documentId) {
+    tryAcquire(projectId, lineageHandle) {
       const acquired = deferred<LocalUntitledCrossContextLease | null>();
       const release = deferred<void>();
       const request = locks.request(
-        localUntitledLifetimeLock(input.accountId, projectId, documentId),
+        localUntitledLifetimeLock(input.accountId, projectId, lineageHandle),
         { mode: "exclusive", ifAvailable: true },
         async (lock) => {
           if (!lock) {
@@ -255,6 +354,15 @@ class Coordination implements DocumentSessionCrossContextCoordination {
   private readonly abort = new AbortController();
   private readonly holds = new Map<DocumentId, DocumentHolds>();
   private readonly admissions = new Map<DocumentId, Map<ProjectId, LocalAdmission>>();
+  private readonly localAdoptions = new Map<
+    DocumentId,
+    {
+      projectId: ProjectId;
+      generation: AvailabilityGeneration;
+      exactDatabaseName: string;
+      acquired: { document: boolean; access: boolean };
+    }
+  >();
   private readonly wakeChannel: WakeChannel | null;
   private reconcilePromise: Promise<void> | null = null;
   private readonly readiness: Promise<void>;
@@ -264,6 +372,8 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     localSessions: "pending",
     store: "pending",
   };
+  private terminalPort: LocalLineageTerminalPort | null = null;
+  private readonly terminalJoins = new Map<string, Promise<void>>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private admissionsFenced = false;
   private lifecycle: CoordinationLifecycle = "open";
@@ -316,20 +426,36 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     projectId: ProjectId,
     documentId: DocumentId,
     generation: AvailabilityGeneration,
-  ): Promise<LiveDocumentSessionLease & { persistenceGeneration: AvailabilityGeneration }> {
-    const result = await this.admitAndRun(projectId, documentId, generation, async () => undefined);
+  ): Promise<
+    LiveDocumentSessionLease & {
+      persistenceGeneration: AvailabilityGeneration;
+      exactDatabaseName: string;
+    }
+  > {
+    const result = await this.admitWithOperation(
+      projectId,
+      documentId,
+      generation,
+      async () => undefined,
+    );
     return result.admitted;
   }
 
-  async admitAndRun<T>(
+  private async admitWithOperation<T>(
     projectId: ProjectId,
     documentId: DocumentId,
     generation: AvailabilityGeneration,
     run: (
-      admitted: LiveDocumentSessionLease & { persistenceGeneration: AvailabilityGeneration },
+      admitted: LiveDocumentSessionLease & {
+        persistenceGeneration: AvailabilityGeneration;
+        exactDatabaseName: string;
+      },
     ) => Promise<T>,
   ): Promise<{
-    admitted: LiveDocumentSessionLease & { persistenceGeneration: AvailabilityGeneration };
+    admitted: LiveDocumentSessionLease & {
+      persistenceGeneration: AvailabilityGeneration;
+      exactDatabaseName: string;
+    };
     value: T;
   }> {
     await this.requireReady();
@@ -337,7 +463,10 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     for (;;) {
       let barrier: AvailabilityGeneration | null = null;
       let installed:
-        | (LiveDocumentSessionLease & { persistenceGeneration: AvailabilityGeneration })
+        | (LiveDocumentSessionLease & {
+            persistenceGeneration: AvailabilityGeneration;
+            exactDatabaseName: string;
+          })
         | null = null;
       let value: T | undefined;
       await this.withOperation(documentId, async () => {
@@ -357,6 +486,13 @@ class Coordination implements DocumentSessionCrossContextCoordination {
           if (decision.kind === "pending") {
             throw new Error("Pending drain survived operation help");
           }
+          if (decision.kind === "pending-local-adoption") {
+            await this.releaseNewHolds(documentId, projectId, acquired);
+            throw new DocumentSessionCoordinationError(
+              "adoption-pending",
+              `Local lineage transition is pending for ${documentId}`,
+            );
+          }
           if (decision.kind === "purge-barrier") {
             barrier = decision.purgeThrough;
             await this.releaseNewHolds(documentId, projectId, acquired);
@@ -369,6 +505,7 @@ class Coordination implements DocumentSessionCrossContextCoordination {
             projectId,
             generation,
             persistenceGeneration: decision.persistenceGeneration,
+            exactDatabaseName: decision.exactDatabaseName,
           });
           durableAdmitted = true;
           let projects = this.admissions.get(documentId);
@@ -378,9 +515,18 @@ class Coordination implements DocumentSessionCrossContextCoordination {
           }
           projects.set(projectId, {
             generation,
-            incarnation: decision.persistenceGeneration,
+            incarnation: {
+              phase: "bindable",
+              generation: decision.persistenceGeneration,
+              exactDatabaseName: decision.exactDatabaseName,
+            },
+            exactDatabaseName: decision.exactDatabaseName,
           });
-          installed = { ...lease, persistenceGeneration: decision.persistenceGeneration };
+          installed = {
+            ...lease,
+            persistenceGeneration: decision.persistenceGeneration,
+            exactDatabaseName: decision.exactDatabaseName,
+          };
           value = await run(installed);
         } catch (error) {
           if (!durableAdmitted) await this.releaseNewHolds(documentId, projectId, acquired);
@@ -400,6 +546,254 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     }
   }
 
+  connectLocalLineageTerminal(port: LocalLineageTerminalPort): void {
+    if (this.terminalPort && this.terminalPort !== port)
+      throw new Error("Local lineage terminal owner is already connected");
+    this.terminalPort = port;
+    void this.reconcilePending("operation").catch(() => undefined);
+  }
+
+  async beginLocalAdoption(
+    receipt: LocalAdoptionPendingReceipt,
+  ): Promise<LocalAdoptionPendingReceipt> {
+    await this.requireReady();
+    this.assertAdmissionOpen();
+    return this.withOperation(receipt.documentId, () => this.store.beginLocalAdoption(receipt));
+  }
+
+  async abortLocalAdoption(receipt: LocalAdoptionPendingReceipt): Promise<"aborted" | "stale"> {
+    await this.requireReady();
+    return this.withOperation(receipt.documentId, () => this.store.abortLocalAdoption(receipt));
+  }
+
+  async inspectLocalLineage(input: {
+    documentId: DocumentId;
+    lineageHandle: string;
+    exactDatabaseName: string;
+  }): Promise<"clear" | "adopting" | "bindable" | "terminal" | "mismatch"> {
+    await this.requireReady();
+    return this.withOperation(input.documentId, async () => {
+      const authority = (await this.store.readRoom(input.documentId)).persistence;
+      if (!authority) return "clear";
+      if (
+        authority.exactDatabaseName !== input.exactDatabaseName ||
+        (authority.phase === "bindable"
+          ? authority.originLineageHandle !== input.lineageHandle
+          : authority.lineageHandle !== input.lineageHandle)
+      )
+        return "mismatch";
+      return authority.phase === "adopting-local"
+        ? "adopting"
+        : authority.phase === "terminal-local"
+          ? "terminal"
+          : "bindable";
+    });
+  }
+
+  async recoverLocalAdoption(
+    projectId: ProjectId,
+    documentId: DocumentId,
+    generation: AvailabilityGeneration,
+    lineageHandle: string,
+  ): Promise<
+    LiveDocumentSessionLease & {
+      persistenceGeneration: AvailabilityGeneration;
+      exactDatabaseName: string;
+    }
+  > {
+    await this.requireReady();
+    this.assertAdmissionOpen();
+    let recovered:
+      | (LiveDocumentSessionLease & {
+          persistenceGeneration: AvailabilityGeneration;
+          exactDatabaseName: string;
+        })
+      | undefined;
+    await this.withOperation(documentId, async () => {
+      const room = await this.store.readRoom(documentId);
+      const authority = room.persistence;
+      if (!authority) throw new Error("Local adoption authority is absent");
+      if (authority.phase === "terminal-local")
+        throw new Error("Local adoption authority is terminal");
+      if (
+        (authority.phase === "bindable"
+          ? authority.originLineageHandle
+          : authority.lineageHandle) !== lineageHandle
+      )
+        throw new Error("Local adoption lineage does not own persistence authority");
+      const acquired = await this.ensureSharedHolds(documentId, projectId);
+      let installed = false;
+      try {
+        const bindable: BindablePersistenceAuthority =
+          authority.phase === "adopting-local"
+            ? await (async () => {
+                const bound = await this.store.bindLocalAdoptionGeneration({
+                  documentId,
+                  transitionId: authority.transitionId,
+                  lineageHandle,
+                  exactDatabaseName: authority.exactDatabaseName,
+                  targetGeneration: generation,
+                });
+                const admitted = await this.store.finalizeLocalAdoption({
+                  ...bound,
+                  targetGeneration: generation,
+                });
+                return {
+                  phase: "bindable" as const,
+                  generation: admitted.persistenceGeneration,
+                  exactDatabaseName: admitted.exactDatabaseName,
+                  originLineageHandle: lineageHandle,
+                };
+              })()
+            : authority;
+        if (compareAvailabilityGeneration(bindable.generation, generation) !== 0)
+          throw new Error("Local adoption recovery generation is stale");
+        this.local.installSynchronously({
+          documentId,
+          projectId,
+          generation,
+          persistenceGeneration: bindable.generation,
+          exactDatabaseName: bindable.exactDatabaseName,
+        });
+        let projects = this.admissions.get(documentId);
+        if (!projects) {
+          projects = new Map();
+          this.admissions.set(documentId, projects);
+        }
+        projects.set(projectId, {
+          generation,
+          incarnation: bindable,
+          exactDatabaseName: bindable.exactDatabaseName,
+        });
+        installed = true;
+        recovered = {
+          accountId: this.accountId,
+          projectId,
+          documentId,
+          generation,
+          persistenceGeneration: bindable.generation,
+          exactDatabaseName: bindable.exactDatabaseName,
+        };
+      } finally {
+        if (!installed) await this.releaseNewHolds(documentId, projectId, acquired);
+      }
+    });
+    if (!recovered) throw new Error("Local adoption recovery did not install");
+    return recovered;
+  }
+
+  async commitLocalAdoption(
+    projectId: ProjectId,
+    generation: AvailabilityGeneration,
+    pending: LocalAdoptionPendingReceipt,
+    transfer: Readonly<{
+      prepareCommit(
+        admitted: LiveDocumentSessionLease & {
+          persistenceGeneration: AvailabilityGeneration;
+          exactDatabaseName: string;
+        },
+      ): void;
+      completeCommit(): Promise<void>;
+    }>,
+  ): Promise<
+    LiveDocumentSessionLease & {
+      persistenceGeneration: AvailabilityGeneration;
+      exactDatabaseName: string;
+    }
+  > {
+    await this.requireReady();
+    this.assertAdmissionOpen();
+    let admitted:
+      | (LiveDocumentSessionLease & {
+          persistenceGeneration: AvailabilityGeneration;
+          exactDatabaseName: string;
+        })
+      | undefined;
+    let acquiredHolds: { document: boolean; access: boolean } | undefined;
+    await this.withOperation(pending.documentId, async () => {
+      const acquired = await this.ensureSharedHolds(pending.documentId, projectId);
+      acquiredHolds = acquired;
+      this.localAdoptions.set(pending.documentId, {
+        projectId,
+        generation,
+        exactDatabaseName: pending.exactDatabaseName,
+        acquired,
+      });
+      let finalized = false;
+      try {
+        const bound = await this.store.bindLocalAdoptionGeneration({
+          ...pending,
+          targetGeneration: generation,
+        });
+        const lease = {
+          accountId: this.accountId,
+          projectId,
+          documentId: pending.documentId,
+          generation,
+          persistenceGeneration: generation,
+          exactDatabaseName: pending.exactDatabaseName,
+        };
+        transfer.prepareCommit(lease);
+        await this.store.finalizeLocalAdoption({
+          ...bound,
+          targetGeneration: generation,
+        });
+        finalized = true;
+        admitted = lease;
+      } finally {
+        if (!finalized) {
+          this.localAdoptions.delete(pending.documentId);
+          await this.releaseNewHolds(pending.documentId, projectId, acquired);
+        }
+      }
+    });
+    if (!admitted) throw new Error("Local adoption did not finalize");
+
+    let terminal = false;
+    await this.withOperation(pending.documentId, async () => {
+      const authority = (await this.store.readRoom(pending.documentId)).persistence;
+      if (
+        authority?.phase === "bindable" &&
+        authority.generation === generation &&
+        authority.exactDatabaseName === pending.exactDatabaseName &&
+        authority.originLineageHandle === pending.lineageHandle
+      ) {
+        this.local.installSynchronously({
+          documentId: pending.documentId,
+          projectId,
+          generation,
+          persistenceGeneration: generation,
+          exactDatabaseName: pending.exactDatabaseName,
+        });
+        let projects = this.admissions.get(pending.documentId);
+        if (!projects) {
+          projects = new Map();
+          this.admissions.set(pending.documentId, projects);
+        }
+        projects.set(projectId, {
+          generation,
+          incarnation: authority,
+          exactDatabaseName: pending.exactDatabaseName,
+        });
+        this.localAdoptions.delete(pending.documentId);
+        await transfer.completeCommit();
+        return;
+      }
+      terminal = authority?.phase === "terminal-local" || authority === null;
+      if (!terminal) throw new Error("Local adoption authority changed before owner convergence");
+    });
+    if (terminal) {
+      if (acquiredHolds && this.localAdoptions.delete(pending.documentId))
+        await this.releaseNewHolds(pending.documentId, projectId, acquiredHolds);
+      await this.reconcilePending("operation");
+      throw new DocumentSessionCoordinationError(
+        "generation-revoked",
+        `Generation ${generation} was revoked during local adoption`,
+      );
+    }
+    return admitted;
+  }
+
   async revokeDocument(
     _projectId: ProjectId,
     documentId: DocumentId,
@@ -408,9 +802,33 @@ class Coordination implements DocumentSessionCrossContextCoordination {
   ): Promise<{ revokedThrough: AvailabilityGeneration; persistence: "cleared" }> {
     await this.requireReady();
     this.assertOpen();
+    let lineageReceipt:
+      | Extract<
+          Awaited<ReturnType<DocumentSessionAuthorityStore["startDocumentDrain"]>>,
+          { kind: "lineage-transition-required" }
+        >
+      | undefined;
     await this.withOperation(documentId, async () => {
+      const room = await this.store.readRoom(documentId);
+      if (room.persistence?.phase === "terminal-local") {
+        lineageReceipt = {
+          kind: "lineage-transition-required",
+          documentId,
+          generation: room.persistence.terminalGeneration,
+          commandId: room.persistence.commandId,
+          transitionId: room.persistence.transitionId,
+          lineageHandle: room.persistence.lineageHandle,
+          exactDatabaseName: room.persistence.exactDatabaseName,
+          persistenceGeneration: room.pendingDrain?.incarnation?.generation ?? null,
+        };
+        return;
+      }
       await this.helpPendingUnderOperation(documentId);
       const start = await this.store.startDocumentDrain({ documentId, generation, commandId });
+      if (start.kind === "lineage-transition-required") {
+        lineageReceipt = start;
+        return;
+      }
       this.assertStartAccepted(start, documentId, generation);
       if (start.kind === "started") {
         this.signalWake();
@@ -423,6 +841,13 @@ class Coordination implements DocumentSessionCrossContextCoordination {
         );
       }
     });
+    if (lineageReceipt) {
+      const receipt = lineageReceipt;
+      this.signalWake();
+      void this.reconcilePending("operation").catch(() => undefined);
+      await this.joinTerminalReceipt(receipt);
+      return { revokedThrough: generation, persistence: "cleared" };
+    }
     if (!(await this.runPurgeWorker(documentId))) {
       throw new DocumentSessionCoordinationError(
         "purge-pending",
@@ -430,6 +855,57 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       );
     }
     return { revokedThrough: generation, persistence: "cleared" };
+  }
+
+  private async dispatchTerminalLineage(
+    receipt: TerminalLineageReceipt,
+    closing: boolean,
+  ): Promise<void> {
+    const port = this.terminalPort;
+    if (!port) throw new Error("Local lineage terminal owner is not connected");
+    const disposition = await port.continueTerminal(receipt, async (terminal) => {
+      this.signalWake();
+      const current = await this.operationFor(closing, receipt.documentId, async () => {
+        const authority = (await this.store.readRoom(receipt.documentId)).persistence;
+        if (
+          authority?.phase !== "terminal-local" ||
+          authority.transitionId !== receipt.transitionId ||
+          authority.exactDatabaseName !== receipt.exactDatabaseName
+        )
+          return false;
+        await terminal.publish();
+        this.signalWake();
+        const pending = (await this.store.readRoom(receipt.documentId)).pendingDrain;
+        if (pending) {
+          await this.drainLocal(receipt.documentId, pending);
+          await this.exclusiveLifecycleFor(
+            closing,
+            documentLifecycleLock(this.accountId, receipt.documentId),
+            async () => {
+              await this.store.finishDocumentDrain({
+                documentId: receipt.documentId,
+                generation: receipt.generation,
+                commandId: receipt.commandId,
+              });
+            },
+          );
+        }
+        return true;
+      });
+      if (!current) return;
+      if (!(await this.runPurgeWorker(receipt.documentId, closing)))
+        throw new DocumentSessionCoordinationError(
+          "purge-pending",
+          `Persistence purge is pending for ${receipt.documentId}`,
+        );
+      await terminal.acknowledge();
+      this.signalWake();
+      const finished = await this.operationFor(closing, receipt.documentId, async () => {
+        return this.store.finishTerminalLineage(receipt);
+      });
+      if (finished) this.signalWake();
+    });
+    if (disposition === "owned-elsewhere") return;
   }
 
   async revokeAccess(
@@ -509,15 +985,21 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       | "operation"
       | "account-close",
   ): Promise<void> {
-    if (_reason !== "account-close") await this.requireReady();
-    if (this.lifecycle !== "open" && _reason !== "account-close") return;
+    const closingScan =
+      this.lifecycle === "closing" && _reason === "scan" && this.terminalJoins.size > 0;
+    if (closingScan) await this.readiness;
+    else {
+      if (_reason !== "account-close") await this.requireReady();
+      if (this.lifecycle !== "open" && _reason !== "account-close") return;
+    }
     if (this.reconcilePromise) return this.reconcilePromise;
-    const reconciliation = this.runReconciliation();
+    const reconciliation = this.runReconciliation(this.lifecycle === "closing");
     this.reconcilePromise = reconciliation;
     try {
       await reconciliation;
     } finally {
       if (this.reconcilePromise === reconciliation) this.reconcilePromise = null;
+      await this.settleTerminalJoins();
       this.scheduleScan();
     }
   }
@@ -541,14 +1023,12 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     this.lifecycle = "closing";
     this.admissionsFenced = true;
     this.abort.abort(new Error("Document authority closed"));
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null;
-    this.removeLifecycleListeners();
-    try {
-      this.wakeChannel?.close();
-    } catch {
-      // Wake delivery is advisory and carries no teardown authority.
+    if (this.timer && this.terminalJoins.size === 0) {
+      clearTimeout(this.timer);
+      this.timer = null;
     }
+    this.scheduleScan();
+    this.removeLifecycleListeners();
   }
 
   private async finishClose(): Promise<void> {
@@ -583,6 +1063,9 @@ class Coordination implements DocumentSessionCrossContextCoordination {
         this.closeLedger.localSessions = "settled";
       });
     }
+    if (this.terminalJoins.size > 0) {
+      await settle(() => Promise.all([...this.terminalJoins.values()]).then(() => undefined));
+    }
     if (this.closeLedger.localSessions === "settled") await settle(() => this.releaseAllHolds());
     if (
       this.closeLedger.reconciliation !== "pending" &&
@@ -604,6 +1087,11 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       this.closeLedger.store === "settled"
     ) {
       this.lifecycle = "closed";
+      try {
+        this.wakeChannel?.close();
+      } catch {
+        // Wake delivery is advisory and carries no teardown authority.
+      }
       return;
     }
     throw new Error("Document authority teardown did not reach its terminal state");
@@ -620,7 +1108,14 @@ class Coordination implements DocumentSessionCrossContextCoordination {
   }
 
   private async runReconciliation(closing = false): Promise<void> {
-    const rooms = await this.store.listPendingDrains();
+    if (this.terminalPort) {
+      for (const receipt of await this.store.listTerminalLineages()) {
+        await this.dispatchTerminalLineage(receipt, closing);
+      }
+    }
+    const rooms = (await this.store.listPendingDrains()).filter(
+      (room) => room.persistence?.phase !== "terminal-local",
+    );
     for (const room of rooms) {
       if (room.pendingDrain) await this.drainLocal(room.documentId, room.pendingDrain);
     }
@@ -634,6 +1129,57 @@ class Coordination implements DocumentSessionCrossContextCoordination {
     for (const purge of await this.store.pendingPurges()) {
       await this.runPurgeWorker(purge.documentId, closing);
     }
+    await this.settleTerminalJoins();
+  }
+
+  private terminalReceiptKey(receipt: TerminalLineageReceipt): string {
+    return JSON.stringify([
+      receipt.documentId,
+      receipt.generation,
+      receipt.commandId,
+      receipt.transitionId,
+      receipt.lineageHandle,
+      receipt.exactDatabaseName,
+      receipt.persistenceGeneration,
+    ]);
+  }
+
+  private joinTerminalReceipt(receipt: TerminalLineageReceipt): Promise<void> {
+    const key = this.terminalReceiptKey(receipt);
+    const existing = this.terminalJoins.get(key);
+    if (existing) return existing;
+    const completion = (async () => {
+      for (;;) {
+        let wake!: () => void;
+        const signaled = new Promise<void>((resolve) => {
+          wake = resolve;
+        });
+        this.terminalJoinWakes.add(wake);
+        if ((await this.store.inspectTerminalLineage(receipt)) !== "pending") {
+          this.terminalJoinWakes.delete(wake);
+          return;
+        }
+        await signaled;
+      }
+    })();
+    this.terminalJoins.set(key, completion);
+    this.scheduleScan();
+    void completion
+      .finally(() => {
+        this.terminalJoins.delete(key);
+        this.scheduleScan();
+      })
+      .catch(() => undefined);
+    return completion;
+  }
+
+  private readonly terminalJoinWakes = new Set<() => void>();
+
+  private async settleTerminalJoins(): Promise<void> {
+    const wakes = [...this.terminalJoinWakes];
+    this.terminalJoinWakes.clear();
+    for (const wake of wakes) wake();
+    await Promise.resolve();
   }
 
   private async helpPendingUnderOperation(documentId: DocumentId, closing = false): Promise<void> {
@@ -685,11 +1231,25 @@ class Coordination implements DocumentSessionCrossContextCoordination {
   }
 
   private async drainLocal(documentId: DocumentId, pending: PendingDrain): Promise<void> {
+    const adoption = this.localAdoptions.get(documentId);
+    if (
+      pending.kind === "document" &&
+      adoption &&
+      adoption.generation === pending.incarnation?.generation &&
+      adoption.exactDatabaseName === pending.incarnation.exactDatabaseName
+    ) {
+      this.localAdoptions.delete(documentId);
+      await this.releaseNewHolds(documentId, adoption.projectId, adoption.acquired);
+    }
     const projects = this.admissions.get(documentId);
     if (!projects) return;
     if (pending.kind === "document") {
       const matching = [...projects.entries()].filter(([, admission]) => {
-        if (admission.incarnation !== pending.incarnation) return false;
+        if (
+          admission.incarnation.generation !== pending.incarnation?.generation ||
+          admission.incarnation.exactDatabaseName !== pending.incarnation.exactDatabaseName
+        )
+          return false;
         if (compareAvailabilityGeneration(admission.generation, pending.generation) > 0) {
           throw new Error("A newer local admission conflicts with a pending document drain");
         }
@@ -699,7 +1259,8 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       await this.local.drainDocument({
         documentId,
         generation: pending.generation,
-        incarnation: pending.incarnation,
+        incarnation: pending.incarnation?.generation ?? null,
+        exactDatabaseName: pending.incarnation?.exactDatabaseName ?? null,
       });
       const holds = this.holds.get(documentId);
       const releases = await Promise.allSettled(
@@ -727,7 +1288,12 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       return;
     }
     const admission = projects.get(pending.projectId);
-    if (!admission || admission.incarnation !== pending.incarnation) return;
+    if (
+      !admission ||
+      admission.incarnation.generation !== pending.incarnation?.generation ||
+      admission.incarnation.exactDatabaseName !== pending.incarnation.exactDatabaseName
+    )
+      return;
     if (compareAvailabilityGeneration(admission.generation, pending.generation) > 0) {
       throw new Error("A newer local admission conflicts with a pending access drain");
     }
@@ -735,7 +1301,8 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       documentId,
       projectId: pending.projectId,
       generation: pending.generation,
-      incarnation: pending.incarnation,
+      incarnation: pending.incarnation?.generation ?? null,
+      exactDatabaseName: pending.incarnation?.exactDatabaseName ?? null,
     });
     const holds = this.holds.get(documentId);
     const accessHold = holds?.projects.get(pending.projectId);
@@ -901,7 +1468,8 @@ class Coordination implements DocumentSessionCrossContextCoordination {
       this.store.snapshotPurge(documentId),
     );
     if (!snapshot) return true;
-    if (!(await this.store.deletePersistenceThrough(snapshot))) return false;
+    if (!(await this.store.deletePersistence(snapshot))) return false;
+    if (snapshot.transitionId) return true;
     return this.store.compareClearPurge(snapshot);
   }
 
@@ -934,7 +1502,14 @@ class Coordination implements DocumentSessionCrossContextCoordination {
   }
 
   private scheduleScan(): void {
-    if (this.lifecycle !== "open" || this.holds.size === 0 || this.timer) return;
+    const hasScheduledWork =
+      this.terminalJoins.size > 0 || (this.lifecycle === "open" && this.holds.size > 0);
+    if (!hasScheduledWork) {
+      if (this.timer) clearTimeout(this.timer);
+      this.timer = null;
+      return;
+    }
+    if (this.timer) return;
     this.timer = setTimeout(() => {
       this.timer = null;
       void this.reconcilePending("scan").catch(() => undefined);

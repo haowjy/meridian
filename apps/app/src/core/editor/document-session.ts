@@ -30,16 +30,10 @@ import {
   WS_CLOSE,
   type YjsRoomName,
 } from "@meridian/contracts/protocol";
-import {
-  COLLAB_SCHEMA_VERSION,
-  type CollabSchemaVersion,
-  cmpMajorMinor,
-  createCollabYDoc,
-  parseCollabSchemaVersion,
-} from "@meridian/prosemirror-schema";
+import { createCollabYDoc } from "@meridian/prosemirror-schema";
 import { IndexeddbPersistence } from "y-indexeddb";
 import { Awareness, removeAwarenessStates } from "y-protocols/awareness";
-import * as Y from "yjs";
+import type * as Y from "yjs";
 
 import type { ConnectionState } from "@/core/transport/ThreadTransport";
 
@@ -60,11 +54,10 @@ export type { SchemaFence } from "./schema-fence";
 
 import { SessionMarkerStore } from "./session-marker-store";
 
-const PERSISTENCE_KEY_PREFIX = "meridian:document:v";
 /** Give normal IndexedDB replay priority without letting blocked storage hold collaboration offline. */
 const LOCAL_PERSISTENCE_TRANSPORT_TIMEOUT_MS = 1_000;
 
-function deleteIndexedDb(name: string): Promise<void> {
+export function deleteIndexedDb(name: string): Promise<void> {
   if (typeof indexedDB === "undefined") return Promise.resolve();
   return new Promise((resolve, reject) => {
     const request = indexedDB.deleteDatabase(name);
@@ -72,32 +65,6 @@ function deleteIndexedDb(name: string): Promise<void> {
     request.onerror = () => reject(request.error);
     request.onblocked = () => reject(new Error(`IndexedDB deletion blocked: ${name}`));
   });
-}
-
-/** Best-effort delete of obsolete schema-partitioned IndexedDB entries for one document. */
-export function deleteStaleVersionedIndexedDb(
-  roomKey: string,
-  currentVersion: CollabSchemaVersion = COLLAB_SCHEMA_VERSION,
-): void {
-  if (typeof indexedDB === "undefined" || typeof indexedDB.databases !== "function") return;
-
-  const suffix = `:${roomKey}`;
-  void indexedDB
-    .databases()
-    .then((databases) => {
-      for (const db of databases ?? []) {
-        const name = db.name;
-        if (!name?.startsWith(PERSISTENCE_KEY_PREFIX) || !name.endsWith(suffix)) continue;
-        const versionPart = name.slice(PERSISTENCE_KEY_PREFIX.length, name.length - suffix.length);
-        const version = parseCollabSchemaVersion(`${versionPart}.0`);
-        if (!version || cmpMajorMinor(version, currentVersion) < 0) {
-          indexedDB.deleteDatabase(name);
-        }
-      }
-    })
-    .catch(() => {
-      // Fire-and-forget GC; versioned key alone guarantees correctness.
-    });
 }
 
 export type DocumentSessionStatus =
@@ -246,7 +213,6 @@ export class DocumentSession {
     this.awareness = new Awareness(this.document);
     this.localPresence = createLocalPresence(this.awareness);
     if (persistence.kind === "indexeddb") {
-      deleteStaleVersionedIndexedDb(roomKey);
       this.persistence = new IndexeddbPersistence(persistence.key, this.document);
     } else {
       this.persistence = null;
@@ -462,106 +428,39 @@ export class DocumentSession {
     return Promise.race([durableSequence(), terminal, this.lifecycleCompletedPromise]);
   }
 
-  /**
-   * Wait for all IndexedDB transactions queued before this call. Applying a
-   * Yjs update starts y-indexeddb's write transaction synchronously; a later
-   * readonly transaction cannot complete until that write commits.
-   */
-  async flushLocalPersistence(): Promise<void> {
-    await this.whenLocalPersistenceSynced();
-    const db = this.persistence?.db;
-    if (!db || this.destroyed) return;
-    await new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction("updates", "readonly");
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(transaction.error ?? new Error("IndexedDB flush aborted"));
-    });
-  }
-
-  /**
-   * Prepare a second persistence namespace on this exact Y.Doc. The returned
-   * commit is deliberately synchronous so ownership can converge while the
-   * caller still holds the cross-context operation lock.
-   */
-  async stageIndexedDbPersistence(key: string): Promise<{
-    commit(): { closePrevious(): Promise<void> };
-    abort(): Promise<void>;
-  }> {
-    if (this.destroyed) throw new Error("Cannot stage persistence for a destroyed session");
-    const staged = new IndexeddbPersistence(key, this.document);
-    try {
-      await staged.whenSynced;
-      const db = staged.db;
-      if (!db) throw new Error("Canonical IndexedDB did not open");
-      await new Promise<void>((resolve, reject) => {
-        const transaction = db.transaction("updates", "readwrite");
-        transaction.objectStore("updates").add(Y.encodeStateAsUpdate(this.document));
-        transaction.oncomplete = () => resolve();
-        transaction.onerror = () => reject(transaction.error);
-        transaction.onabort = () =>
-          reject(transaction.error ?? new Error("Canonical IndexedDB staging aborted"));
-      });
-    } catch (error) {
-      await staged.destroy().catch(() => undefined);
-      throw error;
-    }
-    let settled = false;
-    return {
-      commit: () => {
-        if (settled) throw new Error("Persistence stage is already settled");
-        settled = true;
-        const previous = this.persistence;
-        const previousName = previous?.name;
-        this.persistence = staged;
-        return {
-          closePrevious: async () => {
-            await previous?.destroy();
-            if (previousName && previousName !== key) {
-              // The new persistence namespace is already canonical. Removing
-              // obsolete bytes is retryable GC, not part of authority commit.
-              await deleteIndexedDb(previousName).catch(() => undefined);
-            }
-          },
-        };
-      },
-      abort: async () => {
-        if (settled) return;
-        settled = true;
-        await staged.destroy();
-      },
-    };
-  }
-
   /** Local-only same-session identity change used by conflict remint. */
-  async prepareDetachedReidentity(
-    documentId: string,
-    persistenceKey: string,
-  ): Promise<{
-    commit(): { closePrevious(): Promise<void> };
-    abort(): Promise<void>;
-  }> {
+  prepareDetachedReidentity(documentId: string): { commit(): void; abort(): void } {
     if (this.transportProvider || this.status !== "detached")
       throw new Error("Only a detached local session may be reminted");
     const room = parseYjsRoomName(documentId);
     if (room?.kind !== "live") throw new Error("Invalid reminted document identity");
-    const stage = await this.stageIndexedDbPersistence(persistenceKey);
+    let settled = false;
     return {
       commit: () => {
-        const cleanup = stage.commit();
+        if (settled) return;
+        settled = true;
         this.roomKey = documentId;
         this.room = room;
         this.documentId = documentId;
-        this.emit();
-        return cleanup;
+        try {
+          this.emit();
+        } catch {
+          // Durable lineage authority already committed; observers cannot roll identity back.
+        }
       },
-      abort: () => stage.abort(),
+      abort: () => {
+        settled = true;
+      },
     };
   }
 
-  async reidentifyDetached(documentId: string, persistenceKey: string): Promise<void> {
-    const prepared = await this.prepareDetachedReidentity(documentId, persistenceKey);
-    await prepared.commit().closePrevious();
+  get persistenceName(): string | null {
+    return this.persistence?.name ?? null;
+  }
+
+  /** Opaque identity observation for authority transfer; callers cannot mutate the provider. */
+  get localPersistenceProvider(): object | null {
+    return this.persistence;
   }
 
   /**

@@ -7,10 +7,8 @@ import type {
 import type { DocumentId, ProjectId } from "@meridian/contracts/runtime";
 import type { DocumentSession } from "@/core/editor/document-session";
 import type { LiveDocumentSessionRegistry } from "@/core/editor/document-session-registry";
-import type {
-  LocalDocumentSessionAdoptionPort,
-  LocalDocumentSessionHandoff,
-} from "@/core/editor/local-document-session-adoption";
+import type { LocalDocumentSessionAdoptionPort } from "@/core/editor/local-document-session-adoption";
+import type { LocalMaterializationReservation } from "./local-untitled-owner";
 /**
  * Opening a project document by id — the app's one answer to "take me there".
  *
@@ -75,10 +73,17 @@ export type ProjectDocumentLiveOpenResult =
 export type ProjectDocumentLiveOpenRequest =
   | { source: "server"; projectId: ProjectId; documentId: DocumentId; signal?: AbortSignal }
   | {
+      source: "recover-local-adoption";
+      projectId: ProjectId;
+      documentId: DocumentId;
+      lineageHandle: string;
+      signal?: AbortSignal;
+    }
+  | {
       source: "local-untitled";
       projectId: ProjectId;
       documentId: DocumentId;
-      handoff: LocalDocumentSessionHandoff;
+      reservation: LocalMaterializationReservation;
       signal?: AbortSignal;
     };
 
@@ -137,12 +142,21 @@ export class ProjectDocumentLiveOpener {
           input.documentId,
           resolution.generation,
         );
-      } else {
-        const adopted = await this.dependencies.adoption.admitAndAdopt({
+      } else if (input.source === "local-untitled") {
+        const adopted = await this.dependencies.adoption.bindAndAdopt({
           projectId: input.projectId,
           documentId: input.documentId,
           generation: resolution.generation,
-          handoff: input.handoff,
+          handoff: input.reservation.handoff,
+          pending: input.reservation.pending,
+        });
+        lease = adopted.lease;
+      } else {
+        const adopted = await this.dependencies.adoption.recover({
+          projectId: input.projectId,
+          documentId: input.documentId,
+          generation: resolution.generation,
+          lineageHandle: input.lineageHandle,
         });
         lease = adopted.lease;
       }

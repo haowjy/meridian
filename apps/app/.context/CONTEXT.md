@@ -202,8 +202,12 @@ across authenticated route errors, unmounts, and subject changes. The
 authenticated route contributes its committed WorkOS-subject/internal-account
 pair and a detachable Query catalog-repair adapter through
 `AccountFeatureComposition`; it never owns or constructs the lifetime. A later
-account is not constructed until the retained prior lifetime closes. There is no
-module-global registry or supervisor.
+account is not constructed until the retained prior lifetime closes and the
+device Context desk has committed the exact old-account `reset-account` fence.
+This preparation also runs when desk storage is absent, and descendants stay
+withheld while it is pending or retryable after failure. There is no
+module-global registry or supervisor, and authenticated route effects do not own
+desk account hydration.
 
 `src/routes/_authenticated.tsx` mounts one unconditional route composition for
 every authenticated route (`AppQueryProvider` → `AccountFeatureComposition` →

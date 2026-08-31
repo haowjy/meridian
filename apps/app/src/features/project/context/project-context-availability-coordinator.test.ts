@@ -41,7 +41,9 @@ describe("ProjectContextAvailabilityCoordinator", () => {
           ),
         ),
       repairProjectCatalog: async () => undefined,
-      apply: (commands) => batches.push([...commands]),
+      apply: async (commands) => {
+        batches.push([...commands]);
+      },
     });
     const lease = coordinator.attachProject("project-1");
     lease.watch("tabs", [{ documentId: id(1) }, { documentId: id(2) }]);
@@ -49,12 +51,12 @@ describe("ProjectContextAvailabilityCoordinator", () => {
     batches.length = 0;
 
     deletedAccepted = true;
-    coordinator.acceptCommittedDelete({
+    await coordinator.acceptCommittedDelete({
       projectId: "project-1",
       deletedDocumentIds: [id(2), id(1), id(2)],
       generation: "28",
     });
-    coordinator.acceptCommittedDelete({
+    await coordinator.acceptCommittedDelete({
       projectId: "project-1",
       deletedDocumentIds: [id(2)],
       generation: "28",
@@ -77,8 +79,8 @@ describe("ProjectContextAvailabilityCoordinator", () => {
     expect(batches[1]).toEqual([]);
   });
 
-  it("retries an equal committed delete after the effect owner throws", () => {
-    const apply = vi.fn((_commands: readonly ProjectDocumentAvailabilityCommand[]) => {
+  it("retries an equal committed delete after the effect owner throws", async () => {
+    const apply = vi.fn(async (_commands: readonly ProjectDocumentAvailabilityCommand[]) => {
       if (apply.mock.calls.length === 1) throw new Error("owner failed");
     });
     const coordinator = new ProjectContextAvailabilityCoordinator({
@@ -92,9 +94,9 @@ describe("ProjectContextAvailabilityCoordinator", () => {
       generation: "28" as const,
     };
 
-    expect(() => coordinator.acceptCommittedDelete(receipt)).toThrow("owner failed");
-    coordinator.acceptCommittedDelete(receipt);
-    coordinator.acceptCommittedDelete(receipt);
+    await expect(coordinator.acceptCommittedDelete(receipt)).rejects.toThrow("owner failed");
+    await coordinator.acceptCommittedDelete(receipt);
+    await coordinator.acceptCommittedDelete(receipt);
 
     expect(apply).toHaveBeenCalledTimes(2);
     expect(apply.mock.calls[1]?.[0]).toEqual([

@@ -1,6 +1,11 @@
 /** Bridges background untitled reconciliation receipts into the open-tab store. */
 import { useEffect, useRef } from "react";
-import { type ContextTab, useContextTabsActions, useContextTabsStore } from "@/client/stores";
+import {
+  type ContextTab,
+  publishLocalUntitledAdoption,
+  useContextTabsActions,
+  useContextTabsStore,
+} from "@/client/stores";
 import type { LiveDocumentBinding } from "./open-project-document";
 import {
   isUntitledPending,
@@ -15,7 +20,7 @@ export function useUntitledTabBridge({
   projectId: string;
   tabs: ContextTab[];
 }): void {
-  const { remintNewTab, materializeNewTab, updateTrackedTab } = useContextTabsActions();
+  const { remintNewTab } = useContextTabsActions();
   const adoptedBindings = useRef(new Map<string, LiveDocumentBinding>());
 
   useEffect(() => {
@@ -48,42 +53,48 @@ export function useUntitledTabBridge({
       .map((tab) =>
         registerUntitledCandidate(projectId, tab.documentId, {
           onReminted: (documentId) => remintNewTab(projectId, tab.documentId, documentId),
-          onMaterialized: ({ result, identity, binding }) => {
+          onMaterialized: async ({ result, identity, binding }) => {
             const slice = useContextTabsStore.getState().byProject[projectId];
             if (!slice?.tabs.some((candidate) => candidate.documentId === tab.documentId)) {
               binding?.release();
-              return;
+              return true;
+            }
+            if (tab.kind !== "new" || !tab.lineageHandle) {
+              binding?.release();
+              return false;
+            }
+            const trackedTab: ContextTab = {
+              kind: "tracked",
+              documentId: tab.documentId,
+              scheme: identity?.scheme ?? result.scheme,
+              path: identity?.path ?? result.path,
+              name: identity?.name ?? result.name,
+              workId: identity?.workId ?? result.workId ?? undefined,
+              editable: true,
+              filetype: "markdown",
+              schemaType: "document",
+              provisionalName: !identity,
+              origin: "local-untitled",
+            };
+            const published = await publishLocalUntitledAdoption({
+              lineageHandle: tab.lineageHandle,
+              adoptionRevision: (tab.identityRevision ?? 1) + 1,
+              trackedTab,
+            });
+            if (published === "stale") {
+              binding?.release();
+              return false;
             }
             if (binding) {
               adoptedBindings.current.get(tab.documentId)?.release();
               adoptedBindings.current.set(tab.documentId, binding);
             }
-            materializeNewTab(projectId, tab.documentId, {
-              kind: "tracked",
-              documentId: tab.documentId,
-              scheme: result.scheme,
-              path: result.path,
-              name: result.name,
-              workId: result.workId ?? undefined,
-              editable: true,
-              filetype: "markdown",
-              schemaType: "document",
-              provisionalName: true,
-            });
-            if (identity) {
-              updateTrackedTab(projectId, tab.documentId, {
-                scheme: identity.scheme,
-                path: identity.path,
-                name: identity.name,
-                workId: identity.workId,
-                provisionalName: false,
-              });
-            }
+            return true;
           },
         }),
       );
     return () => {
       for (const cleanup of cleanups) cleanup();
     };
-  }, [materializeNewTab, projectId, remintNewTab, tabs, updateTrackedTab]);
+  }, [projectId, remintNewTab, tabs]);
 }

@@ -10,8 +10,11 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import { lookupProjectContextAvailability } from "@/client/query/project-context-availability";
 import { fetchContextCatalogView, projectCatalogFile } from "@/client/query/useContextCatalog";
-import type { ContextTab } from "@/client/stores";
-import { useContextTabsStore } from "@/client/stores";
+import {
+  type ContextTab,
+  reconcileContextDeskBootstrap,
+  useContextTabsStore,
+} from "@/client/stores";
 import type { WorkingSetHydrationPlan } from "@/client/working-set";
 import {
   readRecentRoutes,
@@ -186,7 +189,7 @@ export async function seedWorkingSetTabs({
     promote: null,
     clearAll: false,
   });
-  useContextTabsStore.getState().replaceTabs(projectId, tabs);
+  await reconcileContextDeskBootstrap(projectId, restored, tabs);
 }
 
 /** Refreshes restored tab metadata and drops routes that no longer exist. */
@@ -251,7 +254,5 @@ export async function validateContextDeskTabs({
     promote: null,
     clearAll: false,
   });
-  useContextTabsStore
-    .getState()
-    .reconcileTabs(projectId, new Set(restored.map((tab) => tab.documentId)), survivingTabs);
+  await reconcileContextDeskBootstrap(projectId, restored, survivingTabs);
 }

@@ -27,7 +27,7 @@ registry.destroyAll();
 // @ts-expect-error local reservation is a separate private facet
 registry.reserve({});
 // @ts-expect-error local adoption is a separate private facet
-registry.admitAndAdopt({});
+registry.bindAndAdopt({});
 
 declare function localUntitledOwner(port: LocalDocumentSessionReservationPort): void;
 declare function projectDocumentLiveOpener(port: LocalDocumentSessionAdoptionPort): void;

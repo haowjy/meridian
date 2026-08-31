@@ -58,13 +58,13 @@ describe("ContextRemovalCoordinator availability batches", () => {
               editable: true,
               filetype: "markdown",
               schemaType: "document",
-              draftOnly: true,
             },
           ],
           selectedTabIdByWork: { "work-1": documentId },
         },
       },
-      _deskHydrated: true,
+      _reviewOverlayByProject: {},
+      _deskHydrated: false,
     });
   });
 
@@ -798,13 +798,13 @@ describe("availability Work authority and retry", () => {
               editable: true,
               filetype: "markdown",
               schemaType: "document",
-              draftOnly: true,
             },
           ],
           selectedTabIdByWork: { "work-editor": documentId },
         },
       },
-      _deskHydrated: true,
+      _reviewOverlayByProject: {},
+      _deskHydrated: false,
     });
     const route = {
       readSearch: () => search,

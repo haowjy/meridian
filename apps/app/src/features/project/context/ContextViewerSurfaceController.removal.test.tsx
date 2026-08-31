@@ -99,7 +99,7 @@ beforeEach(() => {
         selectedTabIdByWork: { "work-1": "a" },
       },
     },
-    _deskHydrated: true,
+    _deskHydrated: false,
   });
 });
 
@@ -125,7 +125,7 @@ it("persists and admits the real New action without an empty working-set route",
       return originalSetItem.call(localStorage, key, value);
     });
   useContextTabsStore.setState({ byProject: {}, _deskHydrated: false });
-  rehydrateContextDesks(`new-action-${crypto.randomUUID()}`);
+  await rehydrateContextDesks(`new-action-${crypto.randomUUID()}`);
   let search: ProjectSearch = { screen: "context", work: "work-a" };
   let releaseScratchRoute: (() => void) | null = null;
 
@@ -197,7 +197,7 @@ it("persists and admits the real New action without an empty working-set route",
         .filter((write) => write.key === "meridian:context-desk")
         .map((write) => JSON.parse(write.value));
       expect(deskWrites.length).toBeGreaterThan(0);
-      expect(deskWrites.every((desk) => desk.version === 2)).toBe(true);
+      expect(deskWrites.every((desk) => desk.version === 3)).toBe(true);
       expect(deskWrites.at(-1)?.projects.project).toMatchObject({
         selectedTabIdByWork: { "work-a": local?.documentId },
       });
@@ -217,6 +217,9 @@ it("persists and admits the real New action without an empty working-set route",
       ).toBe(false);
     });
   } finally {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    localStorage.clear();
+    await rehydrateContextDesks(`cleanup-${crypto.randomUUID()}`);
     setItem.mockRestore();
     Object.defineProperty(navigator, "locks", { configurable: true, value: originalLocks });
   }
@@ -307,7 +310,7 @@ it("restores the exact older local owner across A to B to A through mounted cont
         selectedTabIdByWork: { "work-a": older.documentId, "work-b": chapter.documentId },
       },
     },
-    _deskHydrated: true,
+    _deskHydrated: false,
   });
   let selectWork: ((workId: string) => void) | null = null;
   let search: ProjectSearch = {
@@ -362,7 +365,9 @@ it("restores the exact older local owner across A to B to A through mounted cont
       selection: { status: "bound", identity: { documentId: older.documentId } },
       admitted: { scheme: "scratch", path: "", workId: "work-a" },
     });
-    expect(viewerProps?.tabs).toEqual(expect.arrayContaining([older, newer]));
+    expect(viewerProps?.tabs).toEqual(
+      expect.arrayContaining([expect.objectContaining(older), expect.objectContaining(newer)]),
+    );
 
     await act(async () => selectWork?.("work-b"));
     expect(coordinator?.getProjectSnapshot("project")).toMatchObject({
@@ -378,7 +383,9 @@ it("restores the exact older local owner across A to B to A through mounted cont
       selection: { status: "bound", identity: { documentId: older.documentId } },
       admitted: { scheme: "scratch", path: "", workId: "work-a" },
     });
-    expect(viewerProps?.tabs).toEqual(expect.arrayContaining([older, newer]));
+    expect(viewerProps?.tabs).toEqual(
+      expect.arrayContaining([expect.objectContaining(older), expect.objectContaining(newer)]),
+    );
   });
 });
 

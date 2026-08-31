@@ -24,7 +24,7 @@ import {
   type ThreadDraftsStatus,
   useWorkDrafts,
 } from "@/client/query/useWorkDrafts";
-import { useContextTabsStore } from "@/client/stores";
+import { getContextTabs } from "@/client/stores";
 import type { DocumentSession } from "@/core/editor/document-session";
 import {
   useContextRemovalCoordinator,
@@ -152,7 +152,7 @@ function useDraftReviewScopeOwner(
 
   useEffect(() => {
     if (!projectId || !workId || (drafts.status !== "ready" && drafts.status !== "empty")) return;
-    const tabs = useContextTabsStore.getState().byProject[projectId]?.tabs ?? [];
+    const tabs = getContextTabs(projectId).tabs;
     dispositionOwner.reconcileForcedDraftList({
       accountId,
       projectId,
@@ -296,11 +296,9 @@ function useDraftReviewScopeOwner(
       controller.exitReview();
       return;
     }
-    const tab = useContextTabsStore
-      .getState()
-      .byProject[projectId]?.tabs.find(
-        (candidate) => candidate.documentId === activeSelection.documentId,
-      );
+    const tab = getContextTabs(projectId).tabs.find(
+      (candidate) => candidate.documentId === activeSelection.documentId,
+    );
     if (
       tab?.kind !== "tracked" ||
       !tab.draftOnly ||
@@ -329,7 +327,7 @@ function useDraftReviewScopeOwner(
     if (!projectId || !workId) {
       return;
     }
-    const tabs = useContextTabsStore.getState();
+    const tabs = getContextTabs(projectId).tabs;
     const activeDrafts = drafts.drafts ?? rawGroups.flatMap((group) => group.drafts);
     const candidates = dispositionSnapshot.remoteDraftWitnesses.flatMap((witness) => {
       if (
@@ -343,9 +341,7 @@ function useDraftReviewScopeOwner(
         )
       )
         return [];
-      const tab = tabs.byProject[projectId]?.tabs.find(
-        (candidate) => candidate.documentId === witness.identity.documentId,
-      );
+      const tab = tabs.find((candidate) => candidate.documentId === witness.identity.documentId);
       if (
         tab?.kind !== "tracked" ||
         !tab.draftOnly ||
@@ -374,7 +370,7 @@ function useDraftReviewScopeOwner(
       .then((view) => {
         if (attempt.signal.aborted) return;
         const catalog = projectCatalogView(projectId, "manuscript", view);
-        const currentTabs = useContextTabsStore.getState();
+        const currentTabs = getContextTabs(projectId).tabs;
         const currentDrafts =
           queryClient.getQueryData<ThreadDraftListItem[]>(
             projectQueryKeys.workDrafts(projectId, workId),
@@ -388,7 +384,7 @@ function useDraftReviewScopeOwner(
             )
           )
             continue;
-          const currentTab = currentTabs.byProject[projectId]?.tabs.find(
+          const currentTab = currentTabs.find(
             (candidate) => candidate.documentId === witness.identity.documentId,
           );
           if (

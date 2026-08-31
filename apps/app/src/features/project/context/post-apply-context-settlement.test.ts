@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { useContextTabsStore } from "@/client/stores";
+import { getContextTabs, useContextTabsStore } from "@/client/stores";
 import { AccountPostApplyDispositionOwner } from "../draft-apply-recovery/draft-apply-recovery-owner";
 import { ContextRemovalCoordinator } from "./context-removal-coordinator";
 
@@ -52,13 +52,17 @@ function rig() {
 
 describe("post-Apply context settlement", () => {
   beforeEach(() => {
-    useContextTabsStore.setState({ byProject: {}, _deskHydrated: false });
+    useContextTabsStore.setState({
+      byProject: {},
+      _reviewOverlayByProject: {},
+      _deskHydrated: false,
+    });
     useContextTabsStore.getState().openTab("project-a", draftTab());
   });
 
   it("rejects draft-only Close byte-identically while Apply is unresolved", () => {
     const { owner, coordinator } = rig();
-    const before = structuredClone(useContextTabsStore.getState().byProject["project-a"]);
+    const before = structuredClone(getContextTabs("project-a"));
     const reserved = owner.reserveApply({
       identity,
       presentation: { documentName: "Chapter", contextPath: "/chapter.md", owningWorkLabel: null },
@@ -76,10 +80,10 @@ describe("post-Apply context settlement", () => {
     expect(coordinator.writerClose("project-a", "document-a")).toEqual({
       kind: "apply-disposition-pending",
     });
-    expect(useContextTabsStore.getState().byProject["project-a"]).toEqual(before);
+    expect(getContextTabs("project-a")).toEqual(before);
   });
 
-  it("settles only the exact tab token and treats a replacement as an obsolete old obligation", () => {
+  it("settles only the exact tab token and treats a replacement as an obsolete old obligation", async () => {
     const { coordinator } = rig();
     const base = {
       identity,
@@ -92,7 +96,9 @@ describe("post-Apply context settlement", () => {
         tabInstanceToken: "tab-a",
       },
     };
-    expect(coordinator.settleDraftRecovery({ ...base, disposition: "live-ready" })).toMatchObject({
+    await expect(
+      coordinator.settleDraftRecovery({ ...base, disposition: "live-ready" }),
+    ).resolves.toMatchObject({
       kind: "metadata-resolved",
       dispositionToken: 9,
     });
@@ -100,11 +106,14 @@ describe("post-Apply context settlement", () => {
       "draftOnly",
     );
 
-    useContextTabsStore.getState().replaceTabs("project-a", [draftTab("replacement")]);
-    const before = structuredClone(useContextTabsStore.getState().byProject["project-a"]);
-    expect(
+    const prior = getContextTabs("project-a").tabs;
+    await useContextTabsStore
+      .getState()
+      .reconcileBootstrap("project-a", prior, [draftTab("replacement")]);
+    const before = structuredClone(getContextTabs("project-a"));
+    await expect(
       coordinator.settleDraftRecovery({ ...base, disposition: "writer-abandoned" }),
-    ).toMatchObject({ kind: "obsolete-obligation", dispositionToken: 9 });
-    expect(useContextTabsStore.getState().byProject["project-a"]).toEqual(before);
+    ).resolves.toMatchObject({ kind: "obsolete-obligation", dispositionToken: 9 });
+    expect(getContextTabs("project-a")).toEqual(before);
   });
 });

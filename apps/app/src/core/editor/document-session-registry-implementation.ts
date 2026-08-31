@@ -18,13 +18,19 @@ import { DocumentSession, type DocumentSessionSnapshot } from "./document-sessio
 import {
   compareAvailabilityGeneration,
   documentSessionPersistenceKey,
+  type LocalAdoptionPendingReceipt,
 } from "./document-session-authority-store";
+
 import {
   createDocumentSessionCrossContextCoordination,
   DocumentSessionCoordinationError,
   type DocumentSessionCrossContextCoordination,
+  type LocalLineageTerminalPort,
   type LocalSessionAuthority,
 } from "./document-session-cross-context-coordination";
+
+export type { LocalLineageTerminalPort } from "./document-session-cross-context-coordination";
+
 import type {
   LocalUntitledDocumentSessionFactory,
   RetainedLiveDocumentReference,
@@ -44,6 +50,7 @@ const SESSION_TEARDOWN_GRACE_MS = 3_000;
 type LiveRoomState = {
   session: DocumentSession | null;
   persistenceGeneration: AvailabilityGeneration | null;
+  exactDatabaseName: string | null;
   leases: Map<ProjectId, LiveDocumentSessionLease>;
 };
 
@@ -54,14 +61,6 @@ type LocalTransferReservation = {
   transfer: LocalDocumentSessionTransfer;
   settled: Promise<void>;
   settle(): void;
-};
-
-type AdoptionFinalizer = {
-  closeProvider(): Promise<void>;
-  releaseLease(): Promise<void>;
-  providerClosed: boolean;
-  leaseReleased: boolean;
-  inFlight: Promise<void> | null;
 };
 
 function localTransferKey(projectId: ProjectId, documentId: DocumentId): string {
@@ -78,7 +77,8 @@ export class DocumentSessionAuthorityError extends Error {
       | "stale-lease"
       | "older-command"
       | "command-collision"
-      | "purge-pending",
+      | "purge-pending"
+      | "adoption-pending",
     message: string,
   ) {
     super(message);
@@ -115,13 +115,13 @@ export class DocumentSessionRegistry
   private readonly retainedBranchRoomsByOwner = new Map<string, Set<string>>();
   private readonly admissionReservations = new Map<DocumentId, number>();
   private readonly localTransferReservations = new Map<string, LocalTransferReservation>();
-  private readonly pendingAdoptionFinalizers = new Set<AdoptionFinalizer>();
   private readonly pendingTeardownTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private liveDocCapWarningEmitted = false;
   private readonly sessionObservers = new Map<
     string,
     Map<(snapshot: DocumentSessionSnapshot) => void, (() => void) | undefined>
   >();
+  private localLineageTerminal: LocalLineageTerminalPort | null = null;
 
   constructor(
     private readonly createCoordination: (
@@ -183,6 +183,17 @@ export class DocumentSessionRegistry
     return this.translateCoordination(() =>
       coordination.revokeDocument(_projectId, documentId, generation, commandId),
     );
+  }
+
+  connectLocalLineageTerminal(port: LocalLineageTerminalPort): void {
+    if (this.localLineageTerminal && this.localLineageTerminal !== port)
+      throw new Error("Local lineage terminal owner is already connected");
+    this.localLineageTerminal = port;
+    void this.configuredCoordination()
+      .then((coordination) => coordination.connectLocalLineageTerminal(port))
+      .catch((error) => {
+        this.authorityFailure = error;
+      });
   }
 
   async revokeAccess(
@@ -354,9 +365,38 @@ export class DocumentSessionRegistry
     return handoff;
   }
 
-  abort(handoff: LocalDocumentSessionHandoff): void {
+  async begin(input: {
+    projectId: ProjectId;
+    documentId: DocumentId;
+    lineageHandle: string;
+    exactDatabaseName: string;
+    transitionId: string;
+  }): Promise<LocalAdoptionPendingReceipt> {
+    this.requireAccountRuntimeOpen();
+    const coordination = await this.configuredCoordination();
+    return this.translateCoordination(() =>
+      coordination.beginLocalAdoption({
+        documentId: input.documentId,
+        transitionId: input.transitionId,
+        lineageHandle: input.lineageHandle,
+        exactDatabaseName: input.exactDatabaseName,
+        targetGeneration: null,
+      }),
+    );
+  }
+
+  async abort(receipt: LocalAdoptionPendingReceipt): Promise<"aborted" | "stale">;
+  abort(handoff: LocalDocumentSessionHandoff): void;
+  abort(
+    input: LocalAdoptionPendingReceipt | LocalDocumentSessionHandoff,
+  ): Promise<"aborted" | "stale"> | undefined {
+    if ("documentId" in input) {
+      return this.configuredCoordination().then((coordination) =>
+        this.translateCoordination(() => coordination.abortLocalAdoption(input)),
+      );
+    }
     for (const [key, reservation] of this.localTransferReservations) {
-      if (reservation.handoff !== handoff) continue;
+      if (reservation.handoff !== input) continue;
       this.localTransferReservations.delete(key);
       reservation.settle();
       return;
@@ -364,11 +404,51 @@ export class DocumentSessionRegistry
     throw new Error("Local document handoff is not reserved");
   }
 
-  async admitAndAdopt(input: {
+  async inspect(input: {
+    documentId: DocumentId;
+    lineageHandle: string;
+    exactDatabaseName: string;
+  }): Promise<"clear" | "adopting" | "bindable" | "terminal" | "mismatch"> {
+    const coordination = await this.configuredCoordination();
+    return coordination.inspectLocalLineage(input);
+  }
+
+  async recover(input: {
+    projectId: ProjectId;
+    documentId: DocumentId;
+    generation: AvailabilityGeneration;
+    lineageHandle: string;
+  }): Promise<{ lease: LiveDocumentSessionLease; session: DocumentSession }> {
+    this.requireAccountRuntimeOpen();
+    const coordination = await this.configuredCoordination();
+    const lease = await this.translateCoordination(() =>
+      coordination.recoverLocalAdoption(
+        input.projectId,
+        input.documentId,
+        input.generation,
+        input.lineageHandle,
+      ),
+    );
+    let state = this.liveRooms.get(input.documentId);
+    if (!state) {
+      state = {
+        leases: new Map([[input.projectId, lease]]),
+        session: null,
+        persistenceGeneration: lease.persistenceGeneration,
+        exactDatabaseName: lease.exactDatabaseName,
+      };
+      this.liveRooms.set(input.documentId, state);
+    }
+    const session = this.get(lease);
+    return { lease, session };
+  }
+
+  async bindAndAdopt(input: {
     projectId: ProjectId;
     documentId: DocumentId;
     generation: AvailabilityGeneration;
     handoff: LocalDocumentSessionHandoff;
+    pending: LocalAdoptionPendingReceipt;
   }): Promise<{ lease: LiveDocumentSessionLease; session: DocumentSession }> {
     this.requireAccountRuntimeOpen();
     compareAvailabilityGeneration(input.generation, input.generation);
@@ -383,84 +463,63 @@ export class DocumentSessionRegistry
       throw new Error("Local document handoff does not own this reservation");
     }
     const coordination = await this.configuredCoordination();
-    if (!coordination.admitAndRun)
-      throw new Error("Cross-context coordination cannot adopt a local session");
-    const cleanup: { closePrevious?: () => Promise<void> } = {};
-    const result = await this.translateCoordination(
-      () =>
-        coordination.admitAndRun?.(
-          input.projectId,
-          input.documentId,
-          input.generation,
-          async (admitted) => {
+    let admitted: Awaited<
+      ReturnType<DocumentSessionCrossContextCoordination["commitLocalAdoption"]>
+    >;
+    try {
+      admitted = await this.translateCoordination(() =>
+        coordination.commitLocalAdoption(input.projectId, input.generation, input.pending, {
+          prepareCommit: (lease) => {
             this.requireAccountRuntimeOpen();
             if (this.localTransferReservations.get(reservationKey) !== reservation)
               throw new Error("Local document reservation changed during admission");
+            if (
+              reservation.transfer.lineageHandle !== input.pending.lineageHandle ||
+              reservation.transfer.exactDatabaseName !== lease.exactDatabaseName ||
+              reservation.transfer.session.persistenceName !== lease.exactDatabaseName
+            )
+              throw new Error("Local adoption persistence authority does not match the lineage");
+            reservation.transfer.prepareCommit();
+          },
+          completeCommit: async () => {
+            const session = reservation.transfer.session;
             const state = this.liveRooms.get(input.documentId);
             if (!state || state.session) throw new Error("A different live session won adoption");
-            const stage = await reservation.transfer.session.stageIndexedDbPersistence(
-              documentSessionPersistenceKey(
-                this.accountId as AccountId,
-                input.documentId,
-                admitted.persistenceGeneration,
-              ),
-            );
-            try {
-              this.requireAccountRuntimeOpen();
-              if (
-                this.localTransferReservations.get(reservationKey) !== reservation ||
-                this.liveRooms.get(input.documentId) !== state ||
-                state.session
-              ) {
-                throw new Error("Local adoption lost its exact reservation");
-              }
-              reservation.transfer.prepareCommit();
-              const stageCleanup = stage.commit();
-              cleanup.closePrevious = stageCleanup.closePrevious;
-              state.session = reservation.transfer.session;
-              state.persistenceGeneration = admitted.persistenceGeneration;
-              reservation.transfer.commit();
-              this.localTransferReservations.delete(reservationKey);
-              reservation.settle();
-            } catch (error) {
-              await stage.abort();
-              throw error;
-            }
+            await reservation.transfer.completeCommit();
+            state.session = session;
+            state.persistenceGeneration = input.generation;
+            state.exactDatabaseName = input.pending.exactDatabaseName;
+            this.localTransferReservations.delete(reservationKey);
+            reservation.settle();
           },
-        ) as Promise<{
-          admitted: LiveDocumentSessionLease & { persistenceGeneration: AvailabilityGeneration };
-          value: undefined;
-        }>,
-    );
-    const session = reservation.transfer.session;
-    const finalizer: AdoptionFinalizer = {
-      closeProvider: () => cleanup.closePrevious?.() ?? Promise.resolve(),
-      releaseLease: () => reservation.transfer.finalize(),
-      providerClosed: false,
-      leaseReleased: false,
-      inFlight: null,
-    };
-    this.pendingAdoptionFinalizers.add(finalizer);
-    try {
-      await this.settleAdoptionFinalizer(finalizer);
-      this.pendingAdoptionFinalizers.delete(finalizer);
-    } catch {
-      // Canonical authority already committed. Retain the finalizer (and HL)
-      // for a later open/teardown retry rather than misreporting adoption.
+        }),
+      );
+    } catch (error) {
+      if (
+        error instanceof DocumentSessionAuthorityError &&
+        error.kind === "generation-revoked" &&
+        this.localTransferReservations.get(reservationKey) === reservation
+      ) {
+        this.localTransferReservations.delete(reservationKey);
+        reservation.settle();
+      }
+      throw error;
     }
+    const session = reservation.transfer.session;
+    const state = this.liveRooms.get(input.documentId);
+    if (!state || state.session !== session)
+      throw new Error("Local adoption did not converge on its reserved session");
     try {
       this.attachSessionTransport(session);
     } catch {
       // A later bind/open retries attachment on this same canonical session.
     }
-    return { lease: result.admitted, session };
+    return { lease: admitted, session };
   }
 
   beginCloseAccountRuntime(): void {
     if (this.accountRuntimeState !== "open") return;
     this.accountRuntimeState = "closing";
-    for (const reservation of this.localTransferReservations.values()) reservation.settle();
-    this.localTransferReservations.clear();
     this.coordination?.beginClose();
   }
 
@@ -468,10 +527,12 @@ export class DocumentSessionRegistry
     this.beginCloseAccountRuntime();
     if (this.accountRuntimeState === "closed") return Promise.resolve();
     if (this.accountCloseAttempt) return this.accountCloseAttempt;
-    const attempt = this.retryAdoptionFinalizers().then(async () => {
+    const attempt = Promise.resolve().then(async () => {
       const coordination = this.coordination;
       await (coordination?.close() ?? this.invalidateAll());
       if (this.coordination === coordination) this.coordination = null;
+      for (const reservation of this.localTransferReservations.values()) reservation.settle();
+      this.localTransferReservations.clear();
       this.accountRuntimeState = "closed";
     });
     this.accountCloseAttempt = attempt;
@@ -584,6 +645,7 @@ export class DocumentSessionRegistry
     projectId: ProjectId;
     generation: AvailabilityGeneration;
     persistenceGeneration: AvailabilityGeneration;
+    exactDatabaseName: string;
   }): void {
     this.requireAccountRuntimeOpen();
     this.teardownOwner.assertAvailable({ kind: "live", roomKey: input.documentId });
@@ -597,9 +659,11 @@ export class DocumentSessionRegistry
     const state = this.liveRooms.get(input.documentId) ?? {
       session: null,
       persistenceGeneration: input.persistenceGeneration,
+      exactDatabaseName: input.exactDatabaseName,
       leases: new Map(),
     };
     state.persistenceGeneration = input.persistenceGeneration;
+    state.exactDatabaseName = input.exactDatabaseName;
     state.leases.set(input.projectId, lease);
     this.liveRooms.set(input.documentId, state);
   }
@@ -608,13 +672,18 @@ export class DocumentSessionRegistry
     documentId: DocumentId;
     generation: AvailabilityGeneration;
     incarnation: AvailabilityGeneration | null;
+    exactDatabaseName?: string | null;
   }): Promise<void> {
     const state = this.liveRooms.get(input.documentId);
     if (!state) {
       await this.teardownOwner.drainRoom({ kind: "live", roomKey: input.documentId });
       return;
     }
-    if (state.persistenceGeneration !== input.incarnation) return;
+    if (
+      state.persistenceGeneration !== input.incarnation ||
+      (input.exactDatabaseName !== undefined && state.exactDatabaseName !== input.exactDatabaseName)
+    )
+      return;
     this.cancelPendingTeardown(input.documentId);
     let retainedChanged = false;
     for (const retained of this.retainedByOwner.values()) {
@@ -633,13 +702,18 @@ export class DocumentSessionRegistry
     projectId: ProjectId;
     generation: AvailabilityGeneration;
     incarnation: AvailabilityGeneration | null;
+    exactDatabaseName?: string | null;
   }): Promise<"other-local-project-remains" | "locally-empty"> {
     const state = this.liveRooms.get(input.documentId);
     if (!state) {
       await this.teardownOwner.drainRoom({ kind: "live", roomKey: input.documentId });
       return "locally-empty";
     }
-    if (state.persistenceGeneration !== input.incarnation) return "locally-empty";
+    if (
+      state.persistenceGeneration !== input.incarnation ||
+      (input.exactDatabaseName !== undefined && state.exactDatabaseName !== input.exactDatabaseName)
+    )
+      return "locally-empty";
     state.leases.delete(input.projectId);
     if (this.removeRetainedProjectLease(input.projectId, input.documentId)) {
       this.publishRetainedLiveDocuments();
@@ -696,17 +770,17 @@ export class DocumentSessionRegistry
       if (attach && state.session.getSnapshot().status === "detached") {
         this.attachSessionTransport(state.session);
       }
-      void this.retryAdoptionFinalizers().catch(() => undefined);
       return state.session;
     }
     state.persistenceGeneration ??= lease.generation;
+    state.exactDatabaseName ??= documentSessionPersistenceKey(
+      lease.accountId,
+      lease.documentId,
+      state.persistenceGeneration,
+    );
     const session = this.createSession(lease.documentId, {
       kind: "indexeddb",
-      key: documentSessionPersistenceKey(
-        lease.accountId,
-        lease.documentId,
-        state.persistenceGeneration,
-      ),
+      key: state.exactDatabaseName,
     });
     state.session = session;
     if (attach) this.attachSessionTransport(session);
@@ -727,11 +801,12 @@ export class DocumentSessionRegistry
     roomKey: string,
     persistence: { kind: "indexeddb"; key: string } | { kind: "none" },
   ): DocumentSession {
-    const session = new DocumentSession({
+    let session!: DocumentSession;
+    session = new DocumentSession({
       roomKey,
       persistence,
       ownUserId: this.accountId,
-      persistSchemaFence: (fence) => writeSchemaFenceQuarantine(roomKey, fence),
+      persistSchemaFence: (fence) => writeSchemaFenceQuarantine(session.documentId, fence),
     });
     const quarantine = readSchemaFenceQuarantine(roomKey);
     if (quarantine) session.raiseSchemaFence(quarantine);
@@ -747,40 +822,6 @@ export class DocumentSessionRegistry
   private attachSessionTransport(session: DocumentSession): void {
     if (session.getSnapshot().schemaFence) return;
     session.attachTransport(this.transportFactory);
-  }
-
-  private async retryAdoptionFinalizers(): Promise<void> {
-    const pending = [...this.pendingAdoptionFinalizers];
-    const failures: unknown[] = [];
-    for (const finalize of pending) {
-      try {
-        await this.settleAdoptionFinalizer(finalize);
-        this.pendingAdoptionFinalizers.delete(finalize);
-      } catch (error) {
-        // The exact finalizer remains owned for the next canonical retry.
-        failures.push(error);
-      }
-    }
-    if (failures.length === 1) throw failures[0];
-    if (failures.length > 1) throw new AggregateError(failures, "Adoption finalization failed");
-  }
-
-  private settleAdoptionFinalizer(finalizer: AdoptionFinalizer): Promise<void> {
-    if (finalizer.inFlight) return finalizer.inFlight;
-    const attempt = (async () => {
-      if (!finalizer.providerClosed) {
-        await finalizer.closeProvider();
-        finalizer.providerClosed = true;
-      }
-      if (!finalizer.leaseReleased) {
-        await finalizer.releaseLease();
-        finalizer.leaseReleased = true;
-      }
-    })().finally(() => {
-      if (finalizer.inFlight === attempt) finalizer.inFlight = null;
-    });
-    finalizer.inFlight = attempt;
-    return attempt;
   }
 
   private removeRetainedProjectLease(projectId: ProjectId, documentId: DocumentId): boolean {

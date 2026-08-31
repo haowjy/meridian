@@ -6,6 +6,7 @@ import type {
 import type { DocumentId, ProjectId } from "@meridian/contracts/runtime";
 
 import type { DocumentSession } from "./document-session";
+import type { LocalAdoptionPendingReceipt } from "./document-session-authority-store";
 
 declare const handoffBrand: unique symbol;
 
@@ -14,12 +15,12 @@ export type LocalDocumentSessionTransfer = Readonly<{
   documentId: DocumentId;
   session: DocumentSession;
   ownerRevision: number;
+  lineageHandle: string;
+  exactDatabaseName: string;
   /** Throws before the durable ownership transition if the owner record moved. */
   prepareCommit(): void;
-  /** Nonthrowing synchronous convergence after the durable phase write. */
-  commit(): void;
-  /** Runs only after the old local provider is closed and releases its lifetime lease. */
-  finalize(): Promise<void>;
+  /** Converges owner memory and releases HL while final O revalidation is retained. */
+  completeCommit(): Promise<void>;
 }>;
 
 export type LocalDocumentSessionHandoff = Readonly<{
@@ -33,10 +34,30 @@ export interface LocalDocumentSessionReservationPort {
 }
 
 export interface LocalDocumentSessionAdoptionPort {
-  admitAndAdopt(input: {
+  begin(input: {
+    projectId: ProjectId;
+    documentId: DocumentId;
+    lineageHandle: string;
+    exactDatabaseName: string;
+    transitionId: string;
+  }): Promise<LocalAdoptionPendingReceipt>;
+  abort(receipt: LocalAdoptionPendingReceipt): Promise<"aborted" | "stale">;
+  inspect(input: {
+    documentId: DocumentId;
+    lineageHandle: string;
+    exactDatabaseName: string;
+  }): Promise<"clear" | "adopting" | "bindable" | "terminal" | "mismatch">;
+  recover(input: {
+    projectId: ProjectId;
+    documentId: DocumentId;
+    generation: AvailabilityGeneration;
+    lineageHandle: string;
+  }): Promise<{ lease: LiveDocumentSessionLease; session: DocumentSession }>;
+  bindAndAdopt(input: {
     projectId: ProjectId;
     documentId: DocumentId;
     generation: AvailabilityGeneration;
     handoff: LocalDocumentSessionHandoff;
+    pending: LocalAdoptionPendingReceipt;
   }): Promise<{ lease: LiveDocumentSessionLease; session: DocumentSession }>;
 }

@@ -25,10 +25,37 @@ function tracked(documentId: string, path: string): Extract<ContextTab, { kind: 
 }
 
 function setDesk(tabs: ContextTab[], selectedTabId: string | null) {
+  const normalized = tabs.map((tab) =>
+    tab.kind !== "new" && tab.draftOnly
+      ? {
+          ...tab,
+          tabInstanceId: tab.tabInstanceId ?? `${tab.documentId}-instance`,
+          reviewDraftId: tab.reviewDraftId ?? `${tab.documentId}-draft`,
+          tabInstanceToken: tab.tabInstanceToken ?? `${tab.documentId}-token`,
+        }
+      : tab,
+  );
+  const durable = normalized.filter((tab) => !tab.draftOnly);
+  const review = normalized.filter((tab) => tab.draftOnly);
   useContextTabsStore.setState({
     byProject: {
-      [projectId]: { tabs, selectedTabIdByWork: selectedTabId ? { "work-1": selectedTabId } : {} },
+      [projectId]: {
+        tabs: durable,
+        selectedTabIdByWork:
+          selectedTabId && durable.some((tab) => tab.documentId === selectedTabId)
+            ? { "work-1": selectedTabId }
+            : {},
+      },
     },
+    _reviewOverlayByProject:
+      review.length === 0
+        ? {}
+        : {
+            [projectId]: {
+              tabs: review,
+              selectedTabIdByWork: selectedTabId ? { "work-1": selectedTabId } : {},
+            },
+          },
     _deskHydrated: false,
   });
 }
@@ -111,7 +138,9 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
       })),
     );
 
-    expect(useContextTabsStore.getState().byProject[projectId]?.tabs).toEqual([local]);
+    expect(useContextTabsStore.getState().byProject[projectId]?.tabs).toEqual([
+      expect.objectContaining(local),
+    ]);
     expect(rig.routes()).toEqual([]);
     expect(rig.coordinator.getProjectSnapshot(projectId).removalFence).toMatchObject({
       removedDocumentIds: ["active", "background"],
@@ -122,7 +151,7 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
     "writer-close",
     "work-prune",
     "draft-discard",
-  ] as const)("removes an already-bound routed tab for %s", (cause) => {
+  ] as const)("removes an already-bound routed tab for %s", async (cause) => {
     const tab = {
       ...tracked("a", "/a.md"),
       ...(cause === "work-prune" ? { scheme: "scratch" as const, workId: "work-1" } : {}),
@@ -148,7 +177,7 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
 
     if (cause === "writer-close") rig.coordinator.writerClose(projectId, "a");
     else if (cause === "work-prune") rig.coordinator.changeWorkSelection(projectId, "work-2", null);
-    else rig.coordinator.discardDraft(projectId, "work-1", "a");
+    else await rig.coordinator.discardDraft(projectId, "work-1", "a");
 
     expect(rig.routes()).toEqual([]);
     expect(rig.coordinator.getProjectSnapshot(projectId).admitted).toBeNull();
@@ -291,7 +320,7 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
     "work-prune",
     "draft-discard",
     "writer-close",
-  ] as const)("keeps unrelated remembered continuity through selection-none %s and registration reload", (cause) => {
+  ] as const)("keeps unrelated remembered continuity through selection-none %s and registration reload", async (cause) => {
     const tab = {
       ...tracked("removed", "/removed.md"),
       ...(cause === "work-prune" ? { scheme: "scratch" as const, workId: "work-old" } : {}),
@@ -319,7 +348,8 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
     );
     rig.coordinator.clearRouteSelection(projectId);
 
-    if (cause === "draft-discard") rig.coordinator.discardDraft(projectId, "work-old", "removed");
+    if (cause === "draft-discard")
+      await rig.coordinator.discardDraft(projectId, "work-old", "removed");
     else if (cause === "writer-close") rig.coordinator.writerClose(projectId, "removed");
 
     expect(rig.coordinator.getProjectSnapshot(projectId).admitted?.path).toBe("/keep.md");
@@ -333,7 +363,7 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
     expect(rig.coordinator.getProjectSnapshot(projectId).admitted?.path).toBe("/keep.md");
   });
 
-  it("allows writer-closed identity to reopen but keeps discarded drafts terminal", () => {
+  it("allows writer-closed identity to reopen but keeps discarded drafts terminal", async () => {
     setDesk([tracked("a", "/a.md")], "a");
     const writerRig = scenario();
     const writerRevision = writerRig.coordinator.beginRouteSelection(projectId, {
@@ -363,7 +393,7 @@ describe("ContextRemovalCoordinator exact removal and lifetime", () => {
       workId: "work-1",
     });
     draftRig.coordinator.bindRouteSelection(projectId, draftRevision, identityFor("draft"));
-    draftRig.coordinator.discardDraft(projectId, "work-1", "draft");
+    await draftRig.coordinator.discardDraft(projectId, "work-1", "draft");
     setDesk(
       [{ ...tracked("draft", "/draft.md"), draftOnly: true, reviewWorkId: "work-1" }],
       "draft",

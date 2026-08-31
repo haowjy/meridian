@@ -39,7 +39,6 @@ import { cn } from "@/lib/utils";
 import { useLiveBindingAcknowledgementHost } from "../dock/editor-review-handoff";
 import { usePostApplyHostWake } from "../draft-apply-recovery/ProjectDraftApplyRecoveryExecutor";
 import { useLocalUntitledOwner } from "./account-feature-context";
-import { LocalUntitledIdentityRedirect } from "./local-untitled-owner";
 import { untitledDocumentIsEmpty } from "./untitled-reconciler";
 import { useLiveDocumentBinding } from "./use-live-document-binding";
 
@@ -152,16 +151,17 @@ export function ContextEditorMountHost({
         .then((result) => {
           if (!active) return;
           if (result.kind === "opened") {
+            if (result.value.key.documentId !== documentId) {
+              remintNewTab(projectId, documentId, result.value.key.documentId);
+              return;
+            }
             localSessionsRef.current.set(documentId, result.value);
             rerenderAfterRestore((value) => value + 1);
             return;
           }
           setOwnedElsewhere((current) => new Set(current).add(documentId));
         })
-        .catch((error) => {
-          if (!active || !(error instanceof LocalUntitledIdentityRedirect)) return;
-          remintNewTab(projectId, documentId, error.key.documentId);
-        });
+        .catch(() => undefined);
     }
     return () => {
       active = false;

@@ -130,11 +130,11 @@ export function ProjectDraftApplyRecoveryExecutor({
   );
 
   const settleContext = useCallback(
-    (disposition: DispositionGrant) => {
+    async (disposition: DispositionGrant) => {
       const item = owner.currentItem(disposition.recovery);
       if (item?.phase.kind !== "disposing") return;
       try {
-        const receipt = removal.settleDraftRecovery({
+        const receipt = await removal.settleDraftRecovery({
           identity: item.identity,
           entryVersion: item.entryVersion,
           dispositionToken: disposition.dispositionToken,
@@ -159,7 +159,7 @@ export function ProjectDraftApplyRecoveryExecutor({
       const edge = `${disposition.recovery.entryVersion}:${disposition.dispositionToken}`;
       if (consumedDispositionEdges.current.has(edge)) return;
       consumedDispositionEdges.current.add(edge);
-      settleContext(disposition);
+      void settleContext(disposition);
     },
     [settleContext],
   );

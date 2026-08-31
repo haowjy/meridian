@@ -1,10 +1,11 @@
 /** Browser-root account lifetime owner and its retryable feature teardown ledger. */
 import { lookupProjectContextAvailability } from "@/client/query/project-context-availability";
+import { rehydrateContextDesks } from "@/client/stores";
 import { createAccountDocumentSessionRuntime } from "@/core/editor/account-document-session-runtime";
 import { AccountPostApplyDispositionOwner } from "../draft-apply-recovery/draft-apply-recovery-owner";
 import { ContextRemovalCoordinator } from "./context-removal-coordinator";
+import { BrowserLocalUntitledLineageLedger } from "./local-untitled-lineage-ledger";
 import { LocalUntitledOwner } from "./local-untitled-owner";
-import { BrowserLocalUntitledRecordStore } from "./local-untitled-record-store";
 import { ProjectDocumentLiveOpener } from "./open-project-document";
 import { ProjectContextAvailabilityCoordinator } from "./project-context-availability-coordinator";
 
@@ -118,7 +119,9 @@ export class AccountFeatureLifetime {
     });
     this.availability = new ProjectContextAvailabilityCoordinator({
       lookup: lookupProjectContextAvailability,
-      apply: (commands) => this.removal.reconcileDocumentAvailability(commands),
+      apply: async (commands) => {
+        await this.removal.reconcileDocumentAvailability(commands).localSettlement;
+      },
       repairProjectCatalog: (projectId) => this.repairRelay.request(projectId),
     });
     const storage =
@@ -134,11 +137,13 @@ export class AccountFeatureLifetime {
         : window.localStorage;
     this.localOwner = new LocalUntitledOwner({
       accountId,
-      records: new BrowserLocalUntitledRecordStore(storage),
-      lifetime: this.runtime.localLifetime,
+      ledger: new BrowserLocalUntitledLineageLedger(storage, this.runtime.localLifetime),
+      identityReservations: this.runtime.localIdentityReservation,
       sessions: this.runtime.localConstruction,
       reservations: this.runtime.localReservation,
+      adoption: this.runtime.localAdoption,
     });
+    this.runtime.connectLocalLineageTerminal(this.localOwner.terminalPort);
     this.opener = new ProjectDocumentLiveOpener({
       availability: this.availability,
       registry: this.registry,
@@ -202,6 +207,11 @@ export class AccountFeatureLifetime {
         this.postApplyOwner.dispose();
         this.featureOwnersSettled = true;
       }
+      try {
+        await this.runtime.finishClose();
+      } catch (cause) {
+        throw new AccountFeatureLifetimeCloseError("account-runtime", cause);
+      }
       if (!this.localSettled) {
         try {
           await this.localOwner.destroyAll();
@@ -209,11 +219,6 @@ export class AccountFeatureLifetime {
         } catch (cause) {
           throw new AccountFeatureLifetimeCloseError("local-untitled", cause);
         }
-      }
-      try {
-        await this.runtime.finishClose();
-      } catch (cause) {
-        throw new AccountFeatureLifetimeCloseError("account-runtime", cause);
       }
       this.repairRelay.clear();
       this.state = "closed";
@@ -286,6 +291,7 @@ export class AccountFeatureSupervisor {
   private desiredAccountId: string | null = null;
   private lifetime: AccountFeatureLifetime | null = null;
   private closeAttempt: Promise<void> | null = null;
+  private preparationAttempt: Promise<void> | null = null;
   private closeFailures = 0;
   private snapshot: AccountFeatureSupervisorSnapshot = { kind: "idle", authEpoch: 0 };
   private readonly serverSnapshot: AccountFeatureSupervisorSnapshot = {
@@ -297,6 +303,9 @@ export class AccountFeatureSupervisor {
   constructor(
     private readonly createLifetime: (accountId: string) => AccountFeatureLifetime = (accountId) =>
       new AccountFeatureLifetime(accountId),
+    private readonly prepareAccount: (
+      accountId: string,
+    ) => Promise<void> | void = rehydrateContextDesks,
   ) {}
 
   getSnapshot = (): AccountFeatureSupervisorSnapshot => this.snapshot;
@@ -357,13 +366,12 @@ export class AccountFeatureSupervisor {
       }
       return;
     }
-    this.constructDesired();
+    void this.constructDesired();
   }
 
   retry = (): Promise<void> => {
     if (this.snapshot.kind === "construction-failed") {
-      this.constructDesired();
-      return Promise.resolve();
+      return this.constructDesired();
     }
     return this.startClose();
   };
@@ -383,7 +391,7 @@ export class AccountFeatureSupervisor {
       () => {
         if (this.lifetime === closing) this.lifetime = null;
         this.closeAttempt = null;
-        if (this.desiredAccountId) this.constructDesired();
+        if (this.desiredAccountId) void this.constructDesired();
         else this.publish({ kind: "idle", authEpoch: this.authEpoch });
       },
       (error: unknown) => {
@@ -411,31 +419,73 @@ export class AccountFeatureSupervisor {
     return attempt;
   }
 
-  private constructDesired(): void {
+  private constructDesired(): Promise<void> {
     const accountId = this.desiredAccountId;
     if (!accountId) {
       this.publish({ kind: "idle", authEpoch: this.authEpoch });
-      return;
+      return Promise.resolve();
     }
-    try {
-      const lifetime = this.createLifetime(accountId);
-      if (lifetime.accountId !== accountId) throw new Error("Account lifetime identity mismatch");
-      this.lifetime = lifetime;
-      if (!this.canonical) throw new Error("Account declaration is missing");
-      this.publish({
-        kind: "ready",
-        authEpoch: this.authEpoch,
-        declaration: this.canonical,
-        lifetime,
-      });
-    } catch (cause) {
+    if (this.preparationAttempt) return this.preparationAttempt;
+    this.publish({
+      kind: "awaiting-composition",
+      authEpoch: this.authEpoch,
+      desiredAccountId: accountId,
+    });
+    let attempt: Promise<void> | null = null;
+    const complete = () => {
+      if (this.preparationAttempt === attempt) this.preparationAttempt = null;
+      if (this.desiredAccountId !== accountId) {
+        if (this.desiredAccountId) void this.constructDesired();
+        else this.publish({ kind: "idle", authEpoch: this.authEpoch });
+        return;
+      }
+      try {
+        const lifetime = this.createLifetime(accountId);
+        if (lifetime.accountId !== accountId) throw new Error("Account lifetime identity mismatch");
+        this.lifetime = lifetime;
+        if (!this.canonical) throw new Error("Account declaration is missing");
+        this.publish({
+          kind: "ready",
+          authEpoch: this.authEpoch,
+          declaration: this.canonical,
+          lifetime,
+        });
+      } catch (cause) {
+        this.publish({
+          kind: "construction-failed",
+          authEpoch: this.authEpoch,
+          desiredAccountId: accountId,
+          cause,
+        });
+      }
+    };
+    const fail = (cause: unknown) => {
+      if (this.preparationAttempt === attempt) this.preparationAttempt = null;
+      if (this.desiredAccountId !== accountId) {
+        if (this.desiredAccountId) void this.constructDesired();
+        return;
+      }
       this.publish({
         kind: "construction-failed",
         authEpoch: this.authEpoch,
         desiredAccountId: accountId,
         cause,
       });
+    };
+    let preparation: Promise<void> | void;
+    try {
+      preparation = this.prepareAccount(accountId);
+    } catch (cause) {
+      fail(cause);
+      return Promise.resolve();
     }
+    if (!preparation) {
+      complete();
+      return Promise.resolve();
+    }
+    attempt = preparation.then(complete, fail);
+    this.preparationAttempt = attempt;
+    return attempt;
   }
 
   private publish(snapshot: AccountFeatureSupervisorSnapshot): void {

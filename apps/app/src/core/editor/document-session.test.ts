@@ -18,7 +18,6 @@ import {
   type DocumentSessionConnectionState,
   type DocumentSessionSnapshot,
   type DocumentSessionTransportProvider,
-  deleteStaleVersionedIndexedDb,
 } from "./document-session";
 import { clientSchemaReloadGuardKey } from "./schema-fence";
 import type { SchemaRepairEvent } from "./schema-repair-witness";
@@ -399,30 +398,6 @@ describe("DocumentSession status derivation", () => {
 
     await expect(durable).resolves.toBeUndefined();
     await session.destroy();
-  });
-
-  it("deletes lower and legacy IndexedDB versions while preserving the patch-stable tag", async () => {
-    const deleteDatabase = vi.fn();
-    vi.stubGlobal("indexedDB", {
-      databases: vi.fn(async () => [
-        { name: "meridian:document:v0.0:doc-abc" },
-        { name: "meridian:document:v0.1:doc-abc" },
-        { name: "meridian:document:v0.2:doc-abc" },
-        { name: "meridian:document:v4:doc-abc" },
-        { name: "meridian:document:v0.1.0:doc-abc" },
-        { name: "meridian:document:v0.0:other-document" },
-      ]),
-      deleteDatabase,
-    });
-
-    deleteStaleVersionedIndexedDb("doc-abc", { major: 0, minor: 1, patch: 9 });
-    await flushMicrotasks();
-
-    expect(deleteDatabase.mock.calls.map(([name]) => name)).toEqual([
-      "meridian:document:v0.0:doc-abc",
-      "meridian:document:v4:doc-abc",
-      "meridian:document:v0.1.0:doc-abc",
-    ]);
   });
 
   it("carries parsed room identity for live and branch rooms", () => {

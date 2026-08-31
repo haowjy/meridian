@@ -11,14 +11,13 @@ import { assertAvailabilityGeneration } from "@meridian/contracts/protocol";
 import type { DocumentId, ProjectId } from "@meridian/contracts/runtime";
 import { collabSchemaKeyTag } from "@meridian/prosemirror-schema";
 
-const AUTHORITY_STORE_VERSION = 2;
+const AUTHORITY_STORE_VERSION = 3;
 const FENCES = "fences";
 const PURGES = "purges";
 const ROOMS = "room-order";
 const ACCESS_HEADS = "access-heads";
 const ACCESS_OUTCOMES = "access-outcomes";
 const LIVE_PERSISTENCE_PREFIX = `meridian:document:${collabSchemaKeyTag()}:live/`;
-const LIVE_PERSISTENCE_PATTERN = /^meridian:document:v\d+\.\d+:live\//;
 
 type FenceRecord = RevocationFence & { key: DocumentFenceKey | AccessFenceKey };
 export type PendingDrain =
@@ -26,18 +25,45 @@ export type PendingDrain =
       kind: "document";
       generation: AvailabilityGeneration;
       commandId: AvailabilityCommandId;
-      incarnation: AvailabilityGeneration | null;
+      incarnation: DrainPersistenceAuthority | null;
     }
   | {
       kind: "access";
       projectId: ProjectId;
       generation: AvailabilityGeneration;
       commandId: AvailabilityCommandId;
-      incarnation: AvailabilityGeneration | null;
+      incarnation: DrainPersistenceAuthority | null;
     };
+export type BindablePersistenceAuthority = {
+  phase: "bindable";
+  generation: AvailabilityGeneration;
+  exactDatabaseName: string;
+  originLineageHandle?: string;
+};
+export type DrainPersistenceAuthority = Omit<BindablePersistenceAuthority, "generation"> & {
+  generation: AvailabilityGeneration | null;
+};
+export type PersistenceAuthority =
+  | BindablePersistenceAuthority
+  | {
+      phase: "adopting-local";
+      transitionId: string;
+      lineageHandle: string;
+      exactDatabaseName: string;
+      targetGeneration: AvailabilityGeneration | null;
+    }
+  | {
+      phase: "terminal-local";
+      transitionId: string;
+      lineageHandle: string;
+      exactDatabaseName: string;
+      terminalGeneration: AvailabilityGeneration;
+      commandId: AvailabilityCommandId;
+    }
+  | null;
 export type RoomOrderRecord = {
   documentId: DocumentId;
-  persistenceGeneration: AvailabilityGeneration | null;
+  persistence: PersistenceAuthority;
   documentAdmittedThrough: AvailabilityGeneration | null;
   pendingDrain: PendingDrain | null;
 };
@@ -60,12 +86,32 @@ export type PendingDocumentPurge = {
   accountId: AccountId;
   documentId: DocumentId;
   revokedThrough: AvailabilityGeneration;
+  exactDatabaseName: string;
+  transitionId?: string;
 };
 
+export type TerminalLineageReceipt = Readonly<{
+  kind: "lineage-transition-required";
+  documentId: DocumentId;
+  generation: AvailabilityGeneration;
+  commandId: AvailabilityCommandId;
+  transitionId: string;
+  lineageHandle: string;
+  exactDatabaseName: string;
+  persistenceGeneration: AvailabilityGeneration | null;
+}>;
+
+export type TerminalLineageProgress = "pending" | "complete" | "superseded";
+
 export type AdmissionDecision =
-  | { kind: "admitted"; persistenceGeneration: AvailabilityGeneration }
+  | {
+      kind: "admitted";
+      persistenceGeneration: AvailabilityGeneration;
+      exactDatabaseName: string;
+    }
   | { kind: "generation-revoked" }
   | { kind: "purge-barrier"; purgeThrough: AvailabilityGeneration }
+  | { kind: "pending-local-adoption"; phase: "adopting-local" | "terminal-local" }
   | { kind: "pending"; pending: PendingDrain };
 
 export type DrainStart =
@@ -77,18 +123,19 @@ export type DrainStart =
       kind: "replay";
       revokedThrough: AvailabilityGeneration;
       persistence?: "cleared" | "retained-by-other-lease";
-    };
+    }
+  | TerminalLineageReceipt;
+
+export type LocalAdoptionPendingReceipt = Readonly<{
+  documentId: DocumentId;
+  transitionId: string;
+  lineageHandle: string;
+  exactDatabaseName: string;
+  targetGeneration: AvailabilityGeneration | null;
+}>;
 
 function encodeKeyPart(value: string): string {
   return encodeURIComponent(value);
-}
-
-function decodeKeyPart(value: string): string | null {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return null;
-  }
 }
 
 function accessRecordKey(documentId: DocumentId, projectId: ProjectId): string {
@@ -102,10 +149,22 @@ function purgeRecordKey(accountId: AccountId, documentId: DocumentId): string {
 function emptyRoom(documentId: DocumentId): RoomOrderRecord {
   return {
     documentId,
-    persistenceGeneration: null,
+    persistence: null,
     documentAdmittedThrough: null,
     pendingDrain: null,
   };
+}
+
+function sameAdoption(
+  authority: PersistenceAuthority,
+  receipt: LocalAdoptionPendingReceipt,
+): authority is Extract<PersistenceAuthority, { phase: "adopting-local" }> {
+  return (
+    authority?.phase === "adopting-local" &&
+    authority.transitionId === receipt.transitionId &&
+    authority.lineageHandle === receipt.lineageHandle &&
+    authority.exactDatabaseName === receipt.exactDatabaseName
+  );
 }
 
 export function compareAvailabilityGeneration(
@@ -144,26 +203,6 @@ export function documentSessionPersistenceKey(
 ): string {
   assertAvailabilityGeneration(generation);
   return `${LIVE_PERSISTENCE_PREFIX}${encodeKeyPart(accountId)}/${encodeKeyPart(documentId)}/${generation}`;
-}
-
-export function parseDocumentSessionPersistenceKey(name: string): {
-  accountId: AccountId;
-  documentId: DocumentId;
-  generation: AvailabilityGeneration;
-} | null {
-  const prefix = name.match(LIVE_PERSISTENCE_PATTERN)?.[0];
-  if (!prefix) return null;
-  const parts = name.slice(prefix.length).split("/");
-  if (parts.length !== 3) return null;
-  try {
-    assertAvailabilityGeneration(parts[2] ?? "");
-  } catch {
-    return null;
-  }
-  const accountId = decodeKeyPart(parts[0] ?? "");
-  const documentId = decodeKeyPart(parts[1] ?? "");
-  if (accountId === null || documentId === null) return null;
-  return { accountId, documentId, generation: parts[2] ?? "" };
 }
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
@@ -213,8 +252,11 @@ export class DocumentSessionAuthorityStore {
           database.createObjectStore(FENCES, { keyPath: "key" });
         if (!database.objectStoreNames.contains(PURGES))
           database.createObjectStore(PURGES, { keyPath: "key" });
-        if (!database.objectStoreNames.contains(ROOMS))
-          database.createObjectStore(ROOMS, { keyPath: "documentId" });
+        const rooms = database.objectStoreNames.contains(ROOMS)
+          ? request.transaction?.objectStore(ROOMS)
+          : database.createObjectStore(ROOMS, { keyPath: "documentId" });
+        if (rooms && !rooms.indexNames.contains("exact-persistence"))
+          rooms.createIndex("exact-persistence", "persistence.exactDatabaseName", { unique: true });
         if (!database.objectStoreNames.contains(ACCESS_HEADS))
           database.createObjectStore(ACCESS_HEADS, { keyPath: "key" });
         if (!database.objectStoreNames.contains(ACCESS_OUTCOMES))
@@ -322,6 +364,63 @@ export class DocumentSessionAuthorityStore {
     return rooms.filter((room) => room.pendingDrain !== null);
   }
 
+  async listTerminalLineages(): Promise<readonly TerminalLineageReceipt[]> {
+    const database = await this.databasePromise;
+    const transaction = database.transaction(ROOMS, "readonly");
+    const rooms = (await requestResult(
+      transaction.objectStore(ROOMS).getAll(),
+    )) as RoomOrderRecord[];
+    await transactionDone(transaction);
+    return rooms.flatMap((room) => {
+      const authority = room.persistence;
+      if (authority?.phase !== "terminal-local") return [];
+      return [
+        {
+          kind: "lineage-transition-required" as const,
+          documentId: room.documentId,
+          generation: authority.terminalGeneration,
+          commandId: authority.commandId,
+          transitionId: authority.transitionId,
+          lineageHandle: authority.lineageHandle,
+          exactDatabaseName: authority.exactDatabaseName,
+          persistenceGeneration: room.pendingDrain?.incarnation?.generation ?? null,
+        },
+      ];
+    });
+  }
+
+  /** Compares one exact terminal receipt without advancing durable authority. */
+  async inspectTerminalLineage(receipt: TerminalLineageReceipt): Promise<TerminalLineageProgress> {
+    const database = await this.databasePromise;
+    const transaction = database.transaction([ROOMS, PURGES], "readonly");
+    const [room, purge] = await Promise.all([
+      requestResult(transaction.objectStore(ROOMS).get(receipt.documentId)) as Promise<
+        RoomOrderRecord | undefined
+      >,
+      requestResult(
+        transaction.objectStore(PURGES).get(purgeRecordKey(this.accountId, receipt.documentId)),
+      ) as Promise<PendingDocumentPurge | undefined>,
+    ]);
+    await transactionDone(transaction);
+    const authority = room?.persistence;
+    if (
+      authority?.phase === "terminal-local" &&
+      authority.transitionId === receipt.transitionId &&
+      authority.lineageHandle === receipt.lineageHandle &&
+      authority.exactDatabaseName === receipt.exactDatabaseName &&
+      authority.terminalGeneration === receipt.generation &&
+      authority.commandId === receipt.commandId
+    )
+      return "pending";
+    if (
+      room?.pendingDrain?.commandId === receipt.commandId &&
+      room.pendingDrain.generation === receipt.generation
+    )
+      return "pending";
+    if (purge?.transitionId === receipt.transitionId) return "pending";
+    return authority || room?.pendingDrain ? "superseded" : "complete";
+  }
+
   async admit(input: {
     documentId: DocumentId;
     projectId: ProjectId;
@@ -359,11 +458,18 @@ export class DocumentSessionAuthorityStore {
       transaction.abort();
       return { kind: "pending", pending: room.pendingDrain };
     }
+    if (
+      room.persistence?.phase === "adopting-local" ||
+      room.persistence?.phase === "terminal-local"
+    ) {
+      transaction.abort();
+      return { kind: "pending-local-adoption", phase: room.persistence.phase };
+    }
     const reusable =
-      room.persistenceGeneration &&
+      room.persistence?.phase === "bindable" &&
       (!purge ||
-        compareAvailabilityGeneration(room.persistenceGeneration, purge.revokedThrough) > 0)
-        ? room.persistenceGeneration
+        compareAvailabilityGeneration(room.persistence.generation, purge.revokedThrough) > 0)
+        ? room.persistence
         : null;
     if (
       !reusable &&
@@ -373,8 +479,15 @@ export class DocumentSessionAuthorityStore {
       transaction.abort();
       return { kind: "purge-barrier", purgeThrough: purge.revokedThrough };
     }
-    const persistenceGeneration = reusable ?? input.generation;
-    room.persistenceGeneration = persistenceGeneration;
+    const persistenceGeneration = reusable?.generation ?? input.generation;
+    const exactDatabaseName =
+      reusable?.exactDatabaseName ??
+      documentSessionPersistenceKey(this.accountId, input.documentId, input.generation);
+    room.persistence = reusable ?? {
+      phase: "bindable",
+      generation: persistenceGeneration,
+      exactDatabaseName,
+    };
     room.documentAdmittedThrough = maximumGeneration(
       room.documentAdmittedThrough,
       input.generation,
@@ -390,7 +503,123 @@ export class DocumentSessionAuthorityStore {
       admittedThrough: maximumGeneration(currentHead?.admittedThrough ?? null, input.generation),
     } satisfies AccessHeadRecord);
     await transactionDone(transaction);
-    return { kind: "admitted", persistenceGeneration };
+    return { kind: "admitted", persistenceGeneration, exactDatabaseName };
+  }
+
+  async beginLocalAdoption(
+    input: LocalAdoptionPendingReceipt,
+  ): Promise<LocalAdoptionPendingReceipt> {
+    const database = await this.databasePromise;
+    const transaction = database.transaction(ROOMS, "readwrite");
+    const rooms = transaction.objectStore(ROOMS);
+    const room =
+      ((await requestResult(rooms.get(input.documentId))) as RoomOrderRecord | undefined) ??
+      emptyRoom(input.documentId);
+    const current = room.persistence;
+    if (current?.phase === "adopting-local") {
+      if (
+        current.lineageHandle === input.lineageHandle &&
+        current.exactDatabaseName === input.exactDatabaseName
+      ) {
+        transaction.abort();
+        return {
+          documentId: input.documentId,
+          transitionId: current.transitionId,
+          lineageHandle: current.lineageHandle,
+          exactDatabaseName: current.exactDatabaseName,
+          targetGeneration: current.targetGeneration,
+        };
+      }
+      transaction.abort();
+      throw new Error("A different local adoption owns this document");
+    }
+    if (current || room.pendingDrain) {
+      transaction.abort();
+      throw new Error("Document persistence authority is unavailable for local adoption");
+    }
+    room.persistence = {
+      phase: "adopting-local",
+      transitionId: input.transitionId,
+      lineageHandle: input.lineageHandle,
+      exactDatabaseName: input.exactDatabaseName,
+      targetGeneration: input.targetGeneration,
+    };
+    rooms.put(room);
+    await transactionDone(transaction);
+    return input;
+  }
+
+  async bindLocalAdoptionGeneration(
+    input: LocalAdoptionPendingReceipt & {
+      targetGeneration: AvailabilityGeneration;
+    },
+  ): Promise<LocalAdoptionPendingReceipt> {
+    assertAvailabilityGeneration(input.targetGeneration);
+    return this.updateLocalAdoption(input, "bind");
+  }
+
+  async finalizeLocalAdoption(
+    input: LocalAdoptionPendingReceipt & {
+      targetGeneration: AvailabilityGeneration;
+    },
+  ): Promise<Extract<AdmissionDecision, { kind: "admitted" }>> {
+    assertAvailabilityGeneration(input.targetGeneration);
+    const pending = await this.updateLocalAdoption(input, "finalize");
+    return {
+      kind: "admitted",
+      persistenceGeneration: pending.targetGeneration as AvailabilityGeneration,
+      exactDatabaseName: pending.exactDatabaseName,
+    };
+  }
+
+  async abortLocalAdoption(input: LocalAdoptionPendingReceipt): Promise<"aborted" | "stale"> {
+    const database = await this.databasePromise;
+    const transaction = database.transaction(ROOMS, "readwrite");
+    const rooms = transaction.objectStore(ROOMS);
+    const room = (await requestResult(rooms.get(input.documentId))) as RoomOrderRecord | undefined;
+    if (!room || !sameAdoption(room.persistence, input)) {
+      transaction.abort();
+      return "stale";
+    }
+    room.persistence = null;
+    rooms.put(room);
+    await transactionDone(transaction);
+    return "aborted";
+  }
+
+  private async updateLocalAdoption(
+    input: LocalAdoptionPendingReceipt & { targetGeneration: AvailabilityGeneration },
+    action: "bind" | "finalize",
+  ): Promise<LocalAdoptionPendingReceipt> {
+    const database = await this.databasePromise;
+    const transaction = database.transaction(ROOMS, "readwrite");
+    const rooms = transaction.objectStore(ROOMS);
+    const room = (await requestResult(rooms.get(input.documentId))) as RoomOrderRecord | undefined;
+    if (!room || !sameAdoption(room.persistence, input)) {
+      transaction.abort();
+      throw new Error("Local adoption transition is stale");
+    }
+    const current = room.persistence as Extract<PersistenceAuthority, { phase: "adopting-local" }>;
+    if (current.targetGeneration && current.targetGeneration !== input.targetGeneration) {
+      transaction.abort();
+      throw new Error("Local adoption generation is stale");
+    }
+    room.persistence =
+      action === "finalize"
+        ? {
+            phase: "bindable",
+            generation: input.targetGeneration,
+            exactDatabaseName: input.exactDatabaseName,
+            originLineageHandle: input.lineageHandle,
+          }
+        : { ...current, targetGeneration: input.targetGeneration };
+    room.documentAdmittedThrough = maximumGeneration(
+      room.documentAdmittedThrough,
+      input.targetGeneration,
+    );
+    rooms.put(room);
+    await transactionDone(transaction);
+    return { ...input, targetGeneration: input.targetGeneration };
   }
 
   async startDocumentDrain(input: {
@@ -399,6 +628,39 @@ export class DocumentSessionAuthorityStore {
     commandId: AvailabilityCommandId;
   }): Promise<DrainStart> {
     return this.startDrain({ kind: "document", ...input });
+  }
+
+  async finishTerminalLineage(input: {
+    documentId: DocumentId;
+    transitionId: string;
+    exactDatabaseName: string;
+  }): Promise<boolean> {
+    const database = await this.databasePromise;
+    const transaction = database.transaction([ROOMS, PURGES], "readwrite");
+    const rooms = transaction.objectStore(ROOMS);
+    const room = (await requestResult(rooms.get(input.documentId))) as RoomOrderRecord | undefined;
+    if (
+      room?.persistence?.phase !== "terminal-local" ||
+      room.persistence.transitionId !== input.transitionId ||
+      room.persistence.exactDatabaseName !== input.exactDatabaseName ||
+      room.pendingDrain
+    ) {
+      transaction.abort();
+      return false;
+    }
+    const purges = transaction.objectStore(PURGES);
+    const purge = (await requestResult(
+      purges.get(purgeRecordKey(this.accountId, input.documentId)),
+    )) as PendingDocumentPurge | undefined;
+    if (purge?.transitionId !== input.transitionId) {
+      transaction.abort();
+      return false;
+    }
+    room.persistence = null;
+    rooms.put(room);
+    purges.delete(purge.key);
+    await transactionDone(transaction);
+    return true;
   }
 
   async startAccessDrain(input: {
@@ -506,21 +768,64 @@ export class DocumentSessionAuthorityStore {
         .objectStore(ACCESS_OUTCOMES)
         .delete(accessRecordKey(input.documentId, input.projectId));
     }
-    const pending: PendingDrain = {
-      ...input,
-      incarnation: room.persistenceGeneration,
-    };
-    room.pendingDrain = pending;
-    if (
+    const lineageAuthority =
       input.kind === "document" &&
-      room.persistenceGeneration &&
-      compareAvailabilityGeneration(room.persistenceGeneration, input.generation) <= 0
+      ((room.persistence?.phase === "bindable" && room.persistence.originLineageHandle) ||
+        room.persistence?.phase === "adopting-local")
+        ? room.persistence
+        : null;
+    const incarnation: DrainPersistenceAuthority | null = lineageAuthority
+      ? {
+          phase: "bindable",
+          generation:
+            lineageAuthority.phase === "bindable"
+              ? lineageAuthority.generation
+              : lineageAuthority.targetGeneration,
+          exactDatabaseName: lineageAuthority.exactDatabaseName,
+          originLineageHandle:
+            lineageAuthority.phase === "bindable"
+              ? lineageAuthority.originLineageHandle
+              : lineageAuthority.lineageHandle,
+        }
+      : room.persistence?.phase === "bindable"
+        ? room.persistence
+        : null;
+    const pending: PendingDrain = { ...input, incarnation };
+    room.pendingDrain = pending;
+    let lineageReceipt: TerminalLineageReceipt | null = null;
+    if (lineageAuthority) {
+      const lineageHandle =
+        lineageAuthority.phase === "bindable"
+          ? (lineageAuthority.originLineageHandle as string)
+          : lineageAuthority.lineageHandle;
+      lineageReceipt = {
+        kind: "lineage-transition-required",
+        documentId: input.documentId,
+        generation: input.generation,
+        commandId: input.commandId,
+        transitionId: `${input.commandId}:${input.generation}`,
+        lineageHandle,
+        exactDatabaseName: lineageAuthority.exactDatabaseName,
+        persistenceGeneration: incarnation?.generation ?? null,
+      };
+      room.persistence = {
+        phase: "terminal-local",
+        transitionId: `${input.commandId}:${input.generation}`,
+        lineageHandle,
+        exactDatabaseName: lineageAuthority.exactDatabaseName,
+        terminalGeneration: input.generation,
+        commandId: input.commandId,
+      };
+    } else if (
+      input.kind === "document" &&
+      room.persistence?.phase === "bindable" &&
+      compareAvailabilityGeneration(room.persistence.generation, input.generation) <= 0
     ) {
-      room.persistenceGeneration = null;
+      room.persistence = null;
     }
     rooms.put(room);
     await transactionDone(transaction);
-    return { kind: "started", pending };
+    return lineageReceipt ?? { kind: "started", pending };
   }
 
   async finishDocumentDrain(input: {
@@ -590,14 +895,14 @@ export class DocumentSessionAuthorityStore {
       } satisfies AccessOutcomeRecord);
       if (
         input.persistence === "cleared" &&
-        room.persistenceGeneration &&
-        compareAvailabilityGeneration(room.persistenceGeneration, input.generation) <= 0
+        room.persistence?.phase === "bindable" &&
+        compareAvailabilityGeneration(room.persistence.generation, input.generation) <= 0
       ) {
-        room.persistenceGeneration = null;
+        room.persistence = null;
       }
     }
     rooms.put(room);
-    if (input.persistence === "cleared") {
+    if (input.persistence === "cleared" && pending.incarnation) {
       const purges = transaction.objectStore(PURGES);
       const key = purgeRecordKey(this.accountId, input.documentId);
       const current = (await requestResult(purges.get(key))) as PendingDocumentPurge | undefined;
@@ -606,6 +911,9 @@ export class DocumentSessionAuthorityStore {
         accountId: this.accountId,
         documentId: input.documentId,
         revokedThrough: maximumGeneration(current?.revokedThrough ?? null, input.generation),
+        exactDatabaseName: pending.incarnation.exactDatabaseName,
+        transitionId:
+          room.persistence?.phase === "terminal-local" ? room.persistence.transitionId : undefined,
       } satisfies PendingDocumentPurge);
     }
     await transactionDone(transaction);
@@ -651,26 +959,8 @@ export class DocumentSessionAuthorityStore {
     return true;
   }
 
-  async deletePersistenceThrough(pending: PendingDocumentPurge): Promise<boolean> {
-    if (typeof this.idb.databases !== "function") return false;
-    const databases = await this.idb.databases();
-    const matching = (databases ?? []).flatMap(({ name }) => {
-      if (!name) return [];
-      const parsed = parseDocumentSessionPersistenceKey(name);
-      if (
-        !parsed ||
-        parsed.accountId !== pending.accountId ||
-        parsed.documentId !== pending.documentId ||
-        compareAvailabilityGeneration(parsed.generation, pending.revokedThrough) > 0
-      ) {
-        return [];
-      }
-      return [name];
-    });
-    for (const name of matching) {
-      if (!(await this.deleteDatabase(name))) return false;
-    }
-    return true;
+  async deletePersistence(pending: PendingDocumentPurge): Promise<boolean> {
+    return this.deleteDatabase(pending.exactDatabaseName);
   }
 
   private deleteDatabase(name: string): Promise<boolean> {

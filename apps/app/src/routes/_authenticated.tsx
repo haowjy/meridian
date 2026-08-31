@@ -12,7 +12,6 @@ import { AppQueryProvider } from "@/client/query/AppQueryProvider";
 import {
   loadProjectList,
   ProjectStoreProvider,
-  rehydrateContextDesks,
   ThreadStoreProvider,
   useIndependentProjectsStore,
 } from "@/client/stores";
@@ -222,7 +221,6 @@ function AuthenticatedProviderTree({
     if (!untitledReconciler) return;
     untitledReconciler.rehydrate();
     untitledReconciler.start();
-    rehydrateContextDesks(user.userId);
     syncUntitledReceiptOwners();
     void useIndependentProjectsStore.persist.rehydrate();
     void useProjectSurfacePrefsStore.persist.rehydrate();

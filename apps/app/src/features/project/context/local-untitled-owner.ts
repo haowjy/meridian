@@ -1,25 +1,41 @@
-/** Account-qualified owner of durable pre-authority Untitled sessions. */
+/** Account owner for local Untitled lineages and their stable persistence sessions. */
 import type { AccountId } from "@meridian/contracts/protocol";
+import type { DocumentId, ProjectId } from "@meridian/contracts/runtime";
 import { collabSchemaKeyTag } from "@meridian/prosemirror-schema";
-import type { DocumentSession, DocumentSessionSnapshot } from "@/core/editor/document-session";
-import type {
-  LocalUntitledCrossContextLease,
-  LocalUntitledCrossContextLeasePort,
-} from "@/core/editor/document-session-cross-context-coordination";
+import {
+  type DocumentSession,
+  type DocumentSessionSnapshot,
+  deleteIndexedDb,
+} from "@/core/editor/document-session";
+import type { LocalAdoptionPendingReceipt } from "@/core/editor/document-session-authority-store";
+import type { LocalIdentityReservationPort } from "@/core/editor/document-session-cross-context-coordination";
 import type { LocalUntitledDocumentSessionFactory } from "@/core/editor/document-session-registry";
+import type { LocalLineageTerminalPort } from "@/core/editor/document-session-registry-implementation";
 import type {
+  LocalDocumentSessionAdoptionPort,
   LocalDocumentSessionHandoff,
   LocalDocumentSessionReservationPort,
 } from "@/core/editor/local-document-session-adoption";
 import type {
-  LocalUntitledKey,
-  LocalUntitledRecord,
-  LocalUntitledRecordStore,
-} from "./local-untitled-record-store";
-import { encodeLocalUntitledKey } from "./local-untitled-record-store";
+  LocalLineageEnvelope,
+  LocalUntitledLineage,
+  LocalUntitledLineageRef,
+  LocalUntitledWork,
+} from "./local-untitled-lineage";
+import type {
+  LocalUntitledLineageAccess,
+  LocalUntitledLineageLedger,
+} from "./local-untitled-lineage-ledger";
+
+export type LocalUntitledKey = Readonly<{
+  accountId: AccountId;
+  projectId: ProjectId;
+  documentId: DocumentId;
+}>;
 
 export type LocalUntitledSession = Readonly<{
   key: LocalUntitledKey;
+  ref: LocalUntitledLineageRef;
   session: DocumentSession;
 }>;
 
@@ -27,96 +43,166 @@ export type LocalUntitledOpenResult =
   | { kind: "opened"; value: LocalUntitledSession }
   | { kind: "owned-elsewhere" };
 
-export class LocalUntitledIdentityRedirect extends Error {
-  constructor(readonly key: LocalUntitledKey) {
-    super(`Local Untitled identity moved to ${key.documentId}`);
-    this.name = "LocalUntitledIdentityRedirect";
-  }
-}
+export type LocalUntitledWorkSnapshot = Readonly<{
+  key: LocalUntitledKey;
+  ref: LocalUntitledLineageRef;
+  revision: number;
+  workRevision: number;
+  phase: "local" | "adopted";
+  work: LocalUntitledWork;
+  canonicalSync?: Readonly<{
+    obligationId: string;
+    documentId: DocumentId;
+    adoptionRevision: number;
+  }>;
+  tabPublication?: Readonly<{
+    obligationId: string;
+    lineageHandle: string;
+    documentId: DocumentId;
+    adoptionRevision: number;
+  }>;
+}>;
+
+export type LocalMaterializationReservation = Readonly<{
+  handoff: LocalDocumentSessionHandoff;
+  pending: LocalAdoptionPendingReceipt;
+}>;
 
 type Owned = {
+  access: LocalUntitledLineageAccess;
   value: LocalUntitledSession;
-  lease: LocalUntitledCrossContextLease;
-  revision: number;
   transferring: boolean;
-  handoff: LocalDocumentSessionHandoff | null;
-};
-
-type PendingFinalizer = {
-  key: string;
-  closeProvider(): Promise<void>;
-  lease: LocalUntitledCrossContextLease;
-  afterSettled?: () => void;
-  providerClosed: boolean;
-  leaseReleased: boolean;
-  inFlight: Promise<void> | null;
+  reservation: LocalMaterializationReservation | null;
 };
 
 export type LocalUntitledOwnerDependencies = {
   accountId: AccountId;
-  records: LocalUntitledRecordStore;
-  lifetime: LocalUntitledCrossContextLeasePort;
+  ledger: LocalUntitledLineageLedger;
+  identityReservations: LocalIdentityReservationPort;
   sessions: LocalUntitledDocumentSessionFactory;
   reservations: LocalDocumentSessionReservationPort;
-  newLineageId?: () => string;
+  adoption: LocalDocumentSessionAdoptionPort;
+  newLineageHandle?: () => string;
+  newPersistenceId?: () => string;
+  newObligationId?: () => string;
+  deletePersistence?: (name: string) => Promise<void>;
 };
 
-export function localUntitledPersistenceKey(key: LocalUntitledKey): string {
-  return `meridian:local-untitled:${collabSchemaKeyTag()}:${encodeURIComponent(key.accountId)}:${encodeURIComponent(key.projectId)}:${encodeURIComponent(key.documentId)}`;
+export function localUntitledPersistenceName(input: {
+  accountId: AccountId;
+  projectId: ProjectId;
+  persistenceId: string;
+}): string {
+  return `meridian:local-untitled:${collabSchemaKeyTag()}:${encodeURIComponent(input.accountId)}:${encodeURIComponent(input.projectId)}:${encodeURIComponent(input.persistenceId)}`;
 }
 
-function sameKey(left: LocalUntitledKey, right: LocalUntitledKey): boolean {
-  return (
-    left.accountId === right.accountId &&
-    left.projectId === right.projectId &&
-    left.documentId === right.documentId
-  );
+function keyOf(accountId: AccountId, lineage: LocalUntitledLineage): LocalUntitledKey | null {
+  if (lineage.kind === "terminal") return null;
+  return {
+    accountId,
+    projectId: lineage.ref.projectId,
+    documentId: lineage.active.documentId,
+  };
+}
+
+function snapshot(lineage: LocalUntitledLineage): LocalUntitledWorkSnapshot | null {
+  const key = keyOf(lineage.ref.accountId, lineage);
+  if (!key || lineage.kind === "terminal") return null;
+  return {
+    key,
+    ref: lineage.ref,
+    revision: lineage.envelopeRevision,
+    workRevision: lineage.work.workRevision,
+    phase: lineage.kind,
+    work: lineage.work,
+    ...(lineage.kind === "adopted" && lineage.canonicalSync
+      ? { canonicalSync: lineage.canonicalSync }
+      : {}),
+    ...(lineage.kind === "adopted" && lineage.publication
+      ? { tabPublication: lineage.publication }
+      : {}),
+  };
 }
 
 export class LocalUntitledOwner {
   readonly accountId: AccountId;
   private readonly owned = new Map<string, Owned>();
+  private readonly opening = new Map<string, Promise<LocalUntitledOpenResult>>();
   private readonly retained = new Map<string, Set<string>>();
-  private readonly pendingFinalizers = new Map<string, PendingFinalizer>();
-  private closePromise: Promise<void> | null = null;
   private lifecycle: "open" | "closing" | "closed" = "open";
+  private closePromise: Promise<void> | null = null;
 
-  constructor(dependencies: LocalUntitledOwnerDependencies) {
-    this.dependencies = dependencies;
+  constructor(private readonly dependencies: LocalUntitledOwnerDependencies) {
     this.accountId = dependencies.accountId;
   }
 
-  private readonly dependencies: LocalUntitledOwnerDependencies;
-
-  key(
-    projectId: LocalUntitledKey["projectId"],
-    documentId: LocalUntitledKey["documentId"],
-  ): LocalUntitledKey {
+  key(projectId: ProjectId, documentId: DocumentId): LocalUntitledKey {
     return { accountId: this.accountId, projectId, documentId };
   }
 
-  phase(key: LocalUntitledKey): LocalUntitledRecord["phase"] | null {
+  listWork(): readonly LocalUntitledWorkSnapshot[] {
+    return this.dependencies.ledger
+      .list(this.accountId)
+      .flatMap((lineage) => snapshot(lineage) ?? []);
+  }
+
+  readWork(key: LocalUntitledKey): LocalUntitledWorkSnapshot | null {
     this.requireQualified(key);
-    return this.dependencies.records.read(key)?.phase ?? null;
+    const lineage = this.resolveLineage(key);
+    return lineage ? snapshot(lineage) : null;
   }
 
-  readWork(key: LocalUntitledKey): LocalUntitledRecord | null {
-    this.requireQualified(key);
-    return this.dependencies.records.read(key);
+  writeWork(next: LocalUntitledWorkSnapshot): "written" | "stale" {
+    const owned = this.owned.get(next.ref.lineageHandle);
+    const current = owned?.access.snapshot();
+    if (!current || current.kind === "terminal" || current.envelopeRevision !== next.revision)
+      return "stale";
+    const result = owned?.access.apply({
+      kind: "write-work",
+      expectedWorkRevision: current.work.workRevision,
+      work: next.work,
+    });
+    return result?.kind === "applied" || result?.kind === "unchanged" ? "written" : "stale";
   }
 
-  listWork(): readonly LocalUntitledRecord[] {
-    return this.dependencies.records.list(this.accountId);
+  async acknowledgeReconciliation(
+    key: LocalUntitledKey,
+    expectedRevision: number,
+  ): Promise<"acknowledged" | "stale"> {
+    const lineage = this.resolveLineage(key);
+    if (lineage?.kind !== "adopted" || lineage.envelopeRevision !== expectedRevision)
+      return "stale";
+    const obligation = lineage.canonicalSync;
+    if (!obligation) return "acknowledged";
+    return this.applyOneShot(lineage.ref, {
+      kind: "acknowledge-canonical-sync",
+      obligationId: obligation.obligationId,
+      documentId: obligation.documentId,
+      adoptionRevision: obligation.adoptionRevision,
+    });
   }
 
-  writeWork(record: LocalUntitledRecord): void {
-    this.requireQualified(record.key);
-    this.dependencies.records.write(record);
+  async acknowledgeFailureCleared(
+    key: LocalUntitledKey,
+    expectedWorkRevision: number,
+  ): Promise<"acknowledged" | "stale"> {
+    const lineage = this.resolveLineage(key);
+    if (!lineage || lineage.kind === "terminal") return "stale";
+    return this.applyOneShot(lineage.ref, {
+      kind: "clear-failure",
+      expectedWorkRevision,
+    });
   }
 
-  removeWork(key: LocalUntitledKey, expectedRevision: number): "removed" | "stale" {
-    this.requireQualified(key);
-    return this.dependencies.records.remove(key, expectedRevision);
+  async acknowledgeAdoptionPublication(key: LocalUntitledKey): Promise<"acknowledged" | "stale"> {
+    const lineage = this.resolveLineage(key);
+    if (lineage?.kind !== "adopted" || !lineage.publication) return "stale";
+    return this.applyOneShot(lineage.ref, {
+      kind: "acknowledge-adoption-publication",
+      obligationId: lineage.publication.obligationId,
+      documentId: lineage.publication.documentId,
+      adoptionRevision: lineage.publication.adoptionRevision,
+    });
   }
 
   create(key: LocalUntitledKey): Promise<LocalUntitledOpenResult> {
@@ -129,22 +215,32 @@ export class LocalUntitledOwner {
 
   getDetached(key: LocalUntitledKey): LocalUntitledSession | null {
     this.requireQualified(key);
-    const owned = this.owned.get(encodeLocalUntitledKey(key));
-    return owned && sameKey(owned.value.key, key) ? owned.value : null;
+    for (const owned of this.owned.values()) {
+      if (
+        owned.value.key.projectId === key.projectId &&
+        owned.value.key.documentId === key.documentId
+      )
+        return owned.value;
+    }
+    return null;
   }
 
   recordRevision(key: LocalUntitledKey): number | null {
-    this.requireQualified(key);
-    return this.dependencies.records.read(key)?.revision ?? null;
+    return this.readWork(key)?.revision ?? null;
+  }
+
+  phase(key: LocalUntitledKey): "local" | "adopted" | null {
+    return this.readWork(key)?.phase ?? null;
   }
 
   retain(ownerId: string, keys: Iterable<LocalUntitledKey>): void {
-    const ids = new Set<string>();
+    const handles = new Set<string>();
     for (const key of keys) {
-      this.requireQualified(key);
-      if (this.getDetached(key)) ids.add(encodeLocalUntitledKey(key));
+      const lineage = this.resolveLineage(key);
+      if (lineage && this.owned.has(lineage.ref.lineageHandle))
+        handles.add(lineage.ref.lineageHandle);
     }
-    this.retained.set(ownerId, ids);
+    this.retained.set(ownerId, handles);
   }
 
   release(ownerId: string): void {
@@ -160,206 +256,253 @@ export class LocalUntitledOwner {
     return value.session.subscribe(observer);
   }
 
-  async abandon(input: {
-    key: LocalUntitledKey;
-    expectedRevision: number;
-    evidence: "writer-empty-close" | "server-row-absent" | "remint-replaced";
-  }): Promise<"abandoned" | "stale" | "busy"> {
-    const pending = this.pendingFinalizers.get(encodeLocalUntitledKey(input.key));
-    if (pending) {
-      await this.settleFinalizer(pending);
-      return "abandoned";
-    }
-    const owned = this.requireOwned(input.key);
-    const record = this.dependencies.records.read(input.key);
-    if (!record || record.revision !== input.expectedRevision || owned.revision !== record.revision)
-      return "stale";
-    if (owned.transferring || this.isRetained(input.key)) return "busy";
-    if (
-      input.evidence === "writer-empty-close" &&
-      owned.value.session.document.getXmlFragment(owned.value.session.fragmentName).length > 0
-    ) {
-      return "busy";
-    }
-    const encoded = encodeLocalUntitledKey(input.key);
-    const finalizer: PendingFinalizer = {
-      key: encoded,
-      closeProvider: () => owned.value.session.destroy({ clearPersistence: true }),
-      lease: owned.lease,
-      providerClosed: false,
-      leaseReleased: false,
-      inFlight: null,
-      afterSettled: () => {
-        if (this.dependencies.records.remove(input.key, input.expectedRevision) !== "removed")
-          throw new Error("Local Untitled abandon revision became stale");
-        this.owned.delete(encoded);
-      },
+  async remint(
+    from: LocalUntitledKey,
+    to: LocalUntitledKey,
+  ): Promise<{
+    value: LocalUntitledSession;
+    publication: {
+      obsoleteDocumentId: string;
+      obligationId: string;
+      minimumIdentityRevision: number;
     };
-    this.pendingFinalizers.set(encoded, finalizer);
-    await this.settleFinalizer(finalizer);
-    return "abandoned";
+  }> {
+    this.requireOpen();
+    if (from.projectId !== to.projectId || from.documentId === to.documentId)
+      throw new Error("Local Untitled remint requires a new identity in the same project");
+    const sourceLineage = this.resolveLineage(from);
+    const owned = sourceLineage && this.owned.get(sourceLineage.ref.lineageHandle);
+    const current = owned?.access.snapshot();
+    if (!owned || current?.kind !== "local" || current.active.documentId !== from.documentId)
+      throw new Error("Local Untitled remint revision is stale");
+    const prepared = owned.value.session.prepareDetachedReidentity(to.documentId);
+    const reserved = await this.dependencies.identityReservations.tryReserve(
+      to.projectId,
+      to.documentId,
+    );
+    if (reserved.kind === "unavailable") {
+      prepared.abort();
+      throw new Error("Replacement local Untitled identity is owned elsewhere");
+    }
+    try {
+      if (this.identityClaimed(to.projectId, to.documentId)) {
+        prepared.abort();
+        throw new Error("Replacement local Untitled identity is owned elsewhere");
+      }
+      const obligationId = this.newObligationId();
+      const result = owned.access.apply({
+        kind: "commit-remint",
+        expectedIdentityRevision: current.active.identityRevision,
+        replacementDocumentId: to.documentId,
+        publicationObligationId: obligationId,
+      });
+      if (result.kind !== "applied" || result.next.kind !== "local") {
+        prepared.abort();
+        throw new Error("Local Untitled remint revision is stale");
+      }
+      prepared.commit();
+      const value = Object.freeze({ key: to, ref: current.ref, session: owned.value.session });
+      owned.value = value;
+      return {
+        value,
+        publication: {
+          obsoleteDocumentId: from.documentId,
+          obligationId,
+          minimumIdentityRevision: result.next.active.identityRevision,
+        },
+      };
+    } finally {
+      await reserved.release();
+    }
+  }
+
+  async acknowledgeRemintPublication(input: {
+    ref: LocalUntitledLineageRef;
+    obsoleteDocumentId: DocumentId;
+    obligationId: string;
+    minimumIdentityRevision: number;
+  }): Promise<"acknowledged" | "stale"> {
+    return this.applyOneShot(input.ref, {
+      kind: "acknowledge-remint-publication",
+      obsoleteDocumentId: input.obsoleteDocumentId,
+      obligationId: input.obligationId,
+      minimumIdentityRevision: input.minimumIdentityRevision,
+    });
   }
 
   async prepareMaterialization(
     key: LocalUntitledKey,
     expectedRevision: number,
-  ): Promise<LocalDocumentSessionHandoff> {
-    await this.settleKey(key);
-    const owned = this.requireOwned(key);
-    const record = this.dependencies.records.read(key);
-    if (record?.phase !== "local-pending" || record.revision !== expectedRevision)
+  ): Promise<LocalMaterializationReservation> {
+    const lineage = this.resolveLineage(key);
+    const owned = lineage && this.owned.get(lineage.ref.lineageHandle);
+    const current = owned?.access.snapshot();
+    if (!owned || current?.kind !== "local" || current.envelopeRevision !== expectedRevision)
       throw new Error("Local Untitled materialization revision is stale");
-    if (owned.transferring) {
-      if (owned.handoff) return owned.handoff;
-      throw new Error("Local Untitled transfer is already preparing");
-    }
+    if (owned.reservation) return owned.reservation;
+    const pending = await this.dependencies.adoption.begin({
+      projectId: key.projectId,
+      documentId: key.documentId,
+      lineageHandle: current.ref.lineageHandle,
+      exactDatabaseName: current.persistence.exactDatabaseName,
+      transitionId: crypto.randomUUID(),
+    });
     owned.transferring = true;
     try {
-      await owned.value.session.flushLocalPersistence();
-      const handoff = this.reserveTransfer(key, owned, expectedRevision);
-      owned.handoff = handoff;
-      return handoff;
+      const handoff = this.dependencies.reservations.reserve({
+        projectId: key.projectId,
+        documentId: key.documentId,
+        session: owned.value.session,
+        ownerRevision: expectedRevision,
+        lineageHandle: current.ref.lineageHandle,
+        exactDatabaseName: current.persistence.exactDatabaseName,
+        prepareCommit: () => {
+          const latest = owned.access.snapshot();
+          if (latest?.kind !== "local" || latest.envelopeRevision !== expectedRevision)
+            throw new Error("Local Untitled ownership changed during adoption");
+          const adoptionRevision = latest.envelopeRevision + 1;
+          const result = owned.access.apply({
+            kind: "commit-adoption",
+            expectedIdentityRevision: latest.active.identityRevision,
+            adoptionRevision,
+            canonicalSyncObligationId: this.newObligationId(),
+            publicationObligationId: this.newObligationId(),
+          });
+          if (result.kind !== "applied" || result.next.kind !== "adopted")
+            throw new Error("Local Untitled adoption commit is stale");
+        },
+        completeCommit: async () => {
+          await owned.access.release();
+          this.owned.delete(current.ref.lineageHandle);
+        },
+      });
+      const reservation = Object.freeze({ handoff, pending });
+      owned.reservation = reservation;
+      return reservation;
     } catch (error) {
       owned.transferring = false;
+      await this.dependencies.adoption.abort(pending);
       throw error;
     }
   }
 
-  abortMaterialization(key: LocalUntitledKey, handoff: LocalDocumentSessionHandoff): void {
-    const owned = this.requireOwned(key);
-    if (!owned.transferring || owned.handoff !== handoff) {
+  async abortMaterialization(
+    key: LocalUntitledKey,
+    reservation: LocalMaterializationReservation,
+  ): Promise<void> {
+    const lineage = this.resolveLineage(key);
+    const owned = lineage && this.owned.get(lineage.ref.lineageHandle);
+    if (!owned || owned.reservation !== reservation)
       throw new Error("Local Untitled handoff is not the active reservation");
-    }
-    this.dependencies.reservations.abort(handoff);
-    owned.handoff = null;
+    const result = await this.dependencies.adoption.abort(reservation.pending);
+    if (result !== "aborted") throw new Error("Local adoption abort is stale");
+    this.dependencies.reservations.abort(reservation.handoff);
+    owned.reservation = null;
     owned.transferring = false;
   }
 
-  async remint(from: LocalUntitledKey, to: LocalUntitledKey): Promise<LocalUntitledSession> {
-    this.requireOpen();
-    await this.settleKey(from);
-    this.requireOpen();
-    await this.settleKey(to);
-    this.requireOpen();
-    const old = this.requireOwned(from);
-    this.requireQualified(to);
-    if (from.projectId !== to.projectId || from.documentId === to.documentId)
-      throw new Error("Local Untitled remint requires a new ID in the same project");
-    const current = this.dependencies.records.read(from);
-    if (!current || current.revision !== old.revision || current.active === false)
-      throw new Error("Local Untitled remint revision is stale");
-    this.requireRemintAuthority(from, to, old, current, null);
-    const replacementLease = await this.dependencies.lifetime.tryAcquire(
-      to.projectId,
-      to.documentId,
+  async abandon(input: {
+    key: LocalUntitledKey;
+    expectedRevision: number;
+    evidence: "writer-empty-close" | "server-row-absent";
+  }): Promise<"abandoned" | "stale" | "busy"> {
+    const lineage = this.resolveLineage(input.key);
+    const owned = lineage && this.owned.get(lineage.ref.lineageHandle);
+    const current = owned?.access.snapshot();
+    if (!owned || current?.kind !== "local" || current.envelopeRevision !== input.expectedRevision)
+      return "stale";
+    if (owned.transferring || this.isRetained(current.ref.lineageHandle)) return "busy";
+    if (
+      input.evidence === "writer-empty-close" &&
+      owned.value.session.document.getXmlFragment(owned.value.session.fragmentName).length > 0
+    )
+      return "busy";
+    await owned.value.session.destroy();
+    await (this.dependencies.deletePersistence ?? deleteIndexedDb)(
+      current.persistence.exactDatabaseName,
     );
-    if (!replacementLease)
-      throw new Error("Replacement local Untitled identity is owned elsewhere");
-    const nextRevision = current.revision + 1;
-    const replacement: LocalUntitledRecord = {
-      ...current,
-      key: to,
-      revision: nextRevision,
-      lineageRevision: (current.lineageRevision ?? current.revision) + 1,
-      active: true,
-      createSettlement: { kind: "ready" },
-    };
-    let prepared: Awaited<ReturnType<DocumentSession["prepareDetachedReidentity"]>> | null = null;
-    let handoff: LocalDocumentSessionHandoff | null = null;
-    let finalizer: PendingFinalizer | null = null;
-    let committed = false;
-    try {
-      this.requireRemintAuthority(from, to, old, current, null);
-      prepared = await old.value.session.prepareDetachedReidentity(
-        to.documentId,
-        localUntitledPersistenceKey(to),
-      );
-      this.requireRemintAuthority(from, to, old, current, null);
-      if (old.handoff) {
-        this.dependencies.reservations.abort(old.handoff);
-        old.handoff = null;
-        old.transferring = false;
-      }
-      this.dependencies.records.write({ ...replacement, active: false });
-      const value = { key: to, session: old.value.session };
-      const next: Owned = {
-        value,
-        lease: replacementLease,
-        revision: nextRevision,
-        transferring: true,
-        handoff: null,
-      };
-      handoff = this.reserveTransfer(to, next, nextRevision);
-      next.handoff = handoff;
-      this.requireRemintAuthority(from, to, old, current, { ...replacement, active: false });
-
-      let cleanup: { closePrevious(): Promise<void> } | null = null;
-      finalizer = {
-        key: encodeLocalUntitledKey(from),
-        closeProvider: () => cleanup?.closePrevious() ?? Promise.resolve(),
-        lease: old.lease,
-        providerClosed: false,
-        leaseReleased: false,
-        inFlight: null,
-        afterSettled: () => {
-          this.dependencies.records.remove(from, current.revision);
-        },
-      };
-      this.pendingFinalizers.set(finalizer.key, finalizer);
-      this.dependencies.records.write(replacement);
-      cleanup = prepared.commit();
-      committed = true;
-      try {
-        this.dependencies.records.write({ ...current, active: false });
-      } catch {
-        // The higher active lineage revision is already authoritative.
-      }
-      this.owned.delete(encodeLocalUntitledKey(from));
-      this.owned.set(encodeLocalUntitledKey(to), next);
-    } catch (error) {
-      if (!committed) {
-        if (handoff) this.dependencies.reservations.abort(handoff);
-        if (finalizer) this.pendingFinalizers.delete(finalizer.key);
-        this.dependencies.records.remove(to, nextRevision);
-        await prepared?.abort();
-      }
-      await replacementLease.release();
-      throw error;
-    }
-    try {
-      await this.settleFinalizer(finalizer);
-    } catch {
-      // The replacement is already authoritative. Cleanup remains owner-held GC.
-    }
-    return this.requireOwned(to).value;
+    const result = owned.access.apply({
+      kind: "abandon-local",
+      expectedIdentityRevision: current.active.identityRevision,
+    });
+    if (result.kind !== "removed") return "stale";
+    await owned.access.release();
+    this.owned.delete(current.ref.lineageHandle);
+    return "abandoned";
   }
+
+  readonly terminalPort: LocalLineageTerminalPort = {
+    continueTerminal: async (input, run) => {
+      const known = this.dependencies.ledger
+        .list(this.accountId)
+        .find((lineage) => lineage.ref.lineageHandle === input.lineageHandle);
+      if (!known) {
+        await run({ publish: async () => undefined, acknowledge: async () => undefined });
+        return "completed";
+      }
+      const owned = this.owned.get(known.ref.lineageHandle);
+      const acquired = owned ? null : await this.dependencies.ledger.acquire(known.ref);
+      if (acquired?.kind === "owned-elsewhere") return "owned-elsewhere";
+      const access = owned?.access ?? acquired?.access;
+      if (!access) throw new Error("Local lineage terminal access is unavailable");
+      const cleanupObligationId = input.transitionId;
+      let published = false;
+      try {
+        await run({
+          publish: async () => {
+            const result = access.apply({
+              kind: "commit-terminal",
+              transitionId: input.transitionId,
+              terminalGeneration: input.generation,
+              exactDatabaseName: input.exactDatabaseName,
+              cleanupObligationId,
+            });
+            if (result.kind !== "applied" && result.kind !== "unchanged")
+              throw new Error("Local lineage terminal transition is stale");
+            published = true;
+            if (owned) {
+              await owned.value.session.destroy();
+            }
+          },
+          acknowledge: async () => {
+            if (!published) throw new Error("Local lineage terminal transition was not published");
+            const result = access.apply({
+              kind: "acknowledge-terminal-cleanup",
+              transitionId: input.transitionId,
+              terminalGeneration: input.generation,
+              exactDatabaseName: input.exactDatabaseName,
+              cleanupObligationId,
+            });
+            if (result.kind !== "removed" && result.kind !== "unchanged")
+              throw new Error("Local lineage terminal acknowledgement is stale");
+          },
+        });
+      } finally {
+        if (published && owned) this.owned.delete(known.ref.lineageHandle);
+        if (published && owned) await owned.access.release();
+        else if (acquired?.kind === "acquired") await acquired.access.release();
+      }
+      return "completed";
+    },
+  };
 
   destroyAll(): Promise<void> {
     if (this.lifecycle === "closed") return Promise.resolve();
     if (this.closePromise) return this.closePromise;
     this.lifecycle = "closing";
     this.retained.clear();
-    for (const [key, entry] of this.owned) {
-      if (this.pendingFinalizers.has(key)) continue;
-      this.pendingFinalizers.set(key, {
-        key,
-        closeProvider: () => entry.value.session.destroy(),
-        lease: entry.lease,
-        providerClosed: false,
-        leaseReleased: false,
-        inFlight: null,
-        afterSettled: () => this.owned.delete(key),
-      });
-    }
     const attempt = Promise.allSettled(
-      [...this.pendingFinalizers.values()].map((finalizer) => this.settleFinalizer(finalizer)),
+      [...this.owned.values()].map(async (owned) => {
+        await owned.value.session.destroy();
+        await owned.access.release();
+      }),
     )
       .then((results) => {
-        const failures = results
-          .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-          .map((result) => result.reason);
-        if (failures.length > 0)
-          throw new AggregateError(failures, "Local Untitled teardown failed");
+        const errors = results.flatMap((result) =>
+          result.status === "rejected" ? [result.reason] : [],
+        );
+        if (errors.length) throw new AggregateError(errors, "Local Untitled teardown failed");
+        this.owned.clear();
         this.lifecycle = "closed";
       })
       .finally(() => {
@@ -374,73 +517,146 @@ export class LocalUntitledOwner {
     mode: "create" | "restore",
   ): Promise<LocalUntitledOpenResult> {
     this.requireQualified(key);
-    if (this.lifecycle !== "open") throw new Error("Local Untitled owner is closing");
-    await this.settleKey(key);
-    if (mode === "restore") {
-      const requested = this.dependencies.records.read(key);
-      if (requested) {
-        const winner = this.dependencies.records
-          .list(key.accountId)
-          .filter(
-            (record) =>
-              record.key.projectId === key.projectId &&
-              record.lineageId === requested.lineageId &&
-              record.active !== false,
+    this.requireOpen();
+    let lineage = mode === "restore" ? this.resolveLineage(key) : null;
+    const lineageHandle = lineage?.ref.lineageHandle ?? this.newLineageHandle();
+    const ref = { accountId: this.accountId, projectId: key.projectId, lineageHandle };
+    const existing = this.owned.get(lineageHandle);
+    if (existing) return { kind: "opened", value: existing.value };
+    const opening = this.opening.get(lineageHandle);
+    if (opening) return opening;
+    const attempt = (async (): Promise<LocalUntitledOpenResult> => {
+      const acquired = await this.dependencies.ledger.acquire(ref);
+      if (acquired.kind === "owned-elsewhere") return acquired;
+      const access = acquired.access;
+      try {
+        lineage = access.snapshot();
+        if (mode === "create" && !lineage) {
+          const reservation = await this.dependencies.identityReservations.tryReserve(
+            key.projectId,
+            key.documentId,
+          );
+          if (reservation.kind === "unavailable") {
+            await access.release();
+            return { kind: "owned-elsewhere" };
+          }
+          try {
+            if (this.identityClaimed(key.projectId, key.documentId))
+              throw new Error("Local Untitled identity is already claimed");
+            const persistenceId = this.dependencies.newPersistenceId?.() ?? crypto.randomUUID();
+            const created: LocalLineageEnvelope = {
+              version: 3,
+              kind: "local",
+              ref,
+              envelopeRevision: 1,
+              active: { documentId: key.documentId, identityRevision: 1 },
+              persistence: {
+                persistenceId,
+                exactDatabaseName: localUntitledPersistenceName({
+                  accountId: this.accountId,
+                  projectId: key.projectId,
+                  persistenceId,
+                }),
+              },
+              work: {
+                workRevision: 1,
+                home: null,
+                createSettlement: { kind: "ready" },
+                pendingSinceMs: null,
+              },
+              aliases: {},
+            };
+            const result = access.apply({ kind: "create-lineage", lineage: created });
+            if (result.kind !== "applied") throw new Error("Local Untitled lineage claim is stale");
+            lineage = result.next;
+          } finally {
+            await reservation.release();
+          }
+        }
+        if (lineage?.kind !== "local")
+          throw new Error("Local Untitled lineage is not locally authoring");
+        if (mode === "restore") {
+          const disposition = await this.dependencies.adoption.inspect({
+            documentId: lineage.active.documentId,
+            lineageHandle: lineage.ref.lineageHandle,
+            exactDatabaseName: lineage.persistence.exactDatabaseName,
+          });
+          if (
+            disposition === "terminal" ||
+            disposition === "bindable" ||
+            disposition === "mismatch"
           )
-          .sort(
-            (left, right) =>
-              (right.lineageRevision ?? right.revision) - (left.lineageRevision ?? left.revision),
-          )[0];
-        if (winner && !sameKey(winner.key, key))
-          throw new LocalUntitledIdentityRedirect(winner.key);
+            throw new Error("Local Untitled persistence is no longer locally authoring");
+        }
+        const activeKey = this.key(lineage.ref.projectId, lineage.active.documentId);
+        const session = this.dependencies.sessions.createDetached({
+          ...activeKey,
+          persistenceKey: lineage.persistence.exactDatabaseName,
+        });
+        const value = Object.freeze({ key: activeKey, ref: lineage.ref, session });
+        this.owned.set(lineageHandle, { access, value, transferring: false, reservation: null });
+        return { kind: "opened", value };
+      } catch (error) {
+        await access.release();
+        throw error;
       }
-    }
-    const existing = this.getDetached(key);
-    if (existing) return { kind: "opened", value: existing };
-    const lease = await this.dependencies.lifetime.tryAcquire(key.projectId, key.documentId);
-    if (!lease) return { kind: "owned-elsewhere" };
+    })();
+    this.opening.set(lineageHandle, attempt);
     try {
-      let record = this.dependencies.records.read(key);
-      if (mode === "restore") {
-        if (record?.phase !== "local-pending" || record.active === false)
-          throw new Error("Local Untitled restore requires a durable pending record");
-      } else if (!record) {
-        record = {
-          key,
-          lineageId: this.dependencies.newLineageId?.() ?? crypto.randomUUID(),
-          revision: 1,
-          lineageRevision: 1,
-          active: true,
-          phase: "local-pending",
-          home: null,
-          pendingSinceMs: null,
-          createSettlement: { kind: "ready" },
-        };
-        this.dependencies.records.write(record);
-      } else if (record.phase !== "local-pending" || record.active === false) {
-        throw new Error("Local Untitled identity is not locally writable");
-      }
-      const session = this.dependencies.sessions.createDetached({
-        ...key,
-        persistenceKey: localUntitledPersistenceKey(key),
-      });
-      const value = Object.freeze({ key, session });
-      this.owned.set(encodeLocalUntitledKey(key), {
-        value,
-        lease,
-        revision: record.revision,
-        transferring: false,
-        handoff: null,
-      });
-      return { kind: "opened", value };
-    } catch (error) {
-      await lease.release();
-      throw error;
+      return await attempt;
+    } finally {
+      if (this.opening.get(lineageHandle) === attempt) this.opening.delete(lineageHandle);
     }
   }
 
+  private resolveLineage(key: LocalUntitledKey): LocalUntitledLineage | null {
+    const candidates = this.dependencies.ledger.list(this.accountId).filter((lineage) => {
+      if (lineage.ref.projectId !== key.projectId || lineage.kind === "terminal") return false;
+      return lineage.active.documentId === key.documentId || key.documentId in lineage.aliases;
+    });
+    return candidates.length === 1 ? (candidates[0] ?? null) : null;
+  }
+
+  private identityClaimed(projectId: ProjectId, documentId: DocumentId): boolean {
+    return this.dependencies.ledger.list(this.accountId).some((lineage) => {
+      if (lineage.ref.projectId !== projectId || lineage.kind === "terminal") return false;
+      return lineage.active.documentId === documentId || documentId in lineage.aliases;
+    });
+  }
+
+  private async applyOneShot(
+    ref: LocalUntitledLineageRef,
+    command: Parameters<LocalUntitledLineageAccess["apply"]>[0],
+  ): Promise<"acknowledged" | "stale"> {
+    const owned = this.owned.get(ref.lineageHandle);
+    if (owned) {
+      const result = owned.access.apply(command);
+      return result.kind === "applied" || result.kind === "removed" || result.kind === "unchanged"
+        ? "acknowledged"
+        : "stale";
+    }
+    const acquired = await this.dependencies.ledger.acquire(ref);
+    if (acquired.kind !== "acquired") return "stale";
+    try {
+      const result = acquired.access.apply(command);
+      return result.kind === "applied" || result.kind === "removed" || result.kind === "unchanged"
+        ? "acknowledged"
+        : "stale";
+    } finally {
+      await acquired.access.release();
+    }
+  }
+
+  private newLineageHandle(): string {
+    return this.dependencies.newLineageHandle?.() ?? crypto.randomUUID();
+  }
+
+  private newObligationId(): string {
+    return this.dependencies.newObligationId?.() ?? crypto.randomUUID();
+  }
+
   private requireQualified(key: LocalUntitledKey): void {
-    if (key.accountId !== this.dependencies.accountId)
+    if (key.accountId !== this.accountId)
       throw new Error("Local Untitled key belongs to a different account");
   }
 
@@ -448,111 +664,8 @@ export class LocalUntitledOwner {
     if (this.lifecycle !== "open") throw new Error("Local Untitled owner is closing");
   }
 
-  private requireRemintAuthority(
-    from: LocalUntitledKey,
-    to: LocalUntitledKey,
-    old: Owned,
-    source: LocalUntitledRecord,
-    replacement: LocalUntitledRecord | null,
-  ): void {
-    this.requireOpen();
-    const latest = this.dependencies.records.read(from);
-    if (
-      this.owned.get(encodeLocalUntitledKey(from)) !== old ||
-      !latest ||
-      latest.revision !== source.revision ||
-      latest.lineageId !== source.lineageId ||
-      (latest.lineageRevision ?? latest.revision) !== (source.lineageRevision ?? source.revision) ||
-      latest.active === false ||
-      latest.phase !== source.phase
-    ) {
-      throw new Error("Local Untitled remint revision is stale");
-    }
-    const replacementOwned = this.owned.get(encodeLocalUntitledKey(to));
-    const replacementRecord = this.dependencies.records.read(to);
-    if (replacementOwned || !this.sameRecordAuthority(replacementRecord, replacement)) {
-      throw new Error("Replacement local Untitled identity acquired competing authority");
-    }
-  }
-
-  private sameRecordAuthority(
-    actual: LocalUntitledRecord | null,
-    expected: LocalUntitledRecord | null,
-  ): boolean {
-    if (!actual || !expected) return actual === expected;
-    return (
-      actual.key.accountId === expected.key.accountId &&
-      actual.key.projectId === expected.key.projectId &&
-      actual.key.documentId === expected.key.documentId &&
-      actual.revision === expected.revision &&
-      actual.lineageId === expected.lineageId &&
-      actual.active === expected.active &&
-      actual.phase === expected.phase
-    );
-  }
-
-  private async settleKey(key: LocalUntitledKey): Promise<void> {
-    const finalizer = this.pendingFinalizers.get(encodeLocalUntitledKey(key));
-    if (finalizer) await this.settleFinalizer(finalizer);
-  }
-
-  private settleFinalizer(finalizer: PendingFinalizer): Promise<void> {
-    if (finalizer.inFlight) return finalizer.inFlight;
-    const attempt = (async () => {
-      if (!finalizer.providerClosed) {
-        await finalizer.closeProvider();
-        finalizer.providerClosed = true;
-      }
-      if (!finalizer.leaseReleased) {
-        await finalizer.lease.release();
-        finalizer.leaseReleased = true;
-      }
-      finalizer.afterSettled?.();
-      this.pendingFinalizers.delete(finalizer.key);
-    })().finally(() => {
-      if (finalizer.inFlight === attempt) finalizer.inFlight = null;
-    });
-    finalizer.inFlight = attempt;
-    return attempt;
-  }
-
-  private requireOwned(key: LocalUntitledKey): Owned {
-    const owned = this.getDetached(key) && this.owned.get(encodeLocalUntitledKey(key));
-    if (!owned) throw new Error("Local Untitled session is not owned in this realm");
-    return owned;
-  }
-
-  private reserveTransfer(
-    key: LocalUntitledKey,
-    owned: Owned,
-    expectedRevision: number,
-  ): LocalDocumentSessionHandoff {
-    return this.dependencies.reservations.reserve({
-      projectId: key.projectId,
-      documentId: key.documentId,
-      session: owned.value.session,
-      ownerRevision: expectedRevision,
-      prepareCommit: () => {
-        const latest = this.dependencies.records.read(key);
-        if (
-          latest?.phase !== "local-pending" ||
-          latest.revision !== expectedRevision ||
-          this.owned.get(encodeLocalUntitledKey(key)) !== owned
-        ) {
-          throw new Error("Local Untitled ownership changed during materialization");
-        }
-        this.dependencies.records.write({ ...latest, phase: "adopted-live" });
-      },
-      commit: () => {
-        this.owned.delete(encodeLocalUntitledKey(key));
-      },
-      finalize: () => owned.lease.release(),
-    });
-  }
-
-  private isRetained(key: LocalUntitledKey): boolean {
-    const encoded = encodeLocalUntitledKey(key);
-    for (const ids of this.retained.values()) if (ids.has(encoded)) return true;
+  private isRetained(lineageHandle: string): boolean {
+    for (const handles of this.retained.values()) if (handles.has(lineageHandle)) return true;
     return false;
   }
 }

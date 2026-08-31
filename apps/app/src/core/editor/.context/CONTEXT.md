@@ -15,7 +15,14 @@ Yjs document session. It must stay structurally aligned with
 - The account document-session runtime constructs the only production registry
   for one immutable account epoch. Account close fences admission synchronously,
   then drains local providers, lifetime leases, and adopted-session finalizers
-  before the epoch can close. Active registry maps are lookup state, not teardown
+  before the epoch can close. A local-lineage terminal transition has one
+  lineage-owner continuation: it retains HL, re-enters and revalidates O, then
+  publishes, drains, purges exact P, acknowledges lineage, and finishes O.
+  Adoption becomes live only when a final O revalidation converges the owner map
+  and releases HL before releasing O; a terminal winner diverts that retained
+  owner into the same reconciliation continuation instead of returning a session.
+  An admitted continuation remains live during account close; no O-held path may
+  acquire HL. Active registry maps are lookup state, not teardown
   ownership: every removed live or branch session transfers to the private
   teardown owner, and its qualified room remains quarantined until the exact
   session's retryable destroy ledger succeeds. Coordination close likewise
@@ -157,15 +164,17 @@ Yjs document session. It must stay structurally aligned with
   suspension. `suspend`/`resume`/`release` belong to the session alone. The
   negative-space guard fails the build on a `setLocalState`/`setLocalStateField`
   anywhere in `apps/app/src` outside `local-presence.ts`.
-- Before a server row exists, `LocalUntitledOwner` uses the account runtime's
-  narrow construction factory to create one detached session with an explicit
-  account/project/document-qualified persistence key. Adoption keeps that Y.Doc,
-  reidentifies its persistence to the admitted generation, and then attaches
-  transport under the exact lease. Ordinary live `get`, `peekLive`, `retain`,
-  `release`, `observeLive`, `attachDetached`, and revoke operations remain
-  lease-qualified. Teardown preserves persistence unless a confirmed authority
-  cleanup explicitly clears it; reload, remint, abandonment, and adoption remain
-  owned by the local Untitled lifecycle rather than an ID-based registry path.
+- Before a server row exists, one local lineage envelope owns one opaque exact
+  IndexedDB name and one detached session under its stable lineage lifetime.
+  Remint changes only session identity. Same-bucket adoption reserves the
+  existing room authority as non-bindable, then makes that same provider and
+  exact name canonical. Room authority carries every exact purge locator;
+  session construction and cleanup never enumerate or infer IndexedDB names.
+  One generation/command-fenced room transaction accepts terminal work and makes
+  the room nonauthoring before lineage publication and provider close. Its exact
+  purge receipt survives native deletion until lineage acknowledgement and room
+  completion finish together, so every terminal prefix commits forward without
+  inferring a database name. Ordinary live operations remain lease-qualified.
 - A schema fence is orthogonal session state, not a connection status:
   `DocumentSessionSnapshot.schemaFence` composes with detached, synced, offline,
   and access-lost states. The first fence wins, is persisted through the

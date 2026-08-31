@@ -3,11 +3,14 @@
 import { useSyncExternalStore } from "react";
 import { createUntitledContextDocument } from "@/client/api/projects-api";
 import { lookupProjectContextAvailability } from "@/client/query/project-context-availability";
-import { useContextTabsStore } from "@/client/stores";
+import {
+  publishLocalUntitledAdoption,
+  publishLocalUntitledRemint,
+  useContextTabsStore,
+} from "@/client/stores";
 import type { ContextIdentityMutationService } from "./context-identity-mutation";
 import type { DesiredIdentity } from "./identity-location";
 import type { LocalUntitledOwner } from "./local-untitled-owner";
-import { LocalUntitledIdentityRedirect } from "./local-untitled-owner";
 import type { ProjectDocumentLiveOpener } from "./open-project-document";
 import type {
   ProjectContextAvailabilityCoordinator,
@@ -48,20 +51,50 @@ function browserDeps(
       list: () => localOwner.listWork(),
       read: (projectId, documentId) => localOwner.readWork(localKey(projectId, documentId)),
       write: (record) => localOwner.writeWork(record),
-      remove(projectId, documentId, expectedRevision) {
-        const result = localOwner.removeWork(localKey(projectId, documentId), expectedRevision);
-        if (result !== "removed") throw new Error("Local Untitled work revision is stale");
+      async acknowledgeReconciliation(projectId, documentId, expectedRevision) {
+        const result = await localOwner.acknowledgeReconciliation(
+          localKey(projectId, documentId),
+          expectedRevision,
+        );
+        if (result !== "acknowledged") throw new Error("Local Untitled work revision is stale");
+      },
+      async acknowledgeFailureCleared(projectId, documentId, expectedRevision) {
+        const result = await localOwner.acknowledgeFailureCleared(
+          localKey(projectId, documentId),
+          expectedRevision,
+        );
+        if (result !== "acknowledged") throw new Error("Local Untitled failure revision is stale");
+      },
+      async acknowledgeAdoptionPublication(projectId, documentId) {
+        const result = await localOwner.acknowledgeAdoptionPublication(
+          localKey(projectId, documentId),
+        );
+        if (result !== "acknowledged")
+          throw new Error("Local Untitled adoption publication is stale");
+      },
+      publishAdoption(obligation, result) {
+        return publishLocalUntitledAdoption({
+          lineageHandle: obligation.lineageHandle,
+          adoptionRevision: obligation.adoptionRevision,
+          trackedTab: {
+            kind: "tracked",
+            documentId: obligation.documentId,
+            scheme: result.scheme,
+            path: result.path,
+            name: result.name,
+            workId: result.workId ?? undefined,
+            editable: true,
+            filetype: "markdown",
+            schemaType: "document",
+            provisionalName: true,
+            origin: "local-untitled",
+          },
+        });
       },
       get: (projectId: string, documentId: string) =>
         localOwner.getDetached(localKey(projectId, documentId))?.session ?? null,
       async restore(projectId: string, documentId: string) {
-        let result: Awaited<ReturnType<LocalUntitledOwner["restore"]>>;
-        try {
-          result = await localOwner.restore(localKey(projectId, documentId));
-        } catch (error) {
-          if (!(error instanceof LocalUntitledIdentityRedirect)) throw error;
-          result = await localOwner.restore(error.key);
-        }
+        const result = await localOwner.restore(localKey(projectId, documentId));
         if (result.kind !== "opened")
           throw new Error("Local Untitled is owned in another browser tab");
         return {
@@ -77,19 +110,40 @@ function browserDeps(
         localOwner.recordRevision(localKey(projectId, documentId)),
       prepare: (projectId: string, documentId: string, revision: number) =>
         localOwner.prepareMaterialization(localKey(projectId, documentId), revision),
-      abort: (projectId, documentId, handoff) =>
-        localOwner.abortMaterialization(localKey(projectId, documentId), handoff),
+      abort: (projectId, documentId, reservation) =>
+        localOwner.abortMaterialization(localKey(projectId, documentId), reservation),
       open: (input) =>
-        input.source === "local-untitled" && input.handoff
-          ? opener.open({ ...input, source: "local-untitled", handoff: input.handoff })
-          : opener.open({
-              source: "server",
-              projectId: input.projectId,
-              documentId: input.documentId,
-            }),
+        input.source === "local-untitled" && input.reservation
+          ? opener.open({ ...input, source: "local-untitled", reservation: input.reservation })
+          : input.source === "recover-local-adoption" && input.lineageHandle
+            ? opener.open({
+                source: "recover-local-adoption",
+                projectId: input.projectId,
+                documentId: input.documentId,
+                lineageHandle: input.lineageHandle,
+              })
+            : opener.open({
+                source: "server",
+                projectId: input.projectId,
+                documentId: input.documentId,
+              }),
       async remint(projectId: string, from: string, to: string) {
-        return (await localOwner.remint(localKey(projectId, from), localKey(projectId, to)))
-          .session;
+        const committed = await localOwner.remint(
+          localKey(projectId, from),
+          localKey(projectId, to),
+        );
+        const publication = await publishLocalUntitledRemint({
+          lineageHandle: committed.value.ref.lineageHandle,
+          minimumIdentityRevision: committed.publication.minimumIdentityRevision,
+          documentId: committed.value.key.documentId,
+        });
+        if (publication === "published" || publication === "not-referenced") {
+          await localOwner.acknowledgeRemintPublication({
+            ref: committed.value.ref,
+            ...committed.publication,
+          });
+        }
+        return committed.value.session;
       },
       async abandon(projectId: string, documentId: string, revision: number) {
         const result = await localOwner.abandon({

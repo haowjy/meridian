@@ -284,7 +284,7 @@ export function useDeleteConfirmation({
             }
           : { path: target.path, workId: target.workId, expected: { kind: "folder" } },
       );
-      availability.acceptCommittedDelete({
+      await availability.acceptCommittedDelete({
         projectId,
         deletedDocumentIds: result.deletedDocumentIds,
         generation: result.availabilityGeneration,

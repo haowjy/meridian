@@ -12,7 +12,12 @@ import {
 } from "@meridian/contracts/protocol";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useContextCatalogView } from "@/client/query/useContextCatalog";
-import { useContextTabs, useContextTabsActions, useContextTabsStore } from "@/client/stores";
+import {
+  getContextTabs,
+  useContextTabs,
+  useContextTabsActions,
+  useContextTabsStore,
+} from "@/client/stores";
 import {
   useContextRemovalCoordinator,
   useLocalUntitledOwner,
@@ -459,9 +464,9 @@ export function ContextViewerSurfaceController({
 
   const handleUntitledBecameNonEmpty = useCallback(
     (documentId: string) => {
-      const tab = useContextTabsStore
-        .getState()
-        .byProject[projectId]?.tabs.find((candidate) => candidate.documentId === documentId);
+      const tab = getContextTabs(projectId).tabs.find(
+        (candidate) => candidate.documentId === documentId,
+      );
       if (tab?.kind !== "new") return;
       appendPendingUntitled({
         documentId,
@@ -496,19 +501,22 @@ export function ContextViewerSurfaceController({
           documentId,
         });
         if (opened.kind !== "opened") return;
-        openTab(projectId, {
+        await openTab(projectId, {
           kind: "new",
           documentId,
           name: "Untitled",
           workId: routeWorkId,
+          lineageHandle: opened.value.ref.lineageHandle,
+          identityRevision: 1,
         });
-        selectTab(projectId, routeWorkId, documentId);
+        await selectTab(projectId, routeWorkId, documentId);
         onSelectContextPath("", "scratch");
       }}
       onUntitledBecameNonEmpty={handleUntitledBecameNonEmpty}
       onCommitted={(documentId, next, ownership) => {
-        const liveSlice = useContextTabsStore.getState().byProject[projectId];
-        const target = liveSlice?.tabs.find((candidate) => candidate.documentId === documentId);
+        const target = getContextTabs(projectId).tabs.find(
+          (candidate) => candidate.documentId === documentId,
+        );
         if (ownership.isLatest && target?.kind === "viewer") {
           // openTab merges metadata for an already-open tab; the store has no
           // viewer-specific patch action.
@@ -533,7 +541,7 @@ export function ContextViewerSurfaceController({
         if (
           identityCommitMayNavigate(
             ownership,
-            routeWorkId ? liveSlice?.selectedTabIdByWork[routeWorkId] : undefined,
+            routeWorkId ? getContextTabs(projectId).selectedTabIdByWork[routeWorkId] : undefined,
             documentId,
           )
         ) {

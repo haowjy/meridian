@@ -192,11 +192,11 @@ export class ProjectContextAvailabilityCoordinator {
   }
 
   /** Admit a committed server delete directly into the canonical terminal batch. */
-  acceptCommittedDelete(input: {
+  async acceptCommittedDelete(input: {
     projectId: string;
     deletedDocumentIds: readonly string[];
     generation: AvailabilityGeneration;
-  }): void {
+  }): Promise<void> {
     const state = this.project(input.projectId);
     const generation = BigInt(input.generation);
     const staged = [...new Set(input.deletedDocumentIds)]
@@ -218,7 +218,7 @@ export class ProjectContextAvailabilityCoordinator {
       }));
     if (staged.length === 0) return;
 
-    this.dependencies.apply(staged.map(({ command }) => command));
+    await this.dependencies.apply(staged.map(({ command }) => command));
     for (const candidate of staged) {
       state.requestGeneration.set(candidate.documentId, candidate.requestGeneration);
       state.highestAuthorityGeneration.set(candidate.documentId, generation);
@@ -256,7 +256,9 @@ export class ProjectContextAvailabilityCoordinator {
       if (generation < (state.highestAuthorityGeneration.get(documentId) ?? -1n))
         return { kind: "malformed" };
       const command = this.classify(projectId, resolution, state);
-      if (command) this.dependencies.apply([command]);
+      if (command) await this.dependencies.apply([command]);
+      if (state.requestGeneration.get(documentId) !== requestGeneration)
+        return { kind: "malformed" };
       state.highestAuthorityGeneration.set(documentId, generation);
       if (resolution.kind === "available") {
         state.admittedAuthority.set(documentId, resolution.authority);
@@ -350,9 +352,14 @@ export class ProjectContextAvailabilityCoordinator {
     if (committed.length === 0) return;
     const commands = committed.flatMap(({ command }) => (command ? [command] : []));
     commands.sort((left, right) => left.commandId.localeCompare(right.commandId));
-    this.dependencies.apply(commands);
+    await this.dependencies.apply(commands);
 
     for (const candidate of committed) {
+      if (!isCurrent(candidate.documentId)) continue;
+      if (
+        candidate.generation < (state.highestAuthorityGeneration.get(candidate.documentId) ?? -1n)
+      )
+        continue;
       state.highestAuthorityGeneration.set(candidate.documentId, candidate.generation);
       if (candidate.resolution.kind === "available") {
         state.admittedAuthority.set(candidate.documentId, candidate.resolution.authority);

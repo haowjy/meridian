@@ -17,7 +17,7 @@ export function AccountFeatureTestProvider({
   repairProjectCatalog?: (projectId: string) => Promise<void>;
   children: React.ReactNode;
 }) {
-  const [supervisor] = useState(() => new AccountFeatureSupervisor());
+  const [supervisor] = useState(() => new AccountFeatureSupervisor(undefined, () => undefined));
   useLayoutEffect(() => {
     supervisor.setAuthIntent({ loading: false, subject: accountId });
   }, [supervisor, accountId]);

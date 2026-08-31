@@ -47,7 +47,94 @@ function lifetime(accountId: string) {
   return { value: value as unknown as AccountFeatureLifetime, attempts };
 }
 
+async function settlePreparation(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 describe("AccountFeatureSupervisor", () => {
+  it("keeps failed account preparation retryable without exposing the account", async () => {
+    const preparations: Array<{
+      resolve(): void;
+      reject(error: Error): void;
+      promise: Promise<void>;
+    }> = [];
+    const created: string[] = [];
+    const supervisor = new AccountFeatureSupervisor(
+      (accountId) => {
+        created.push(accountId);
+        return lifetime(accountId).value;
+      },
+      () => {
+        let resolve!: () => void;
+        let reject!: (error: Error) => void;
+        const promise = new Promise<void>((done, fail) => {
+          resolve = done;
+          reject = fail;
+        });
+        preparations.push({ resolve, reject, promise });
+        return promise;
+      },
+    );
+    supervisor.setAuthIntent({ loading: false, subject: "subject-b" });
+    supervisor.declareAccount(declaration(supervisor, "account-b"));
+    expect(supervisor.getSnapshot().kind).toBe("awaiting-composition");
+    preparations[0]?.reject(new Error("reset write failed"));
+    await preparations[0]?.promise.catch(() => undefined);
+    await settlePreparation();
+    expect(supervisor.getSnapshot()).toMatchObject({
+      kind: "construction-failed",
+      desiredAccountId: "account-b",
+    });
+    expect(created).toEqual([]);
+
+    const retry = supervisor.retry();
+    preparations[1]?.resolve();
+    await retry;
+    expect(created).toEqual(["account-b"]);
+    expect(supervisor.getSnapshot().kind).toBe("ready");
+  });
+
+  it("exposes only the latest desire when account preparation is superseded", async () => {
+    const preparations = new Map<string, { resolve(): void; promise: Promise<void> }>();
+    const prepared: string[] = [];
+    const created: string[] = [];
+    const supervisor = new AccountFeatureSupervisor(
+      (accountId) => {
+        created.push(accountId);
+        return lifetime(accountId).value;
+      },
+      (accountId) => {
+        prepared.push(accountId);
+        let resolve!: () => void;
+        const promise = new Promise<void>((done) => {
+          resolve = done;
+        });
+        preparations.set(accountId, { resolve, promise });
+        return promise;
+      },
+    );
+    supervisor.setAuthIntent({ loading: false, subject: "subject-b" });
+    supervisor.declareAccount(declaration(supervisor, "account-b"));
+    supervisor.setAuthIntent({ loading: false, subject: "subject-c" });
+    supervisor.declareAccount(declaration(supervisor, "account-c"));
+    expect(created).toEqual([]);
+
+    preparations.get("account-b")?.resolve();
+    await preparations.get("account-b")?.promise;
+    await settlePreparation();
+    expect(prepared).toEqual(["account-b", "account-c"]);
+    expect(created).toEqual([]);
+    preparations.get("account-c")?.resolve();
+    await preparations.get("account-c")?.promise;
+    await settlePreparation();
+    expect(created).toEqual(["account-c"]);
+    expect(supervisor.getSnapshot()).toMatchObject({
+      kind: "ready",
+      declaration: { account: { id: "account-c" } },
+    });
+  });
+
   it("retains A across failure and B to C replacement until retry closes A", async () => {
     const created: string[] = [];
     const lifetimes = new Map<string, ReturnType<typeof lifetime>>();
@@ -59,6 +146,7 @@ describe("AccountFeatureSupervisor", () => {
     });
     supervisor.setAuthIntent({ loading: false, subject: "subject-a" });
     supervisor.declareAccount(declaration(supervisor, "account-a"));
+    await settlePreparation();
     const a = lifetimes.get("account-a");
     if (!a) throw new Error("A was not constructed");
 
@@ -83,6 +171,7 @@ describe("AccountFeatureSupervisor", () => {
     expect(retryA).toBe(retryB);
     a.attempts[1]?.resolve();
     await retryA;
+    await settlePreparation();
     expect(created).toEqual(["account-a", "account-c"]);
     expect(supervisor.getSnapshot()).toMatchObject({
       kind: "ready",
@@ -98,6 +187,7 @@ describe("AccountFeatureSupervisor", () => {
     const supervisor = new AccountFeatureSupervisor(create);
     supervisor.setAuthIntent({ loading: false, subject: "same-subject" });
     supervisor.declareAccount(declaration(supervisor, "account-a"));
+    await settlePreparation();
     supervisor.declareAccount(declaration(supervisor, "account-conflict"));
     expect(supervisor.getSnapshot()).toMatchObject({
       kind: "identity-inconsistent",
@@ -116,6 +206,7 @@ describe("AccountFeatureSupervisor", () => {
     const retry = supervisor.retry();
     a.attempts[1]?.resolve();
     await retry;
+    await settlePreparation();
     expect(supervisor.getSnapshot()).toMatchObject({
       kind: "ready",
       declaration: { account: { id: "account-b" } },
@@ -128,8 +219,10 @@ describe("AccountFeatureSupervisor", () => {
     supervisor.setAuthIntent({ loading: false, subject: "subject-a" });
     const stale = declaration(supervisor, "account-a");
     supervisor.declareAccount(stale);
+    await settlePreparation();
     supervisor.setAuthIntent({ loading: false, subject: null });
     supervisor.declareAccount(stale);
+    await settlePreparation();
     a.attempts[0]?.reject(new Error("sign-out close failed"));
     await expect(a.attempts[0]?.promise).rejects.toThrow();
     await Promise.resolve();
@@ -155,6 +248,7 @@ describe("AccountFeatureSupervisor", () => {
     supervisor.setAuthIntent({ loading: false, subject: "same-subject" });
     const stale = declaration(supervisor, "account-a");
     supervisor.declareAccount(stale);
+    await settlePreparation();
     supervisor.setAuthIntent({ loading: false, subject: null });
     const first = lifetimes.get("account-a");
     if (!first) throw new Error("First lifetime was not created");
@@ -168,6 +262,7 @@ describe("AccountFeatureSupervisor", () => {
     expect(supervisor.getSnapshot()).toMatchObject({ kind: "idle" });
 
     supervisor.declareAccount(current);
+    await settlePreparation();
     expect(created).toEqual(["account-a", "account-b"]);
     expect(supervisor.getSnapshot()).toMatchObject({
       kind: "ready",

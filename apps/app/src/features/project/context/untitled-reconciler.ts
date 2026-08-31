@@ -1,9 +1,9 @@
 /**
- * Untitled reconciler — drains the crash-safe list of locally-authored documents.
+ * Untitled reconciler — settles materialization work from the lineage ledger.
  *
- * The persisted registry is the only work source. Input only appends an id;
- * network, IndexedDB, and home resolution happen in scheduled sweeps. A pending
- * entry is removed only after an explicit no-row check or a durable server ack.
+ * The lineage ledger is the only durable work source. Input appends identity
+ * work; scheduled sweeps resolve homes and server state. Work settles only from
+ * an exact nonownership result or the durable canonical publication receipts.
  */
 
 import type {
@@ -17,9 +17,11 @@ import type {
 } from "@meridian/contracts/protocol";
 import * as Y from "yjs";
 import type { DocumentSession, DocumentSessionSnapshot } from "@/core/editor/document-session";
-import type { LocalDocumentSessionHandoff } from "@/core/editor/local-document-session-adoption";
 import type { DesiredIdentity } from "./identity-location";
-import { encodeLocalUntitledKey, type LocalUntitledRecord } from "./local-untitled-record-store";
+import type {
+  LocalMaterializationReservation,
+  LocalUntitledWorkSnapshot,
+} from "./local-untitled-owner";
 import type { LiveDocumentBinding, ProjectDocumentLiveOpenResult } from "./open-project-document";
 import type { ProjectDocumentOpenResolution } from "./project-context-availability-coordinator";
 
@@ -48,7 +50,7 @@ export type QueuedIdentityReceipt = MoveContextEntrySuccess & {
 type Candidate = {
   onReminted: (documentId: string) => void;
   /** One settled receipt; queued identity is the final tab and route location. */
-  onMaterialized: (receipt: MaterializationReceipt) => void;
+  onMaterialized: (receipt: MaterializationReceipt) => Promise<boolean>;
 };
 
 type MaterializationReceipt = {
@@ -76,12 +78,7 @@ export type QueuedIdentityFailure =
 
 type ReconcilerSession = Pick<
   DocumentSession,
-  | "document"
-  | "fragmentName"
-  | "whenLocalPersistenceSynced"
-  | "flushLocalPersistence"
-  | "waitForDurableSync"
-  | "getSnapshot"
+  "document" | "fragmentName" | "whenLocalPersistenceSynced" | "waitForDurableSync" | "getSnapshot"
 >;
 
 type SchedulerPort = {
@@ -114,10 +111,24 @@ export type UntitledReconcilerDeps = {
   newDocumentId: () => string;
   localOwner: {
     accountId: string;
-    list(): readonly LocalUntitledRecord[];
-    read(projectId: string, documentId: string): LocalUntitledRecord | null;
-    write(record: LocalUntitledRecord): void;
-    remove(projectId: string, documentId: string, expectedRevision: number): void;
+    list(): readonly LocalUntitledWorkSnapshot[];
+    read(projectId: string, documentId: string): LocalUntitledWorkSnapshot | null;
+    write(record: LocalUntitledWorkSnapshot): void;
+    acknowledgeReconciliation(
+      projectId: string,
+      documentId: string,
+      expectedRevision: number,
+    ): Promise<void>;
+    acknowledgeFailureCleared(
+      projectId: string,
+      documentId: string,
+      expectedRevision: number,
+    ): Promise<void>;
+    acknowledgeAdoptionPublication(projectId: string, documentId: string): Promise<void>;
+    publishAdoption(
+      obligation: NonNullable<LocalUntitledWorkSnapshot["tabPublication"]>,
+      result: CreateUntitledContextDocumentResponse,
+    ): Promise<"published" | "not-referenced" | "stale">;
     get(projectId: string, documentId: string): ReconcilerSession | null;
     restore(
       projectId: string,
@@ -130,17 +141,22 @@ export type UntitledReconcilerDeps = {
       projectId: string,
       documentId: string,
       revision: number,
-    ): Promise<LocalDocumentSessionHandoff>;
-    abort(projectId: string, documentId: string, handoff: LocalDocumentSessionHandoff): void;
+    ): Promise<LocalMaterializationReservation>;
+    abort(
+      projectId: string,
+      documentId: string,
+      reservation: LocalMaterializationReservation,
+    ): Promise<void>;
     open(input: {
-      source: "server" | "local-untitled";
+      source: "server" | "local-untitled" | "recover-local-adoption";
       projectId: string;
       documentId: string;
-      handoff?: import("@/core/editor/local-document-session-adoption").LocalDocumentSessionHandoff;
+      lineageHandle?: string;
+      reservation?: LocalMaterializationReservation;
     }): Promise<ProjectDocumentLiveOpenResult>;
     remint(projectId: string, from: string, to: string): Promise<ReconcilerSession>;
     abandon(projectId: string, documentId: string, revision: number): Promise<void>;
-    phase(projectId: string, documentId: string): "local-pending" | "adopted-live" | null;
+    phase(projectId: string, documentId: string): "local" | "adopted" | null;
   };
 };
 
@@ -180,17 +196,16 @@ export class UntitledReconciler {
   constructor(private readonly deps: UntitledReconcilerDeps) {}
 
   private key(projectId: string, documentId: string): string {
-    return encodeLocalUntitledKey({
-      accountId: this.deps.localOwner.accountId,
-      projectId,
-      documentId,
-    });
+    return [this.deps.localOwner.accountId, projectId, documentId]
+      .map((part) => encodeURIComponent(part))
+      .join(":");
   }
 
   /** Loads durable records before the tab desk filters provisional tabs. */
   rehydrate(): void {
     for (const durable of this.deps.localOwner.list()) {
-      if (durable.active === false) continue;
+      if (durable.phase === "adopted" && !durable.canonicalSync && !durable.tabPublication)
+        continue;
       const record = fromDurableRecord(durable);
       this.records.set(this.key(record.projectId, record.documentId), record);
     }
@@ -221,7 +236,7 @@ export class UntitledReconciler {
     const receipt = this.materializationReceipts.get(key);
     if (receipt) {
       this.materializationReceipts.delete(key);
-      this.publishMaterialization(candidate, receipt);
+      void this.publishMaterialization(candidate, receipt);
     }
     return () => {
       if (this.candidates.get(key) === candidate) this.candidates.delete(key);
@@ -241,7 +256,18 @@ export class UntitledReconciler {
     }
     const key = this.key(entry.projectId, entry.documentId);
     const current = this.records.get(key);
-    if (current?.materialization.phase === "pending") return;
+    if (current?.materialization.phase === "pending") {
+      if (current.materialization.entry.home || !entry.home) return;
+      this.records.set(key, {
+        ...current,
+        revision: current.revision + 1,
+        materialization: { phase: "pending", entry },
+        pendingSinceMs: current.pendingSinceMs ?? Date.now(),
+      });
+      this.persistAndEmit();
+      this.schedule();
+      return;
+    }
     this.records.set(key, {
       projectId: entry.projectId,
       documentId: entry.documentId,
@@ -275,9 +301,10 @@ export class UntitledReconciler {
     if (!record?.failure) return;
     const next = { ...record, failure: undefined };
     if (next.materialization.phase === "synced" && !next.desiredIdentity) {
-      const durable = this.deps.localOwner.read(projectId, documentId);
       this.records.delete(key);
-      if (durable) this.deps.localOwner.remove(projectId, documentId, durable.revision);
+      const durable = this.deps.localOwner.read(projectId, documentId);
+      if (durable)
+        this.deps.localOwner.acknowledgeFailureCleared(projectId, documentId, durable.revision);
     } else {
       this.records.set(key, { ...next, revision: record.revision + 1 });
     }
@@ -385,20 +412,34 @@ export class UntitledReconciler {
     const key = this.key(projectId, documentId);
     const ownerId = `untitled-reconciler:${key}`;
     const phase = local.phase(projectId, documentId);
-    if (phase === "adopted-live") {
+    if (phase === "adopted") {
       const current = this.pendingRecord(key);
-      if (current?.desiredIdentity && current.createSettlement.kind === "confirmed") {
-        const identity = await this.applyDesiredIdentity(
-          key,
-          entry,
-          current.createSettlement.result,
-        );
+      let publicationResult =
+        current?.createSettlement.kind === "confirmed"
+          ? current.createSettlement.result
+          : undefined;
+      if (current?.desiredIdentity && publicationResult) {
+        const identity = await this.applyDesiredIdentity(key, entry, publicationResult);
+        publicationResult = identity.result;
         const receipt = { result: identity.result, identity: identity.identity };
         const candidate = this.candidates.get(key);
-        if (candidate) this.publishMaterialization(candidate, receipt);
-        else this.rememberMaterializationReceipt(key, receipt);
+        if (!(candidate && (await this.publishMaterialization(candidate, receipt))))
+          this.rememberMaterializationReceipt(key, receipt);
       }
-      const opened = await local.open({ source: "server", ...entry });
+      const lineage = local.read(projectId, documentId);
+      if (!lineage) return;
+      if (lineage.tabPublication) {
+        if (!publicationResult)
+          throw new Error("Adoption publication is missing its confirmed canonical identity");
+        const publication = await local.publishAdoption(lineage.tabPublication, publicationResult);
+        if (publication === "stale") throw new Error("Adoption publication is stale");
+        await local.acknowledgeAdoptionPublication(projectId, documentId);
+      }
+      const opened = await local.open({
+        source: "recover-local-adoption",
+        lineageHandle: lineage.ref.lineageHandle,
+        ...entry,
+      });
       if (opened.kind !== "opened") throw new Error("Adopted Untitled could not reopen live");
       const binding = await opened.admission.bind(ownerId);
       try {
@@ -450,7 +491,7 @@ export class UntitledReconciler {
 
       const ownerRevision = local.revision(projectId, documentId);
       if (ownerRevision === null) throw new Error("Local Untitled owner record disappeared");
-      const handoff = await local.prepare(projectId, documentId, ownerRevision);
+      const reservation = await local.prepare(projectId, documentId, ownerRevision);
       let result: CreateUntitledContextDocumentResult;
       if (record.createSettlement.kind === "confirmed") {
         result = record.createSettlement.result;
@@ -459,7 +500,7 @@ export class UntitledReconciler {
       } else if (record.createSettlement.kind === "confirmation-required") {
         const confirmation = await this.deps.api.confirmCreate(entry);
         if (confirmation.kind === "not-visible") {
-          local.abort(projectId, documentId, handoff);
+          await local.abort(projectId, documentId, reservation);
           this.records.set(key, { ...record, createSettlement: { kind: "ready" } });
           this.persistExact(key);
           throw new Error("Untitled create definitely did not commit");
@@ -475,6 +516,7 @@ export class UntitledReconciler {
         result = await this.deps.api.create(entry);
       }
       if (result.status === "conflict") {
+        await local.abort(projectId, documentId, reservation);
         await this.remintOwned(key, entry);
         return;
       }
@@ -497,14 +539,20 @@ export class UntitledReconciler {
         source: "local-untitled",
         projectId,
         documentId,
-        handoff,
+        reservation,
       });
       if (opened.kind !== "opened") throw new Error("Materialized Untitled was not admitted");
       const binding = await opened.admission.bind(ownerId);
       const receipt = { result: identity.result, identity: identity.identity, binding };
       const candidate = this.candidates.get(key);
-      if (candidate) this.publishMaterialization(candidate, receipt);
-      else this.rememberMaterializationReceipt(key, receipt);
+      if (!(candidate && (await this.publishMaterialization(candidate, receipt))))
+        this.rememberMaterializationReceipt(key, receipt);
+      const adopted = local.read(projectId, documentId);
+      if (adopted?.tabPublication) {
+        const publication = await local.publishAdoption(adopted.tabPublication, identity.result);
+        if (publication === "stale") throw new Error("Adoption publication is stale");
+        await local.acknowledgeAdoptionPublication(projectId, documentId);
+      }
       try {
         await binding.session.waitForDurableSync();
         const snapshot = binding.session.getSnapshot();
@@ -524,17 +572,15 @@ export class UntitledReconciler {
   ): Promise<void> {
     const local = this.deps.localOwner;
     let replacementId = this.deps.newDocumentId();
-    let replacement: ReconcilerSession;
     for (;;) {
       try {
-        replacement = await local.remint(entry.projectId, entry.documentId, replacementId);
+        await local.remint(entry.projectId, entry.documentId, replacementId);
         break;
       } catch (error) {
         if (!(error instanceof Error) || !error.message.includes("owned elsewhere")) throw error;
         replacementId = this.deps.newDocumentId();
       }
     }
-    await replacement.flushLocalPersistence();
     this.redirectOwnedRecord(key, entry, replacementId);
   }
 
@@ -641,8 +687,11 @@ export class UntitledReconciler {
     return true;
   }
 
-  private publishMaterialization(candidate: Candidate, receipt: MaterializationReceipt): void {
-    candidate.onMaterialized(receipt);
+  private publishMaterialization(
+    candidate: Candidate,
+    receipt: MaterializationReceipt,
+  ): Promise<boolean> {
+    return candidate.onMaterialized(receipt);
   }
 
   private rememberMaterializationReceipt(key: string, receipt: MaterializationReceipt): void {
@@ -669,6 +718,13 @@ export class UntitledReconciler {
   private drain(key: string, processedRevision: number): void {
     const record = this.records.get(key);
     if (!record || record.revision !== processedRevision) return;
+    const durable = this.deps.localOwner.read(record.projectId, record.documentId);
+    if (durable)
+      void this.deps.localOwner.acknowledgeReconciliation(
+        record.projectId,
+        record.documentId,
+        durable.revision,
+      );
     if (record.failure) {
       this.records.set(key, {
         ...record,
@@ -678,10 +734,7 @@ export class UntitledReconciler {
         pendingSinceMs: null,
       });
     } else {
-      const durable = this.deps.localOwner.read(record.projectId, record.documentId);
       this.records.delete(key);
-      if (durable)
-        this.deps.localOwner.remove(record.projectId, record.documentId, durable.revision);
     }
     this.persistAndEmit();
   }
@@ -707,12 +760,15 @@ export class UntitledReconciler {
       if (!base) continue;
       this.deps.localOwner.write({
         ...base,
-        workRevision: record.revision,
-        home: entry?.home ?? base.home,
-        desiredIdentity: record.desiredIdentity,
-        createSettlement: record.createSettlement,
-        failure: record.failure,
-        pendingSinceMs: record.pendingSinceMs,
+        work: {
+          ...base.work,
+          workRevision: record.revision,
+          home: entry?.home ?? base.work.home,
+          desiredIdentity: record.desiredIdentity,
+          createSettlement: record.createSettlement,
+          failure: record.failure,
+          pendingSinceMs: record.pendingSinceMs,
+        },
       });
     }
   }
@@ -725,12 +781,15 @@ export class UntitledReconciler {
     if (!base) return;
     this.deps.localOwner.write({
       ...base,
-      workRevision: record.revision,
-      home: entry?.home ?? base.home,
-      desiredIdentity: record.desiredIdentity,
-      createSettlement: record.createSettlement,
-      failure: record.failure,
-      pendingSinceMs: record.pendingSinceMs,
+      work: {
+        ...base.work,
+        workRevision: record.revision,
+        home: entry?.home ?? base.work.home,
+        desiredIdentity: record.desiredIdentity,
+        createSettlement: record.createSettlement,
+        failure: record.failure,
+        pendingSinceMs: record.pendingSinceMs,
+      },
     });
   }
 
@@ -768,26 +827,30 @@ function syncFailure(snapshot: DocumentSessionSnapshot): Error {
   return new Error("Untitled document not durably synced");
 }
 
-function fromDurableRecord(record: LocalUntitledRecord): ReconciliationRecord {
+function fromDurableRecord(record: LocalUntitledWorkSnapshot): ReconciliationRecord {
+  const pending =
+    (record.phase === "adopted" && (!!record.canonicalSync || !!record.tabPublication)) ||
+    record.work.home !== null ||
+    record.work.pendingSinceMs !== null ||
+    record.work.desiredIdentity !== undefined;
   return {
     projectId: record.key.projectId,
     documentId: record.key.documentId,
-    revision: record.workRevision ?? record.revision,
-    materialization:
-      record.phase === "local-pending"
-        ? {
-            phase: "pending",
-            entry: {
-              documentId: record.key.documentId,
-              projectId: record.key.projectId,
-              ...(record.home ? { home: record.home } : {}),
-            },
-          }
-        : { phase: "synced" },
-    desiredIdentity: record.desiredIdentity,
-    createSettlement: record.createSettlement,
-    failure: record.failure,
-    pendingSinceMs: record.pendingSinceMs ?? null,
+    revision: record.work.workRevision,
+    materialization: pending
+      ? {
+          phase: "pending",
+          entry: {
+            documentId: record.key.documentId,
+            projectId: record.key.projectId,
+            ...(record.work.home ? { home: record.work.home } : {}),
+          },
+        }
+      : { phase: "synced" },
+    desiredIdentity: record.work.desiredIdentity,
+    createSettlement: record.work.createSettlement,
+    failure: record.work.failure,
+    pendingSinceMs: record.work.pendingSinceMs,
   };
 }
 

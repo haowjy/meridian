@@ -167,7 +167,9 @@ describe("server hydration route settlement", () => {
       scope: { projectId: "project", editorWorkId: null, generation: 1 },
       isLiveScope: () => true,
     });
-    expect(useContextTabsStore.getState().byProject.project?.tabs).toEqual([restored]);
+    expect(useContextTabsStore.getState().byProject.project?.tabs).toEqual([
+      expect.objectContaining(restored),
+    ]);
     expect(mocks.readTree).not.toHaveBeenCalled();
   });
 });

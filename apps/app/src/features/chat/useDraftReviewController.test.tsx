@@ -97,6 +97,10 @@ vi.mock("@/client/query/useDraftReviewMutations", () => ({
   useDiscardDraft: () => ({ mutateAsync: discardMutateMock }),
 }));
 vi.mock("@/client/stores", () => ({
+  getContextTabs: () =>
+    trackedHost
+      ? { tabs: [{ kind: "tracked", documentId: "document-1" }], selectedTabIdByWork: {} }
+      : { tabs: [], selectedTabIdByWork: {} },
   useContextTabsStore: {
     getState: () => ({
       byProject: trackedHost

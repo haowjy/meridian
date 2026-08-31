@@ -58,6 +58,21 @@ vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => queryClientMock,
 }));
 vi.mock("@/client/stores", () => ({
+  getContextTabs: () => ({
+    tabs: currentTabIsDraftOnly
+      ? [
+          {
+            kind: "tracked",
+            documentId: "doc-terminal",
+            draftOnly: true,
+            reviewWorkId: "work-1",
+            reviewDraftId: "draft-terminal",
+            tabInstanceToken: "tab-terminal",
+          },
+        ]
+      : [],
+    selectedTabIdByWork: {},
+  }),
   useContextTabsStore: {
     getState: () => ({
       byProject: {

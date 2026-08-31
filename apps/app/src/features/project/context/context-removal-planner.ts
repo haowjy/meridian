@@ -5,7 +5,11 @@ import {
   type WorkingSetRoute,
 } from "@meridian/contracts/protocol";
 import type { ContextTab } from "@/client/stores";
-import { buildWorkingSetRoute, type ReconcileContextRoutesInput } from "@/client/working-set";
+import {
+  buildWorkingSetRoute,
+  type ReconcileContextRoutesInput,
+  workingSetRouteEquals,
+} from "@/client/working-set";
 import type { ContextRouteRepair, ContextRouteTarget } from "../routing/project-route";
 
 export type ContextRemovalIntent = {
@@ -91,6 +95,11 @@ export type ContextRemovalPlannerInput = {
     current: RouteContinuityVerdict;
   };
   intent: ContextRemovalIntent;
+  /** Exact transient representation already consumed, with its authoritative survivors. */
+  consumed?: {
+    removed: readonly ContextTab[];
+    survivors: readonly ContextTab[];
+  };
 };
 
 export type ExactRouteCleanup = {
@@ -220,10 +229,17 @@ function adjacentSurvivor(
 /** Query/cache state is deliberately absent: exact commands are the only removal evidence. */
 export function planContextRemoval(input: ContextRemovalPlannerInput): ContextRemovalPlan {
   const requested = new Set(input.intent.documentIds);
-  const removed = input.tabs.filter((tab) => contextTabEligibleForRemoval(tab, input.intent));
+  const removed =
+    input.consumed?.removed ??
+    input.tabs.filter((tab) => contextTabEligibleForRemoval(tab, input.intent));
   const removedIds = new Set(removed.map((tab) => tab.documentId));
-  const remaining = input.tabs.filter((tab) => !removedIds.has(tab.documentId));
-  const deskSelectedRemoved = input.selectedTabId !== null && removedIds.has(input.selectedTabId);
+  const remaining =
+    input.consumed?.survivors ?? input.tabs.filter((tab) => !removedIds.has(tab.documentId));
+  const survives = (documentId: string) => remaining.some((tab) => tab.documentId === documentId);
+  const deskSelectedRemoved =
+    input.selectedTabId !== null &&
+    removedIds.has(input.selectedTabId) &&
+    !survives(input.selectedTabId);
   const deskSelectedTab = input.tabs.find((tab) => tab.documentId === input.selectedTabId) ?? null;
   const deskSelectedIneligibleForWork =
     input.intent.cause === "work-prune" &&
@@ -238,9 +254,13 @@ export function planContextRemoval(input: ContextRemovalPlannerInput): ContextRe
   const boundSelection = input.route.current.kind === "bound" ? input.route.current : null;
   const provenRemoved = input.route.current.kind === "proven-removed" ? input.route.current : null;
   const routedDocumentRemoved =
-    provenRemoved !== null && requested.has(provenRemoved.identity.documentId);
+    provenRemoved !== null &&
+    requested.has(provenRemoved.identity.documentId) &&
+    !survives(provenRemoved.identity.documentId);
   const exactCleanup =
-    input.route.cleanup !== null && requested.has(input.route.cleanup.identity.documentId);
+    input.route.cleanup !== null &&
+    requested.has(input.route.cleanup.identity.documentId) &&
+    !survives(input.route.cleanup.identity.documentId);
 
   const admitted = input.admitted;
   const admittedTab = admitted
@@ -252,9 +272,13 @@ export function planContextRemoval(input: ContextRemovalPlannerInput): ContextRe
     : input.admitted && boundSelection && sameTarget(boundSelection.locator, input.admitted)
       ? workingSetRouteForTarget(boundSelection.identity.documentId, input.admitted)
       : null;
-  const removedTabRoutes = removed.flatMap((tab) => workingSetRouteForTab(tab) ?? []);
+  const survivingRoutes = remaining.flatMap((tab) => workingSetRouteForTab(tab) ?? []);
+  const removedTabRoutes = removed
+    .flatMap((tab) => workingSetRouteForTab(tab) ?? [])
+    .filter((route) => !survivingRoutes.some((survivor) => workingSetRouteEquals(survivor, route)));
   const admittedWasRemoved =
     input.admitted !== null &&
+    (input.consumed === undefined || admittedTab === null) &&
     ((provenRemoved !== null && sameTarget(provenRemoved.locator, input.admitted)) ||
       (input.route.cleanup !== null &&
         sameTarget(input.route.cleanup.locator, input.admitted) &&

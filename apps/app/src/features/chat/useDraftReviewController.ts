@@ -22,7 +22,7 @@ import {
 import { getDraftPreview } from "@/client/api/drafts-api";
 import { projectQueryKeys } from "@/client/query/project-query-keys";
 import { useApplyDraft, useDiscardDraft } from "@/client/query/useDraftReviewMutations";
-import { useContextTabsStore } from "@/client/stores";
+import { getContextTabs } from "@/client/stores";
 import { useContextRemovalCoordinator } from "@/features/project/context/account-feature-context";
 import { usePostApplyAccountId } from "@/features/project/draft-apply-recovery/DraftApplyRecoveryProvider";
 import { useProjectDraftApplyRecovery } from "@/features/project/draft-apply-recovery/ProjectDraftApplyRecoveryExecutor";
@@ -246,9 +246,9 @@ export function useDraftReviewController(
           preview,
         );
       }
-      const tab = useContextTabsStore
-        .getState()
-        .byProject?.[projectId]?.tabs.find((candidate) => candidate.documentId === documentId);
+      const tab = getContextTabs(projectId).tabs.find(
+        (candidate) => candidate.documentId === documentId,
+      );
       const result = await applyMutation.mutateAsync({
         projectId,
         workId,
