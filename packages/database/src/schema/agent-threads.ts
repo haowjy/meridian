@@ -382,5 +382,34 @@ export const threadDocuments = pgTable(
   ],
 );
 
+export const userTurnAdmissions = pgTable(
+  "user_turn_admissions",
+  {
+    threadId: uuid("thread_id")
+      .$type<ThreadId>()
+      .notNull()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    submissionId: text("submission_id").notNull(),
+    actorUserId: uuid("actor_user_id").$type<UserId>().notNull(),
+    fingerprint: text("fingerprint"),
+    state: text("state").notNull(),
+    rejectionCode: text("rejection_code"),
+    userTurnId: uuid("user_turn_id").$type<TurnId>(),
+    assistantTurnId: uuid("assistant_turn_id").$type<TurnId>(),
+    resumeAfterSeq: text("resume_after_seq"),
+    snapshotFloorNextSeq: text("snapshot_floor_next_seq"),
+    claimExpiresAt: timestamp("claim_expires_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.threadId, table.submissionId] }),
+    check(
+      "user_turn_admissions_state_valid",
+      sql`${table.state} IN ('pending', 'accepted', 'rejected', 'retired')`,
+    ),
+  ],
+);
+
 // Deferred FKs in migration SQL: threads.parent_thread_id, threads.origin_turn_id,
 // threads.active_leaf_turn_id, turns.parent_turn_id.
