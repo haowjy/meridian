@@ -39,6 +39,33 @@ export type ComposerSubmitEnvelope = Readonly<{
   draft: ComposerDraftSnapshot;
 }>;
 
+function jsonNodeSize(node: JSONContent): number {
+  if (node.type === "text") return node.text?.length ?? 0;
+  if (!node.content) return 1;
+  return 2 + node.content.reduce((size, child) => size + jsonNodeSize(child), 0);
+}
+
+/** Preserve a failed submitted document before everything authored after it. */
+export function mergeComposerDraftSnapshots(
+  submitted: ComposerDraftSnapshot,
+  later: ComposerDraftSnapshot,
+): ComposerDraftSnapshot {
+  const prefix = [...(submitted.doc.content ?? []), { type: "paragraph" }];
+  const offset = prefix.reduce((size, child) => size + jsonNodeSize(child), 0);
+  const uploads = new Map(
+    [...submitted.ownedUploads, ...later.ownedUploads].map((upload) => [upload.intakeId, upload]),
+  );
+  return {
+    revision: Math.max(submitted.revision, later.revision) + 1,
+    doc: { type: "doc", content: [...prefix, ...(later.doc.content ?? [])] },
+    selection: {
+      anchor: later.selection.anchor + offset,
+      head: later.selection.head + offset,
+    },
+    ownedUploads: [...uploads.values()],
+  };
+}
+
 export type ComposerReferenceAttrs = AuthoritativeReference & {
   spelling: string;
   imageCapable: boolean;

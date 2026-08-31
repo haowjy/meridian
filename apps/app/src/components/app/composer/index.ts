@@ -2,7 +2,6 @@
 export {
   Composer,
   type ComposerDraftChange,
-  type ComposerDraftRestoration,
   type ComposerDraftRevision,
   type ComposerDraftSnapshot,
   type ComposerHandle,
@@ -15,3 +14,4 @@ export {
   type ComposerUploadScope,
   serializeComposerDraft,
 } from "./Composer";
+export { mergeComposerDraftSnapshots } from "./composer-document";

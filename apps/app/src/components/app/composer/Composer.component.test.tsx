@@ -48,6 +48,15 @@ const outcome = (
   submissionId: envelope.submissionId,
   acceptedRevision: envelope.acceptedRevision,
 });
+const textSnapshot = (text: string, revision: number) => ({
+  revision,
+  doc: {
+    type: "doc",
+    content: [{ type: "paragraph", content: text ? [{ type: "text", text }] : [] }],
+  },
+  selection: { anchor: text.length + 1, head: text.length + 1 },
+  ownedUploads: [],
+});
 describe("Composer draft changes", () => {
   it("emits one authoritative snapshot with atomic JSON, selection, and owned uploads", async () => {
     const onDraftChange = vi.fn();
@@ -104,7 +113,7 @@ describe("Composer draft changes", () => {
 describe("Composer settlement", () => {
   it("clears only an unchanged accepted revision", async () => {
     const ref = await mount((e) => outcome(e, "accepted"));
-    await act(async () => ref.current?.restoreDraft({ id: "a", text: "exact" }));
+    await act(async () => ref.current?.restoreSnapshot(textSnapshot("exact", 1)));
     await send();
     expect(ref.current?.getDraft()).toBe("");
   });
@@ -117,11 +126,11 @@ describe("Composer settlement", () => {
         settle = r;
       });
     });
-    await act(async () => ref.current?.restoreDraft({ id: "a", text: "first" }));
+    await act(async () => ref.current?.restoreSnapshot(textSnapshot("first", 1)));
     await send();
-    await act(async () => ref.current?.restoreDraft({ id: "b", text: "newer" }));
+    await act(async () => ref.current?.restoreSnapshot(textSnapshot("newer", 2)));
     await act(async () => settle(outcome(frozen, "accepted")));
-    expect(ref.current?.getDraft()).toBe("newer\n\nfirst");
+    expect(ref.current?.getDraft()).toBe("newer");
   });
   it("restores the exact snapshot and backward selection on definite rejection", async () => {
     let frozen!: ComposerSubmitEnvelope;
@@ -146,7 +155,7 @@ describe("Composer settlement", () => {
   });
   it("leaves an ambiguous draft visible and locked", async () => {
     const ref = await mount((e) => outcome(e, "ambiguous"));
-    await act(async () => ref.current?.restoreDraft({ id: "a", text: "uncertain" }));
+    await act(async () => ref.current?.restoreSnapshot(textSnapshot("uncertain", 1)));
     await send();
     expect(ref.current?.getDraft()).toBe("uncertain");
     expect(

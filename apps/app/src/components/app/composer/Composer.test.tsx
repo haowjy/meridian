@@ -6,6 +6,7 @@ vi.mock("./placeholders", () => ({ useComposerPlaceholder: () => "Write" }));
 vi.stubGlobal("crypto", { randomUUID: () => "submission-1" });
 
 import { type ComposerOwnedUpload, serializeComposerDraft } from "./Composer";
+import { mergeComposerDraftSnapshots } from "./composer-document";
 
 const reference = {
   documentId: "01900000-0000-7000-8000-000000000001",
@@ -98,5 +99,56 @@ describe("one ordered Composer serializer", () => {
     });
     expect(result.text).toBe("beforeafter");
     expect(result.references).toEqual([]);
+  });
+});
+
+describe("document-level failed submission merge", () => {
+  it("preserves duplicate atoms, upload rights, hard breaks, equal text, and later selection", () => {
+    const upload = {
+      intakeId: "intake-1",
+      documentId: reference.documentId,
+      uri: reference.uri,
+      locationRevision: "r1",
+    };
+    const submitted = serializeComposerDraft(
+      {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              token({ ...reference, upload }),
+              { type: "hardBreak" },
+              token({ ...reference, upload }),
+            ],
+          },
+        ],
+      },
+      4,
+      { anchor: 2, head: 1 },
+    ).draft;
+    const later = serializeComposerDraft(
+      {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              token({ ...reference, upload }),
+              { type: "hardBreak" },
+              token({ ...reference, upload }),
+            ],
+          },
+        ],
+      },
+      5,
+      { anchor: 3, head: 2 },
+    ).draft;
+    const merged = mergeComposerDraftSnapshots(submitted, later);
+    expect(merged.doc.content).toHaveLength(3);
+    expect(JSON.stringify(merged.doc).match(/composerReference/g)).toHaveLength(4);
+    expect(merged.ownedUploads).toEqual([upload]);
+    expect(merged.selection.anchor).toBeGreaterThan(later.selection.anchor);
+    expect(merged.selection.anchor - merged.selection.head).toBe(1);
   });
 });

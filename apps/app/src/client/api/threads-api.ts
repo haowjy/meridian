@@ -6,7 +6,9 @@
  * network surface the chat flow and snapshot sync build on.
  */
 import {
+  type AdmissionLookup,
   API_THREADS_PATH,
+  apiThreadAdmissionPath,
   apiThreadCancelPath,
   apiThreadMessagePath,
   apiThreadModelRequestsDebugPath,
@@ -20,6 +22,7 @@ import {
   type ListThreadRecentDocumentsResponse,
   type ListThreadsResponse,
   type ModelRequestDebugListResponse,
+  type RetireAdmissionResult,
   type SendMessageResponse,
   type Thread,
   type ThreadRecentDocumentItem,
@@ -31,7 +34,7 @@ import {
 import type { WorkId } from "@meridian/contracts/runtime";
 import type { RebindThreadWorkRequest, RebindThreadWorkResponse } from "@meridian/contracts/works";
 
-import { deleteRequest, getJson, patchJson, postJson, putJson } from "./http-client";
+import { deleteJson, deleteRequest, getJson, patchJson, postJson, putJson } from "./http-client";
 
 type CreateThreadInput = {
   id?: string;
@@ -44,7 +47,10 @@ type CreateThreadInput = {
 
 export type AppendUserMessageInput = {
   threadId: string;
+  submissionId: string;
   text: string;
+  blocks: readonly import("@meridian/contracts/protocol").UserMessageBlock[];
+  references: readonly import("@meridian/contracts/protocol").SubmittedReference[];
   connectionToken?: string;
 };
 
@@ -80,6 +86,20 @@ export function appendUserMessage({
   data: AppendUserMessageInput;
 }): Promise<SendMessageResponse> {
   return postJson(apiThreadMessagePath(data.threadId), data);
+}
+
+export function lookupUserMessageAdmission(input: {
+  threadId: string;
+  submissionId: string;
+}): Promise<AdmissionLookup> {
+  return getJson(apiThreadAdmissionPath(input.threadId, input.submissionId));
+}
+
+export function retireUserMessageAdmission(input: {
+  threadId: string;
+  submissionId: string;
+}): Promise<RetireAdmissionResult> {
+  return deleteJson(apiThreadAdmissionPath(input.threadId, input.submissionId));
 }
 
 export function cancelTurn({ data }: { data: CancelTurnInput }): Promise<CancelTurnResponse> {
