@@ -16,4 +16,4 @@ CREATE TABLE "user_turn_admissions" (
 	CONSTRAINT "user_turn_admissions_state_valid" CHECK ("user_turn_admissions"."state" IN ('pending', 'accepted', 'rejected', 'retired'))
 );
 --> statement-breakpoint
-ALTER TABLE "user_turn_admissions" ADD CONSTRAINT "user_turn_admissions_thread_id_threads_id_fk" FOREIGN KEY ("thread_id") REFERENCES "public"."threads"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "user_turn_admissions" ADD CONSTRAINT "user_turn_admissions_thread_id_threads_id_fk" FOREIGN KEY ("thread_id") REFERENCES "public"."threads"("id") ON DELETE cascade ON UPDATE no action; -- migration-lint: skip ADD_FOREIGN_KEY_NOT_VALID (table is created empty above)

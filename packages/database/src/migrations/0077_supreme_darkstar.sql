@@ -25,9 +25,14 @@ CREATE TABLE "context_catalog_scope_heads" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "context_catalog_commits" ADD CONSTRAINT "context_catalog_commits_scope_key_context_catalog_scope_heads_scope_key_fk" FOREIGN KEY ("scope_key") REFERENCES "public"."context_catalog_scope_heads"("scope_key") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "context_catalog_entries" ADD CONSTRAINT "context_catalog_entries_scope_key_context_catalog_scope_heads_scope_key_fk" FOREIGN KEY ("scope_key") REFERENCES "public"."context_catalog_scope_heads"("scope_key") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE UNIQUE INDEX "context_catalog_commits_scope_revision_uq" ON "context_catalog_commits" USING btree ("scope_key","first_revision");--> statement-breakpoint
-CREATE INDEX "context_catalog_commits_commit_idx" ON "context_catalog_commits" USING btree ("commit_id");--> statement-breakpoint
-CREATE INDEX "context_catalog_entries_parent_idx" ON "context_catalog_entries" USING btree ("scope_key",("entry"->>'parentId'));--> statement-breakpoint
-CREATE INDEX "context_catalog_entries_uri_idx" ON "context_catalog_entries" USING btree ("scope_key",("entry"->>'uri'));
+ALTER TABLE "context_catalog_commits" ADD CONSTRAINT "context_catalog_commits_scope_key_context_catalog_scope_heads_scope_key_fk" FOREIGN KEY ("scope_key") REFERENCES "public"."context_catalog_scope_heads"("scope_key") ON DELETE cascade ON UPDATE no action; -- migration-lint: skip ADD_FOREIGN_KEY_NOT_VALID (table is created empty above)
+--> statement-breakpoint
+ALTER TABLE "context_catalog_entries" ADD CONSTRAINT "context_catalog_entries_scope_key_context_catalog_scope_heads_scope_key_fk" FOREIGN KEY ("scope_key") REFERENCES "public"."context_catalog_scope_heads"("scope_key") ON DELETE cascade ON UPDATE no action; -- migration-lint: skip ADD_FOREIGN_KEY_NOT_VALID (table is created empty above)
+--> statement-breakpoint
+CREATE UNIQUE INDEX "context_catalog_commits_scope_revision_uq" ON "context_catalog_commits" USING btree ("scope_key","first_revision"); -- migration-lint: skip INDEX_NOT_CONCURRENTLY (table is created empty above)
+--> statement-breakpoint
+CREATE INDEX "context_catalog_commits_commit_idx" ON "context_catalog_commits" USING btree ("commit_id"); -- migration-lint: skip INDEX_NOT_CONCURRENTLY (table is created empty above)
+--> statement-breakpoint
+CREATE INDEX "context_catalog_entries_parent_idx" ON "context_catalog_entries" USING btree ("scope_key",("entry"->>'parentId')); -- migration-lint: skip INDEX_NOT_CONCURRENTLY (table is created empty above)
+--> statement-breakpoint
+CREATE INDEX "context_catalog_entries_uri_idx" ON "context_catalog_entries" USING btree ("scope_key",("entry"->>'uri')); -- migration-lint: skip INDEX_NOT_CONCURRENTLY (table is created empty above)
