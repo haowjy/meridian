@@ -105,13 +105,13 @@ export class FirstSendContinuity {
     const store = tx.objectStore(STORE);
     const key = id(record);
     const existing = await request(store.get(key));
-    const latest = valid(existing) ? existing.latestDraft : null;
-    store.put(
-      latest && (!record.latestDraft || latest.revision > record.latestDraft.revision)
-        ? { ...record, latestDraft: latest }
-        : record,
-      key,
-    );
+    if (existing === undefined) store.put(record, key);
+    else if (
+      valid(existing) &&
+      record.latestDraft &&
+      (!existing.latestDraft || record.latestDraft.revision > existing.latestDraft.revision)
+    )
+      store.put({ ...existing, latestDraft: record.latestDraft }, key);
     await complete(tx);
   }
 

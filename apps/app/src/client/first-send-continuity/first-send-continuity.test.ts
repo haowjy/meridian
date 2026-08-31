@@ -47,6 +47,29 @@ describe("FirstSendContinuity", () => {
     expect((await continuity.claim(value))?.record.state).toBe("dispatching");
   });
 
+  it("never re-arms a claimed or ambiguous submission when the same key is staged again", async () => {
+    const continuity = owner();
+    const value = record();
+    await continuity.stage(value);
+    expect((await continuity.claim(value))?.dispatch).toBe(true);
+
+    await continuity.stage({ ...value, latestDraft: { ...value.envelope.draft, revision: 4 } });
+    const dispatching = await continuity.claim(value);
+    expect(dispatching).toMatchObject({
+      dispatch: false,
+      record: { state: "dispatching", latestDraft: { revision: 4 } },
+    });
+
+    const ambiguous = record("project-2", "thread-2");
+    await continuity.stage(ambiguous);
+    await continuity.markAmbiguous(ambiguous);
+    await continuity.stage(ambiguous);
+    expect(await continuity.claim(ambiguous)).toMatchObject({
+      dispatch: false,
+      record: { state: "ambiguous" },
+    });
+  });
+
   it("keeps only monotonic full snapshots and retains ambiguous state across a new owner", async () => {
     const account = crypto.randomUUID();
     const continuity = owner(account);
