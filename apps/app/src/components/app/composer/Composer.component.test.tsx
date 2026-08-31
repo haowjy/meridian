@@ -48,6 +48,59 @@ const outcome = (
   submissionId: envelope.submissionId,
   acceptedRevision: envelope.acceptedRevision,
 });
+describe("Composer draft changes", () => {
+  it("emits one authoritative snapshot with atomic JSON, selection, and owned uploads", async () => {
+    const onDraftChange = vi.fn();
+    const ref = await mount((e) => outcome(e, "accepted"), { onDraftChange });
+    const upload = {
+      intakeId: "intake-change",
+      documentId: "01900000-0000-7000-8000-000000000007",
+      uri: "uploads://@/change.png" as const,
+      locationRevision: "revision-7",
+    };
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "composerReference",
+              attrs: {
+                reference: {
+                  documentId: upload.documentId,
+                  uri: upload.uri,
+                  fileType: "image",
+                  authority: { kind: "none", projectId: "project-1" },
+                  label: "change",
+                  spelling: "[[change]]",
+                  imageCapable: true,
+                  upload,
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    await act(async () =>
+      ref.current?.restoreSnapshot({
+        revision: 4,
+        doc,
+        selection: { from: 1, to: 2 },
+        ownedUploads: [upload],
+      }),
+    );
+    expect(onDraftChange).toHaveBeenCalledTimes(1);
+    const change = onDraftChange.mock.calls[0]?.[0];
+    expect(change.text).toBe("[[change]]");
+    expect(change.snapshot.doc).toEqual(doc);
+    expect(change.snapshot.selection).toEqual({ from: 1, to: 2 });
+    expect(change.snapshot.ownedUploads).toEqual([upload]);
+    expect(change.snapshot.revision).toBe(ref.current?.snapshot().revision);
+  });
+});
+
 describe("Composer settlement", () => {
   it("clears only an unchanged accepted revision", async () => {
     const ref = await mount((e) => outcome(e, "accepted"));

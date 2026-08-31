@@ -1,6 +1,7 @@
 /** Public boundary for the shared message composer. */
 export {
   Composer,
+  type ComposerDraftChange,
   type ComposerDraftRestoration,
   type ComposerDraftRevision,
   type ComposerDraftSnapshot,

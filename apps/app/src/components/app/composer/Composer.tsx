@@ -45,6 +45,11 @@ export type ComposerDraftSnapshot = Readonly<{
   selection: ComposerSelection;
   ownedUploads: readonly ComposerOwnedUpload[];
 }>;
+export type ComposerDraftChange = Readonly<{
+  /** Derived convenience projection; snapshot is the authoring authority. */
+  text: string;
+  snapshot: ComposerDraftSnapshot;
+}>;
 export type ComposerSubmitEnvelope = Readonly<{
   submissionId: string;
   acceptedRevision: ComposerDraftRevision;
@@ -130,7 +135,7 @@ export type ComposerProps = {
   onSubmit: (
     envelope: ComposerSubmitEnvelope,
   ) => ComposerSubmitOutcome | Promise<ComposerSubmitOutcome>;
-  onDraftChange?: (text: string, revision: number) => void;
+  onDraftChange?: (change: ComposerDraftChange) => void;
   onStop?: () => void;
   streaming?: boolean;
   placeholder?: string;
@@ -273,6 +278,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const uploadPortRef = useRef(resolvedUploadPort);
   uploadPortRef.current = resolvedUploadPort;
   const suppressDetachRef = useRef(false);
+  const suppressDraftChangeRef = useRef(false);
   const [pending, setPending] = useState(0);
   const [locked, setLocked] = useState(false);
   const [hasContent, setHasContent] = useState(false);
@@ -379,15 +385,13 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         }
       }
       revision.current += 1;
-      const projection = serializeComposerDraft(current.getJSON());
-      setHasContent(projection.text.length > 0 || projection.references.length > 0);
-      onDraftChange?.(
-        serializeComposerDraft(current.getJSON(), revision.current, {
-          from: current.state.selection.from,
-          to: current.state.selection.to,
-        }).text,
-        revision.current,
-      );
+      const envelope = serializeComposerDraft(current.getJSON(), revision.current, {
+        from: current.state.selection.from,
+        to: current.state.selection.to,
+      });
+      setHasContent(envelope.text.length > 0 || envelope.references.length > 0);
+      if (!suppressDraftChangeRef.current)
+        onDraftChange?.({ text: envelope.text, snapshot: envelope.draft });
     },
   });
   const snapshot = useCallback((): ComposerDraftSnapshot => {
@@ -407,21 +411,27 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const restoreSnapshot = useCallback(
     (value: ComposerDraftSnapshot) => {
       if (!editor) return;
+      suppressDraftChangeRef.current = true;
       editor.commands.setContent(value.doc, { emitUpdate: false });
       editor.commands.setTextSelection(value.selection);
+      suppressDraftChangeRef.current = false;
       revision.current += 1;
       {
         const projection = serializeComposerDraft(editor.getJSON());
         setHasContent(projection.text.length > 0 || projection.references.length > 0);
       }
-      onDraftChange?.(serializeComposerDraft(value.doc).text, revision.current);
+      const envelope = serializeComposerDraft(editor.getJSON(), revision.current, {
+        from: editor.state.selection.from,
+        to: editor.state.selection.to,
+      });
+      onDraftChange?.({ text: envelope.text, snapshot: envelope.draft });
     },
     [editor, onDraftChange],
   );
   useImperativeHandle(
     ref,
     () => ({
-      focus: () => editor?.commands.focus(),
+      focus: () => editor?.commands.focus(undefined, { scrollIntoView: false }),
       getDraft: () => (editor ? serializeComposerDraft(editor.getJSON()).text : ""),
       snapshot,
       restoreSnapshot,
@@ -495,7 +505,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     }
     if (outcome.kind === "rejected" && revision.current === envelope.acceptedRevision)
       restoreSnapshot(envelope.draft);
-    editor.commands.focus();
+    editor.commands.focus(undefined, { scrollIntoView: false });
   }
   async function attach(file: File, retryIntakeId?: string, retryPosition?: number) {
     if (!editor || !resolvedUploadPort || !scopeRef.current) return;

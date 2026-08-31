@@ -7,6 +7,7 @@ import { createProjectThread, listProjectThreads } from "@/client/api/projects-a
 import { invalidateWorkThreads } from "@/client/query/project-invalidation";
 import { projectQueryKeys } from "@/client/query/project-query-keys";
 import type { ThreadStoreActions } from "@/client/stores";
+import type { ComposerDraftChange } from "@/components/app/composer";
 import { threadCreateAgentField, wireAgentSlug } from "@/features/agents";
 import { deriveTitleFromMessage } from "@/lib/thread-title";
 
@@ -65,7 +66,7 @@ export function useHomeFirstSendAttempt({
   makeId = () => crypto.randomUUID(),
 }: Dependencies) {
   const queryClient = useQueryClient();
-  const latestDraftRef = useRef({ text: "", revision: 0 });
+  const latestDraftRef = useRef<ComposerDraftChange | null>(null);
   const stateRef = useRef<HomeFirstSendLifecycle>({ kind: "idle" });
   const [state, setState] = useState<HomeFirstSendLifecycle>(stateRef.current);
 
@@ -76,7 +77,7 @@ export function useHomeFirstSendAttempt({
 
   const routeDraft = useCallback((envelope: HomeFirstSendEnvelope) => {
     const latest = latestDraftRef.current;
-    return latest.revision > envelope.draftRevision ? latest.text : undefined;
+    return latest && latest.snapshot.revision > envelope.draftRevision ? latest.text : undefined;
   }, []);
 
   const route = useCallback(
@@ -182,7 +183,6 @@ export function useHomeFirstSendAttempt({
         workId: context.workId,
         agentSlug: context.agentSlug,
       };
-      latestDraftRef.current = { text, revision: draftRevision };
       return create(envelope);
     },
     [create, makeId, projectId],
@@ -212,8 +212,8 @@ export function useHomeFirstSendAttempt({
   }, [transition]);
 
   const updateDraft = useCallback(
-    (text: string, revision: number) => {
-      latestDraftRef.current = { text, revision };
+    (change: ComposerDraftChange) => {
+      latestDraftRef.current = change;
       const current = stateRef.current;
       if (current.kind === "routing" || current.kind === "route_failed") {
         actions.preserveFirstSendRouteDraft(

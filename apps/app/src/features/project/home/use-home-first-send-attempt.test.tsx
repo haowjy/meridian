@@ -234,7 +234,20 @@ describe("useHomeFirstSendAttempt lifecycle", () => {
         });
         expect(controller.state.kind).toBe("route_failed");
         expect(controller.contextLocked).toBe(true);
-        act(() => controller.updateDraft("Follow-up", 1));
+        act(() =>
+          controller.updateDraft({
+            text: "Follow-up",
+            snapshot: {
+              revision: 1,
+              doc: {
+                type: "doc",
+                content: [{ type: "paragraph", content: [{ type: "text", text: "Follow-up" }] }],
+              },
+              selection: { from: 10, to: 10 },
+              ownedUploads: [],
+            },
+          }),
+        );
         await act(async () => {
           await controller.retry({ workId: "ignored", agentSlug: "ignored" });
         });
