@@ -1,10 +1,10 @@
 # core/completion — the headless half of a menu the writer types underneath
 
-The open-menu store every trigger publishes through, and the catalog that ranks
-the documents a `[[…]]` may name. Two hosts drive it: the editor's lane
-mechanism
+The open-menu store every trigger publishes through, plus the canonical
+reference policy and hierarchical browser over the normalized context catalog.
+Hosts drive it through the editor's lane mechanism
 ([`../editor/extensions/suggestion/`](../editor/extensions/suggestion/suggestion-lane.ts))
-and, next, the chat composer's textarea. Neither one is visible from here.
+and the shared Composer. Neither host is visible from here.
 
 ## Mental model
 
@@ -40,12 +40,22 @@ semantic retreat (`backtrack`, then root `dismiss`). The shared menu owns edge
 movement and Enter-versus-Tab choice intent, while each host places retreat in
 its own Escape precedence. Releasing the lease tears down both halves once.
 
-**The catalog offers what the resolver can find.** Rows rank titles and aliases
-because that is what `POST …/links/resolve` matches on, and names normalize the
-way the server normalizes them. A host that offers a document the resolver has no
-candidate for hands the writer a link that lands dashed the instant it is
-inserted; the host's job is to offer the manuscript and the work's scratch, which
-is the resolver's own candidate set.
+**The browser projects; the catalog owns metadata.** `ReferenceCatalogPort`
+reads the one F1 `CatalogCacheView` and delegates explicit cold-Work acquisition
+to its owner. The browser never stores a second tree, enumerates availability,
+or turns wake hints into rows. Root merges only project, user, and current Work
+or no-Work warm views. Other Works remain authority rows until activated.
+
+**Lexical tiers are inviolable.** Exact, prefix, word-start, contains, and fuzzy
+matches are strict tiers. Open-document and contextual priors break ties only
+inside a tier; normalized F1 tree order is last. Stable document identity is
+deduplicated and the 20-row cap applies only after the merged ordering.
+
+**Terminal identity is already authoritative.** A file row contains one
+`AuthoritativeReference`: document ID, persisted file classification, label,
+stable authority, and full non-contextual URI. Work and no-Work contextual URI
+syntax is verified through the contracts parser at this boundary; contextual
+Work syntax is never reconstructed into stable identity on the client.
 
 **Ambiguity is shown, not resolved.** Two documents with one title resolve to
 nothing, so a row whose name is shared says so and is still offered. Renaming one
@@ -57,13 +67,15 @@ of them is the writer's fix, and the menu never guesses which they meant.
   that needs the editor belongs in the editor's lane, not here. The reverse
   direction is fine and expected.
 - **Host callbacks, never host state.** Lifecycle `open`/`update`/`close`, row
-  `choose`, `dismiss`, and `anchorRect` are read live; the store holds no copy of a document, a catalog, or a rect.
+  `choose`, `dismiss`, segment completion, terminal selection, and `anchorRect`
+  are read live. F2 performs no React rendering or document insertion.
 - **A withdrawn session closes rather than freezes.** Hosts can lose their
   catalog mid-menu (a schema fence, a read-only surface), and `close()` is the
   one door for it.
-- **The create row is a row, not a footer**, because the keyboard has to reach
-  it, and it steps aside for an exact match: naming a document that already
-  exists is how a writer makes their own link ambiguous.
+- **Navigation is semantic.** Enter drills or selects. Tab selects a terminal;
+  on a navigation row it completes one canonical URI segment and drills without
+  closing. Retreat backtracks one level before the host dismisses at root.
+- **No reference create row.** Bare `@` is a trigger, never a reference.
 
 ## Anti-patterns
 
@@ -72,6 +84,12 @@ of them is the writer's fix, and the menu never guesses which they meant.
 - A second title-matching rule anywhere. Two ranking implementations is two
   menus that disagree about one query, and one of them disagrees with the
   resolver.
+- Reading availability lookup or cold wake hints as browse candidates.
+- Fetching recursively or retaining catalog entries in the browser controller.
+
+`wikilink-catalog.ts` remains temporarily because the existing `[[` host still
+imports it. F6 migrates that host; D then deletes the file and its legacy
+ranker. Do not add another caller or a compatibility export around it.
 
 → [`../editor/extensions/suggestion/`](../editor/extensions/suggestion/suggestion-lane.ts) —
   the TipTap adapter that drives this from a lane spec
