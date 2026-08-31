@@ -29,6 +29,7 @@ import {
   type ComposerHandle,
 } from "@/components/app/composer";
 import { DEFAULT_AGENT_SLUG } from "@/features/agents";
+import { useReferenceBrowserCatalog } from "@/features/editor/references/useReferenceBrowserCatalog";
 import { displayThreadTitle } from "@/lib/thread-title";
 import { AgentOnlyComposerToolbar, ChatComposerToolbar } from "./ChatComposerToolbar";
 import { ChatSurface } from "./ChatSurface";
@@ -88,6 +89,11 @@ export function ChatView({
   const composerAgentSlug = threadStarted ? boundAgentSlug : draftAgentSlug;
 
   const pageTitle = activeThread?.title ? displayThreadTitle(activeThread.title) : t`New chat`;
+  const referenceCatalog = useReferenceBrowserCatalog(
+    projectId,
+    activeWork?.id,
+    t`Reference a file`,
+  );
 
   useThreadNavigationAnnounce(threadId, pageTitle, composerRef);
 
@@ -172,6 +178,7 @@ export function ChatView({
             ref={composerRef}
             variant="pinned"
             streaming={isStreaming}
+            referenceCatalog={referenceCatalog}
             uploadPort={uploadIntakePort}
             uploadScope={projectId ? { projectId, workId: activeWork?.id ?? null } : undefined}
             onSubmit={handleSubmit}

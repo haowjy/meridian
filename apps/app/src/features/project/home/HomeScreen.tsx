@@ -10,6 +10,7 @@ import { useAnnouncement, useThreadActions } from "@/client/stores";
 import { Composer } from "@/components/app/composer";
 import { InlineErrorRow } from "@/components/app/InlineErrorRow";
 import { DEFAULT_AGENT_SLUG } from "@/features/agents";
+import { useReferenceBrowserCatalog } from "@/features/editor/references/useReferenceBrowserCatalog";
 import { resolveCatalogWork } from "../catalog-work-resolution";
 import { HomeFeed } from "./HomeFeed";
 import { NewThreadComposerToolbar } from "./NewThreadComposerToolbar";
@@ -80,6 +81,11 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
         : { status: "ready", works: worksQuery.works ?? [] },
   );
   const selectedWork = worksQuery.works?.find(({ id }) => id === chosenWorkId) ?? null;
+  const referenceCatalog = useReferenceBrowserCatalog(
+    projectId,
+    selectedWork?.id,
+    t`Reference a file`,
+  );
   const handleModePendingChange = useCallback((pending: boolean) => setModePending(pending), []);
 
   const rowProps = {
@@ -161,6 +167,7 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
                   variant="hero"
                   autoFocus={finePointer}
                   onSubmit={submit}
+                  referenceCatalog={referenceCatalog}
                   uploadPort={uploadIntakePort}
                   uploadScope={{ projectId, workId: selectedWork?.id ?? null }}
                   onDraftChange={firstSend.updateDraft}

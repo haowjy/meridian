@@ -23,6 +23,11 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import type { AuthoritativeReference } from "@/core/completion";
+import { ChromeKernelExtension } from "@/core/editor/chrome";
+import type { AtReferenceCatalog } from "@/core/editor/extensions/at-reference";
+import { AtReferenceExtension } from "@/core/editor/extensions/at-reference";
+import { editorSuggestionHost } from "@/core/editor/suggestion-host";
+import { AtReferenceMenu } from "@/features/editor/surfaces/link/AtReferenceMenu";
 import { cn } from "@/lib/utils";
 import { useComposerPlaceholder } from "./placeholders";
 
@@ -137,6 +142,7 @@ export type ComposerProps = {
   submitDisabledReason?: string;
   uploadScope?: ComposerUploadScope;
   uploadPort?: ComposerUploadPort;
+  referenceCatalog?: AtReferenceCatalog | null;
 };
 export type ComposerDraftRestoration = { id: string; text: string };
 export type ComposerHandle = {
@@ -251,6 +257,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     submitDisabledReason,
     uploadScope,
     uploadPort,
+    referenceCatalog = null,
   } = props;
   const rotatingPlaceholder = useComposerPlaceholder(streaming);
   const revision = useRef(0);
@@ -260,6 +267,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const mountedRef = useRef(true);
   const scopeRef = useRef(uploadScope);
   scopeRef.current = uploadScope;
+  const referenceCatalogRef = useRef(referenceCatalog);
+  referenceCatalogRef.current = referenceCatalog;
   const resolvedUploadPort = uploadPort;
   const uploadPortRef = useRef(resolvedUploadPort);
   uploadPortRef.current = resolvedUploadPort;
@@ -271,7 +280,41 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const fileRef = useRef<HTMLInputElement>(null);
   const intakeFilesRef = useRef(new Map<string, File>());
   const editor = useEditor({
-    extensions: [StarterKit.configure({ hardBreak: {} }), ReferenceNode, UploadNode],
+    extensions: [
+      StarterKit.configure({ hardBreak: {} }),
+      ChromeKernelExtension,
+      ReferenceNode,
+      UploadNode,
+      AtReferenceExtension.configure({
+        catalog: () => {
+          const catalog = referenceCatalogRef.current;
+          if (!catalog) return null;
+          return {
+            ...catalog,
+            insertReference: (current, range, row) => {
+              const reference = row.action.reference;
+              const spelling = row.ambiguous ? reference.uri : `[[${reference.label}]]`;
+              return current
+                .chain()
+                .focus()
+                .insertContentAt(range, {
+                  type: "composerReference",
+                  attrs: {
+                    reference: {
+                      ...reference,
+                      spelling,
+                      imageCapable: row.fileKind === "asset" && reference.fileType === "image",
+                      upload: null,
+                    },
+                  },
+                })
+                .run();
+            },
+          };
+        },
+        suggestionHost: (current) => editorSuggestionHost(current, "prose"),
+      }),
+    ],
     content: { type: "doc", content: [{ type: "paragraph" }] },
     autofocus: autoFocus,
     editorProps: {
@@ -557,6 +600,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         data-placeholder={placeholder ?? rotatingPlaceholder}
         onKeyDownCapture={keyDown}
       />
+      {editor ? <AtReferenceMenu editor={editor} /> : null}
       <div className="mt-1 flex items-center gap-2">
         <div className="min-w-0 flex-1">{toolbarLeft}</div>
         {resolvedUploadPort ? (

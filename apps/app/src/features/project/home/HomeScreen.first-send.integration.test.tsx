@@ -7,7 +7,7 @@ import { meridianErrorFromSystem, type Thread } from "@meridian/contracts/protoc
 import type { Work } from "@meridian/contracts/works";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, type ReactNode, useCallback, useRef, useState } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ThreadRunController } from "@/client/copilot/ThreadRunController";
 import { ThreadStoreProvider, useThreadActions } from "@/client/stores";
 import { Composer, type ComposerHandle } from "@/components/app/composer";
@@ -17,6 +17,11 @@ import { i18n } from "@/lib/i18n";
 import { withReactRoot } from "@/test-support/react-dom-harness";
 import { testWorkSlug } from "@/test-support/work-slug";
 import { HomeScreen } from "./HomeScreen";
+
+beforeAll(() => {
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+  Object.defineProperty(Text.prototype, "getClientRects", { value: () => [] });
+});
 
 vi.mock("@lingui/react/macro", () => ({
   Trans: ({ children }: { children: ReactNode }) => children,
@@ -28,6 +33,9 @@ vi.mock("@lingui/core/macro", () => ({
 }));
 vi.mock("@/components/app/composer/placeholders", () => ({
   useComposerPlaceholder: () => "Write",
+}));
+vi.mock("@/features/editor/references/useReferenceBrowserCatalog", () => ({
+  useReferenceBrowserCatalog: () => null,
 }));
 vi.mock("@/components/app/composer-toolbar/useMeasuredComposerToolbar", async () => ({
   useMeasuredComposerToolbar: (
