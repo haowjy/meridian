@@ -413,13 +413,25 @@ export async function runTurn(deps: OrchestratorDeps, input: RunTurnInput): Prom
                 textContent: block.text,
                 status: "complete",
               })
-            : contentForBlockInput({
-                turnId: userTurn.id,
-                blockType: "image",
-                sequence,
-                content: { type: "image_reference", documentId: block.documentId, uri: block.uri },
-                status: "complete",
-              }),
+            : block.type === "reference"
+              ? contentForBlockInput({
+                  turnId: userTurn.id,
+                  blockType: "text",
+                  sequence,
+                  content: block,
+                  status: "complete",
+                })
+              : contentForBlockInput({
+                  turnId: userTurn.id,
+                  blockType: "image",
+                  sequence,
+                  content: {
+                    type: "image_reference",
+                    documentId: block.documentId,
+                    uri: block.uri,
+                  },
+                  status: "complete",
+                }),
       );
 
       const assistantTurn = createLocalTurn({

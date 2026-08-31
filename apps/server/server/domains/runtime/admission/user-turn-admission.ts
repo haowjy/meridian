@@ -19,6 +19,8 @@ import type { ProjectContextAvailabilityPort } from "../../context/index.js";
 export const MAX_USER_MESSAGE_BLOCKS = 64;
 export const MAX_USER_MESSAGE_IMAGES = 16;
 export const MAX_SUBMITTED_REFERENCES = 128;
+export const MAX_REFERENCE_OCCURRENCES = 128;
+export const MAX_DISTINCT_REFERENCE_IDENTITIES = 128;
 export const MAX_USER_MESSAGE_TEXT = 200_000;
 
 export class InvalidAdmissionError extends Error {
@@ -100,12 +102,33 @@ export function parseUserMessageBlocks(value: unknown, text: string): UserMessag
     throw new InvalidAdmissionError("blocks must be a non-empty bounded array");
   }
   let images = 0;
+  let references = 0;
   const blocks = value.map((candidate, index): UserMessageBlock => {
     if (exactObject(candidate, ["type", "text"]) && candidate.type === "text") {
       if (typeof candidate.text !== "string" || candidate.text.length === 0) {
         throw new InvalidAdmissionError(`blocks[${index}] has invalid text`);
       }
       return { type: "text", text: candidate.text };
+    }
+    if (
+      exactObject(candidate, ["type", "text", "documentId", "uri"]) &&
+      candidate.type === "reference"
+    ) {
+      const documentId =
+        typeof candidate.documentId === "string" ? parseRequestId(candidate.documentId) : null;
+      if (!documentId || typeof candidate.text !== "string" || candidate.text.length === 0) {
+        throw new InvalidAdmissionError(`blocks[${index}] has invalid reference identity`);
+      }
+      references += 1;
+      if (references > MAX_REFERENCE_OCCURRENCES) {
+        throw new InvalidAdmissionError("too many reference occurrences");
+      }
+      return {
+        type: "reference",
+        text: candidate.text,
+        documentId: documentId as Extract<UserMessageBlock, { type: "reference" }>["documentId"],
+        uri: canonicalUri(candidate.uri, `blocks[${index}].uri`),
+      };
     }
     if (exactObject(candidate, ["type", "documentId", "uri"]) && candidate.type === "image") {
       const documentId =
@@ -124,7 +147,7 @@ export function parseUserMessageBlocks(value: unknown, text: string): UserMessag
   });
   if (
     blocks
-      .filter((block) => block.type === "text")
+      .filter((block) => block.type === "text" || block.type === "reference")
       .map((block) => block.text)
       .join("") !== text
   ) {
@@ -137,6 +160,7 @@ export function parseSubmittedReferences(value: unknown): SubmittedReference[] {
   if (!Array.isArray(value) || value.length > MAX_SUBMITTED_REFERENCES) {
     throw new InvalidAdmissionError("references must be a bounded array");
   }
+  const identities = new Set<string>();
   return value.map((candidate, index) => {
     if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
       throw new InvalidAdmissionError(`references[${index}] has an invalid shape`);
@@ -158,13 +182,48 @@ export function parseSubmittedReferences(value: unknown): SubmittedReference[] {
     ) {
       throw new InvalidAdmissionError(`references[${index}] has invalid identity`);
     }
+    const uri = canonicalUri(record.uri, `references[${index}].uri`);
+    const key = `${documentId}\0${uri}`;
+    if (identities.has(key)) {
+      throw new InvalidAdmissionError("references must be deduplicated by identity");
+    }
+    identities.add(key);
     return {
       documentId: documentId as SubmittedReference["documentId"],
-      uri: canonicalUri(record.uri, `references[${index}].uri`),
+      uri,
       purpose,
       ...(purpose === "draft-upload" ? { intakeId: record.intakeId as string } : {}),
     };
   });
+}
+
+function referenceIdentity(reference: { documentId: string; uri: string }): string {
+  return `${reference.documentId}\0${reference.uri}`;
+}
+
+function validateReferenceMembership(
+  blocks: readonly UserMessageBlock[],
+  references: readonly SubmittedReference[],
+): void {
+  const submitted = new Set(references.map(referenceIdentity));
+  const distinct = new Set(submitted);
+  for (const [index, block] of blocks.entries()) {
+    if (block.type === "text") continue;
+    const key = referenceIdentity(block);
+    distinct.add(key);
+    if (!submitted.has(key)) {
+      throw new InvalidAdmissionError(`blocks[${index}] has no submitted reference`);
+    }
+    if (block.type === "image") {
+      const previous = blocks[index - 1];
+      if (previous?.type !== "reference" || referenceIdentity(previous) !== key) {
+        throw new InvalidAdmissionError(`blocks[${index}] is not paired with its occurrence`);
+      }
+    }
+  }
+  if (distinct.size > MAX_DISTINCT_REFERENCE_IDENTITIES) {
+    throw new InvalidAdmissionError("too many distinct reference identities");
+  }
 }
 
 export function canonicalAdmissionFingerprint(input: {
@@ -216,6 +275,7 @@ export function createUserTurnAdmission(deps: {
     async admit(input) {
       const blocks = parseUserMessageBlocks(input.blocks, input.text);
       const references = parseSubmittedReferences(input.references);
+      validateReferenceMembership(blocks, references);
       const fingerprint = canonicalAdmissionFingerprint({ ...input, blocks, references });
       const existing = await deps.records.lookup(input.threadId, input.submissionId);
       if (existing) {
@@ -236,23 +296,12 @@ export function createUserTurnAdmission(deps: {
         return lookupProjection(reservation.record, input.submissionId) as UserTurnAdmissionResult;
       }
 
-      const reject = async (code: "reference_unavailable") => {
-        const settled = await deps.records.reject({
-          threadId: input.threadId,
-          submissionId: input.submissionId,
-          fingerprint,
-          code,
-        });
-        assertMatchingFingerprint(settled, fingerprint);
-        return lookupProjection(settled, input.submissionId) as UserTurnAdmissionResult;
-      };
-
       const projectId = await deps.threadProject(input.threadId);
-      if (!projectId) return reject("reference_unavailable");
+      if (!projectId) throw new Error(`Thread project is unavailable: ${input.threadId}`);
       const ids = [
         ...new Set([
           ...references.map((reference) => reference.documentId),
-          ...blocks.filter((block) => block.type === "image").map((block) => block.documentId),
+          ...blocks.filter((block) => block.type !== "text").map((block) => block.documentId),
         ]),
       ];
       const resolved = await deps.availability.lookup(
@@ -264,41 +313,34 @@ export function createUserTurnAdmission(deps: {
           .filter((item) => item.kind === "available")
           .map((item) => [item.documentId, item]),
       );
+      const admittedReferences: AuthorizedReference[] = [];
+      const admittedIdentities = new Set<string>();
       for (const reference of references) {
         const identity = available.get(reference.documentId);
-        if (!identity || identity.entry.uri !== reference.uri) {
-          return reject("reference_unavailable");
-        }
+        if (!identity || identity.entry.uri !== reference.uri) continue;
         if (
           reference.purpose === "draft-upload" &&
           deps.verifyDraftUpload &&
           !(await deps.verifyDraftUpload(reference as SubmittedReference & { intakeId: string }))
         ) {
-          return reject("reference_unavailable");
+          continue;
         }
-      }
-      for (const block of blocks) {
-        if (block.type !== "image") continue;
-        const identity = available.get(block.documentId);
-        if (!identity || identity.entry.uri !== block.uri) {
-          return reject("reference_unavailable");
-        }
-      }
-      const provenance = new Map<string, AuthorizedReference>();
-      for (const reference of references) {
-        const key = `${reference.documentId}\0${reference.uri}`;
-        const relationship = reference.purpose === "draft-upload" ? "created" : "reading";
-        const previous = provenance.get(key);
-        provenance.set(key, {
+        admittedIdentities.add(referenceIdentity(reference));
+        admittedReferences.push({
           ...reference,
-          relationship: previous?.relationship === "created" ? "created" : relationship,
+          relationship: reference.purpose === "draft-upload" ? "created" : "reading",
         });
       }
+      const admittedBlocks = blocks.flatMap((block): UserMessageBlock[] => {
+        if (block.type === "text") return [block];
+        if (admittedIdentities.has(referenceIdentity(block))) return [block];
+        return block.type === "reference" ? [{ type: "text", text: block.text }] : [];
+      });
       return deps.starter.start({
         admission: input,
         fingerprint,
-        blocks,
-        references: [...provenance.values()],
+        blocks: admittedBlocks,
+        references: admittedReferences,
       }) as Promise<UserTurnAdmissionResult>;
     },
   };

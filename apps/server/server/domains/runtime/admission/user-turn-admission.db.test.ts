@@ -15,10 +15,24 @@ if (!RUN) {
     const { createDrizzleRepositoriesForTest } = await import(
       "../../threads/adapters/drizzle/repositories.js"
     );
+    const { createDrizzleEventJournalReader } = await import(
+      "../../threads/adapters/drizzle/event-reader.js"
+    );
+    const { createDrizzleEventJournalWriter } = await import(
+      "../../threads/adapters/drizzle/event-writer.js"
+    );
+    const { createDrizzleUploadIntakeRepository } = await import(
+      "../../context/uploads/drizzle-upload-intake.js"
+    );
+    const { createInMemoryCreditLedger } = await import("../../billing/index.js");
     const { createDrizzleAdmissionRecords } = await import("./drizzle-admission-records.js");
     const { createAdmissionTurnStarter } = await import("./admission-turn-starter.js");
     const { createUserTurnAdmission } = await import("./user-turn-admission.js");
     const { createTurnRunner } = await import("../loop/turn-runner.js");
+    const { createOrchestrator } = await import("../loop/orchestrator.js");
+    const { createTestOrchestratorDeps } = await import(
+      "../loop/__tests__/test-orchestrator-deps.js"
+    );
     const url = process.env.DATABASE_URL;
     if (!url) throw new Error("DATABASE_URL disappeared after the DB test gate");
     const firstDb = createDb(url, { max: 2 });
@@ -29,6 +43,10 @@ if (!RUN) {
     const USER = "00000000-0000-4000-8000-000000000f51";
     const PROJECT = "00000000-0000-4000-8000-000000000f52";
     const THREAD = "00000000-0000-4000-8000-000000000f53" as never;
+    const ROLLBACK_THREAD = "00000000-0000-4000-8000-000000000f54" as never;
+    const SOURCE = "00000000-0000-4000-8000-000000000f58" as never;
+    const DOCUMENT = "00000000-0000-4000-8000-000000000f59" as never;
+    const ROLLBACK_DOCUMENT = "00000000-0000-4000-8000-000000000f60" as never;
 
     beforeEach(async () => {
       await truncateDrizzleTables(firstDb, [schema.users]);
@@ -48,6 +66,264 @@ if (!RUN) {
     afterAll(async () => {
       await firstDb.close();
       await secondDb.close();
+    });
+
+    async function seedUpload(documentId: string, suffix: string) {
+      const uri = `uploads://@/map-${suffix}.png`;
+      await firstDb.insert(schema.documents).values({
+        id: documentId as never,
+        contextSourceId: SOURCE,
+        name: `map-${suffix}`,
+        extension: "png",
+        fileType: "png",
+        mimeType: "image/png",
+      });
+      await firstDb.insert(schema.uploadIntakes).values({
+        projectId: PROJECT,
+        intakeId: `intake-${suffix}`,
+        actorUserId: USER,
+        contextSourceId: SOURCE,
+        documentId: documentId as never,
+        fingerprint: `upload-${suffix}`,
+        byteDigest: "a".repeat(64),
+        filename: `map-${suffix}.png`,
+        mimeType: "image/png",
+        finalPath: `map-${suffix}.png`,
+        objectKey: `uploads/${PROJECT}/${documentId}`,
+        fileType: "png",
+        canonicalUri: uri,
+        locationRevision: crypto.randomUUID(),
+        state: "finalized",
+      });
+      return uri;
+    }
+
+    async function composeAdmission(input: {
+      threadId: typeof THREAD;
+      documentId: string;
+      uri: string;
+      failAfterProvenance?: boolean;
+    }) {
+      const creditLedger = createInMemoryCreditLedger();
+      await creditLedger.grant({
+        userId: USER,
+        source: "manual",
+        amountMillicredits: "1000000",
+        reason: "admission transaction proof",
+      });
+      const eventWriter = createDrizzleEventJournalWriter(firstDb);
+      const eventReader = createDrizzleEventJournalReader(firstDb);
+      const deps = createTestOrchestratorDeps({
+        repos,
+        eventWriter,
+        creditLedger,
+        gateway: {
+          getDefaultModel() {
+            return "blocked-test-model";
+          },
+          async *stream() {
+            await new Promise(() => {});
+          },
+          async generate() {
+            throw new Error("generate is not used");
+          },
+        },
+      });
+      const runner = createTurnRunner({
+        orchestrator: createOrchestrator(deps),
+        hub: { headSeq: (threadId: never) => eventReader.headSeq(threadId) } as never,
+        repos: { turns: repos.turns },
+        eventSink: deps.eventSink,
+        workContextDelivery: {
+          async beforeTurn() {},
+          async flushOwned() {},
+        },
+      });
+      const uploadIntake = createDrizzleUploadIntakeRepository(firstDb);
+      return createUserTurnAdmission({
+        records,
+        availability: {
+          async lookup() {
+            return {
+              projectId: PROJECT,
+              resolutionId: "resolution",
+              resolutions: [
+                {
+                  kind: "available",
+                  documentId: input.documentId,
+                  generation: "1",
+                  authority: { kind: "none", projectId: PROJECT },
+                  entry: {
+                    kind: "file",
+                    entryId: input.documentId,
+                    uri: input.uri,
+                    editable: false,
+                    disposition: "binary",
+                    fileType: "image",
+                    mimeType: "image/png",
+                    scope: { kind: "none", projectId: PROJECT },
+                    sourceId: SOURCE,
+                    parentId: SOURCE,
+                    name: "map.png",
+                    aliases: [],
+                    path: ["map.png"],
+                    provisionalName: false,
+                  },
+                },
+              ],
+            };
+          },
+        } as never,
+        async threadProject() {
+          return PROJECT;
+        },
+        async verifyDraftUpload() {
+          return true;
+        },
+        starter: createAdmissionTurnStarter({
+          runner,
+          records,
+          consumeUploads: (documentIds) => uploadIntake.consume(documentIds),
+          async attachDocument(threadId, documentId, relationship) {
+            const attached = await repos.threadDocuments.attach(
+              threadId as never,
+              documentId,
+              relationship,
+            );
+            if (input.failAfterProvenance) throw new Error("rollback after provenance");
+            return attached;
+          },
+        }),
+      });
+    }
+
+    it("persists ordered occurrences and rolls the whole accepted settlement back together", async () => {
+      await firstDb.insert(schema.threads).values({
+        id: ROLLBACK_THREAD,
+        projectId: PROJECT,
+        createdByUserId: USER,
+        title: "",
+        kind: "primary",
+        status: "idle",
+      });
+      await firstDb.insert(schema.contextSources).values({
+        id: SOURCE,
+        projectId: PROJECT,
+        name: "Uploads",
+        slug: "uploads",
+        scope: "project",
+      });
+      const uri = await seedUpload(DOCUMENT, "commit");
+      const rollbackUri = await seedUpload(ROLLBACK_DOCUMENT, "rollback");
+      const admission = (threadId: typeof THREAD, documentId: string, referenceUri: string) => ({
+        actorUserId: USER as never,
+        threadId,
+        submissionId: `occurrences-${documentId}`,
+        text: "Compare [[Gate Map]]\nwith [[Gate Map]]",
+        blocks: [
+          { type: "text" as const, text: "Compare " },
+          { type: "reference" as const, text: "[[Gate Map]]", documentId, uri: referenceUri },
+          { type: "image" as const, documentId, uri: referenceUri },
+          { type: "text" as const, text: "\nwith " },
+          { type: "reference" as const, text: "[[Gate Map]]", documentId, uri: referenceUri },
+          { type: "image" as const, documentId, uri: referenceUri },
+        ],
+        references: [
+          {
+            documentId,
+            uri: referenceUri,
+            purpose: "draft-upload" as const,
+            intakeId: `intake-${documentId === DOCUMENT ? "commit" : "rollback"}`,
+          },
+        ],
+      });
+
+      const service = await composeAdmission({ threadId: THREAD, documentId: DOCUMENT, uri });
+      const request = admission(THREAD, DOCUMENT, uri);
+      const accepted = await service.admit(request);
+      expect(accepted).toMatchObject({ kind: "accepted" });
+      if (accepted.kind !== "accepted" && accepted.kind !== "already-accepted") {
+        throw new Error("expected accepted admission");
+      }
+      const persisted = (await firstDb.select().from(schema.turnBlocks)).sort(
+        (left, right) => left.sequence - right.sequence,
+      );
+      expect(persisted.map((block) => block.blockType)).toEqual([
+        "text",
+        "text",
+        "image",
+        "text",
+        "text",
+        "image",
+      ]);
+      expect(persisted.map((block) => block.sequence)).toEqual([0, 1, 2, 3, 4, 5]);
+      expect(persisted[1]).toMatchObject({
+        blockType: "text",
+        modelText: "[[Gate Map]]",
+        content: {
+          type: "reference",
+          text: "[[Gate Map]]",
+          documentId: DOCUMENT,
+          uri,
+        },
+      });
+      expect(persisted[4]).toMatchObject({
+        blockType: "text",
+        modelText: "[[Gate Map]]",
+        content: {
+          type: "reference",
+          text: "[[Gate Map]]",
+          documentId: DOCUMENT,
+          uri,
+        },
+      });
+      expect(persisted.filter((block) => block.blockType === "image")).toHaveLength(2);
+      await expect(service.admit(request)).resolves.toMatchObject({ kind: "already-accepted" });
+      await expect(
+        service.admit({
+          ...request,
+          text: "Compare [[Moved Map]]\nwith [[Gate Map]]",
+          blocks: request.blocks.map((block, index) =>
+            index === 1 && block.type === "reference" ? { ...block, text: "[[Moved Map]]" } : block,
+          ),
+        }),
+      ).rejects.toMatchObject({ code: "idempotency_conflict" });
+      await expect(firstDb.select().from(schema.userTurnAdmissions)).resolves.toEqual(
+        expect.arrayContaining([expect.objectContaining({ state: "accepted" })]),
+      );
+      await expect(firstDb.select().from(schema.threadDocuments)).resolves.toEqual([
+        expect.objectContaining({
+          threadId: THREAD,
+          documentId: DOCUMENT,
+          relationship: "created",
+        }),
+      ]);
+      await expect(firstDb.select().from(schema.uploadIntakes)).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ documentId: DOCUMENT, consumedAt: expect.any(Date) }),
+        ]),
+      );
+
+      const rollbackService = await composeAdmission({
+        threadId: ROLLBACK_THREAD,
+        documentId: ROLLBACK_DOCUMENT,
+        uri: rollbackUri,
+        failAfterProvenance: true,
+      });
+      const rollbackRequest = admission(ROLLBACK_THREAD, ROLLBACK_DOCUMENT, rollbackUri);
+      await expect(rollbackService.admit(rollbackRequest)).rejects.toThrow(
+        "rollback after provenance",
+      );
+      const allTurns = await firstDb.select().from(schema.turns);
+      expect(allTurns.filter((turn) => turn.threadId === ROLLBACK_THREAD)).toHaveLength(0);
+      const allAdmissions = await firstDb.select().from(schema.userTurnAdmissions);
+      expect(allAdmissions.find((row) => row.threadId === ROLLBACK_THREAD)).toMatchObject({
+        state: "pending",
+      });
+      const uploads = await firstDb.select().from(schema.uploadIntakes);
+      expect(uploads.find((row) => row.documentId === ROLLBACK_DOCUMENT)?.consumedAt).toBeNull();
+      const provenance = await firstDb.select().from(schema.threadDocuments);
+      expect(provenance.some((row) => row.threadId === ROLLBACK_THREAD)).toBe(false);
     });
 
     it("persists and replays a production-composed stale-token rejection", async () => {
