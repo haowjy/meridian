@@ -29,6 +29,7 @@ import type {
 } from "../threads/index.js";
 import type { AiWriteMode, Work, WorkSlug, WorksSnapshot } from "../works/index.js";
 import type { Filetype, YjsTrackedSchemaType } from "./filetype.js";
+import type { SubmittedReference } from "./user-turn-admission.js";
 
 export type { JsonValue } from "../threads/index.js";
 export type {
@@ -384,7 +385,10 @@ export type UpdateWorkWriteModeResponse =
     };
 
 export type SendMessageRequest = {
+  submissionId: string;
   text: string;
+  blocks: unknown;
+  references: SubmittedReference[];
   /** Client connection token from the WebSocket `connected` frame; rejects starts from stale sockets. */
   connectionToken?: string;
 };

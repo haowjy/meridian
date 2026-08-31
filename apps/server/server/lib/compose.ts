@@ -88,7 +88,10 @@ import {
 import { MODEL_REGISTRY } from "../domains/runtime/gateway/index.js";
 import {
   computeEffectivePermissions,
+  createAdmissionTurnStarter,
   createChildRunCoordinator,
+  createContextImageAssetPort,
+  createDrizzleAdmissionRecords,
   createDrizzleThreadRunOwnership,
   createGatewayFromEnv,
   createHelperResultDelivery,
@@ -102,6 +105,7 @@ import {
   createToolExecutor,
   createToolRegistry,
   createTurnRunner,
+  createUserTurnAdmission,
   createWorkContextDelivery,
   createWorkContextReader,
   type Gateway,
@@ -111,6 +115,7 @@ import {
   type ToolExecutor,
   type ToolRegistry,
   type TurnRunner,
+  type UserTurnAdmission,
   type WorkContextDelivery,
   type WorkContextReader,
 } from "../domains/runtime/index.js";
@@ -199,6 +204,7 @@ export type AppServices = {
   workingSet: WorkingSetRepository;
   orchestrator: RunTurnPort;
   runner: TurnRunner;
+  userTurnAdmission: UserTurnAdmission;
   runOwnership: ThreadRunOwnership;
   toolRegistry: ToolRegistry;
   toolExecutor: ToolExecutor;
@@ -589,6 +595,31 @@ export function composeAppServices(ports: ProductionAppPorts): AppServices {
     },
     workContextDelivery,
   });
+  const admissionRecords = createDrizzleAdmissionRecords(ports.db);
+  const imageAssets = createContextImageAssetPort({
+    identities: ports.uploadIdentity,
+    availability: ports.projectContextAvailability,
+    objects: ports.objectStore,
+    eventSink: ports.eventSink,
+  });
+  const userTurnAdmission = createUserTurnAdmission({
+    records: admissionRecords,
+    availability: ports.projectContextAvailability,
+    async threadProject(threadId) {
+      return (await ports.threadRepos.threads.findById(threadId as never))?.projectId ?? null;
+    },
+    async verifyDraftUpload(reference) {
+      const identity = await ports.uploadIdentity.lookupUpload(reference.documentId);
+      return identity?.intakeId === reference.intakeId && identity.uri === reference.uri;
+    },
+    starter: createAdmissionTurnStarter({
+      runner,
+      records: admissionRecords,
+      consumeUploads: (documentIds) => ports.uploadIntake.consume(documentIds),
+      attachDocument: (threadId, documentId, relationship) =>
+        ports.threadRepos.threadDocuments.attach(threadId as never, documentId, relationship),
+    }),
+  });
   helperResultDelivery = createHelperResultDelivery({
     repos: ports.threadRepos,
     eventWriter: threadEventHub,
@@ -654,6 +685,7 @@ export function composeAppServices(ports: ProductionAppPorts): AppServices {
     responseWrites,
     notices: ports.notices,
     activeDocuments: ports.activeDocuments,
+    imageAssets,
     concurrentRenderBudgetBytes,
   });
   runTurnProxy.bind(orchestrator);
@@ -696,6 +728,7 @@ export function composeAppServices(ports: ProductionAppPorts): AppServices {
     workingSet: ports.workingSet,
     orchestrator,
     runner,
+    userTurnAdmission,
     runOwnership: ports.runOwnership,
     toolRegistry,
     toolExecutor,
@@ -1054,6 +1087,17 @@ export function createInMemoryAppServices(): AppServices {
       },
       async cancel() {
         return "not_found" as const;
+      },
+    },
+    userTurnAdmission: {
+      async admit(input) {
+        return { kind: "rejected", submissionId: input.submissionId, code: "already_running" };
+      },
+      async lookup(input) {
+        return { kind: "not-seen", submissionId: input.submissionId };
+      },
+      async retire(input) {
+        return { kind: "retired", submissionId: input.submissionId, code: "retired" };
       },
     },
     runOwnership,

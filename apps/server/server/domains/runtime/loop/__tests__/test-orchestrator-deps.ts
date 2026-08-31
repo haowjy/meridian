@@ -97,6 +97,11 @@ export function createTestOrchestratorDeps(
     modelRequestDebug: createInMemoryModelRequestDebugStore(),
     notices: createTestNoticePort(),
     activeDocuments,
+    imageAssets: overrides.imageAssets ?? {
+      async resolve() {
+        return null;
+      },
+    },
     workContextDelivery: overrides.workContextDelivery ?? {
       async deliverNow() {
         throw new Error("No Work-context delivery expected");

@@ -5,6 +5,7 @@ import { documents, uploadIntakes } from "@meridian/database/schema";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 
 export interface UploadIdentity {
+  intakeId: string | null;
   documentId: string;
   name: string;
   extension: string;
@@ -40,6 +41,7 @@ export function createDrizzleUploadIdentityPort(db: Database): UploadIdentityPor
       );
     return rows.map(
       ({ document, intake }): UploadIdentity => ({
+        intakeId: intake?.intakeId ?? null,
         documentId: document.id,
         name: document.name,
         extension: document.extension,

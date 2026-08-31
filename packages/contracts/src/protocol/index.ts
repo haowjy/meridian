@@ -51,6 +51,7 @@ export * from "./projects.js";
 export * from "./thread-documents.js";
 export * from "./transport-serializer.js";
 export * from "./upload-intake.js";
+export * from "./user-turn-admission.js";
 export * from "./write-reversal";
 export * from "./ws-close.js";
 export * from "./ws-protocol.js";
