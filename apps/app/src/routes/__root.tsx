@@ -70,7 +70,7 @@ function RootComponent() {
     <RootDocument lang={locale}>
       <I18nProvider i18n={i18n}>
         <AuthKitProvider initialAuth={auth}>
-          <AccountFeatureSupervisorProvider authSubject={auth.user?.id ?? null}>
+          <AccountFeatureSupervisorProvider>
             <TooltipProvider>
               <AnnouncementRegion />
               <AccountFeatureRootBoundary>

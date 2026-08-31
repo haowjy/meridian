@@ -118,7 +118,7 @@ it("withholds the next account behind the exact old-account reset fence", async 
     created.push(accountId);
     return { accountId } as AccountFeatureLifetime;
   }, rehydrateContextDesks);
-  supervisor.setAuthIntent({ loading: false, subject: "subject-b" });
+  supervisor.setAuthSubject("subject-b");
   const auth = supervisor.getAuthDeclaration();
   if (!auth) throw new Error("missing auth declaration");
   supervisor.declareAccount({ auth, account: { id: accountB } });
@@ -211,7 +211,7 @@ it("keeps a failed durable reset retryable and withholds the desired account", a
       created.push(accountId);
       return { accountId } as AccountFeatureLifetime;
     }, rehydrateContextDesks);
-    supervisor.setAuthIntent({ loading: false, subject: "subject-b" });
+    supervisor.setAuthSubject("subject-b");
     const auth = supervisor.getAuthDeclaration();
     if (!auth) throw new Error("missing auth declaration");
     supervisor.declareAccount({ auth, account: { id: accountB } });

@@ -19,7 +19,7 @@ export function AccountFeatureTestProvider({
 }) {
   const [supervisor] = useState(() => new AccountFeatureSupervisor(undefined, () => undefined));
   useLayoutEffect(() => {
-    supervisor.setAuthIntent({ loading: false, subject: accountId });
+    supervisor.setAuthSubject(accountId);
   }, [supervisor, accountId]);
   return (
     <AccountFeatureSupervisorContext.Provider value={supervisor}>

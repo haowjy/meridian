@@ -198,12 +198,11 @@ Both HTTP snapshot callers must pass `nextSeq`. An unsequenced caller
 
 `src/routes/__root.tsx` mounts one component-owned
 `AccountFeatureSupervisorProvider` under AuthKit and above the route outlet. It
-receives the authoritative WorkOS subject from the resolved root loader rather
-than from AuthKit's mount-time client state, and retains the exact immutable
-account feature lifetime and unfinished close stages across authenticated route
-errors, unmounts, and subject changes. The
+retains the exact immutable account feature lifetime and unfinished close stages
+across authenticated route errors, unmounts, and subject changes. The
 authenticated route contributes its committed WorkOS-subject/internal-account
-pair and a detachable Query catalog-repair adapter through
+pair, synchronizes that route-authoritative subject into the supervisor, and
+contributes a detachable Query catalog-repair adapter through
 `AccountFeatureComposition`; it never owns or constructs the lifetime. A later
 account is not constructed until the retained prior lifetime closes and the
 device Context desk has committed the exact old-account `reset-account` fence.

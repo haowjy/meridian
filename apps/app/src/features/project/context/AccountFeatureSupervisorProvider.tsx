@@ -1,23 +1,18 @@
-/** Root-owned auth intent and presentation for the account feature supervisor. */
+/** Root-owned lifetime and failure presentation for account features. */
 import { Link } from "@tanstack/react-router";
-import { useContext, useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
+import { useContext, useEffect, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { AccountFeatureSupervisorContext } from "./account-feature-context";
 import { AccountFeatureSupervisor } from "./account-feature-supervisor";
 
 export function AccountFeatureSupervisorProvider({
-  authSubject,
   children,
   createSupervisor = () => new AccountFeatureSupervisor(),
 }: {
-  authSubject: string | null;
   children: React.ReactNode;
   createSupervisor?: () => AccountFeatureSupervisor;
 }) {
   const [supervisor] = useState(createSupervisor);
-  useLayoutEffect(() => {
-    supervisor.setAuthIntent({ loading: false, subject: authSubject });
-  }, [supervisor, authSubject]);
   useEffect(() => {
     const retry = () => {
       if (supervisor.getSnapshot().kind === "close-failed") void supervisor.retry();

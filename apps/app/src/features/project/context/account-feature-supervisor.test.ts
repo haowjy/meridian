@@ -76,7 +76,7 @@ describe("AccountFeatureSupervisor", () => {
         return promise;
       },
     );
-    supervisor.setAuthIntent({ loading: false, subject: "subject-b" });
+    supervisor.setAuthSubject("subject-b");
     supervisor.declareAccount(declaration(supervisor, "account-b"));
     expect(supervisor.getSnapshot().kind).toBe("awaiting-composition");
     preparations[0]?.reject(new Error("reset write failed"));
@@ -114,9 +114,9 @@ describe("AccountFeatureSupervisor", () => {
         return promise;
       },
     );
-    supervisor.setAuthIntent({ loading: false, subject: "subject-b" });
+    supervisor.setAuthSubject("subject-b");
     supervisor.declareAccount(declaration(supervisor, "account-b"));
-    supervisor.setAuthIntent({ loading: false, subject: "subject-c" });
+    supervisor.setAuthSubject("subject-c");
     supervisor.declareAccount(declaration(supervisor, "account-c"));
     expect(created).toEqual([]);
 
@@ -144,15 +144,15 @@ describe("AccountFeatureSupervisor", () => {
       lifetimes.set(accountId, item);
       return item.value;
     });
-    supervisor.setAuthIntent({ loading: false, subject: "subject-a" });
+    supervisor.setAuthSubject("subject-a");
     supervisor.declareAccount(declaration(supervisor, "account-a"));
     await settlePreparation();
     const a = lifetimes.get("account-a");
     if (!a) throw new Error("A was not constructed");
 
-    supervisor.setAuthIntent({ loading: false, subject: "subject-b" });
+    supervisor.setAuthSubject("subject-b");
     supervisor.declareAccount(declaration(supervisor, "account-b"));
-    supervisor.setAuthIntent({ loading: false, subject: "subject-c" });
+    supervisor.setAuthSubject("subject-c");
     supervisor.declareAccount(declaration(supervisor, "account-c"));
     expect(created).toEqual(["account-a"]);
     a.attempts[0]?.reject(new Error("first close failed"));
@@ -185,7 +185,7 @@ describe("AccountFeatureSupervisor", () => {
       accountId === "account-a" ? a.value : lifetime(accountId).value,
     );
     const supervisor = new AccountFeatureSupervisor(create);
-    supervisor.setAuthIntent({ loading: false, subject: "same-subject" });
+    supervisor.setAuthSubject("same-subject");
     supervisor.declareAccount(declaration(supervisor, "account-a"));
     await settlePreparation();
     supervisor.declareAccount(declaration(supervisor, "account-conflict"));
@@ -197,7 +197,7 @@ describe("AccountFeatureSupervisor", () => {
     expect(supervisor.getSnapshot().kind).toBe("identity-inconsistent");
     expect(create).toHaveBeenCalledTimes(1);
 
-    supervisor.setAuthIntent({ loading: false, subject: "new-subject" });
+    supervisor.setAuthSubject("new-subject");
     supervisor.declareAccount(declaration(supervisor, "account-b"));
     a.attempts[0]?.reject(new Error("close retained A"));
     await expect(a.attempts[0]?.promise).rejects.toThrow();
@@ -216,11 +216,11 @@ describe("AccountFeatureSupervisor", () => {
   it("keeps retained A through signed out close failure and ignores stale declarations", async () => {
     const a = lifetime("account-a");
     const supervisor = new AccountFeatureSupervisor(() => a.value);
-    supervisor.setAuthIntent({ loading: false, subject: "subject-a" });
+    supervisor.setAuthSubject("subject-a");
     const stale = declaration(supervisor, "account-a");
     supervisor.declareAccount(stale);
     await settlePreparation();
-    supervisor.setAuthIntent({ loading: false, subject: null });
+    supervisor.setAuthSubject(null);
     supervisor.declareAccount(stale);
     await settlePreparation();
     a.attempts[0]?.reject(new Error("sign-out close failed"));
@@ -245,17 +245,17 @@ describe("AccountFeatureSupervisor", () => {
       lifetimes.set(accountId, item);
       return item.value;
     });
-    supervisor.setAuthIntent({ loading: false, subject: "same-subject" });
+    supervisor.setAuthSubject("same-subject");
     const stale = declaration(supervisor, "account-a");
     supervisor.declareAccount(stale);
     await settlePreparation();
-    supervisor.setAuthIntent({ loading: false, subject: null });
+    supervisor.setAuthSubject(null);
     const first = lifetimes.get("account-a");
     if (!first) throw new Error("First lifetime was not created");
     first.attempts[0]?.resolve();
     await first.attempts[0]?.promise;
 
-    supervisor.setAuthIntent({ loading: false, subject: "same-subject" });
+    supervisor.setAuthSubject("same-subject");
     const current = declaration(supervisor, "account-b");
     supervisor.declareAccount(stale);
     expect(created).toEqual(["account-a"]);

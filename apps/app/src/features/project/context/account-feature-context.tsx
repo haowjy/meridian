@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useInsertionEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -69,6 +70,10 @@ export function AccountFeatureComposition({
       ? snapshot.lifetime
       : null;
   const [attached, setAttached] = useState<AccountFeatureLifetime | null>(null);
+
+  useLayoutEffect(() => {
+    supervisor.setAuthSubject(authSubject);
+  }, [supervisor, authSubject]);
 
   useEffect(() => {
     if (declaration) supervisor.declareAccount(declaration);

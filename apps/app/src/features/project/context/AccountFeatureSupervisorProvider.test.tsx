@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /** Root supervisor retention across descendant errors and cleanup retry. */
-import { act, Component, useEffect, useState } from "react";
+import { act, Component, useEffect, useLayoutEffect, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { expect, it, vi } from "vitest";
@@ -86,7 +86,7 @@ function compositionLifetime(accountId: string): AccountFeatureLifetime {
 
 it("withholds descendants when a mounted route resolves a conflicting account", async () => {
   const supervisor = new AccountFeatureSupervisor((accountId) => compositionLifetime(accountId));
-  supervisor.setAuthIntent({ loading: false, subject: "subject-a" });
+  supervisor.setAuthSubject("subject-a");
   let changeAccount!: (accountId: string) => void;
 
   function Harness() {
@@ -126,6 +126,9 @@ it("keeps one A obligation through route error, reset, and root retry", async ()
 
   function Declaration({ subject, accountId }: { subject: string; accountId: string }) {
     const owner = useAccountFeatureSupervisor();
+    useLayoutEffect(() => {
+      owner.setAuthSubject(subject);
+    }, [owner, subject]);
     useEffect(() => {
       const auth = owner.getAuthDeclaration();
       if (auth?.subject === subject) owner.declareAccount({ auth, account: { id: accountId } });
@@ -149,10 +152,7 @@ it("keeps one A obligation through route error, reset, and root retry", async ()
       setResetKey((value) => value + 1);
     };
     return (
-      <AccountFeatureSupervisorProvider
-        authSubject={account.subject}
-        createSupervisor={() => supervisor}
-      >
+      <AccountFeatureSupervisorProvider createSupervisor={() => supervisor}>
         <AccountFeatureRootBoundary>
           <Declaration subject={account.subject} accountId={account.accountId} />
           <RouteBoundary resetKey={resetKey}>
@@ -185,35 +185,41 @@ it("keeps one A obligation through route error, reset, and root retry", async ()
   });
 });
 
-it("reveals the account composition when root auth resolves after navigation", async () => {
+it("lets a newly authenticated route reveal its account composition", async () => {
   const supervisor = new AccountFeatureSupervisor((accountId) => compositionLifetime(accountId));
-  let resolveAuth!: () => void;
+  let openAuthenticatedRoute!: () => void;
 
   function Harness() {
-    const [subject, setSubject] = useState<string | null>(null);
-    resolveAuth = () => setSubject("subject-a");
+    const [authenticated, setAuthenticated] = useState(false);
+    openAuthenticatedRoute = () => setAuthenticated(true);
     return (
-      <AccountFeatureSupervisorProvider authSubject={subject} createSupervisor={() => supervisor}>
-        <AccountFeatureComposition
-          authSubject="subject-a"
-          accountId="account-a"
-          repairProjectCatalog={async () => undefined}
-        >
-          <p>Authenticated content</p>
-        </AccountFeatureComposition>
+      <AccountFeatureSupervisorProvider createSupervisor={() => supervisor}>
+        {authenticated ? (
+          <AccountFeatureComposition
+            authSubject="subject-a"
+            accountId="account-a"
+            repairProjectCatalog={async () => undefined}
+          >
+            <p>Authenticated content</p>
+          </AccountFeatureComposition>
+        ) : (
+          <p>Public content</p>
+        )}
       </AccountFeatureSupervisorProvider>
     );
   }
 
   await withReactRoot(<Harness />, async () => {
-    expect(document.body.textContent).toContain("Preparing your workspace");
-    await act(async () => resolveAuth());
+    expect(supervisor.getAuthDeclaration()).toBeNull();
+    expect(document.body.textContent).toContain("Public content");
+    await act(async () => openAuthenticatedRoute());
     expect(document.body.textContent).toContain("Authenticated content");
+    expect(supervisor.getAuthDeclaration()?.subject).toBe("subject-a");
   });
 });
 
-it("hydrates the authenticated loading projection without constructing a lifetime", async () => {
-  const createLifetime = vi.fn();
+it("hydrates the loading projection before the account composition establishes its subject", async () => {
+  const createLifetime = vi.fn(compositionLifetime);
   const supervisor = new AccountFeatureSupervisor(createLifetime);
   const view = (
     <AccountFeatureSupervisorContext.Provider value={supervisor}>
@@ -238,8 +244,8 @@ it("hydrates the authenticated loading projection without constructing a lifetim
   const root = hydrateRoot(container, view);
   try {
     await act(async () => Promise.resolve());
-    expect(container.textContent).toContain("Preparing your workspace");
-    expect(createLifetime).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Authenticated content");
+    expect(createLifetime).toHaveBeenCalledOnce();
     expect(
       hydrationErrors.filter((args) =>
         args.some(

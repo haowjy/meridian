@@ -316,12 +316,11 @@ export class AccountFeatureSupervisor {
     return () => this.listeners.delete(listener);
   };
 
-  setAuthIntent(intent: { loading: boolean; subject: string | null }): void {
-    if (intent.loading && !intent.subject) return;
-    if (intent.subject === (this.authDeclaration?.subject ?? null)) return;
+  setAuthSubject(subject: string | null): void {
+    if (subject === (this.authDeclaration?.subject ?? null)) return;
     this.authEpoch += 1;
-    this.authDeclaration = intent.subject
-      ? Object.freeze({ kind: "authenticated", epoch: this.authEpoch, subject: intent.subject })
+    this.authDeclaration = subject
+      ? Object.freeze({ kind: "authenticated", epoch: this.authEpoch, subject })
       : null;
     this.canonical = null;
     this.desiredAccountId = null;
