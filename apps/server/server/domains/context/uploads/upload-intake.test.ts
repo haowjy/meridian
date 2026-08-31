@@ -73,12 +73,6 @@ function harness(owner: "work" | "none" = "none") {
     async consume() {
       if (row) row = { ...row, consumed: true };
     },
-    async lockIdentityForDeletion() {
-      return { exists: row !== null, documentIds: row ? [row.documentId] : [], objectKeys: [] };
-    },
-    async deleteIdentity() {
-      row = null;
-    },
   };
   const content = {
     persist: vi.fn<() => Promise<{ ok: true } | { ok: false; definite: boolean }>>(async () => ({

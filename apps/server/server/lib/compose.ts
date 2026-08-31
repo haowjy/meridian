@@ -1097,9 +1097,6 @@ export function createInMemoryAppServices(): AppServices {
         return { kind: "identity_mismatch" };
       },
       async consume() {},
-      async hardDeleteIdentity() {
-        return { kind: "already_deleted" };
-      },
     },
     uploadIdentity: {
       async lookupUpload() {

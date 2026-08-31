@@ -2,14 +2,7 @@
 import { createHash } from "node:crypto";
 import { createDb, type Database } from "@meridian/database";
 import { conformanceUserValues } from "@meridian/database/__test-support__/db-fixtures";
-import {
-  documents,
-  documentYjsHeads,
-  projects,
-  uploadIntakes,
-  users,
-  works,
-} from "@meridian/database/schema";
+import { documents, projects, uploadIntakes, users, works } from "@meridian/database/schema";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { truncateDrizzleTables } from "../../../test-support/drizzle-reset.js";
@@ -161,131 +154,6 @@ if (!RUN) {
       expect(work.kind === "reserved" && work.reservation.canonicalUri).toBe(
         "uploads://@draft/chapter.md",
       );
-    });
-
-    async function seedHardDeletion(identity: "project" | "account", failCleanup = false) {
-      const repo = await seed();
-      const objectStore = createInMemoryObjectStore();
-      const binary = await repo.reserve({
-        ...reservation("binary", "none"),
-        filename: "image.png",
-        mimeType: "image/png",
-        fileType: "image",
-      });
-      const tracked = await repo.reserve(reservation("tracked-cleanup", "none"));
-      if (
-        binary.kind === "conflict" ||
-        binary.kind === "owner_unavailable" ||
-        tracked.kind === "conflict" ||
-        tracked.kind === "owner_unavailable"
-      ) {
-        throw new Error("cleanup fixtures failed to reserve");
-      }
-      const stored = await objectStore.put(
-        binary.reservation.objectKey,
-        new Uint8Array([1]),
-        "image/png",
-      );
-      if (!stored.ok) throw new Error(stored.error.message);
-      await repo.markObjectStored(PROJECT, "binary", stored.value.storageUrl);
-      for (const item of [binary.reservation, tracked.reservation]) {
-        const [intake] = await database.current
-          .select({ sourceId: uploadIntakes.contextSourceId })
-          .from(uploadIntakes)
-          .where(eq(uploadIntakes.documentId, item.documentId as never));
-        if (!intake) throw new Error("cleanup intake missing");
-        await database.current.insert(documents).values({
-          id: item.documentId as never,
-          contextSourceId: intake.sourceId,
-          name: item.finalPath.replace(/\.[^.]+$/, ""),
-          extension: item.finalPath.split(".").pop(),
-          fileType: item.fileType,
-        });
-      }
-      await database.current
-        .insert(documentYjsHeads)
-        .values({ documentId: tracked.reservation.documentId as never });
-      await repo.finalize(PROJECT, "binary");
-      await repo.finalize(PROJECT, "tracked-cleanup");
-      const service = createUploadIntake({
-        repository: repo,
-        content: {
-          async persist() {
-            return { ok: true };
-          },
-        },
-        objectStore: failCleanup
-          ? new Proxy(objectStore, {
-              get(target, property, receiver) {
-                if (property === "delete") {
-                  return async () => ({
-                    ok: false as const,
-                    error: { code: "io_error" as const, message: "definite cleanup failure" },
-                  });
-                }
-                return Reflect.get(target, property, receiver);
-              },
-            })
-          : objectStore,
-        eventSink: createNoopEventSink(),
-      });
-      const target =
-        identity === "project"
-          ? ({ kind: "project", projectId: PROJECT } as const)
-          : ({ kind: "account", userId: USER } as const);
-      return { binary: binary.reservation, objectStore, service, target };
-    }
-
-    it.each([
-      "project",
-      "account",
-    ] as const)("hard-deletes %s upload objects, Yjs, and SQL identity before cascade", async (identity) => {
-      const fixture = await seedHardDeletion(identity);
-      await expect(fixture.service.hardDeleteIdentity(fixture.target)).resolves.toEqual({
-        kind: "deleted",
-      });
-      await expect(fixture.service.hardDeleteIdentity(fixture.target)).resolves.toEqual({
-        kind: "already_deleted",
-      });
-      await expect(fixture.objectStore.get(fixture.binary.objectKey)).resolves.toMatchObject({
-        ok: false,
-      });
-      expect(await database.current.select().from(uploadIntakes)).toEqual([]);
-      expect(await database.current.select().from(documentYjsHeads)).toEqual([]);
-    });
-
-    it.each([
-      "project",
-      "account",
-    ] as const)("retains %s keys and SQL identity when external cleanup definitively fails", async (identity) => {
-      const fixture = await seedHardDeletion(identity, true);
-      await expect(fixture.service.hardDeleteIdentity(fixture.target)).resolves.toMatchObject({
-        kind: "cleanup_failed",
-        objectKey: fixture.binary.objectKey,
-      });
-      await expect(fixture.objectStore.get(fixture.binary.objectKey)).resolves.toMatchObject({
-        ok: true,
-      });
-      expect(await database.current.select().from(uploadIntakes)).toHaveLength(2);
-      expect(await database.current.select().from(documentYjsHeads)).toHaveLength(1);
-      const identityRows =
-        identity === "project"
-          ? await database.current.select().from(projects).where(eq(projects.id, PROJECT))
-          : await database.current.select().from(users).where(eq(users.id, USER));
-      expect(identityRows).toHaveLength(1);
-    });
-
-    it("retains upload bytes during restorable project soft deletion", async () => {
-      const fixture = await seedHardDeletion("project");
-      await database.current
-        .update(projects)
-        .set({ deletedAt: new Date() })
-        .where(eq(projects.id, PROJECT));
-
-      await expect(fixture.objectStore.get(fixture.binary.objectKey)).resolves.toMatchObject({
-        ok: true,
-      });
-      expect(await database.current.select().from(uploadIntakes)).toHaveLength(2);
     });
 
     it("deletes only the exact unused identity and preserves revision mismatches", async () => {

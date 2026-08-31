@@ -18,9 +18,6 @@ persisted file classification.
 - Upload identity lookup used by download, recent-document, and future runtime
   adapters. Thread provenance is `thread_documents`; it is never upload storage
   ownership.
-- Hard project/account identity cleanup locks and enumerates exact intake keys,
-  removes binary objects and upload document/Yjs identity, then permits the SQL
-  identity cascade. Cleanup failure retains the identity for retry.
 
 ## Invariants
 
@@ -37,5 +34,3 @@ persisted file classification.
   outcomes retain the stable key for recovery.
 - Intake never writes `thread_documents`. Explicit deletion cannot target a
   replacement at the same path.
-- Restorable project soft deletion retains upload bytes. Only hard identity
-  cleanup removes external state before its SQL cascade.

@@ -6,7 +6,6 @@ import {
   documents,
   projects,
   uploadIntakes,
-  users,
   works,
 } from "@meridian/database/schema";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
@@ -14,7 +13,6 @@ import { currentDrizzleDb, runInDrizzleTransaction } from "../../../shared/drizz
 import type { ContextCatalogMutationPort } from "../ports/context-catalog.js";
 import type {
   ReserveUploadResult,
-  UploadHardIdentity,
   UploadIntakeRepository,
   UploadReservation,
 } from "./upload-intake.js";
@@ -339,53 +337,6 @@ export function createDrizzleUploadIntakeRepository(
             eq(uploadIntakes.state, "finalized"),
           ),
         );
-    },
-    async lockIdentityForDeletion(identity: UploadHardIdentity) {
-      const activeDb = currentDrizzleDb(db);
-      const identityRows =
-        identity.kind === "project"
-          ? await activeDb.execute(
-              sql`select id from projects where id = ${identity.projectId} for update`,
-            )
-          : await activeDb.execute(
-              sql`select id from users where id = ${identity.userId} for update`,
-            );
-      if (identityRows.length === 0) {
-        return { exists: false, documentIds: [], objectKeys: [] };
-      }
-      const rows = await activeDb
-        .select({
-          documentId: uploadIntakes.documentId,
-          objectKey: uploadIntakes.objectKey,
-          storageUrl: uploadIntakes.storageUrl,
-        })
-        .from(uploadIntakes)
-        .where(
-          identity.kind === "project"
-            ? eq(uploadIntakes.projectId, identity.projectId as never)
-            : sql`exists (
-                select 1 from projects
-                where projects.id = ${uploadIntakes.projectId}
-                  and projects.user_id = ${identity.userId}
-              )`,
-        )
-        .for("update");
-      return {
-        exists: true,
-        documentIds: rows.map((row) => row.documentId),
-        objectKeys: rows.flatMap((row) => (row.storageUrl ? [row.objectKey] : [])),
-      };
-    },
-    async deleteIdentity(identity, documentIds) {
-      const activeDb = currentDrizzleDb(db);
-      if (documentIds.length > 0) {
-        await activeDb.delete(documents).where(inArray(documents.id, [...documentIds] as never[]));
-      }
-      if (identity.kind === "project") {
-        await activeDb.delete(projects).where(eq(projects.id, identity.projectId as never));
-      } else {
-        await activeDb.delete(users).where(eq(users.id, identity.userId as never));
-      }
     },
   };
 }

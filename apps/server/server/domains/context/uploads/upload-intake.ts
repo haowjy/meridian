@@ -14,10 +14,8 @@ import {
   filetypeForKnownMimeType,
   filetypeForKnownPath,
 } from "@meridian/contracts/protocol";
-import { Err, Ok } from "../../../shared/result.js";
 import { type EventSink, emitEvent, unknownToEventPayload } from "../../observability/index.js";
-import type { ObjectStoreError, ObjectStorePort } from "../../storage/index.js";
-import { createResultAwareCommandExecutor } from "../context/result-aware-command-executor.js";
+import type { ObjectStorePort } from "../../storage/index.js";
 
 export interface UploadIntakeInput {
   intakeId: string;
@@ -80,10 +78,6 @@ export interface UploadIntakeRepository {
   }>;
   /** F5 includes this singular seam in the admission transaction. */
   consume(documentIds: readonly string[]): Promise<void>;
-  lockIdentityForDeletion(
-    identity: UploadHardIdentity,
-  ): Promise<{ exists: boolean; documentIds: readonly string[]; objectKeys: readonly string[] }>;
-  deleteIdentity(identity: UploadHardIdentity, documentIds: readonly string[]): Promise<void>;
 }
 
 /** ContextFS adapter seam; it is the only content/catalog mutation dependency. */
@@ -101,17 +95,7 @@ export interface UploadIntake {
   intake(input: UploadIntakeInput): Promise<UploadIntakeOutcome>;
   deleteDraft(input: DeleteDraftUploadInput, actorUserId: string): Promise<DeleteDraftUploadResult>;
   consume(documentIds: readonly string[]): Promise<void>;
-  hardDeleteIdentity(identity: UploadHardIdentity): Promise<UploadHardIdentityDeletionResult>;
 }
-
-export type UploadHardIdentity =
-  | { kind: "project"; projectId: string }
-  | { kind: "account"; userId: string };
-
-export type UploadHardIdentityDeletionResult =
-  | { kind: "deleted" }
-  | { kind: "already_deleted" }
-  | { kind: "cleanup_failed"; objectKey: string; error: ObjectStoreError };
 
 const TEXT_MIMES = new Set([
   "application/json",
@@ -213,13 +197,6 @@ export function createUploadIntake(deps: {
   objectStore: ObjectStorePort;
   eventSink: EventSink;
 }): UploadIntake {
-  const identityDeletion = createResultAwareCommandExecutor<
-    Extract<UploadHardIdentityDeletionResult, { kind: "cleanup_failed" }>
-  >({
-    transaction: { run: (operation) => deps.repository.transaction(operation) },
-    serializeThroughCallbacks: false,
-  });
-
   return {
     async intake(raw) {
       const filename = normalizeFilename(raw.filename);
@@ -330,22 +307,5 @@ export function createUploadIntake(deps: {
       return deleted.result;
     },
     consume: (documentIds) => deps.repository.consume(documentIds),
-    async hardDeleteIdentity(identity) {
-      const result = await identityDeletion.run<
-        Extract<UploadHardIdentityDeletionResult, { kind: "deleted" | "already_deleted" }>
-      >(async () => {
-        const tracked = await deps.repository.lockIdentityForDeletion(identity);
-        if (!tracked.exists) return Ok({ kind: "already_deleted" } as const);
-        for (const objectKey of tracked.objectKeys) {
-          const deleted = await deps.objectStore.delete(objectKey);
-          if (!deleted.ok) {
-            return Err({ kind: "cleanup_failed" as const, objectKey, error: deleted.error });
-          }
-        }
-        await deps.repository.deleteIdentity(identity, tracked.documentIds);
-        return Ok({ kind: "deleted" } as const);
-      });
-      return result.ok ? result.value : result.error;
-    },
   };
 }
