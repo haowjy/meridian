@@ -193,6 +193,8 @@ export type WriteProvenance =
 
 export interface ContextWriteOptions {
   origin?: WriteProvenance;
+  /** Stable identity reserved by an authoritative aggregate before content creation. */
+  documentId?: string;
   /**
    * Create only the context row for a tracked document; the caller must ensure
    * the live Y.Doc before committed content is applied.

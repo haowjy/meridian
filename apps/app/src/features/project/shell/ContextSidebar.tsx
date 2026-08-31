@@ -6,13 +6,12 @@
 import { t } from "@lingui/core/macro";
 import type { DocumentFileType } from "@meridian/contracts/protocol";
 import type { LucideIcon } from "lucide-react";
-import { FileText, Image as ImageIcon, Sparkles, Upload } from "lucide-react";
+import { FileText, Image as ImageIcon, Sparkles } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import type { ProjectResultItem } from "@/client/api/project-results-api";
 import type { ListQueryStatus } from "@/client/query/list-query";
 import { useThreadRecentDocuments } from "@/client/query/useThreadRecentDocuments";
-import { useThreadUploads } from "@/client/query/useThreadUploads";
 import { DockShell } from "../dock/DockShell";
 import { CollapsibleRailSection, RailEmptyHint, RailErrorRow, RailKindIcon } from "./RailSection";
 
@@ -48,7 +47,6 @@ export type ContextSidebarProps = {
 };
 
 export function ContextSidebar({ threadId, projectId, onClose }: ContextSidebarProps) {
-  const uploads = useThreadUploads(threadId);
   const recent = useThreadRecentDocuments(threadId);
   // Results live at the project scope (artifact persistence outlives any
   // single chat), so the rail tracks `projectId` independently of the
@@ -61,21 +59,9 @@ export function ContextSidebar({ threadId, projectId, onClose }: ContextSidebarP
       <DockShell placement="dock" screen="chat" onClose={onClose}>
         <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden px-2 py-2">
           <DocumentRailSection
-            title={t`Uploads`}
-            icon={<Upload className="size-3.5" />}
-            defaultOpen
-            status={uploads}
-            rows={uploads.uploads}
-            messages={{
-              disabled: t`Open a chat to see its uploads.`,
-              loading: t`Loading uploads…`,
-              empty: t`No files uploaded yet.`,
-              error: t`Couldn't load uploads.`,
-            }}
-          />
-          <DocumentRailSection
             title={t`Recent`}
             icon={<FileText className="size-3.5" />}
+            defaultOpen
             status={recent}
             rows={recent.documents}
             messages={{
@@ -106,11 +92,7 @@ export function ContextSidebar({ threadId, projectId, onClose }: ContextSidebarP
   );
 }
 
-/* Both `ThreadUploadDocumentItem` and `ThreadRecentDocumentItem` carry the
- * same display fields (`documentId`, `name`, `extension`, `sizeBytes`,
- * `editable`/`fileType`). One `DocumentRow` renders both — sourcing/timestamp
- * differences belong to the data layer, not the row visuals.
- */
+/* Recent document projections share this display shape with catalog rows. */
 type RailDocument = {
   documentId: string;
   name: string;

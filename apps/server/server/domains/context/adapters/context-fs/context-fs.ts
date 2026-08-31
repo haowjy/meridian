@@ -492,6 +492,7 @@ export class ContextFS implements ContextSchemeAdapter {
       return Err({ code: "conflict" });
     }
     const created = await this.createTrackedDocumentAtomically({
+      id: options?.documentId,
       folderId,
       name,
       extension,
@@ -721,6 +722,7 @@ export class ContextFS implements ContextSchemeAdapter {
       const folderId = await this.ensureFolderId(dir);
       const { name, extension } = parseFilename(filename);
       const doc = await this.store.createBinaryDocument({
+        id: options.documentId,
         folderId,
         name,
         extension,

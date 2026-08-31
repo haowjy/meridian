@@ -25,19 +25,21 @@ import {
   type ContextCatalog,
   type ContextCatalogWakeHub,
   createContextCatalogWakeHub,
+  createContextUploadContentPort,
   createDrizzleAssetPathResolver,
   createDrizzleContextCatalog,
   createDrizzleDocumentLinkResolver,
   createDrizzleFigureDocumentRepository,
   createDrizzleProjectContextAvailability,
   createDrizzleResultRepository,
-  createDrizzleThreadUploadDocumentStore,
+  createDrizzleUploadIdentityPort,
+  createDrizzleUploadIntakeRepository,
   createFigureAssetService,
   createInMemoryUnifiedContextPortFactory,
   createInterruptArtifactFlush,
   createProductionUnifiedContextPortFactory,
   createPromotionService,
-  createThreadUploadImportService,
+  createUploadIntake,
   type DocumentLinkResolver,
   type FigureAssetService,
   InMemoryContextCatalog,
@@ -45,9 +47,9 @@ import {
   type ProjectContextAvailabilityPort,
   type PromotionService,
   type ResultRepository,
-  type ThreadUploadDocumentStore,
-  type ThreadUploadImportService,
   type UnifiedContextPortFactory,
+  type UploadIdentityPort,
+  type UploadIntake,
 } from "../domains/context/index.js";
 import { createDrizzleNoticePort, type Notice, type NoticePort } from "../domains/notices/index.js";
 import {
@@ -203,8 +205,8 @@ export type AppServices = {
   modelRequestDebug: ModelRequestDebugStore;
   objectStore: ObjectStorePort;
   localObjectStore: LocalObjectStoreAdapter | null;
-  uploadDocuments: ThreadUploadDocumentStore;
-  threadUploadImports: ThreadUploadImportService;
+  uploadIntake: UploadIntake;
+  uploadIdentity: UploadIdentityPort;
   figureAssets: FigureAssetService;
   results: ResultRepository;
   documentAccess: DocumentAccessPort;
@@ -249,8 +251,8 @@ export type ProductionAppPorts = {
   modelRequestDebug: ModelRequestDebugStore;
   objectStore: ObjectStorePort;
   localObjectStore: LocalObjectStoreAdapter | null;
-  uploadDocuments: ThreadUploadDocumentStore;
-  threadUploadImports: ThreadUploadImportService;
+  uploadIntake: UploadIntake;
+  uploadIdentity: UploadIdentityPort;
   figureAssets: FigureAssetService;
   results: ResultRepository;
   promotionService: PromotionService;
@@ -376,14 +378,6 @@ export async function createProductionAppPorts(input: {
         ),
     },
   });
-  const uploadDocuments = createDrizzleThreadUploadDocumentStore(db, threadRepos.threadDocuments);
-  const threadUploadImports = createThreadUploadImportService({
-    repos: threadRepos,
-    uploadDocuments,
-    documentSync,
-    objectStore,
-    eventSink,
-  });
   const results = createDrizzleResultRepository(db);
   const promotionService = createPromotionService({
     objectStore,
@@ -398,6 +392,13 @@ export async function createProductionAppPorts(input: {
     catalogMutations: contextCatalog,
     eventSink,
   });
+  const uploadIntake = createUploadIntake({
+    repository: createDrizzleUploadIntakeRepository(db, contextCatalog),
+    content: createContextUploadContentPort(contextPorts),
+    objectStore,
+    eventSink,
+  });
+  const uploadIdentity = createDrizzleUploadIdentityPort(db);
   // Upload creates the asset as a context document, so the service needs the
   // context ports; it feeds each new path straight back into the resolver the
   // codec reads.
@@ -478,8 +479,8 @@ export async function createProductionAppPorts(input: {
     modelRequestDebug: createModelRequestDebugStoreFromEnv(eventSink),
     objectStore,
     localObjectStore,
-    uploadDocuments,
-    threadUploadImports,
+    uploadIntake,
+    uploadIdentity,
     figureAssets,
     results,
     promotionService,
@@ -701,8 +702,8 @@ export function composeAppServices(ports: ProductionAppPorts): AppServices {
     modelRequestDebug: ports.modelRequestDebug,
     objectStore: ports.objectStore,
     localObjectStore: ports.localObjectStore,
-    uploadDocuments: ports.uploadDocuments,
-    threadUploadImports: ports.threadUploadImports,
+    uploadIntake: ports.uploadIntake,
+    uploadIdentity: ports.uploadIdentity,
     figureAssets: ports.figureAssets,
     results: ports.results,
     documentAccess: ports.documentAccess,
@@ -1088,32 +1089,24 @@ export function createInMemoryAppServices(): AppServices {
       },
     },
     localObjectStore: null,
-    uploadDocuments: {
-      async transaction(operation) {
-        return operation();
+    uploadIntake: {
+      async intake() {
+        throw new Error("in-memory upload intake is not implemented");
       },
-      async createUploadDocument() {
-        throw new Error("in-memory upload documents are not implemented");
+      async deleteDraft() {
+        return { kind: "identity_mismatch" };
       },
-      async updateMarkdownProjection() {
-        throw new Error("in-memory upload documents are not implemented");
-      },
-      async getDocument() {
-        return null;
-      },
-      async getUpload() {
-        return null;
-      },
-      async listUploads() {
-        return [];
-      },
-      async listRecent() {
-        return [];
-      },
+      async consume() {},
     },
-    threadUploadImports: {
-      async importUpload() {
-        throw new Error("in-memory upload imports are not implemented");
+    uploadIdentity: {
+      async lookupUpload() {
+        return null;
+      },
+      async lookupDocument() {
+        return null;
+      },
+      async lookupDocuments() {
+        return [];
       },
     },
     figureAssets: {

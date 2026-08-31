@@ -14,19 +14,16 @@ import {
   apiThreadRecentDocumentsPath,
   apiThreadSnapshotPath,
   apiThreadTurnContextPreviewDebugPath,
-  apiThreadUploadsPath,
   apiThreadUserStatePath,
   apiThreadWorkPath,
   type CancelTurnResponse,
   type ListThreadRecentDocumentsResponse,
   type ListThreadsResponse,
-  type ListThreadUploadsResponse,
   type ModelRequestDebugListResponse,
   type SendMessageResponse,
   type Thread,
   type ThreadRecentDocumentItem,
   type ThreadSnapshotResponse,
-  type ThreadUploadDocumentItem,
   type TurnContextPreview,
   type UpdateThreadUserStateRequest,
   type UpdateThreadUserStateResponse,
@@ -148,11 +145,6 @@ export function toThreadSnapshotApplyOptions(snapshot: ThreadSnapshotResponse) {
  * GET /api/threads/:threadId/uploads — files the user uploaded into this
  * thread (`thread_documents` rows where the relationship is an upload).
  */
-export async function getThreadUploads(threadId: string): Promise<ThreadUploadDocumentItem[]> {
-  const response = await getJson<ListThreadUploadsResponse>(apiThreadUploadsPath(threadId));
-  return response.uploads;
-}
-
 /**
  * GET /api/threads/:threadId/recent-documents — documents the agent recently
  * read/touched in this thread (`turn_document_touches`, deduped by docId).

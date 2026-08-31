@@ -376,6 +376,18 @@ describe("context router scheme creation capabilities", () => {
     expect(uploads.mkdir).not.toHaveBeenCalled();
   });
 
+  it("admits only reserved tracked upload identity through the intake seam", async () => {
+    const { port, uploads } = createPort();
+    await expect(
+      port.createTrackedDocument("uploads://@current/notes.md", "notes", {
+        documentId: "00000000-0000-4000-8000-000000000001",
+      }),
+    ).resolves.toEqual({ ok: true, value: { documentId: "document-new" } });
+    expect(uploads.createTrackedDocument).toHaveBeenCalledWith("notes.md", "notes", {
+      documentId: "00000000-0000-4000-8000-000000000001",
+    });
+  });
+
   it("allows file and directory creation in scratch", async () => {
     const { port, scratch } = createPort();
 
