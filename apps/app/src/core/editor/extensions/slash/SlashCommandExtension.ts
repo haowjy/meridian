@@ -14,7 +14,11 @@
  */
 
 import type { SuggestionMenu } from "@/core/completion";
-import { createSuggestionLane, type SuggestionLaneOptions } from "../suggestion";
+import {
+  createSuggestionLane,
+  defaultSuggestionLaneDriver,
+  type SuggestionLaneOptions,
+} from "../suggestion";
 import {
   filterSlashCommandItems,
   type SlashCommandCatalog,
@@ -33,7 +37,7 @@ export type SlashMenuMeta = { groupLabels: Record<SlashCommandGroupId, string> }
 export type SlashMenu = SuggestionMenu<SlashCommandItem, SlashMenuMeta>;
 
 export type SlashCommandExtensionOptions = Pick<
-  SuggestionLaneOptions<SlashCommandCatalog, SlashCommandItem, SlashMenuMeta>,
+  SuggestionLaneOptions<SlashCommandCatalog>,
   "catalog"
 >;
 
@@ -45,6 +49,7 @@ const slashLane = createSuggestionLane<
 >({
   name: "slashCommand",
   char: "/",
+  driver: defaultSuggestionLaneDriver,
   keymapId: "slash-menu",
   label: (catalog) => catalog.menuLabel,
   allows: allowsSlashTrigger,

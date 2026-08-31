@@ -16,7 +16,6 @@ import type { EditorView } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 import { common, createLowlight } from "lowlight";
 import type * as Y from "yjs";
-import { createSuggestionLifecycle } from "../completion";
 import type { AgentNameStore } from "./agent-name-store";
 import { BlockDragExtension } from "./blocks";
 import { ChromeKernelExtension } from "./chrome";
@@ -362,7 +361,6 @@ export function createStandaloneEditorExtensions({
       ? [
           SlashCommandExtension.configure({
             ...slashCommands,
-            suggestions: createSuggestionLifecycle(),
             suggestionHost: editorSuggestionHost,
           }),
         ]
@@ -371,7 +369,6 @@ export function createStandaloneEditorExtensions({
       ? [
           WikilinkSuggestionExtension.configure({
             ...wikilinks,
-            suggestions: createSuggestionLifecycle(),
             suggestionHost: editorSuggestionHost,
           }),
         ]

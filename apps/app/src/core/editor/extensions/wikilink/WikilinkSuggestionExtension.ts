@@ -22,21 +22,23 @@ import {
   type WikilinkMenuItem,
 } from "@/core/completion";
 import { autoClosedRunLength } from "../auto-pair";
-import { createSuggestionLane, type SuggestionLaneOptions } from "../suggestion";
+import {
+  createSuggestionLane,
+  defaultSuggestionLaneDriver,
+  type SuggestionLaneOptions,
+} from "../suggestion";
 import { insertWikilink } from "./wikilink-insertion";
 import { allowsWikilinkTrigger } from "./wikilink-trigger";
 
 export type WikilinkMenu = SuggestionMenu<WikilinkMenuItem>;
 
-export type WikilinkExtensionOptions = Pick<
-  SuggestionLaneOptions<WikilinkCatalog, WikilinkMenuItem>,
-  "catalog"
->;
+export type WikilinkExtensionOptions = Pick<SuggestionLaneOptions<WikilinkCatalog>, "catalog">;
 
 const wikilinkLane = createSuggestionLane<WikilinkCatalog, WikilinkMenuItem>({
   name: "wikilinkSuggestion",
   char: "[[",
   allowSpaces: true,
+  driver: defaultSuggestionLaneDriver,
   keymapId: "wikilink-menu",
   label: (catalog) => catalog.label,
   allows: allowsWikilinkTrigger,

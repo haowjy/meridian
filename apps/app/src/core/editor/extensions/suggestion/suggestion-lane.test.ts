@@ -12,14 +12,15 @@
 import { Editor } from "@tiptap/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  createSuggestionLifecycle,
+  createDefaultSuggestionDriver,
   type SuggestionChoiceAction,
+  type SuggestionDriverFrame,
   type SuggestionHost,
 } from "@/core/completion";
 import { getEditorChrome } from "../../chrome";
 import { createStandaloneEditorExtensions } from "../../config";
 import { editorSuggestionHost } from "../../suggestion-host";
-import { createSuggestionLane } from "./suggestion-lane";
+import { createSuggestionLane, defaultSuggestionLaneDriver } from "./suggestion-lane";
 
 type WordCatalog = { title: string; words: readonly string[] };
 type WordItem = { word: string };
@@ -36,6 +37,7 @@ const chooseWordLane = vi.fn<(action: SuggestionChoiceAction) => void>();
 const wordLane = createSuggestionLane<WordCatalog, WordItem, WordEntry, { title: string }>({
   name: "testWordLane",
   char: "%",
+  driver: defaultSuggestionLaneDriver,
   keymapId: "test-word-lane",
   label: (catalog) => catalog.title,
   allows: () => true,
@@ -66,6 +68,41 @@ const wordLane = createSuggestionLane<WordCatalog, WordItem, WordEntry, { title:
   }),
 });
 
+const forwarded = {
+  starts: [] as SuggestionDriverFrame<WordItem>[],
+  updates: [] as SuggestionDriverFrame<WordItem>[],
+  exits: 0,
+};
+const forwardingLane = createSuggestionLane<WordCatalog, WordItem>({
+  name: "forwardingLane",
+  char: "^",
+  keymapId: "forwarding-lane",
+  allows: () => true,
+  label: (catalog) => catalog.title,
+  rowId: (row) => row.word,
+  items: (catalog, query) =>
+    catalog.words.filter((word) => word.startsWith(query)).map((word) => ({ word })),
+  choose: () => {},
+  driver: ({ defaultProject }) => {
+    const owned = createDefaultSuggestionDriver({ project: defaultProject });
+    return {
+      menu: owned.menu,
+      start: (frame) => {
+        forwarded.starts.push(frame);
+        owned.start(frame);
+      },
+      update: (frame) => {
+        forwarded.updates.push(frame);
+        owned.update(frame);
+      },
+      exit: () => {
+        forwarded.exits += 1;
+        owned.exit();
+      },
+    };
+  },
+});
+
 let editor: Editor | null = null;
 const releaseHost = vi.fn();
 const registerHost = vi.fn<SuggestionHost["register"]>(() => ({ release: releaseHost }));
@@ -76,10 +113,7 @@ afterEach(() => {
   editor = null;
 });
 
-function mount({
-  withLane = true,
-  suggestions = createSuggestionLifecycle<WordEntry, { title: string }>(),
-} = {}) {
+function mount({ withLane = true } = {}) {
   const instance = new Editor({
     extensions: [
       ...createStandaloneEditorExtensions(),
@@ -88,7 +122,6 @@ function mount({
             wordLane.extension.configure({
               catalog: () => CATALOG,
               suggestionHost: () => ({ register: registerHost }),
-              suggestions,
             }),
           ]
         : []),
@@ -100,14 +133,12 @@ function mount({
 }
 
 function mountWithRealHost() {
-  const suggestions = createSuggestionLifecycle<WordEntry, { title: string }>();
   const instance = new Editor({
     extensions: [
       ...createStandaloneEditorExtensions(),
       wordLane.extension.configure({
         catalog: () => CATALOG,
         suggestionHost: editorSuggestionHost,
-        suggestions,
       }),
     ],
     content: { type: "doc", content: [{ type: "paragraph" }] },
@@ -133,23 +164,40 @@ async function type(instance: Editor, text: string) {
 }
 
 describe("a lane declared as a spec", () => {
-  it("publishes through the exact lifecycle composed by its host", async () => {
-    const suggestions = createSuggestionLifecycle<WordEntry, { title: string }>();
-    const observed: boolean[] = [];
-    const unsubscribe = suggestions.menu.subscribe(() =>
-      observed.push(suggestions.menu.snapshot().open),
-    );
-    const instance = mount({ suggestions });
-
-    await type(instance, "%emb");
-
-    expect(wordLane.getMenu(instance)).toBe(suggestions.menu);
-    expect(suggestions.menu.snapshot().items.map(({ word }) => word)).toEqual([
+  it("forwards TipTap frames and exit to the mounted driver's exact menu", async () => {
+    forwarded.starts.length = 0;
+    forwarded.updates.length = 0;
+    forwarded.exits = 0;
+    const instance = new Editor({
+      extensions: [
+        ...createStandaloneEditorExtensions(),
+        forwardingLane.extension.configure({
+          catalog: () => CATALOG,
+          suggestionHost: () => ({ register: registerHost }),
+        }),
+      ],
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+    });
+    editor = instance;
+    await type(instance, "^emb");
+    expect(forwarded.starts).toHaveLength(1);
+    expect(forwarded.starts[0]).toMatchObject({
+      query: "emb",
+      text: "^emb",
+      triggerRange: { from: 1, to: 5 },
+      loading: true,
+    });
+    expect(forwarded.starts[0]?.candidates).toEqual([]);
+    expect(forwarded.updates.at(-1)?.candidates.map(({ word }) => word)).toEqual([
       "ember",
       "emberling",
     ]);
-    expect(observed).toContain(true);
-    unsubscribe();
+    expect(forwardingLane.getMenu(instance)?.snapshot().query).toBe("emb");
+    instance.commands.insertContent("e");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(forwarded.updates.at(-1)).toMatchObject({ query: "embe", text: "^embe" });
+    forwardingLane.getMenu(instance)?.dismiss();
+    expect(forwarded.exits).toBe(1);
   });
   it("opens on its own char and publishes the catalog through the store", async () => {
     const instance = mount();

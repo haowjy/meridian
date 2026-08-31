@@ -8,9 +8,9 @@
  * and keeps selection attached to a stable row ID across catalog refreshes.
  */
 
-export type SuggestionSessionId = string;
-export type SuggestionGeneration = Readonly<{
-  sessionId: SuggestionSessionId;
+export type InternalSuggestionSessionId = string;
+export type InternalSuggestionGeneration = Readonly<{
+  sessionId: InternalSuggestionSessionId;
   generation: number;
 }>;
 export type SuggestionSelectionPolicy = "reset" | "preserve-active";
@@ -51,7 +51,7 @@ export type SuggestionMenuSnapshot<TItem, TMeta = null> = {
   meta: TMeta | null;
 };
 
-export type SuggestionSession<TItem, TMeta = null> = {
+export type InternalSuggestionSession<TItem, TMeta = null> = {
   items: readonly TItem[];
   /** Stable within the row's domain, including across catalog refreshes. */
   rowId: (item: TItem) => string;
@@ -66,15 +66,21 @@ export type SuggestionSession<TItem, TMeta = null> = {
   dismiss: () => void;
 };
 
-export type SuggestionLifecycleCallbacks<TItem, TMeta = null> = {
+export type InternalSuggestionLifecycleCallbacks<TItem, TMeta = null> = {
   /**
    * Accepted transitions publish in FIFO order: install their captured
    * snapshot, invoke their lifecycle callback, then notify menu subscribers.
    * A synchronous reentrant transition begins only after all three complete.
    */
-  open?: (identity: SuggestionGeneration, snapshot: SuggestionMenuSnapshot<TItem, TMeta>) => void;
-  update?: (identity: SuggestionGeneration, snapshot: SuggestionMenuSnapshot<TItem, TMeta>) => void;
-  close?: (identity: SuggestionGeneration) => void;
+  open?: (
+    identity: InternalSuggestionGeneration,
+    snapshot: SuggestionMenuSnapshot<TItem, TMeta>,
+  ) => void;
+  update?: (
+    identity: InternalSuggestionGeneration,
+    snapshot: SuggestionMenuSnapshot<TItem, TMeta>,
+  ) => void;
+  close?: (identity: InternalSuggestionGeneration) => void;
 };
 
 export type SuggestionMenu<TItem, TMeta = null> = {
@@ -91,18 +97,18 @@ export type SuggestionMenu<TItem, TMeta = null> = {
 };
 
 /** The single session owner, driven by a trigger or another host. */
-export type SuggestionLifecycle<TItem, TMeta = null> = {
-  open: (session: SuggestionSession<TItem, TMeta>) => SuggestionGeneration;
+export type InternalSuggestionLifecycle<TItem, TMeta = null> = {
+  open: (session: InternalSuggestionSession<TItem, TMeta>) => InternalSuggestionGeneration;
   /** Fence all earlier work before starting an async query/context/container update. */
-  nextGeneration: (sessionId: SuggestionSessionId) => SuggestionGeneration | null;
+  nextGeneration: (sessionId: InternalSuggestionSessionId) => InternalSuggestionGeneration | null;
   /** Returns false without publishing when the identity is stale. */
   update: (
-    identity: SuggestionGeneration,
-    session: SuggestionSession<TItem, TMeta>,
+    identity: InternalSuggestionGeneration,
+    session: InternalSuggestionSession<TItem, TMeta>,
     selection: SuggestionSelectionPolicy,
   ) => boolean;
   /** A stale host cannot close a newer session. */
-  close: (identity: SuggestionGeneration) => boolean;
+  close: (identity: InternalSuggestionGeneration) => boolean;
 };
 
 let nextSuggestionSession = 0;
@@ -122,24 +128,27 @@ export function closedSuggestionMenu<TItem, TMeta = null>(): SuggestionMenuSnaps
   return CLOSED as SuggestionMenuSnapshot<TItem, TMeta>;
 }
 
-const sameIdentity = (left: SuggestionGeneration | null, right: SuggestionGeneration | null) =>
+const sameIdentity = (
+  left: InternalSuggestionGeneration | null,
+  right: InternalSuggestionGeneration | null,
+) =>
   left !== null &&
   right !== null &&
   left.sessionId === right.sessionId &&
   left.generation === right.generation;
 
-export function createSuggestionLifecycle<TItem, TMeta = null>(
-  callbacks: SuggestionLifecycleCallbacks<TItem, TMeta> = {},
+export function createInternalSuggestionLifecycle<TItem, TMeta = null>(
+  callbacks: InternalSuggestionLifecycleCallbacks<TItem, TMeta> = {},
 ): {
   menu: SuggestionMenu<TItem, TMeta>;
-  lifecycle: SuggestionLifecycle<TItem, TMeta>;
+  lifecycle: InternalSuggestionLifecycle<TItem, TMeta>;
 } {
   const listeners = new Set<() => void>();
-  let identity: SuggestionGeneration | null = null;
-  let session: SuggestionSession<TItem, TMeta> | null = null;
+  let identity: InternalSuggestionGeneration | null = null;
+  let session: InternalSuggestionSession<TItem, TMeta> | null = null;
   let activeId: string | null = null;
   let snapshot: SuggestionMenuSnapshot<TItem, TMeta> = closedSuggestionMenu();
-  let projectedIdentity: SuggestionGeneration | null = null;
+  let projectedIdentity: InternalSuggestionGeneration | null = null;
   const transitions: Array<() => void> = [];
   let publishing = false;
 
@@ -260,7 +269,7 @@ export function createSuggestionLifecycle<TItem, TMeta = null>(
     },
   };
 
-  const lifecycle: SuggestionLifecycle<TItem, TMeta> = {
+  const lifecycle: InternalSuggestionLifecycle<TItem, TMeta> = {
     open(next) {
       const opened = Object.freeze({
         sessionId: `suggestion-${++nextSuggestionSession}`,

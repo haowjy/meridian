@@ -11,13 +11,8 @@ import {
   catalogViewFromSnapshot,
 } from "@/client/query/context-catalog-cache";
 
-import {
-  createReferenceBrowserController,
-  type ReferenceBrowserMeta,
-  type ReferenceCatalogPort,
-} from "./reference-browser";
+import { createReferenceBrowserController, type ReferenceCatalogPort } from "./reference-browser";
 import type { ReferenceRow } from "./reference-policy";
-import { createSuggestionLifecycle } from "./suggestion-menu-store";
 
 const project = { kind: "project", projectId: "project-1" } as const satisfies CatalogScope;
 const user = { kind: "user", userId: "user-1" } as const satisfies CatalogScope;
@@ -166,7 +161,7 @@ function createRig(overrides: { acquire?: ReferenceCatalogPort["acquire"] } = {}
   const selected: ReferenceRow[] = [];
   const completed: string[] = [];
   const dismissed = vi.fn();
-  const { lifecycle, menu } = createSuggestionLifecycle<ReferenceRow, ReferenceBrowserMeta>();
+  let openContext = { warmScopes: [project, user, currentWork] as readonly CatalogScope[] };
   const catalog: ReferenceCatalogPort = {
     read: (scope) => views.get(catalogScopeKey(scope)) ?? null,
     acquire:
@@ -179,14 +174,40 @@ function createRig(overrides: { acquire?: ReferenceCatalogPort["acquire"] } = {}
   };
   const controller = createReferenceBrowserController({
     catalog,
-    lifecycle,
-    label: "References",
-    anchorRect: () => null,
-    onSelect: (row) => selected.push(row),
-    onCompleteSegment: (prefix) => completed.push(prefix),
-    onDismiss: dismissed,
+    openContext: () => openContext,
+    label: () => "References",
+    onSelect: ({ row }) => selected.push(row),
+    onCompleteSegment: ({ prefix }) => completed.push(prefix),
   });
-  return { views, catalog, controller, menu, selected, completed, dismissed };
+  const start = (input: {
+    warmScopes: readonly CatalogScope[];
+    query: string;
+    triggerRange: { from: number; to: number };
+  }) => {
+    openContext = { warmScopes: input.warmScopes };
+    controller.start({
+      query: input.query,
+      text: `@${input.query}`,
+      triggerRange: input.triggerRange,
+      candidates: [],
+      anchorRect: () => null,
+      loading: false,
+      requestExit: () => {
+        dismissed();
+        controller.exit();
+      },
+    });
+  };
+  return {
+    views,
+    catalog,
+    controller,
+    menu: controller.menu,
+    start,
+    selected,
+    completed,
+    dismissed,
+  };
 }
 
 function fileIds(rows: readonly ReferenceRow[]): string[] {
@@ -196,7 +217,7 @@ function fileIds(rows: readonly ReferenceRow[]): string[] {
 describe("reference browser root and hierarchy", () => {
   it("merges project, user, and current Work warm rows while excluding every other Work file", () => {
     const rig = createRig();
-    rig.controller.open({
+    rig.start({
       warmScopes: [project, user, currentWork],
       query: "chapter",
       triggerRange: { from: 4, to: 12 },
@@ -221,7 +242,7 @@ describe("reference browser root and hierarchy", () => {
 
   it("uses explicit no-Work as the current authority instead of leaking a Work", () => {
     const rig = createRig();
-    rig.controller.open({
+    rig.start({
       warmScopes: [project, user, noWork],
       query: "chapter",
       triggerRange: { from: 0, to: 1 },
@@ -240,7 +261,7 @@ describe("reference browser root and hierarchy", () => {
 
   it("drills an authority and source, then backtracks exactly one level at a time", async () => {
     const rig = createRig();
-    rig.controller.open({
+    rig.start({
       warmScopes: [project, user, currentWork],
       query: "",
       triggerRange: { from: 0, to: 1 },
@@ -274,7 +295,7 @@ describe("reference browser root and hierarchy", () => {
 describe("reference browser actions and freshness", () => {
   it("Tab completes one navigable URI segment and keeps the browser open", async () => {
     const rig = createRig();
-    rig.controller.open({
+    rig.start({
       warmScopes: [project, user, currentWork],
       query: "revision-pass",
       triggerRange: { from: 0, to: 14 },
@@ -286,13 +307,25 @@ describe("reference browser actions and freshness", () => {
       kind: "drilled",
       completedPrefix: "@revision-pass/",
     });
+    const beforeEcho = rig.controller.state();
+    const generation = beforeEcho.kind === "closed" ? -1 : beforeEcho.generation;
+    rig.controller.update({
+      query: "@revision-pass/",
+      text: "@revision-pass/",
+      triggerRange: { from: 0, to: 15 },
+      candidates: [],
+      anchorRect: () => null,
+      loading: false,
+      requestExit: () => rig.controller.exit(),
+    });
+    expect(rig.controller.state()).toMatchObject({ kind: "drilled", generation });
     expect(rig.menu.snapshot().open).toBe(true);
     expect(rig.selected).toEqual([]);
   });
 
   it.each(["enter", "tab"] as const)("selects one terminal exactly once for %s", (action) => {
     const rig = createRig();
-    rig.controller.open({
+    rig.start({
       warmScopes: [project, user, currentWork],
       query: "Project Chapter.md",
       triggerRange: { from: 0, to: 19 },
@@ -305,7 +338,7 @@ describe("reference browser actions and freshness", () => {
 
   it("preserves active stable identity across metadata refresh", () => {
     const rig = createRig();
-    rig.controller.open({
+    rig.start({
       warmScopes: [project, user, currentWork],
       query: "chapter",
       triggerRange: { from: 0, to: 1 },
@@ -321,6 +354,19 @@ describe("reference browser actions and freshness", () => {
     expect(rig.menu.snapshot().activeId).toBe("file:user-chapter");
   });
 
+  it("falls back when the active stable row disappears on refresh", () => {
+    const rig = createRig();
+    rig.start({
+      warmScopes: [project, user, currentWork],
+      query: "chapter",
+      triggerRange: { from: 0, to: 8 },
+    });
+    rig.menu.setActiveId("file:user-chapter");
+    rig.views.delete(catalogScopeKey(user));
+    expect(rig.controller.refresh()).toBe(true);
+    expect(rig.menu.snapshot().activeId).toBe("file:project-chapter");
+  });
+
   it("aborts and generation-fences a stale authority acquisition", async () => {
     let resolve!: (view: CatalogCacheView) => void;
     const observedSignals: AbortSignal[] = [];
@@ -333,7 +379,7 @@ describe("reference browser actions and freshness", () => {
         return pending;
       },
     });
-    rig.controller.open({
+    rig.start({
       warmScopes: [project, user, currentWork],
       query: "revision",
       triggerRange: { from: 0, to: 9 },
@@ -341,7 +387,7 @@ describe("reference browser actions and freshness", () => {
     rig.menu.chooseActive("enter");
     expect(rig.controller.state()).toMatchObject({ kind: "drilled", incomplete: true });
     expect(rig.menu.snapshot().items.map((row) => row.kind)).toEqual(["source"]);
-    expect(rig.controller.backtrack()).toBe(true);
+    expect(rig.menu.backtrack()).toBe(true);
     expect(observedSignals[0]?.aborted).toBe(true);
     const other = rig.views.get(catalogScopeKey(otherWork));
     if (!other) throw new Error("missing other Work view");

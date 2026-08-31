@@ -16,11 +16,10 @@ The placement argument, drawn from the real dependency graph, is the module
 header in [`index.ts`](index.ts).
 
 **A trigger owns its envelope; this owns the menu.** Where a trigger may open,
-what a choice writes, and how a row looks all belong to the host. What arrives
-here is a session: stable row identity, rows, the query, a label, and the two
-callbacks that take a choice or a dismissal. The lifecycle issues stable
-session/generation identities; a host advances the generation before async work,
-and stale updates or closes are refused rather than published by arrival order.
+what a choice writes, and how a row looks all belong to the host. What arrives here is a driver frame: trigger text, query, range, candidates,
+geometry, and the transport's exit request. One `SuggestionDriver` owns the
+session and generation behind the private lifecycle, so stale updates or closes
+are refused rather than published by arrival order.
 Query/context/container updates reset selection by explicit caller policy, while
 a same-session refresh can preserve the active stable row ID. The store's own
 judgment remains narrow — a menu is open only while it has rows, the highlight
@@ -66,7 +65,7 @@ of them is the writer's fix, and the menu never guesses which they meant.
 - **No import from `editor/`, `features/`, or a rendering library.** A completion
   that needs the editor belongs in the editor's lane, not here. The reverse
   direction is fine and expected.
-- **Host callbacks, never host state.** Lifecycle `open`/`update`/`close`, row
+- **Host callbacks, never host state.** Driver `start`/`update`/`exit`, row
   `choose`, `dismiss`, segment completion, terminal selection, and `anchorRect`
   are read live. F2 performs no React rendering or document insertion.
 - **A withdrawn session closes rather than freezes.** Hosts can lose their

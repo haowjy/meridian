@@ -31,9 +31,9 @@
 
 export {
   createReferenceBrowserController,
-  type OpenReferenceBrowser,
   type ReferenceBrowserController,
   type ReferenceBrowserMeta,
+  type ReferenceBrowserOpenContext,
   type ReferenceBrowserOptions,
   type ReferenceBrowserState,
   type ReferenceCatalogPort,
@@ -58,22 +58,22 @@ export {
   validReferenceQuery,
 } from "./reference-policy";
 export {
+  createDefaultSuggestionDriver,
+  type SuggestionDriver,
+  type SuggestionDriverFrame,
+  type SuggestionMenuModel,
+  type SuggestionTriggerRange,
+} from "./suggestion-driver";
+export {
   closedSuggestionMenu,
-  createSuggestionLifecycle,
   type SuggestionChoiceAction,
-  type SuggestionGeneration,
   type SuggestionHost,
   type SuggestionHostLease,
   type SuggestionKey,
   type SuggestionKeyBindings,
-  type SuggestionLifecycle,
-  type SuggestionLifecycleCallbacks,
   type SuggestionMenu,
   type SuggestionMenuSnapshot,
   type SuggestionRetreat,
-  type SuggestionSelectionPolicy,
-  type SuggestionSession,
-  type SuggestionSessionId,
 } from "./suggestion-menu-store";
 export {
   filterWikilinkItems,
