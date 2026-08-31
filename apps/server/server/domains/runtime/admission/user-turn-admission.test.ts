@@ -49,6 +49,7 @@ function accepted() {
 
 function harness(existing: AdmissionRecord | null = null) {
   const lookup = vi.fn(async () => existing);
+  let reservedFingerprint = "";
   let capturedStart: Parameters<AdmissionTurnStarter["start"]>[0] | null = null;
   const starter: AdmissionTurnStarter["start"] = async (start) => {
     capturedStart = start;
@@ -88,6 +89,17 @@ function harness(existing: AdmissionRecord | null = null) {
   const service = createUserTurnAdmission({
     records: {
       lookup,
+      reserve: vi.fn(async (request) => {
+        reservedFingerprint = request.fingerprint;
+        return existing
+          ? { kind: "winner" as const, record: existing }
+          : { kind: "reserved" as const };
+      }),
+      reject: vi.fn(async (request) => ({
+        state: "rejected" as const,
+        fingerprint: reservedFingerprint,
+        code: request.code,
+      })),
       retire: vi.fn(async (request) => ({
         kind: "retired" as const,
         submissionId: request.submissionId,

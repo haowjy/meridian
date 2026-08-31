@@ -164,7 +164,9 @@ facet.
   overlap may elevate receiving-writer-specific session marks. Trail evidence
   stays lifecycle-neutral and read-only.
 - **One running turn per thread** — writer callers enter through
-  `UserTurnAdmission`, whose replay lookup precedes the busy fence. `TurnRunner`
+  `UserTurnAdmission`, whose replay lookup precedes the busy fence. An unseen
+  identity is durably reserved before token and run-claim settlement; definite
+  fence rejection settles that same row and cannot later re-enter effects. `TurnRunner`
   rejects internal `startTurn` if a turn is
   already active or being claimed for that thread. The PostgreSQL adapter also
   rejects same-process reentry because session advisory locks themselves are

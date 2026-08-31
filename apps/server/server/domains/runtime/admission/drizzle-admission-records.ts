@@ -46,7 +46,6 @@ function map(row: typeof userTurnAdmissions.$inferSelect): AdmissionRecord {
 export interface AdmissionPersistencePort extends AdmissionRecordPort {
   accept(input: {
     response: AcceptedAdmission;
-    actorUserId: string;
     fingerprint: string;
   }): Promise<
     { kind: "accepted"; response: AcceptedAdmission } | { kind: "winner"; record: AdmissionRecord }
@@ -75,6 +74,66 @@ export function createDrizzleAdmissionRecords(db: Database): AdmissionPersistenc
   };
   return {
     lookup: read,
+    async reserve(input) {
+      return runInDrizzleTransaction(db, async () => {
+        await currentDrizzleDb(db)
+          .select({ id: threads.id })
+          .from(threads)
+          .where(eq(threads.id, input.threadId as never))
+          .for("update");
+        const existing = await read(input.threadId, input.submissionId);
+        if (existing) return { kind: "winner", record: existing };
+        await currentDrizzleDb(db)
+          .insert(userTurnAdmissions)
+          .values({
+            threadId: input.threadId as never,
+            submissionId: input.submissionId,
+            actorUserId: input.actorUserId as never,
+            fingerprint: input.fingerprint,
+            state: "pending",
+            claimExpiresAt: input.claimExpiresAt,
+          });
+        return { kind: "reserved" };
+      });
+    },
+    async reject(input) {
+      return runInDrizzleTransaction(db, async () => {
+        await currentDrizzleDb(db)
+          .select({ id: threads.id })
+          .from(threads)
+          .where(eq(threads.id, input.threadId as never))
+          .for("update");
+        const [row] = await currentDrizzleDb(db)
+          .select()
+          .from(userTurnAdmissions)
+          .where(
+            and(
+              eq(userTurnAdmissions.threadId, input.threadId as never),
+              eq(userTurnAdmissions.submissionId, input.submissionId),
+            ),
+          )
+          .for("update");
+        if (!row) throw new Error("Reserved admission disappeared before rejection");
+        if (row.state !== "pending" || row.fingerprint !== input.fingerprint) return map(row);
+        const [rejected] = await currentDrizzleDb(db)
+          .update(userTurnAdmissions)
+          .set({
+            state: "rejected",
+            rejectionCode: input.code,
+            claimExpiresAt: null,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(userTurnAdmissions.threadId, input.threadId as never),
+              eq(userTurnAdmissions.submissionId, input.submissionId),
+            ),
+          )
+          .returning();
+        if (!rejected) throw new Error("Reserved admission disappeared during rejection");
+        return map(rejected);
+      });
+    },
     async recoverExpiredPending(input) {
       return runInDrizzleTransaction(db, async () => {
         await currentDrizzleDb(db)
@@ -111,6 +170,7 @@ export function createDrizzleAdmissionRecords(db: Database): AdmissionPersistenc
           .set({
             state: "rejected",
             rejectionCode: "recovery_no_committed_turn",
+            claimExpiresAt: null,
             updatedAt: input.now,
           })
           .where(
@@ -125,27 +185,40 @@ export function createDrizzleAdmissionRecords(db: Database): AdmissionPersistenc
       });
     },
     async accept(input) {
-      const [inserted] = await currentDrizzleDb(db)
-        .insert(userTurnAdmissions)
-        .values({
-          threadId: input.response.threadId,
-          submissionId: input.response.submissionId,
-          actorUserId: input.actorUserId as never,
-          fingerprint: input.fingerprint,
+      const [row] = await currentDrizzleDb(db)
+        .select()
+        .from(userTurnAdmissions)
+        .where(
+          and(
+            eq(userTurnAdmissions.threadId, input.response.threadId),
+            eq(userTurnAdmissions.submissionId, input.response.submissionId),
+          ),
+        )
+        .for("update");
+      if (!row) throw new Error("Admission was not reserved before acceptance");
+      if (row.state !== "pending" || row.fingerprint !== input.fingerprint) {
+        return { kind: "winner", record: map(row) };
+      }
+      const [accepted] = await currentDrizzleDb(db)
+        .update(userTurnAdmissions)
+        .set({
           state: "accepted",
           userTurnId: input.response.userTurnId,
           assistantTurnId: input.response.assistantTurnId,
           resumeAfterSeq: input.response.resumeAfterSeq,
           snapshotFloorNextSeq: input.response.snapshotFloorNextSeq,
+          claimExpiresAt: null,
+          updatedAt: new Date(),
         })
-        .onConflictDoNothing({
-          target: [userTurnAdmissions.threadId, userTurnAdmissions.submissionId],
-        })
+        .where(
+          and(
+            eq(userTurnAdmissions.threadId, input.response.threadId),
+            eq(userTurnAdmissions.submissionId, input.response.submissionId),
+          ),
+        )
         .returning();
-      if (inserted) return { kind: "accepted", response: input.response };
-      const winner = await read(input.response.threadId, input.response.submissionId);
-      if (!winner) throw new Error("Admission winner disappeared");
-      return { kind: "winner", record: winner };
+      if (!accepted) throw new Error("Reserved admission disappeared during acceptance");
+      return { kind: "accepted", response: input.response };
     },
     async retire(request): Promise<RetireAdmissionResult> {
       return runInDrizzleTransaction(db, async () => {

@@ -1,5 +1,6 @@
 /** Atomic side-effect ordering at the runner/admission transaction join. */
 import { describe, expect, it, vi } from "vitest";
+import { TurnStartConflictError } from "../../threads/index.js";
 import { StaleConnectionTokenError } from "../loop/turn-runner.js";
 import { createAdmissionTurnStarter } from "./admission-turn-starter.js";
 
@@ -61,6 +62,8 @@ describe("createAdmissionTurnStarter", () => {
       runner,
       records: {
         lookup: vi.fn(),
+        reserve: vi.fn(),
+        reject: vi.fn(),
         retire: vi.fn(),
         recoverExpiredPending: vi.fn(),
         async accept() {
@@ -85,18 +88,28 @@ describe("createAdmissionTurnStarter", () => {
     ]);
   });
 
-  it("cannot consume an upload when token or claim admission fails", async () => {
+  it.each([
+    [new StaleConnectionTokenError(), "connection_token_not_live"],
+    [new TurnStartConflictError(admissionThreadId, "already_running"), "already_running"],
+  ] as const)("persists %s without consuming an upload", async (failure, code) => {
     const consumeUploads = vi.fn();
+    const reject = vi.fn(async (request: { code: string }) => ({
+      state: "rejected" as const,
+      fingerprint: "fingerprint",
+      code: request.code,
+    }));
     const starter = createAdmissionTurnStarter({
       runner: {
         async startTurn() {
-          throw new StaleConnectionTokenError();
+          throw failure;
         },
       } as never,
       records: {
         lookup: vi.fn(),
+        reserve: vi.fn(),
         retire: vi.fn(),
         accept: vi.fn(),
+        reject,
         recoverExpiredPending: vi.fn(),
       },
       consumeUploads,
@@ -105,7 +118,13 @@ describe("createAdmissionTurnStarter", () => {
     await expect(starter.start(startInput())).resolves.toEqual({
       kind: "rejected",
       submissionId: "submission",
-      code: "connection_token_not_live",
+      code,
+    });
+    expect(reject).toHaveBeenCalledWith({
+      threadId: admissionThreadId,
+      submissionId: admissionSubmissionId,
+      fingerprint: "fingerprint",
+      code,
     });
     expect(consumeUploads).not.toHaveBeenCalled();
   });

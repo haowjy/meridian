@@ -24,6 +24,20 @@ export function createAdmissionTurnStarter(deps: {
     relationship: "reading" | "created",
   ): Promise<unknown>;
 }): AdmissionTurnStarter {
+  const winnerResult = (winner: AdmissionRecord, fingerprint: string, submissionId: string) => {
+    if (winner.fingerprint !== null && winner.fingerprint !== fingerprint) {
+      throw new AdmissionConflictError();
+    }
+    if (winner.state === "accepted")
+      return { ...winner.response, kind: "already-accepted" as const };
+    if (winner.state === "pending") return { kind: "pending" as const, submissionId };
+    return {
+      kind: "rejected" as const,
+      submissionId,
+      code: winner.state === "retired" ? "retired" : winner.code,
+    };
+  };
+
   return {
     async start(input) {
       try {
@@ -37,7 +51,6 @@ export function createAdmissionTurnStarter(deps: {
             async onAccepted(response) {
               const accepted = await deps.records.accept({
                 response,
-                actorUserId: input.admission.actorUserId,
                 fingerprint: input.fingerprint,
               });
               if (accepted.kind === "winner") throw new AdmissionWinnerError(accepted.record);
@@ -64,33 +77,25 @@ export function createAdmissionTurnStarter(deps: {
         };
       } catch (error) {
         if (error instanceof AdmissionWinnerError) {
-          const winner = error.winner;
-          if (winner.state === "accepted") {
-            if (winner.fingerprint !== input.fingerprint) throw new AdmissionConflictError();
-            return { ...winner.response, kind: "already-accepted" };
-          }
-          if (winner.state === "pending") {
-            return { kind: "pending", submissionId: input.admission.submissionId };
-          }
-          return {
-            kind: "rejected",
-            submissionId: input.admission.submissionId,
-            code: winner.state === "retired" ? "retired" : winner.code,
-          };
+          return winnerResult(error.winner, input.fingerprint, input.admission.submissionId);
         }
         if (error instanceof StaleConnectionTokenError) {
-          return {
-            kind: "rejected",
+          const settled = await deps.records.reject({
+            threadId: input.admission.threadId,
             submissionId: input.admission.submissionId,
+            fingerprint: input.fingerprint,
             code: "connection_token_not_live",
-          };
+          });
+          return winnerResult(settled, input.fingerprint, input.admission.submissionId);
         }
         if (error instanceof TurnStartConflictError) {
-          return {
-            kind: "rejected",
+          const settled = await deps.records.reject({
+            threadId: input.admission.threadId,
             submissionId: input.admission.submissionId,
+            fingerprint: input.fingerprint,
             code: "already_running",
-          };
+          });
+          return winnerResult(settled, input.fingerprint, input.admission.submissionId);
         }
         throw error;
       }

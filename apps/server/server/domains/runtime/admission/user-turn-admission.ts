@@ -35,6 +35,19 @@ export type AuthorizedReference = SubmittedReference & {
 
 export interface AdmissionRecordPort {
   lookup(threadId: string, submissionId: string): Promise<AdmissionRecord | null>;
+  reserve(input: {
+    threadId: string;
+    submissionId: string;
+    actorUserId: string;
+    fingerprint: AdmissionFingerprint;
+    claimExpiresAt: Date;
+  }): Promise<{ kind: "reserved" } | { kind: "winner"; record: AdmissionRecord }>;
+  reject(input: {
+    threadId: string;
+    submissionId: string;
+    fingerprint: AdmissionFingerprint;
+    code: string;
+  }): Promise<AdmissionRecord>;
   retire(request: RetireAdmissionRequest): Promise<RetireAdmissionResult>;
 }
 
@@ -178,12 +191,19 @@ function lookupProjection(record: AdmissionRecord | null, submissionId: string):
   return { kind: record.state, submissionId, code: record.code };
 }
 
+function assertMatchingFingerprint(record: AdmissionRecord, fingerprint: string): void {
+  if (record.fingerprint !== null && record.fingerprint !== fingerprint) {
+    throw new AdmissionConflictError();
+  }
+}
+
 export function createUserTurnAdmission(deps: {
   records: AdmissionRecordPort;
   availability: ProjectContextAvailabilityPort;
   threadProject(threadId: string): Promise<string | null>;
   verifyDraftUpload?(reference: SubmittedReference & { intakeId: string }): Promise<boolean>;
   starter: AdmissionTurnStarter;
+  now?: () => Date;
 }): UserTurnAdmission {
   return {
     async lookup(request) {
@@ -199,18 +219,36 @@ export function createUserTurnAdmission(deps: {
       const fingerprint = canonicalAdmissionFingerprint({ ...input, blocks, references });
       const existing = await deps.records.lookup(input.threadId, input.submissionId);
       if (existing) {
-        if (existing.fingerprint !== null && existing.fingerprint !== fingerprint)
-          throw new AdmissionConflictError();
+        assertMatchingFingerprint(existing, fingerprint);
         return lookupProjection(existing, input.submissionId) as UserTurnAdmissionResult;
       }
 
-      const projectId = await deps.threadProject(input.threadId);
-      if (!projectId)
-        return {
-          kind: "rejected",
+      const now = deps.now?.() ?? new Date();
+      const reservation = await deps.records.reserve({
+        threadId: input.threadId,
+        submissionId: input.submissionId,
+        actorUserId: input.actorUserId,
+        fingerprint,
+        claimExpiresAt: new Date(now.getTime() + 5 * 60_000),
+      });
+      if (reservation.kind === "winner") {
+        assertMatchingFingerprint(reservation.record, fingerprint);
+        return lookupProjection(reservation.record, input.submissionId) as UserTurnAdmissionResult;
+      }
+
+      const reject = async (code: "reference_unavailable") => {
+        const settled = await deps.records.reject({
+          threadId: input.threadId,
           submissionId: input.submissionId,
-          code: "reference_unavailable",
-        };
+          fingerprint,
+          code,
+        });
+        assertMatchingFingerprint(settled, fingerprint);
+        return lookupProjection(settled, input.submissionId) as UserTurnAdmissionResult;
+      };
+
+      const projectId = await deps.threadProject(input.threadId);
+      if (!projectId) return reject("reference_unavailable");
       const ids = [
         ...new Set([
           ...references.map((reference) => reference.documentId),
@@ -229,33 +267,21 @@ export function createUserTurnAdmission(deps: {
       for (const reference of references) {
         const identity = available.get(reference.documentId);
         if (!identity || identity.entry.uri !== reference.uri) {
-          return {
-            kind: "rejected",
-            submissionId: input.submissionId,
-            code: "reference_unavailable",
-          };
+          return reject("reference_unavailable");
         }
         if (
           reference.purpose === "draft-upload" &&
           deps.verifyDraftUpload &&
           !(await deps.verifyDraftUpload(reference as SubmittedReference & { intakeId: string }))
         ) {
-          return {
-            kind: "rejected",
-            submissionId: input.submissionId,
-            code: "reference_unavailable",
-          };
+          return reject("reference_unavailable");
         }
       }
       for (const block of blocks) {
         if (block.type !== "image") continue;
         const identity = available.get(block.documentId);
         if (!identity || identity.entry.uri !== block.uri) {
-          return {
-            kind: "rejected",
-            submissionId: input.submissionId,
-            code: "reference_unavailable",
-          };
+          return reject("reference_unavailable");
         }
       }
       const provenance = new Map<string, AuthorizedReference>();
