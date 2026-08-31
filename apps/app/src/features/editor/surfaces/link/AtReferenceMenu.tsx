@@ -12,15 +12,26 @@ const NO_SUBSCRIPTION = () => () => {};
 const closed = () => closedSuggestionMenu<ReferenceRow, ReferenceBrowserMeta>();
 export function AtReferenceMenu({ editor }: EditorChromeSurfaceProps) {
   const menu = getAtReferenceMenu(editor);
-  return <ReferenceSuggestionMenu editor={editor} menu={menu} />;
+  return (
+    <ReferenceSuggestionMenu
+      editor={editor}
+      menu={menu}
+      ownerId="at-reference-menu"
+      typingElement={editor.view.dom}
+    />
+  );
 }
 
 export function ReferenceSuggestionMenu({
   editor,
   menu,
+  ownerId,
+  typingElement,
 }: {
   editor: EditorChromeSurfaceProps["editor"];
   menu: ReturnType<typeof getAtReferenceMenu>;
+  ownerId: string;
+  typingElement: HTMLElement;
 }) {
   const snapshot = useSyncExternalStore(
     menu?.subscribe ?? NO_SUBSCRIPTION,
@@ -31,7 +42,8 @@ export function ReferenceSuggestionMenu({
   return (
     <SuggestionMenu
       editor={editor}
-      id="at-reference-menu"
+      typingElement={typingElement}
+      id={ownerId}
       open={snapshot.open}
       label={snapshot.label}
       anchorRect={snapshot.anchorRect}

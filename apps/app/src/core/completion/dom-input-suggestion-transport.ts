@@ -146,14 +146,22 @@ export function createDomInputSuggestionTransport<TRow, TMeta = null>(
 function inputCaretRect(input: HTMLInputElement): DOMRect | null {
   if (!input.isConnected || input.selectionStart === null) return null;
   const style = getComputedStyle(input);
+  const inputRect = input.getBoundingClientRect();
   const mirror = document.createElement("div");
   const probe = document.createElement("span");
-  mirror.style.cssText = `position:fixed;visibility:hidden;white-space:pre;overflow:hidden;font:${style.font};letter-spacing:${style.letterSpacing};padding:${style.padding};border:${style.border};width:${style.width};direction:${style.direction}`;
+  mirror.style.cssText = `position:fixed;visibility:hidden;pointer-events:none;white-space:pre;overflow:hidden;box-sizing:${style.boxSizing};left:${inputRect.left}px;top:${inputRect.top}px;width:${inputRect.width}px;height:${inputRect.height}px;font:${style.font};letter-spacing:${style.letterSpacing};padding:${style.padding};border:${style.border};direction:${style.direction};text-align:${style.textAlign}`;
   mirror.textContent = input.value.slice(0, input.selectionStart);
   probe.textContent = "\u200b";
   mirror.append(probe);
   document.body.append(mirror);
   const rect = probe.getBoundingClientRect();
   mirror.remove();
-  return new DOMRect(rect.left - input.scrollLeft, rect.top, 0, rect.height);
+  const borderLeft = Number.parseFloat(style.borderLeftWidth) || 0;
+  const borderRight = Number.parseFloat(style.borderRightWidth) || 0;
+  const left = Math.min(
+    inputRect.right - borderRight,
+    Math.max(inputRect.left + borderLeft, rect.left - input.scrollLeft),
+  );
+  const top = Math.min(inputRect.bottom, Math.max(inputRect.top, rect.top));
+  return new DOMRect(left, top, 0, Math.min(rect.height, inputRect.bottom - top));
 }

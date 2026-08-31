@@ -1,9 +1,9 @@
 import type { Range } from "@tiptap/core";
+import { yUndoPluginKey } from "@tiptap/y-tiptap";
 import type {
   ReferenceBrowserOpenContext,
   ReferenceCatalogPort,
   ReferenceRow,
-  SuggestionDriver,
   SuggestionMenu,
 } from "@/core/completion";
 import { createReferenceBrowserController } from "@/core/completion";
@@ -26,6 +26,7 @@ function insertReference(
   range: Range,
   row: Extract<ReferenceRow, { kind: "file" }>,
 ) {
+  yUndoPluginKey.getState(editor.state)?.undoManager.stopCapturing();
   const reference = row.action.reference;
   if (row.fileKind === "asset") {
     return editor
@@ -53,7 +54,7 @@ function insertReference(
 
 const lane = createSuggestionLane<
   AtReferenceCatalog,
-  ReferenceRow,
+  never,
   ReferenceRow,
   import("@/core/completion").ReferenceBrowserMeta
 >({
@@ -84,11 +85,7 @@ const lane = createSuggestionLane<
       onSelect: ({ row, triggerRange }) => {
         insertReference(editor, triggerRange, row);
       },
-    }) as unknown as SuggestionDriver<
-      ReferenceRow,
-      ReferenceRow,
-      import("@/core/completion").ReferenceBrowserMeta
-    >,
+    }),
   keyBindings: (menu) => ({
     ArrowDown: () => menu.move(1),
     ArrowUp: () => menu.move(-1),

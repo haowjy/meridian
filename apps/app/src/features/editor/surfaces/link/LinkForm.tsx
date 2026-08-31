@@ -18,7 +18,16 @@ import { t } from "@lingui/core/macro";
 import type { Editor } from "@tiptap/core";
 import type { Transaction } from "@tiptap/pm/state";
 import { Unlink } from "lucide-react";
-import { type FormEvent, type Ref, useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type Ref,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +40,7 @@ import {
   type LinkDraft,
   type LinkFormRequest,
   type LinkSurface,
+  linkInputStepsAsideFromReferences,
   mapLinkDraft,
   resolveLinkDraft,
 } from "@/core/editor/links";
@@ -113,6 +123,12 @@ function LinkFields({
   const fieldId = useId();
   const textInputRef = useRef<HTMLInputElement>(null);
   const hrefInputRef = useRef<HTMLInputElement>(null);
+  const [hrefInput, setHrefInput] = useState<HTMLInputElement | null>(null);
+  const attachHrefInput = useCallback((node: HTMLInputElement | null) => {
+    hrefInputRef.current = node;
+    setHrefInput(node);
+  }, []);
+  const referenceOwnerId = "link-reference-menu";
   const { projectId, workId } = useEditorScope();
   const referenceCatalog = useReferenceBrowserCatalog(projectId, workId, t`Link a file`);
   const referenceDriver = useMemo(
@@ -130,23 +146,23 @@ function LinkFields({
   );
 
   useEffect(() => {
-    const input = hrefInputRef.current;
+    const input = hrefInput;
     const host = editorSuggestionHost(editor, "chrome");
     if (!input || !host || !referenceDriver) return;
     const transport = createDomInputSuggestionTransport({
       input,
       driver: referenceDriver,
       suggestionHost: host,
-      hostLeaseId: "link-reference-menu",
+      hostLeaseId: referenceOwnerId,
       match: ({ value, selection }) => {
         if (selection.from !== selection.to || selection.to !== value.length) return null;
-        if (/^(?:https?:|mailto:|tel:|\/\/|www\.)/iu.test(value)) return null;
+        if (linkInputStepsAsideFromReferences(value)) return null;
         return { query: value, text: value, triggerRange: { from: 0, to: value.length } };
       },
     });
     transport.sync();
     return transport.destroy;
-  }, [editor, referenceDriver]);
+  }, [editor, hrefInput, referenceDriver]);
 
   useEffect(() => {
     const input = hrefInputRef.current;
@@ -187,7 +203,7 @@ function LinkFields({
       ) : null}
       <LinkField
         id={`${fieldId}-href`}
-        ref={hrefInputRef}
+        ref={attachHrefInput}
         label={t`Link`}
         value={href}
         placeholder={t`Paste a link or type [[a document name]]`}
@@ -227,8 +243,13 @@ function LinkFields({
           {draft.existing ? t`Update link` : t`Add link`}
         </Button>
       </div>
-      {referenceDriver ? (
-        <ReferenceSuggestionMenu editor={editor} menu={referenceDriver.menu} />
+      {referenceDriver && hrefInput ? (
+        <ReferenceSuggestionMenu
+          editor={editor}
+          menu={referenceDriver.menu}
+          ownerId={referenceOwnerId}
+          typingElement={hrefInput}
+        />
       ) : null}
     </form>
   );
