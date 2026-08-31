@@ -18,10 +18,14 @@ import { t } from "@lingui/core/macro";
 import type { Editor } from "@tiptap/core";
 import type { Transaction } from "@tiptap/pm/state";
 import { Unlink } from "lucide-react";
-import { type FormEvent, type Ref, useEffect, useId, useRef, useState } from "react";
+import { type FormEvent, type Ref, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  createDomInputSuggestionTransport,
+  createReferenceBrowserController,
+} from "@/core/completion";
 import {
   commitLinkDraft,
   type LinkDraft,
@@ -30,7 +34,11 @@ import {
   mapLinkDraft,
   resolveLinkDraft,
 } from "@/core/editor/links";
+import { editorSuggestionHost } from "@/core/editor/suggestion-host";
 import { EditorPopover } from "@/features/editor/chrome";
+import { useEditorScope } from "@/features/editor/editor-scope";
+import { useReferenceBrowserCatalog } from "@/features/editor/references/useReferenceBrowserCatalog";
+import { ReferenceSuggestionMenu } from "./AtReferenceMenu";
 
 export function LinkForm({
   editor,
@@ -105,6 +113,47 @@ function LinkFields({
   const fieldId = useId();
   const textInputRef = useRef<HTMLInputElement>(null);
   const hrefInputRef = useRef<HTMLInputElement>(null);
+  const { projectId, workId } = useEditorScope();
+  const referenceCatalog = useReferenceBrowserCatalog(projectId, workId, t`Link a file`);
+  const referenceDriver = useMemo(
+    () =>
+      referenceCatalog
+        ? createReferenceBrowserController({
+            catalog: referenceCatalog.port,
+            openContext: referenceCatalog.openContext,
+            label: () => referenceCatalog.label,
+            onCompleteSegment: ({ prefix }) => setHref(prefix),
+            onSelect: ({ row }) => setHref(row.action.reference.uri),
+          })
+        : null,
+    [referenceCatalog],
+  );
+
+  useEffect(() => {
+    const input = hrefInputRef.current;
+    const host = editorSuggestionHost(editor, "chrome");
+    if (!input || !host || !referenceDriver) return;
+    const transport = createDomInputSuggestionTransport({
+      input,
+      driver: referenceDriver,
+      suggestionHost: host,
+      hostLeaseId: "link-reference-menu",
+      match: ({ value, selection }) => {
+        if (selection.from !== selection.to || selection.to !== value.length) return null;
+        if (/^(?:https?:|mailto:|tel:|\/\/|www\.)/iu.test(value)) return null;
+        return { query: value, text: value, triggerRange: { from: 0, to: value.length } };
+      },
+    });
+    transport.sync();
+    return transport.destroy;
+  }, [editor, referenceDriver]);
+
+  useEffect(() => {
+    const input = hrefInputRef.current;
+    if (!input || document.activeElement !== input) return;
+    input.setSelectionRange(href.length, href.length);
+    input.dispatchEvent(new Event("select"));
+  }, [href]);
 
   useEffect(() => {
     // The first empty field is where the writer has something to say.
@@ -178,6 +227,9 @@ function LinkFields({
           {draft.existing ? t`Update link` : t`Add link`}
         </Button>
       </div>
+      {referenceDriver ? (
+        <ReferenceSuggestionMenu editor={editor} menu={referenceDriver.menu} />
+      ) : null}
     </form>
   );
 }

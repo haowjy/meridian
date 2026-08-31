@@ -181,7 +181,7 @@ describe("the scope a resolved answer belongs to", () => {
     expect(asked()).toEqual([
       {
         workId: "work-1",
-        target: { kind: "relative", path: "./cast.md", baseUri: "work://work-1/notes.md" },
+        target: { kind: "relative", path: "./cast.md", baseUri: "scratch://@work-1/notes.md" },
       },
     ]);
   });

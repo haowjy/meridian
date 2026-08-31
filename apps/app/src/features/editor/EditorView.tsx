@@ -30,7 +30,6 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-
 import type { DocumentSession, DocumentSessionSnapshot } from "@/core/editor/document-session";
 import { imageCaretTarget, openImagePicker } from "@/core/editor/images";
 import { registerLiveRangeEditor } from "@/core/editor/live-range-navigation-runtime";
@@ -49,6 +48,7 @@ import { EditorSurfaceFrame } from "./EditorSurfaceFrame";
 import { type EditorBindHorizonResult, waitForEditorBindHorizon } from "./editor-bind-horizon";
 import { editorColumnCanvas, editorColumnFill, editorProseClass } from "./editor-column";
 import { type EditorScope, EditorScopeProvider } from "./editor-scope";
+import { useReferenceBrowserCatalog } from "./references/useReferenceBrowserCatalog";
 import { SchemaFenceNotice } from "./SchemaFenceNotice";
 import { SchemaRepairNotice } from "./SchemaRepairNotice";
 import { SyncStatus } from "./SyncStatus";
@@ -320,6 +320,11 @@ function ActiveSessionEditorView({
     if (identity.schemaType !== "document" || !effectiveEditable || !projectId) return null;
     return { label: t`Link a document`, documents: wikilinkDocuments };
   }, [effectiveEditable, identity.schemaType, projectId, wikilinkDocuments]);
+  const sharedReferenceCatalog = useReferenceBrowserCatalog(projectId, workId, t`Reference a file`);
+  const atReferenceCatalog = useCallback(
+    () => (identity.schemaType === "document" && effectiveEditable ? sharedReferenceCatalog : null),
+    [effectiveEditable, identity.schemaType, sharedReferenceCatalog],
+  );
 
   // Surface config: applied to the running editor, never a reason to rebuild it.
   // Only the prose node's own attributes live here; a lane that answers a press
@@ -341,6 +346,7 @@ function ActiveSessionEditorView({
     placeholder: t`Start writing…`,
     slashCommandCatalog,
     wikilinkCatalog,
+    atReferenceCatalog,
     surface: { editable: effectiveEditable, editorProps },
     evidenceDegraded,
   });

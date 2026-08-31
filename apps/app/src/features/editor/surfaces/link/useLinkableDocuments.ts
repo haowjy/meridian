@@ -28,7 +28,6 @@ import type { CatalogContextView } from "@/client/query/context-catalog-projecti
  * already pays for, so opening the menu costs no request.
  */
 
-import { parseUnifiedContextUri } from "@meridian/contracts/context-uri";
 import type {} from "@meridian/contracts/protocol";
 import { useMemo } from "react";
 
@@ -72,7 +71,7 @@ export function useLinkableDocuments({ projectId, workId }: EditorScope): Linkab
       // The manuscript first, so a title both trees carry keeps the chapter's
       // row above the note's: ranking ties hold the order they arrive in.
       ...(manuscript ? linkableDocuments(manuscript, []) : []),
-      ...(scratch ? linkableDocuments(scratch, [schemeLabel("scratch")], workId) : []),
+      ...(scratch ? linkableDocuments(scratch, [schemeLabel("scratch")]) : []),
     ];
     return { documents, revision: catalogRevision(documents) };
   }, [manuscript, scratch]);
@@ -99,7 +98,6 @@ function catalogRevision(documents: readonly LinkableDocument[]): string {
 function linkableDocuments(
   catalog: CatalogContextView,
   root: readonly string[],
-  workId?: string | null,
 ): LinkableDocument[] {
   const documents: LinkableDocument[] = [];
   for (const node of catalog.files()) {
@@ -110,22 +108,10 @@ function linkableDocuments(
       documentId: node.documentId,
       title: documentTitle(node.name),
       location: folders.join("/"),
-      uri: resolverUri(node.uri, workId),
+      uri: node.uri,
     });
   }
   return documents;
-}
-
-/**
- * The context tree spells a work-scoped document `scratch://`; the link contract
- * and the server that answers it both spell the same document `work://` (tracked
- * task #32). Context authority uses a stable slug, while this legacy resolver
- * contract still takes the already-authorized internal Work ID.
- */
-function resolverUri(uri: string, workId?: string | null): string {
-  if (!uri.startsWith("scratch://") || !workId) return uri;
-  const parsed = parseUnifiedContextUri(uri);
-  return parsed.ok ? `work://${workId}/${parsed.value.path}` : uri;
 }
 
 function documentTitle(filename: string): string {
