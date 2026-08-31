@@ -1,5 +1,5 @@
 /**
- * Purpose: Defines JSON-natural thread document rail DTOs for uploads and recent document APIs.
+ * Purpose: Defines JSON-natural recent-document and live-lineage DTOs.
  * Why independent: Chat rail data is shared by server routes and frontend query consumers.
  */
 import type { Filetype, YjsTrackedSchemaType } from "./filetype.js";

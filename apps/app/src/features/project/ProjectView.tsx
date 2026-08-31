@@ -21,9 +21,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ProjectRouteData } from "@/client/query/project-route-data";
 import { useContextCatalogWake } from "@/client/query/useContextCatalog";
 import { useWorks } from "@/client/query/useWorks";
+import { observeWorksAvailability } from "@/client/query/works-availability-observer";
 import { useContextTabs, useContextTabsStore } from "@/client/stores";
+import type { ContextTab } from "@/client/stores/context-tabs-store/context-tabs-store";
 import {
   hydrateWorkingSet,
+  readRecentRoutes,
   retryWorkingSetHydration,
   type WorkingSetHydrationPlan,
 } from "@/client/working-set";
@@ -45,11 +48,14 @@ import { ContextViewerSurfaceController } from "./ContextPaneController";
 import { resolveCatalogWork } from "./catalog-work-resolution";
 import { type ChatPlacement, ChatSurface } from "./chat/ChatSurface";
 import { useResolvedChatThread } from "./chat/chat-thread-resolution";
-import { useProjectContextAvailabilityCoordinator } from "./context/account-feature-context";
+import {
+  useContextRemovalCoordinator,
+  useProjectContextAvailabilityCoordinator,
+} from "./context/account-feature-context";
 import type { ContextRemovalRoutePort } from "./context/context-removal-coordinator";
 import { ProjectContextRemovalController } from "./context/ProjectContextRemovalController";
+import type { AvailabilityWatchRecord } from "./context/project-context-availability-coordinator";
 import { TreeCreationProvider } from "./context/TreeCreationProvider";
-import { useCatalogWorkingSetReconciler } from "./context/useCatalogWorkingSetReconciler";
 import { useDockViewStore } from "./dock/dock-view-store";
 import {
   EditorReviewHandoffProvider,
@@ -91,6 +97,19 @@ const MAIN_MIN_WIDTH = 360;
 const COMPACT_DESKTOP_QUERY = "(max-width: 899px)";
 const NARROW_DESKTOP_QUERY = "(max-width: 767px)";
 
+function availabilityWatchRecord(
+  value: Pick<Exclude<ContextTab, { kind: "new" }>, "documentId" | "scheme"> & {
+    workId?: string | null;
+  },
+): AvailabilityWatchRecord {
+  return {
+    documentId: value.documentId,
+    ...(isWorkScopedProjectContextScheme(value.scheme) && value.workId
+      ? { sourceWorkId: value.workId }
+      : {}),
+  };
+}
+
 export type ProjectViewProps = {
   projectId: string;
   workingSet: ProjectRouteData["workingSet"];
@@ -131,7 +150,9 @@ export type ProjectViewProps = {
 };
 
 export function ProjectView(props: ProjectViewProps) {
+  const queryClient = useQueryClient();
   const availability = useProjectContextAvailabilityCoordinator();
+  const removal = useContextRemovalCoordinator();
   const repairColdWork = useCallback(
     (workId: string) => {
       void availability.coldScopeHint(props.projectId, workId);
@@ -139,7 +160,45 @@ export function ProjectView(props: ProjectViewProps) {
     [availability, props.projectId],
   );
   useContextCatalogWake(props.projectId, repairColdWork);
-  useCatalogWorkingSetReconciler(props.projectId);
+  useEffect(() => {
+    const lease = availability.attachProject(props.projectId);
+    const reportWatches = () => {
+      const slice = useContextTabsStore.getState().byProject[props.projectId];
+      lease.watch(
+        "server-tabs",
+        (slice?.tabs ?? [])
+          .filter((tab): tab is Exclude<ContextTab, { kind: "new" }> => tab.kind !== "new")
+          .map(availabilityWatchRecord),
+      );
+      const selection = removal.getProjectSnapshot(props.projectId).selection;
+      lease.watch(
+        "route-selection",
+        selection.status === "bound" && selection.identity.kind === "server"
+          ? [
+              availabilityWatchRecord({
+                documentId: selection.identity.documentId,
+                scheme: selection.locator.scheme,
+                workId: selection.locator.workId,
+              }),
+            ]
+          : [],
+      );
+      lease.watch(
+        "recent-routes",
+        readRecentRoutes(props.projectId).slice(0, 64).map(availabilityWatchRecord),
+      );
+    };
+    reportWatches();
+    const stopTabs = useContextTabsStore.subscribe(reportWatches);
+    const stopSelection = removal.subscribe(props.projectId, reportWatches);
+    const stopWorksObservation = observeWorksAvailability(queryClient, props.projectId);
+    return () => {
+      stopTabs();
+      stopSelection();
+      stopWorksObservation();
+      lease.release();
+    };
+  }, [availability, props.projectId, queryClient, removal]);
   // The route keys ProjectView by projectId. This initializer therefore runs
   // before any gated child for each project entry; the driver makes a strict-
   // mode replay of the same loader revision an adoption no-op.
@@ -148,7 +207,6 @@ export function ProjectView(props: ProjectViewProps) {
   );
   const [retriedHydration, setRetriedHydration] = useState<WorkingSetHydrationPlan | null>(null);
   const workingSetHydration = retriedHydration ?? entryHydration;
-  const queryClient = useQueryClient();
   const { resolvedThreadId, projectThreads } = useResolvedChatThread(
     props.projectId,
     props.activeThreadId,
