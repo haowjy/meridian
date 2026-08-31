@@ -72,7 +72,7 @@ msgstr "'.' and '..' cannot be used as names"
 msgid "(also {0})"
 msgstr "(also {0})"
 
-#. placeholder {0}: tree.children.length - visible.length
+#. placeholder {0}: children.length - visible.length
 #: src/features/project/work/WorkDetailScreen.tsx
 msgid "{0, plural, one {# more item} other {# more items}}"
 msgstr "{0, plural, one {# more item} other {# more items}}"
@@ -112,7 +112,7 @@ msgstr "{0} added to favorites"
 msgid "{0} additional balance"
 msgstr "{0} additional balance"
 
-#. placeholder {0}: dock.rows.length
+#. placeholder {0}: dock.serverActiveCount
 #: src/features/chat/DraftDock.tsx
 msgid "{0} documents"
 msgstr "{0} documents"
@@ -412,6 +412,10 @@ msgid "Appearance and behavior settings."
 msgstr "Appearance and behavior settings."
 
 #: src/features/chat/DraftDock.tsx
+msgid "Applied. Reopening live document."
+msgstr "Applied. Reopening live document."
+
+#: src/features/chat/DraftDock.tsx
 msgid "Apply"
 msgstr "Apply"
 
@@ -642,6 +646,11 @@ msgstr "Chat was created but couldn’t open"
 msgid "Chats couldn’t load"
 msgstr "Chats couldn’t load"
 
+#: src/features/chat/DraftDock.tsx
+#: src/features/editor/DraftReviewHeader.tsx
+msgid "Check again"
+msgstr "Check again"
+
 #: src/features/project/home/HomeFeed.tsx
 msgid "Check your connection and try again."
 msgstr "Check your connection and try again."
@@ -661,6 +670,10 @@ msgstr "Checking pending changes…"
 #: src/features/chat/command-descriptor.ts
 msgid "Checking recent changes…"
 msgstr "Checking recent changes…"
+
+#: src/features/chat/DraftDock.tsx
+msgid "Checking whether Apply finished."
+msgstr "Checking whether Apply finished."
 
 #: src/features/chat/command-descriptor.ts
 msgid "Checking Work…"
@@ -716,6 +729,8 @@ msgstr "Choose Work for new chat, current choice unavailable"
 msgid "Choose Work for new chat, currently {0}"
 msgstr "Choose Work for new chat, currently {0}"
 
+#: src/features/chat/DraftDock.tsx
+#: src/features/editor/DraftReviewHeader.tsx
 #: src/features/editor/surfaces/link/FollowOutcomeDialog.tsx
 #: src/features/project/mobile/MobileResultViewerOverlay.tsx
 #: src/features/project/shell/ResultViewerOverlay.tsx
@@ -978,6 +993,7 @@ msgstr "Couldn't load. Check your connection."
 msgid "Couldn't open review mode."
 msgstr "Couldn't open review mode."
 
+#: src/features/project/context/ContextEditorMountHost.tsx
 #: src/features/project/mobile/MobileDocumentHost.tsx
 msgid "Couldn't open this document."
 msgstr "Couldn't open this document."
@@ -1430,9 +1446,32 @@ msgstr "File suggestions"
 msgid "Files"
 msgstr "Files"
 
+#: src/features/chat/DraftDock.tsx
+#: src/features/editor/DraftReviewHeader.tsx
+#~ msgid "Finish"
+#~ msgstr "Finish"
+
+#: src/features/chat/DraftDock.tsx
+#: src/features/editor/DraftReviewHeader.tsx
+msgid "Finish close"
+msgstr "Finish close"
+
+#: src/features/chat/DraftDock.tsx
+#: src/features/editor/DraftReviewHeader.tsx
+msgid "Finish reopening"
+msgstr "Finish reopening"
+
 #: src/features/project/home/HomeScreen.tsx
 msgid "Finish the current chat attempt"
 msgstr "Finish the current chat attempt"
+
+#: src/features/chat/DraftDock.tsx
+msgid "Finishing close"
+msgstr "Finishing close"
+
+#: src/features/chat/DraftDock.tsx
+msgid "Finishing reopening"
+msgstr "Finishing reopening"
 
 #: src/features/project/home/HomeScreen.tsx
 msgid "Finishing write mode change"
@@ -2542,6 +2581,8 @@ msgstr "Resume where I left off on any device"
 #: src/core/editor/FigureNodeView.tsx
 #: src/core/editor/images/ImageNodeView.tsx
 #: src/features/account/SettingsDialog.tsx
+#: src/features/chat/DraftDock.tsx
+#: src/features/editor/DraftReviewHeader.tsx
 #: src/features/project/context/ContextEditorMountHost.tsx
 #: src/features/project/EditorWorkRecovery.tsx
 #: src/features/project/home/HomeFeed.tsx
@@ -2808,6 +2849,8 @@ msgid "status"
 msgstr "status"
 
 #: src/components/app/composer/Composer.tsx
+#: src/features/chat/DraftDock.tsx
+#: src/features/editor/DraftReviewHeader.tsx
 msgid "Stop"
 msgstr "Stop"
 
@@ -3185,6 +3228,10 @@ msgstr "This document changed elsewhere. Reopen it and try again."
 #: src/core/editor/images/image-uploads.ts
 msgid "This document is not taking changes right now."
 msgstr "This document is not taking changes right now."
+
+#: src/features/project/context/ContextEditorMountHost.tsx
+msgid "This document is open in another tab"
+msgstr "This document is open in another tab"
 
 #: src/features/editor/surfaces/table/table-copy.ts
 #: src/features/editor/surfaces/toolbar/toolbar-copy.ts

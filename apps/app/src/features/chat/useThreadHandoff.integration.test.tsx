@@ -63,6 +63,7 @@ function connectedTransport(): ThreadTransport {
     reconnect: vi.fn(),
     onConnectionState: vi.fn(() => () => {}),
     subscribe: vi.fn(() => () => {}),
+    subscribeCatalog: vi.fn(() => () => {}),
     respondInterrupt: vi.fn(),
     cancel: vi.fn(),
     getConnectionToken: vi.fn(() => "conn-test"),

@@ -7,6 +7,7 @@ import {
   resetThreadWorkRaceFixture,
   THREAD_WORK_RACE,
 } from "../domains/threads/test-support/thread-work-postgres-harness.js";
+import { createTestWorkProjectionMutation } from "../test-support/work-projection.js";
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS === "1" || process.env.RUN_DB_TESTS === "true";
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -35,16 +36,17 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     const { createDrizzleThreadRunOwnership } = await import(
       "../domains/runtime/adapters/drizzle-thread-run-ownership.js"
     );
-    const { createDrizzleRepositories } = await import(
+    const { createDrizzleRepositoriesForTest } = await import(
       "../domains/threads/adapters/drizzle/repositories.js"
     );
 
     assertThrowawayDatabaseForRunDbTests(DATABASE_URL);
     const db = createDb(DATABASE_URL, { max: 4 });
-    const threads = createDrizzleRepositories(db);
+    const threads = createDrizzleRepositoriesForTest(db);
     const works = createDrizzleProjectWorkRepository({
       db,
       hasUnreviewedDraft: async () => false,
+      projectionMutation: createTestWorkProjectionMutation(db),
     });
     const notices = createDrizzleNoticePort(db);
 
@@ -189,7 +191,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         max: 1,
         postgres: { connection: { statement_timeout: 50 } },
       });
-      const failingThreads = createDrizzleRepositories(failingDb);
+      const failingThreads = createDrizzleRepositoriesForTest(failingDb);
       const blocker = postgres(DATABASE_URL, { max: 1 });
       let unlock!: () => void;
       const keepLocked = new Promise<void>((resolve) => {

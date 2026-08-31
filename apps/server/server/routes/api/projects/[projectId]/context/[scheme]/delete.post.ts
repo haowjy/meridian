@@ -1,7 +1,7 @@
 /**
  * POST /api/projects/:projectId/context/:scheme/delete
  *
- * Deletes a file or empty folder from a context scheme.
+ * Recursively deletes a file or folder from a context scheme.
  * Uses the ContextPort.delete primitive which performs CAS deletion via
  * ContextTreeMover.
  */

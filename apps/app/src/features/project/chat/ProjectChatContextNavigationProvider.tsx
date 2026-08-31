@@ -44,7 +44,7 @@ export function ProjectChatContextNavigationProvider({
       const target = contextRouteTargetFromUri(uri, activeWork, availableWorks);
       if (!target) return;
       onOpenContextTarget(target);
-      doorOpened(target, passage);
+      doorOpened({ ...target, uri }, passage);
     },
     [activeWork, availableWorks, doorOpened, onOpenContextTarget],
   );

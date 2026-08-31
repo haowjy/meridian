@@ -39,8 +39,8 @@ it("opens on right click and dispatches the selected action after the menu close
         rename?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
       });
 
-      expect(document.querySelector('[role="menu"]')).toBeNull();
-      expect(onAction).toHaveBeenCalledOnce();
+      await vi.waitFor(() => expect(document.querySelector('[role="menu"]')).toBeNull());
+      await vi.waitFor(() => expect(onAction).toHaveBeenCalledOnce());
       expect(onAction).toHaveBeenCalledWith("rename");
     },
   );

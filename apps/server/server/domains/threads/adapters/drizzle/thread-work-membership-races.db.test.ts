@@ -3,6 +3,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 import postgres from "postgres";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { createTestWorkProjectionMutation } from "../../../../test-support/work-projection.js";
 import {
   resetThreadWorkRaceFixture,
   THREAD_WORK_RACE,
@@ -38,17 +39,18 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       "../../../collab/adapters/drizzle-branch-push.js"
     );
     const { createWorkDraftPending } = await import("../../../collab/domain/work-draft-pending.js");
-    const { createDrizzleRepositories } = await import("./repositories.js");
+    const { createDrizzleRepositoriesForTest } = await import("./repositories.js");
 
     assertThrowawayDatabaseForRunDbTests(DATABASE_URL);
     const db = createDb(DATABASE_URL, { max: 4 });
     const control = postgres(DATABASE_URL, { max: 1 });
-    const threads = createDrizzleRepositories(db);
+    const threads = createDrizzleRepositoriesForTest(db);
     const draftPending = createWorkDraftPending(createDrizzleWorkDraftPendingStore(db));
     const works = createDrizzleProjectWorkRepository({
       db,
       hasUnreviewedDraft: async (workId) =>
         ((await draftPending.countPendingByWorkIds([workId])).get(workId) ?? 0) > 0,
+      projectionMutation: createTestWorkProjectionMutation(db),
     });
     const branches = createDrizzleBranchStore(db, undefined);
 

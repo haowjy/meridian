@@ -31,7 +31,7 @@ journaling.
 
 ## HTTP routes
 
-Eight filesystem routes live under
+Seven filesystem mutation/content routes live under
 `routes/api/projects/[projectId]/context/[scheme]/`. Most use `_helpers.ts` for
 auth, project ownership, scheme/Work resolution, canonical error translation,
 and URI construction. Writer-facing mutation input goes through the shared
@@ -48,8 +48,20 @@ internal contract error. Stale source/target plans return a retry result instead
 recover that ID across all project and authorized Work schemes, returning its
 canonical scheme/path/Work authority. Returned `name` values are full filenames.
 
-Routes: `tree.get.ts`, `read.get.ts`, `create.post.ts`, `create-untitled.post.ts`,
+Routes: `read.get.ts`, `create.post.ts`, `create-untitled.post.ts`,
 `rename.post.ts`, `move.post.ts`, `delete.post.ts`, `upload.post.ts`.
+
+Metadata browsing uses the sibling catalog routes: complete compact snapshot,
+whole-commit changes, direct children, and stable-ID/canonical-URI lookup. Every
+single-source command is owned by `ContextFS`; whole-tree commands are owned by
+`ContextTreeMover`. Lazy source resolution and stores only join that ambient
+Drizzle transaction, and typed failures roll it back; content-only
+Yjs/projection changes do not publish.
+Catalog files preserve persisted tracked or binary classification. The context
+domain emits best-effort truth-free wake hints after commit through the existing
+authenticated thread socket; focus and bounded polling repair dropped hints.
+Routes authenticate and translate transport only; catalog transaction and replay
+policy live in the context domain.
 
 Internal document links resolve through the same domain at
 `POST /api/projects/[projectId]/links/resolve`. The route accepts a discriminated

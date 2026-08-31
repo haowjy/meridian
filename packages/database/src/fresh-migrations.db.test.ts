@@ -40,10 +40,43 @@ if (!enabled || !databaseUrl) {
         "0074_cute_domino",
         "0075_bumpy_golden_guardian",
         "0076_fuzzy_timeslip",
+        "0077_supreme_darkstar",
+        "0078_tricky_sharon_carter",
+        "0079_free_whistler",
+        "0080_reset_working_set_routes",
       ]);
       for (let index = 1; index < tail.length; index += 1) {
         expect(tail[index]?.when).toBeGreaterThan(tail[index - 1]?.when ?? 0);
       }
+    });
+    it("deletes working-set rows whose routes predate stable identity", {
+      timeout: 90_000,
+    }, async () => {
+      const ids = {
+        user: "00000000-0000-4000-8000-000000000221",
+        project: "00000000-0000-4000-8000-000000000222",
+      };
+      await withPopulatedMigrationDatabase({
+        databaseUrl,
+        seedBefore: "0080_reset_working_set_routes",
+        seed: async (target) => {
+          await target.unsafe(`
+            INSERT INTO users (id, external_id, email)
+            VALUES ('${ids.user}', 'working-set-reset-fixture', 'working-set-reset@test.invalid');
+            INSERT INTO projects (id, user_id, name, slug)
+            VALUES ('${ids.project}', '${ids.user}', 'Working set reset', 'working-set-reset');
+            INSERT INTO project_user_working_sets (user_id, project_id, recent_routes)
+            VALUES ('${ids.user}', '${ids.project}', '[{"scheme":"kb","path":"/old.md"}]');
+          `);
+        },
+        verify: async (target) => {
+          const [{ count }] = await target<{ count: string }[]>`
+            SELECT count(*)::text AS count FROM project_user_working_sets
+            WHERE project_id = ${ids.project}
+          `;
+          expect(count).toBe("0");
+        },
+      });
     });
 
     it("exposes the expected catalog on the runner-migrated database", async () => {

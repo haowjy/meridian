@@ -16,6 +16,7 @@ import type {
   MarkdownDocumentStore,
 } from "../collab/index.js";
 import { MANUSCRIPT_URI } from "../context/manuscript-uri.js";
+import type { ContextCatalogLifecyclePort } from "./ports/context-catalog-lifecycle.js";
 
 export const DEFAULT_BOOTSTRAP_URI = MANUSCRIPT_URI;
 
@@ -84,6 +85,7 @@ export function createDrizzleProjectBootstrapRepository(deps: {
   documents: Pick<MarkdownDocumentStore, "seedFromMarkdown"> &
     Pick<DocumentCreationAggregate, "createDocumentAtomically" | "repairDocumentAtomically"> &
     Pick<BranchPeerShadowAccess, "recordManifestDocumentCreated">;
+  catalogLifecycle?: ContextCatalogLifecyclePort;
 }): ProjectBootstrapRepository {
   const { db } = deps;
   const repairedReadyUsers = new Set<UserId>();
@@ -317,6 +319,7 @@ export function createDrizzleProjectBootstrapRepository(deps: {
         .where(eq(projects.id, projectId))
         .returning({ id: projects.id });
       if (!updated) throw new Error("Failed to mark default bootstrap ready");
+      await deps.catalogLifecycle?.refreshProject(projectId);
       return result;
     });
     repairedReadyUsers.add(userId);
@@ -341,18 +344,23 @@ export function createDrizzleProjectBootstrapRepository(deps: {
   };
 }
 
+export type { WorkCatalogEntry } from "@meridian/contracts/works";
 // ── Project CRUD ────────────────────────────────────────────────────────────
 export { createDrizzleProjectRepository } from "./adapters/project-repository/drizzle.js";
 export { createInMemoryProjectRepository } from "./adapters/project-repository/in-memory.js";
 // ── User provisioning ───────────────────────────────────────────────────────
 export { createDrizzleUserRepository } from "./adapters/user-repository/drizzle.js";
 export { createInMemoryUserRepository } from "./adapters/user-repository/in-memory.js";
+export {
+  createWorkProjectionMutation,
+  type WorkProjectionMutation,
+} from "./adapters/work-projection-mutation.js";
 // ── Work CRUD ───────────────────────────────────────────────────────────────
 export { createDrizzleWorkRepository as createDrizzleProjectWorkRepository } from "./adapters/work-repository/drizzle.js";
 export { createInMemoryWorkRepository } from "./adapters/work-repository/in-memory.js";
 export { createWork } from "./create-work.js";
 export { deleteWork, deleteWorkTransition, restoreWork } from "./delete-work.js";
-export { listWorkCatalog, type WorkCatalogEntry } from "./list-work-catalog.js";
+export { listWorkCatalog } from "./list-work-catalog.js";
 export type {
   CreateProjectInput,
   ListProjectsOptions,

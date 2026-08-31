@@ -20,7 +20,11 @@ import type {
   FileRef,
   SearchResult,
 } from "./context-port.js";
-import type { ContextLocationToken, PreparedContextMove } from "./context-tree-mutation-store.js";
+import type {
+  ContextLocationToken,
+  ContextTreeDeleteCommand,
+  PreparedContextMove,
+} from "./context-tree-mutation-store.js";
 
 /** What a scheme adapter supports. Checked by the router before dispatch. */
 export type SchemeCapabilities = ContextSchemeCapabilities;
@@ -88,6 +92,7 @@ export type AdapterMoveResult = {
 
 export type AdapterDeleteResult = {
   deletedDocumentIds: string[];
+  availabilityGeneration: string;
 };
 
 export interface ContextTreeAdapter {
@@ -98,8 +103,8 @@ export interface ContextTreeAdapter {
   commitPreparedMove(
     prepared: PreparedContextMove,
   ): Promise<Result<AdapterMoveResult, AdapterFault>>;
-  commitPreparedDelete(
-    token: ContextLocationToken,
+  commitRecursiveDelete(
+    command: ContextTreeDeleteCommand,
   ): Promise<Result<AdapterDeleteResult, AdapterFault>>;
 }
 

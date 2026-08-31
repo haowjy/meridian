@@ -11,12 +11,17 @@
  * destination keeps the tab strip and editor/viewer body only.
  */
 import { t } from "@lingui/core/macro";
-import type { ProjectContextTreeScheme, Work } from "@meridian/contracts/protocol";
+import {
+  isWorkScopedProjectContextScheme,
+  type ProjectContextTreeScheme,
+  type Work,
+} from "@meridian/contracts/protocol";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ProjectRouteData } from "@/client/query/project-route-data";
+import { useContextCatalogWake } from "@/client/query/useContextCatalog";
 import { useWorks } from "@/client/query/useWorks";
-import { useContextTabsStore } from "@/client/stores";
+import { useContextTabs, useContextTabsStore } from "@/client/stores";
 import {
   hydrateWorkingSet,
   retryWorkingSetHydration,
@@ -28,21 +33,29 @@ import {
   type DraftReviewContextValue,
   useDraftReviewScopeValue,
 } from "@/features/chat/DraftReviewProvider";
+import { inlineReviewFromState } from "@/features/chat/draft-review-session";
 import { useReviewProseFocus } from "@/features/chat/review-prose-focus";
+import {
+  type DraftReviewStateOwner,
+  useDraftReviewStateOwner,
+} from "@/features/chat/useDraftReviewController";
 import { usePhoneShell } from "@/hooks/use-phone-shell";
 import { ChatPaneController } from "./ChatPaneController";
 import { ContextViewerSurfaceController } from "./ContextPaneController";
 import { resolveCatalogWork } from "./catalog-work-resolution";
 import { type ChatPlacement, ChatSurface } from "./chat/ChatSurface";
 import { useResolvedChatThread } from "./chat/chat-thread-resolution";
+import { useProjectContextAvailabilityCoordinator } from "./context/account-feature-context";
 import type { ContextRemovalRoutePort } from "./context/context-removal-coordinator";
 import { ProjectContextRemovalController } from "./context/ProjectContextRemovalController";
 import { TreeCreationProvider } from "./context/TreeCreationProvider";
+import { useCatalogWorkingSetReconciler } from "./context/useCatalogWorkingSetReconciler";
 import { useDockViewStore } from "./dock/dock-view-store";
 import {
   EditorReviewHandoffProvider,
   EditorReviewIntentClaimant,
 } from "./dock/editor-review-handoff";
+import { ProjectDraftApplyRecoveryExecutor } from "./draft-apply-recovery/ProjectDraftApplyRecoveryExecutor";
 import { EditorWorkRecovery } from "./EditorWorkRecovery";
 import { type EditorWorkScope, resolveEditorWorkScope } from "./editor-work-scope";
 import { HomePaneController } from "./HomePaneController";
@@ -55,6 +68,11 @@ import {
   useProjectSurfacePrefsStore,
 } from "./layout";
 import { MobileProject } from "./mobile/MobileProject";
+import {
+  type MobileDocumentRoute,
+  mobileEditableDocumentId,
+  useMobileDocumentRoute,
+} from "./mobile/mobile-document-route";
 import type {
   ContextRouteTarget,
   ProjectRouteCommands,
@@ -113,6 +131,15 @@ export type ProjectViewProps = {
 };
 
 export function ProjectView(props: ProjectViewProps) {
+  const availability = useProjectContextAvailabilityCoordinator();
+  const repairColdWork = useCallback(
+    (workId: string) => {
+      void availability.coldScopeHint(props.projectId, workId);
+    },
+    [availability, props.projectId],
+  );
+  useContextCatalogWake(props.projectId, repairColdWork);
+  useCatalogWorkingSetReconciler(props.projectId);
   // The route keys ProjectView by projectId. This initializer therefore runs
   // before any gated child for each project entry; the driver makes a strict-
   // mode replay of the same loader revision an adoption no-op.
@@ -229,6 +256,7 @@ export type ResolvedProjectViewProps = ProjectViewProps & {
 export type ReviewScopedProjectProps = ResolvedProjectViewProps & {
   chatReview: DraftReviewContextValue;
   editorReview: DraftReviewContextValue;
+  mobileDocumentRoute: MobileDocumentRoute;
 };
 
 function HydratedReviewProject({
@@ -236,31 +264,109 @@ function HydratedReviewProject({
   chatThreadId,
   ...props
 }: ResolvedProjectViewProps & { chatWorkId: string | null; chatThreadId: string | null }) {
-  const chatReview = useDraftReviewScopeValue({
-    projectId: props.projectId,
-    workId: chatWorkId,
-    threadId: chatThreadId,
-  });
-  const editorReview = useDraftReviewScopeValue({
-    projectId: props.projectId,
-    workId: props.editorWorkId,
-    threadId: null,
-  });
-
   return (
     <EditorReviewHandoffProvider
       projectId={props.projectId}
       openContextRoute={props.onOpenContextTarget}
     >
-      <HydratedProject {...props} chatReview={chatReview} editorReview={editorReview} />
+      <HydratedReviewScopes {...props} chatWorkId={chatWorkId} chatThreadId={chatThreadId} />
     </EditorReviewHandoffProvider>
   );
 }
 
-function HydratedProject(props: ReviewScopedProjectProps) {
+function HydratedReviewScopes({
+  chatWorkId,
+  chatThreadId,
+  ...props
+}: ResolvedProjectViewProps & { chatWorkId: string | null; chatThreadId: string | null }) {
+  const chatReviewState = useDraftReviewStateOwner();
+  const editorReviewState = useDraftReviewStateOwner();
   const usePhone = usePhoneShell();
+  const { tabs } = useContextTabs(props.projectId);
+  const mobileDocumentRoute = useMobileDocumentRoute({
+    enabled:
+      usePhone === true &&
+      props.activeScreen === "context" &&
+      props.contextLive &&
+      props.editorScope.status === "ready",
+    projectId: props.projectId,
+    scheme: props.activeContextScheme,
+    path: props.activeContextPath,
+    workId: props.editorWorkId,
+  });
+  const workLabels = useMemo(
+    () => Object.fromEntries(props.availableWorks.map((work) => [work.id, work.name])),
+    [props.availableWorks],
+  );
   if (usePhone === null) return null;
-  return usePhone ? <MobileProject {...props} /> : <DesktopProject {...props} />;
+  const desktopHostDocumentIds =
+    usePhone || props.editorScope.status !== "ready" || !props.contextLive
+      ? []
+      : tabs.flatMap((tab) => {
+          if (tab.kind !== "tracked") return [];
+          if (isWorkScopedProjectContextScheme(tab.scheme) && tab.workId !== props.editorWorkId)
+            return [];
+          return [tab.documentId];
+        });
+  const inlineDocumentIds = [
+    inlineReviewFromState(chatReviewState.state)?.documentId,
+    inlineReviewFromState(editorReviewState.state)?.documentId,
+  ].filter((documentId): documentId is string => Boolean(documentId));
+  return (
+    <ProjectDraftApplyRecoveryExecutor
+      projectId={props.projectId}
+      scopeKey={`${chatWorkId ?? ""}:${props.editorWorkId ?? ""}`}
+      mobileHostDocumentId={mobileEditableDocumentId(mobileDocumentRoute)}
+      inlineDocumentIds={inlineDocumentIds}
+      desktopHostDocumentIds={desktopHostDocumentIds}
+      workLabels={workLabels}
+    >
+      <HydratedReviewControllers
+        {...props}
+        chatWorkId={chatWorkId}
+        chatThreadId={chatThreadId}
+        chatReviewState={chatReviewState}
+        editorReviewState={editorReviewState}
+        mobileDocumentRoute={mobileDocumentRoute}
+        usePhone={usePhone}
+      />
+    </ProjectDraftApplyRecoveryExecutor>
+  );
+}
+
+function HydratedReviewControllers({
+  chatWorkId,
+  chatThreadId,
+  chatReviewState,
+  editorReviewState,
+  usePhone,
+  mobileDocumentRoute,
+  ...props
+}: ResolvedProjectViewProps & {
+  chatWorkId: string | null;
+  chatThreadId: string | null;
+  chatReviewState: DraftReviewStateOwner;
+  editorReviewState: DraftReviewStateOwner;
+  usePhone: boolean;
+  mobileDocumentRoute: MobileDocumentRoute;
+}) {
+  const chatReview = useDraftReviewScopeValue({
+    projectId: props.projectId,
+    workId: chatWorkId,
+    owningWorkLabel: props.chatWork?.name ?? null,
+    stateOwner: chatReviewState,
+    threadId: chatThreadId,
+  });
+  const editorReview = useDraftReviewScopeValue({
+    projectId: props.projectId,
+    workId: props.editorWorkId,
+    owningWorkLabel:
+      props.availableWorks.find((work) => work.id === props.editorWorkId)?.name ?? null,
+    stateOwner: editorReviewState,
+    threadId: null,
+  });
+  const scopedProps = { ...props, chatReview, editorReview, mobileDocumentRoute };
+  return usePhone ? <MobileProject {...scopedProps} /> : <DesktopProject {...scopedProps} />;
 }
 
 /** A PaneHeader expand control derived from a stable surface id. */

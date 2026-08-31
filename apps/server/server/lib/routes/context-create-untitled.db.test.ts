@@ -2,6 +2,7 @@
 
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
+import { createTestWorkProjectionMutation } from "../../test-support/work-projection.js";
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS === "1" || process.env.RUN_DB_TESTS === "true";
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -20,6 +21,9 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     const { createProductionUnifiedContextPortFactory } = await import(
       "../../domains/context/unified-context-port-factory.js"
     );
+    const { createDrizzleContextCatalog } = await import(
+      "../../domains/context/adapters/context-catalog.js"
+    );
     const { createDrizzleProjectBootstrapRepository, createDrizzleProjectWorkAuthorityResolver } =
       await import("../../domains/projects/index.js");
     const { useRollbackTestDatabase } = await import(
@@ -28,9 +32,6 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     const { truncateDrizzleTables } = await import("../../test-support/drizzle-reset.js");
     const { createUntitledContextDocument } = await import(
       "../../routes/api/projects/[projectId]/context/[scheme]/create-untitled.post.js"
-    );
-    const { buildProjectContextTree } = await import(
-      "../../routes/api/projects/[projectId]/context/[scheme]/tree.get.js"
     );
 
     const USER_ID = "00000000-0000-4000-8000-000000000931";
@@ -67,6 +68,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     function createBoundCollab() {
       const collab = createCollabDomain({
         db,
+        workProjectionMutation: createTestWorkProjectionMutation(db),
         workAuthorityResolver: createDrizzleProjectWorkAuthorityResolver(db),
         documentAccess: createDrizzleDocumentAccess(db),
       });
@@ -83,10 +85,12 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     it("registers a scratch untitled document in the live manifest used by the ws gate", async () => {
       const { projectId, workId } = await provisionProject();
       const collab = createBoundCollab();
+      const catalog = createDrizzleContextCatalog(db);
       const contextPorts = createProductionUnifiedContextPortFactory({
         db,
         documentSync: collab,
         manifestMembership: collab,
+        catalogMutations: catalog,
       });
       const authority = await createDrizzleProjectWorkAuthorityResolver(db).byId(projectId, workId);
       if (!authority) throw new Error("missing Work authority");
@@ -113,25 +117,17 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
         name: "Untitled 1.md",
       });
 
-      const treeResponse = () =>
-        buildProjectContextTree({
-          projectId,
-          scheme: "scratch",
-          authority,
-          port,
-        });
-      await expect(treeResponse()).resolves.toMatchObject({
-        projectId,
-        scheme: "scratch",
-        tree: {
-          children: [
-            expect.objectContaining({
-              kind: "file",
-              documentId: DOCUMENT_ID,
-              name: "Untitled 1.md",
-              provisionalName: true,
-            }),
-          ],
+      await expect(
+        catalog.lookup({
+          scope: { kind: "work", projectId, workId },
+          entryId: DOCUMENT_ID,
+        }),
+      ).resolves.toMatchObject({
+        entry: {
+          kind: "file",
+          entryId: DOCUMENT_ID,
+          name: "Untitled 1.md",
+          provisionalName: true,
         },
       });
 
@@ -144,16 +140,17 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
           },
         ),
       ).resolves.toMatchObject({ ok: true });
-      await expect(treeResponse()).resolves.toMatchObject({
-        tree: {
-          children: [
-            expect.objectContaining({
-              kind: "file",
-              documentId: DOCUMENT_ID,
-              name: "Opening scene.md",
-              provisionalName: false,
-            }),
-          ],
+      await expect(
+        catalog.lookup({
+          scope: { kind: "work", projectId, workId },
+          entryId: DOCUMENT_ID,
+        }),
+      ).resolves.toMatchObject({
+        entry: {
+          kind: "file",
+          entryId: DOCUMENT_ID,
+          name: "Opening scene.md",
+          provisionalName: false,
         },
       });
 

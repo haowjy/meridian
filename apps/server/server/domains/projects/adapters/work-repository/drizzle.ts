@@ -1,3 +1,4 @@
+import { catalogScopeKey } from "@meridian/contracts/protocol";
 import type { ProjectId, WorkId } from "@meridian/contracts/runtime";
 import {
   type AiWriteMode,
@@ -7,6 +8,8 @@ import {
 } from "@meridian/contracts/works";
 import type { Database } from "@meridian/database";
 import {
+  contextAvailabilityHeads,
+  contextCatalogScopeHeads,
   contextSources,
   documents,
   folders,
@@ -19,6 +22,7 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import {
   currentDrizzleDb,
   runInDrizzleTransaction,
+  runInRootDrizzleReadSnapshot,
 } from "../../../../shared/drizzle-transaction.js";
 import { isUuid } from "../../../../shared/uuid.js";
 import { lockWorkLifecycle } from "../../../../shared/work-lifecycle-lock.js";
@@ -33,6 +37,7 @@ import {
   WorkNameConflictError,
   WorkRestoreConflictError,
 } from "../../ports/work-repository.js";
+import type { WorkProjectionMutation } from "../work-projection-mutation.js";
 import { nextWorkSlug } from "./shared.js";
 
 type WorkRow = typeof works.$inferSelect;
@@ -62,6 +67,7 @@ function mapWork(row: WorkRow): Work {
     status: row.status as WorkStatus,
     archivedAt: row.archivedAt?.toISOString() ?? null,
     aiWriteMode: row.aiWriteMode as AiWriteMode,
+    entityRevision: String(row.entityRevision),
     lastActivityAt: row.updatedAt.toISOString(),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -72,9 +78,11 @@ export interface DrizzleWorkRepositoryDeps {
   db: Database;
   /** Canonical collab-domain predicate for reviewable Work draft content. */
   hasUnreviewedDraft(workId: WorkId): Promise<boolean>;
+  projectionMutation: WorkProjectionMutation;
 }
 export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): WorkRepository {
   const { db, hasUnreviewedDraft } = deps;
+  const projectionMutation = deps.projectionMutation;
 
   async function lockProjectWorkCreation(projectId: ProjectId): Promise<void> {
     await currentDrizzleDb(db).execute(
@@ -89,19 +97,25 @@ export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): Wo
   }
 
   async function updateWork(id: WorkId, patch: Partial<typeof works.$inferInsert>): Promise<Work> {
-    if (!isUuid(id)) throw new Error(`Work not found: ${id}`);
-    const [row] = await currentDrizzleDb(db)
-      .update(works)
-      .set({ ...patch, updatedAt: new Date() })
-      .where(and(eq(works.id, id), isNull(works.deletedAt)))
-      .returning();
-    if (!row) throw new Error(`Work not found: ${id}`);
-    return mapWork(row);
+    return runInDrizzleTransaction(db, async () => {
+      if (!isUuid(id)) throw new Error(`Work not found: ${id}`);
+      const [row] = await currentDrizzleDb(db)
+        .update(works)
+        .set({ ...patch, entityRevision: sql`${works.entityRevision} + 1`, updatedAt: new Date() })
+        .where(and(eq(works.id, id), isNull(works.deletedAt)))
+        .returning();
+      if (!row) throw new Error(`Work not found: ${id}`);
+      await projectionMutation.publishWorks([row.id]);
+      return mapWork(row);
+    });
   }
 
   return {
     transaction<T>(operation: () => Promise<T>): Promise<T> {
       return runInDrizzleTransaction(db, operation);
+    },
+    readSnapshot<T>(operation: () => Promise<T>): Promise<T> {
+      return runInRootDrizzleReadSnapshot(db, operation);
     },
     async lockById(id: WorkId): Promise<Work | null> {
       if (!isUuid(id)) return null;
@@ -147,6 +161,7 @@ export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): Wo
           throw cause;
         }
         if (!row) throw new Error("Failed to create work");
+        await projectionMutation.publishWorks([row.id]);
         return mapWork(row);
       });
     },
@@ -165,8 +180,31 @@ export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): Wo
         .select()
         .from(works)
         .where(where)
-        .orderBy(desc(works.updatedAt));
+        .orderBy(desc(works.updatedAt), desc(works.id));
       return rows.map(mapWork);
+    },
+    async snapshotIdentity(projectId: ProjectId) {
+      const [project] = await currentDrizzleDb(db)
+        .select({
+          authorityRevision: contextAvailabilityHeads.generation,
+        })
+        .from(contextAvailabilityHeads)
+        .where(eq(contextAvailabilityHeads.authorityKey, `project:${projectId}`))
+        .limit(1);
+      const [catalog] = await currentDrizzleDb(db)
+        .select({ generation: contextCatalogScopeHeads.generation })
+        .from(contextCatalogScopeHeads)
+        .where(
+          eq(
+            contextCatalogScopeHeads.scopeKey,
+            catalogScopeKey({ kind: "project", projectId } as never),
+          ),
+        )
+        .limit(1);
+      return {
+        catalogGeneration: catalog?.generation ?? "00000000-0000-0000-0000-000000000000",
+        authorityRevision: String(project?.authorityRevision ?? 0n),
+      };
     },
     async update(id: WorkId, input: UpdateWorkInput): Promise<Work> {
       const patch: Partial<typeof works.$inferInsert> = {};
@@ -243,8 +281,13 @@ export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): Wo
 
         await activeDb
           .update(works)
-          .set({ deletedAt: new Date(), updatedAt: new Date() })
+          .set({
+            deletedAt: new Date(),
+            entityRevision: sql`${works.entityRevision} + 1`,
+            updatedAt: new Date(),
+          })
           .where(and(eq(works.id, id), isNull(works.deletedAt)));
+        await projectionMutation.publishWorks([id]);
       });
     },
     async restore(id: WorkId): Promise<Work> {
@@ -256,10 +299,15 @@ export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): Wo
           await lockWorkLifecycle(db, id);
           const [row] = await currentDrizzleDb(db)
             .update(works)
-            .set({ deletedAt: null, updatedAt: new Date() })
+            .set({
+              deletedAt: null,
+              entityRevision: sql`${works.entityRevision} + 1`,
+              updatedAt: new Date(),
+            })
             .where(eq(works.id, id))
             .returning();
           if (!row) throw new Error(`Work not found: ${id}`);
+          await projectionMutation.publishWorks([row.id]);
           return mapWork(row);
         });
       } catch (cause) {
@@ -277,7 +325,7 @@ export function createDrizzleWorkRepository(deps: DrizzleWorkRepositoryDeps): Wo
       const activeDb = currentDrizzleDb(db);
       const [existing] = await activeDb.select().from(works).where(eq(works.id, id)).limit(1);
       if (!existing || existing.deletedAt) return;
-      await activeDb.update(works).set({ updatedAt: new Date() }).where(eq(works.id, id));
+      await projectionMutation.touchWorks([id], new Date());
     },
   };
 }

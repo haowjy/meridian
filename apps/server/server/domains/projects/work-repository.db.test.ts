@@ -22,6 +22,10 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       "@meridian/database/__test-support__/db-fixtures"
     );
     const { truncateDrizzleTables } = await import("../../test-support/drizzle-reset.js");
+    const { createDrizzleProjectContextAvailability } = await import(
+      "../context/adapters/project-context-availability.js"
+    );
+    const { createDrizzleContextCatalog } = await import("../context/adapters/context-catalog.js");
     const {
       createDrizzleProjectWorkRepository,
       createDrizzleProjectWorkAuthorityResolver,
@@ -30,14 +34,25 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       updateWorkTransition,
       WorkDeleteBlockedError,
       WorkRestoreConflictError,
+      createWorkProjectionMutation,
     } = await import("./index.js");
 
     assertThrowawayDatabaseForRunDbTests(DATABASE_URL);
     const db = createDb(DATABASE_URL, { max: 4 });
     const control = postgres(DATABASE_URL, { max: 1 });
+    const availability = createDrizzleProjectContextAvailability(db);
+    const catalog = createDrizzleContextCatalog(db, undefined, {
+      availabilityMutations: availability,
+    });
+    const projectionMutation = createWorkProjectionMutation({
+      db,
+      availability,
+      catalog,
+    });
     const works = createDrizzleProjectWorkRepository({
       db,
       hasUnreviewedDraft: async () => false,
+      projectionMutation,
     });
     const authorities = createDrizzleProjectWorkAuthorityResolver(db);
 
@@ -159,7 +174,9 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
     });
 
     it("serializes Work restore and enqueues only the transition that restores", async () => {
-      const { createDrizzleRepositories } = await import("../threads/adapters/drizzle/index.js");
+      const { createDrizzleRepositoriesForTest } = await import(
+        "../threads/adapters/drizzle/index.js"
+      );
       await db.insert(schema.threads).values({
         id: THREAD_ID,
         projectId: PROJECT_ID,
@@ -168,7 +185,7 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
       });
       const work = await works.create({ projectId: PROJECT_ID, name: "Restorable" });
       await works.softDelete(work.id);
-      const threads = createDrizzleRepositories(db);
+      const threads = createDrizzleRepositoriesForTest(db);
       let release!: () => void;
       const gate = new Promise<void>((resolve) => {
         release = resolve;

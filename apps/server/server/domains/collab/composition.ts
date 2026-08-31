@@ -12,7 +12,7 @@ import {
 import { createDocumentUriResolver } from "../context/document-uri-resolver.js";
 import type { NoticePort } from "../notices/index.js";
 import type { EventSink } from "../observability/index.js";
-import type { ProjectWorkAuthorityResolver } from "../projects/index.js";
+import type { ProjectWorkAuthorityResolver, WorkProjectionMutation } from "../projects/index.js";
 import {
   createAgentEditInvariantDiagnostic,
   createAgentEditObservabilityOptions,
@@ -119,6 +119,7 @@ type CollabDomainDeps = {
   eventSink?: EventSink;
   notices?: NoticePort;
   workAuthorityResolver: ProjectWorkAuthorityResolver;
+  workProjectionMutation: WorkProjectionMutation;
 };
 
 export function createCollabDomain(deps: CollabDomainDeps): CollabDomain {
@@ -141,6 +142,7 @@ export function createCollabDomain(deps: CollabDomainDeps): CollabDomain {
       coordinator: liveCoordinator,
     },
     criticalSections,
+    deps.workProjectionMutation,
   );
   const branchCoordinator = createBranchCoordinator({
     store: branches,
@@ -166,7 +168,10 @@ export function createCollabDomain(deps: CollabDomainDeps): CollabDomain {
     deps.db,
     persistence.journal.documentsForTurn.bind(persistence.journal),
   );
-  const projectionEffects = createDrizzleDocumentProjectionEffects(deps.db);
+  const projectionEffects = createDrizzleDocumentProjectionEffects(
+    deps.db,
+    deps.workProjectionMutation,
+  );
   const projectionDiagnostics = createDocumentProjectionDiagnostics(deps.eventSink);
   const noticeDiagnostics = createReversalNoticeDiagnostics(deps.eventSink);
   const documentWriteHook = createProjectionEffectsDocumentWriteHook(projectionEffects);
@@ -218,8 +223,9 @@ export function createCollabDomain(deps: CollabDomainDeps): CollabDomain {
     stagePendingSettlementWithinTx,
     changeTrails,
     deps.notices,
+    deps.workProjectionMutation,
   );
-  const workPushPolicy = createDrizzleWorkPushPolicyStore(deps.db);
+  const workPushPolicy = createDrizzleWorkPushPolicyStore(deps.db, deps.workProjectionMutation);
   const workDraftPendingStore = createDrizzleWorkDraftPendingStore(deps.db);
   const workDraftPending = createWorkDraftPending(workDraftPendingStore);
   const writerIngress = createWriterIngressBinding();

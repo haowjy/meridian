@@ -8,6 +8,24 @@ with a single unified `ContextPort` that resolves durable project schemes
 
 ## What it owns
 
+- **Authoritative metadata catalog** — one normalized catalog beside ContextFS
+  with per-scope heads, complete repeatable-read snapshots, bounded whole-commit
+  replay/reset from an explicit captured head, direct children, and ID/path
+  lookup. `ContextFS` owns result-aware single-source transactions;
+  `ContextTreeMover` owns full preflight-through-CAS tree transactions. Lazy
+  sources and Drizzle stores join those boundaries. Wake hints run only after
+  commit and cannot fail a mutation.
+  Catalog replay limits are positive safe integers at HTTP boundaries and are
+  defensively capped by the shared domain policy. Work catalog IDs pass through
+  the canonical request-ID parser before authority resolution.
+
+- **Project-final availability** — stable-ID lookup classifies current
+  project/no-Work/Work/user authority from authoritative rows and advances
+  generation heads with mutations. A deleted request project or deleted backing
+  source project returns `authority-unavailable/project_deleted`; restoring the
+  backing project makes the same identity available again. Foreign identities
+  remain indistinguishable from missing IDs.
+
 - **Unified `ContextPort`** — single port interface (`ports/context-port.ts`)
   providing `stat`/`read`/`write`/`writeBinary`/`mkdir`/`list`/`search` for all
   schemes. Resolved through `contextPortForThread` (the resolver in
@@ -73,9 +91,9 @@ router resolves to exact project-scoped Work authority before dispatch.
 |---|---|
 | `ContextPort` (`ports/context-port.ts`) | Result-returning filesystem surface: `stat`, `read`, `write`, `createTrackedDocument`, `createUntitledDocument`, `ensureTrackedDocument`, `edit`, `writeBinary`, `move`, `commitWriterLocation`, identity-required `delete`, `list`, `mkdir`, and `search`. No errors cross as throws. |
 | `ContextSchemeAdapter` | Scheme-local adapter over normalized paths. It never parses URIs; it returns scheme-relative paths and scope-free `AdapterFault`s. Its identity lookup lets the router recover a client-minted document across schemes. |
-| `SchemeCapabilities` | Per-scheme `writable` / `searchable` / `creatable` declaration. The tree HTTP response exposes the same object used by router enforcement. |
+| `SchemeCapabilities` | Per-scheme `writable` / `searchable` / `creatable` declaration owned in `ports/context-adapter.ts` and enforced by the server router and adapters. |
 | `ContextDocumentStore` | Primitive folder/document backing store for one context source, including project-wide stable-ID lookup used to classify idempotent creation retries. |
-| `ContextTreeMutationStore` | Tree-aware mutation store with atomic `move`/provisional-graduation/`delete`. Location tokens compare stable node/source/path fields rather than content activity timestamps. Delete results preserve exact document IDs; deleting an empty folder returns none. |
+| `ContextTreeMutationStore` | Tree-aware mutation store with atomic `move`/provisional-graduation/recursive `delete`. Location tokens compare stable node/source/path fields rather than content activity timestamps. Delete results preserve every exact descendant document ID; deleting an empty folder returns none. |
 | `DocumentLinkResolver` | `resolve({ projectId, workId?, target })` returns one canonical manuscript/Work document or `null`. A target is a discriminated `wikilink`, `scheme`, or `relative` value. |
 
 ## URI and router invariants
@@ -204,9 +222,10 @@ router resolves to exact project-scoped Work authority before dispatch.
   its initiating `documents.id`; mismatch or CAS replacement is `stale_target`
   and acknowledges nothing. This is the same CAS boundary for HTTP deletion and
   internal exact-file cleanup; there is no path-only file-delete contract.
-  Files contribute their one committed `documents.id`; empty folders contribute
-  none. Non-empty folders remain invalid operations, and post-commit membership
-  delivery failure prevents a successful acknowledgement.
+  Files contribute their one committed `documents.id`; recursive folder deletion
+  contributes every committed descendant document ID, while an empty folder
+  contributes none. Post-commit membership callback failure is diagnostic; the
+  committed receipt remains successful.
 
 ## Deleted (cleanse removal)
 

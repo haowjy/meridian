@@ -201,8 +201,7 @@ function renderActiveView(
             <MobileDocumentHost
               projectId={props.projectId}
               editorWorkId={props.editorWorkId}
-              activeContextScheme={props.activeContextScheme}
-              activeContextPath={props.activeContextPath}
+              route={props.mobileDocumentRoute}
             />
           ) : (
             <MobileContextBrowser

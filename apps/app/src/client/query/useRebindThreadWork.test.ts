@@ -132,7 +132,7 @@ describe("thread Work binding convergence", () => {
     });
   });
 
-  it("invalidates the affected Work catalog and every associated-chat leaf for a projected rebind", () => {
+  it("leaves the canonical Work snapshot to its owner and invalidates associated-chat leaves", () => {
     const client = new QueryClient();
     client.setQueryData(projectQueryKeys.works("project-1"), {
       works: [responseWork],
@@ -149,7 +149,7 @@ describe("thread Work binding convergence", () => {
       },
     });
 
-    expect(client.getQueryState(projectQueryKeys.works("project-1"))?.isInvalidated).toBe(true);
+    expect(client.getQueryState(projectQueryKeys.works("project-1"))?.isInvalidated).toBe(false);
     expect(client.getQueryState(keys.workA)?.isInvalidated).toBe(true);
     expect(client.getQueryState(keys.workB)?.isInvalidated).toBe(true);
     expect(client.getQueryState(keys.unrelated)?.isInvalidated).toBe(false);
@@ -193,6 +193,10 @@ describe("thread Work binding convergence", () => {
       previousWorkId: "work-a",
       threads: [{ id: "thread-1", projectId: "project-1", workId: "work-b" } as ThreadListItem],
       catalog: {
+        projectId: "project-1",
+        catalogGeneration: "generation-1",
+        authorityRevision: "1",
+        requestId: "request-1",
         works: [
           { id: "work-a", name: "A" },
           { id: "work-b", name: "B" },
@@ -216,9 +220,7 @@ describe("thread Work binding convergence", () => {
         return [{ id: "thread-1", projectId: "project-1", workId: "work-b" }];
       })
       .mockResolvedValue([{ id: "thread-1", projectId: "project-1", workId: "work-c" }]);
-    listProjectWorks.mockResolvedValue({
-      works: [{ id: "work-c", name: "C" }],
-    });
+    listProjectWorks.mockResolvedValue(worksSnapshot([{ id: "work-c", name: "C" }], "2"));
     await expect(
       readStableThreadWorkBinding(client, {
         projectId: "project-1",
@@ -234,13 +236,17 @@ describe("thread Work binding convergence", () => {
     client.setQueryData(projectQueryKeys.threads("project-1"), [
       { id: "thread-1", projectId: "project-1", workId: "work-a" },
     ]);
-    client.setQueryData(projectQueryKeys.works("project-1"), {
-      works: [
-        { id: "work-a", name: "A" },
-        { id: "work-b", name: "B" },
-        { id: "work-c", name: "C" },
-      ],
-    });
+    client.setQueryData(
+      projectQueryKeys.works("project-1"),
+      worksSnapshot(
+        [
+          { id: "work-a", name: "A" },
+          { id: "work-b", name: "B" },
+          { id: "work-c", name: "C" },
+        ],
+        "1",
+      ),
+    );
     let resolveMutation: ((result: RebindThreadWorkResponse) => void) | undefined;
     rebindThreadWork.mockReturnValue(
       new Promise<RebindThreadWorkResponse>((resolve) => {
@@ -250,9 +256,7 @@ describe("thread Work binding convergence", () => {
     listProjectThreads.mockResolvedValue([
       { id: "thread-1", projectId: "project-1", workId: "work-c" },
     ]);
-    listProjectWorks.mockResolvedValue({
-      works: [{ id: "work-c", name: "C" }],
-    });
+    listProjectWorks.mockResolvedValue(worksSnapshot([{ id: "work-c", name: "C" }], "2"));
 
     let mutateAsync: ReturnType<typeof useRebindThreadWork>["mutateAsync"] | undefined;
     function Probe() {
@@ -323,3 +327,13 @@ describe("thread Work binding convergence", () => {
     act(() => root.unmount());
   });
 });
+
+function worksSnapshot(works: unknown[], authorityRevision: string): ListWorksResponse {
+  return {
+    projectId: "project-1",
+    catalogGeneration: "generation-1",
+    authorityRevision,
+    requestId: `request-${authorityRevision}`,
+    works: works as never,
+  };
+}

@@ -43,9 +43,7 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("@/client/query/useCreateContextEntry", () => ({
   useCreateContextEntry: () => ({ isPending: false, mutateAsync: async () => null }),
 }));
-vi.mock("@/core/editor/document-session-registry", () => ({
-  getDocumentSessionRegistry: () => ({ observe: () => () => {} }),
-}));
+
 vi.mock("@/features/project/context/open-project-document", () => ({
   useOpenProjectDocument: () => async () => true,
 }));

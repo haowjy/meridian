@@ -104,12 +104,11 @@ export function apiProjectAgentsPath(projectId: string): string {
   return `${apiProjectPath(projectId)}/agents`;
 }
 
-export function apiProjectContextTreePath(
+export function apiProjectContextCatalogPath(
   projectId: string,
-  scheme: ProjectContextTreeScheme,
-  opts?: ProjectContextRequestOptions,
+  operation: "snapshot" | "changes" | "children" | "lookup",
 ): string {
-  return `${apiProjectPath(projectId)}/context/${scheme}/tree${projectContextQuery(scheme, opts)}`;
+  return `${apiProjectPath(projectId)}/context/catalog/${operation}`;
 }
 
 export function apiProjectContextCreatePath(

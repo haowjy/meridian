@@ -16,6 +16,7 @@ import type {
   AdapterSearchHit,
   ContextSchemeAdapter,
 } from "../ports/context-adapter.js";
+import type { ContextCommandTransaction } from "../ports/context-command-transaction.js";
 import type {
   ContextCreateTrackedDocumentResult,
   ContextCreateUntitledDocumentResult,
@@ -54,6 +55,7 @@ export interface ContextPortRouterDeps {
   resolveNoWorkAdapters?: () => ReadonlyMap<ContextScheme, ContextSchemeAdapter>;
   /** URI parse options — unified port passes manuscript default + extended schemes. */
   parseOptions?: ParseContextUriOptions;
+  commandTransaction?: ContextCommandTransaction;
 }
 
 interface Dispatch extends ContextTreeDispatch {
@@ -164,7 +166,7 @@ async function callAdapter<T>(
 
 export function createContextPortRouter(deps: ContextPortRouterDeps): ContextPort {
   const { adapters, parseOptions } = deps;
-  const treeMover = new ContextTreeMover();
+  const treeMover = new ContextTreeMover(deps.commandTransaction);
 
   async function resolve(uri: string): Promise<Result<Dispatch, ContextError>> {
     const parsed = parseContextUri(uri, parseOptions);

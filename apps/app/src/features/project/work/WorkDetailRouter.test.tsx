@@ -33,9 +33,9 @@ vi.mock("@/client/query/useWorkDrafts", () => ({
   useWorkDrafts: () => ({ status: "success", groups: [], refetch: vi.fn() }),
   activeWorkDraftGroups: (groups: unknown[]) => groups,
 }));
-vi.mock("@/client/query/useProjectContextTree", () => ({
-  useProjectContextTree: () => ({
-    tree: { kind: "dir", name: "", path: "", children: [] },
+vi.mock("@/client/query/useContextCatalog", () => ({
+  useContextCatalogView: () => ({
+    catalog: { root: { entryId: "root" }, files: () => [], children: () => [] },
     isError: false,
     refetch: vi.fn(),
   }),
@@ -160,6 +160,7 @@ function fixture(): Work {
     archivedAt: null,
     deletedAt: null,
     aiWriteMode: "draft",
+    entityRevision: "1",
     unpushedChangeCount: 0,
     lastActivityAt: "2026-08-15T00:00:00.000Z",
     createdAt: "2026-08-15T00:00:00.000Z",

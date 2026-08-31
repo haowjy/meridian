@@ -78,9 +78,7 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
         ? { status: "loading" }
         : { status: "ready", works: worksQuery.works ?? [] },
   );
-  const selectedWork =
-    worksQuery.works?.find(({ id }) => id === chosenWorkId) ??
-    (catalogWork.status === "ready" ? catalogWork.work : null);
+  const selectedWork = worksQuery.works?.find(({ id }) => id === chosenWorkId) ?? null;
   const handleModePendingChange = useCallback((pending: boolean) => setModePending(pending), []);
 
   const rowProps = {

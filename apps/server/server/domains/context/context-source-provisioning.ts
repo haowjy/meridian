@@ -10,12 +10,19 @@
 import type { Database } from "@meridian/database";
 import { contextSources, projects } from "@meridian/database/schema";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { currentDrizzleDb, runInDrizzleTransaction } from "../../shared/drizzle-transaction.js";
+import {
+  currentDrizzleDb,
+  getDrizzleTransactionLocal,
+  runAfterDrizzleCommit,
+  runInDrizzleTransaction,
+  setDrizzleTransactionLocal,
+} from "../../shared/drizzle-transaction.js";
 import { requireLockedActiveWork } from "../../shared/work-lifecycle-lock.js";
 import {
   type ContextDocumentMembershipObserver,
   DrizzleContextDocumentStore,
 } from "./adapters/context-fs/drizzle-store.js";
+import type { ContextCatalogMutationPort } from "./ports/context-catalog.js";
 import type {
   ContextDocumentStore,
   CreateBinaryDocumentInput,
@@ -171,6 +178,8 @@ async function ensureWorkContextSource(
 
 class SourceResolvedContextDocumentStore implements ContextDocumentStore {
   private sourceId: Promise<string> | null = null;
+  private readonly transactionSourceIdKey = {};
+  private readonly transactionExistingSourceIdKey = {};
 
   constructor(
     private readonly db: Database,
@@ -178,33 +187,39 @@ class SourceResolvedContextDocumentStore implements ContextDocumentStore {
     private readonly findSourceId: () => Promise<string | null>,
     private readonly membershipObserver?: ContextDocumentMembershipObserver,
     private readonly workId?: string,
+    private readonly catalogMutations?: ContextCatalogMutationPort,
   ) {}
 
   private async mutate<T>(operation: (store: DrizzleContextDocumentStore) => Promise<T>) {
     const workId = this.workId;
-    try {
-      if (!workId) return await operation(await this.sourceStore());
-      return await runInDrizzleTransaction(this.db, async () => {
-        await requireLockedActiveWork(this.db, workId);
-        return operation(await this.sourceStore());
-      });
-    } catch (cause) {
-      // A source first provisioned inside an ambient transaction may have rolled
-      // back with the mutation. Force the next attempt to re-resolve it.
-      this.sourceId = null;
-      throw cause;
-    }
+    return runInDrizzleTransaction(this.db, async () => {
+      if (workId) await requireLockedActiveWork(this.db, workId);
+      return operation(await this.sourceStore());
+    });
   }
 
   private async sourceStore(): Promise<DrizzleContextDocumentStore> {
-    this.sourceId ??= this.ensureSourceId().catch((cause) => {
-      this.sourceId = null;
-      throw cause;
+    const sourceId = await runInDrizzleTransaction(this.db, async () => {
+      if (this.sourceId) return this.sourceId;
+      let pending = getDrizzleTransactionLocal<Promise<string>>(this.transactionSourceIdKey);
+      if (!pending) {
+        pending = (async () => {
+          const resolved = await this.ensureSourceId();
+          await this.catalogMutations?.refreshSources([resolved]);
+          return resolved;
+        })();
+        setDrizzleTransactionLocal(this.transactionSourceIdKey, pending);
+        runAfterDrizzleCommit(() => {
+          this.sourceId ??= pending ?? null;
+        });
+      }
+      return pending;
     });
     return new DrizzleContextDocumentStore({
       db: this.db,
-      contextSourceId: await this.sourceId,
+      contextSourceId: sourceId,
       membershipObserver: this.membershipObserver,
+      catalogMutations: this.catalogMutations,
     });
   }
 
@@ -254,24 +269,33 @@ class SourceResolvedContextDocumentStore implements ContextDocumentStore {
 
   async existingContextSourceId(): Promise<string | null> {
     if (this.sourceId) return this.sourceId;
-    const sourceId = await this.findSourceId();
-    if (sourceId) this.sourceId = Promise.resolve(sourceId);
-    return sourceId;
+    return runInDrizzleTransaction(this.db, async () => {
+      const pendingProvision = getDrizzleTransactionLocal<Promise<string>>(
+        this.transactionSourceIdKey,
+      );
+      if (pendingProvision) return pendingProvision;
+      let pending = getDrizzleTransactionLocal<Promise<string | null>>(
+        this.transactionExistingSourceIdKey,
+      );
+      if (!pending) {
+        pending = this.findSourceId();
+        setDrizzleTransactionLocal(this.transactionExistingSourceIdKey, pending);
+        runAfterDrizzleCommit(async () => {
+          const sourceId = await pending;
+          if (sourceId) this.sourceId ??= Promise.resolve(sourceId);
+        });
+      }
+      return pending;
+    });
   }
 
   async transaction<T>(operation: () => Promise<T>) {
     const workId = this.workId;
-    try {
-      if (!workId) return await (await this.sourceStore()).transaction(operation);
-      return await runInDrizzleTransaction(this.db, async () => {
-        await requireLockedActiveWork(this.db, workId);
-        await this.sourceStore();
-        return operation();
-      });
-    } catch (cause) {
-      this.sourceId = null;
-      throw cause;
-    }
+    return runInDrizzleTransaction(this.db, async () => {
+      if (workId) await requireLockedActiveWork(this.db, workId);
+      await this.sourceStore();
+      return operation();
+    });
   }
 
   async listFolders(parentId: string | null) {
@@ -289,12 +313,15 @@ export function createProjectContextDocumentStore(
   scheme: ProjectContextFsScheme | WorkScopedContextFsScheme,
   userId: string,
   membershipObserver?: ContextDocumentMembershipObserver,
+  catalogMutations?: ContextCatalogMutationPort,
 ): ContextDocumentStore {
   return new SourceResolvedContextDocumentStore(
     db,
     () => ensureProjectContextSource(db, projectId, scheme, userId),
     () => findProjectContextSource(db, projectId, scheme, userId),
     membershipObserver,
+    undefined,
+    catalogMutations,
   );
 }
 
@@ -303,6 +330,7 @@ export function createWorkContextDocumentStore(
   workId: string,
   scheme: WorkScopedContextFsScheme,
   membershipObserver?: ContextDocumentMembershipObserver,
+  catalogMutations?: ContextCatalogMutationPort,
 ): ContextDocumentStore {
   return new SourceResolvedContextDocumentStore(
     db,
@@ -310,5 +338,6 @@ export function createWorkContextDocumentStore(
     () => findWorkContextSource(db, workId, scheme),
     membershipObserver,
     workId,
+    catalogMutations,
   );
 }

@@ -39,7 +39,7 @@ import {
 } from "@/components/ui/dropdown-presentation";
 import { OverflowMenu } from "@/components/ui/overflow-menu";
 import { cn } from "@/lib/utils";
-import { useContextRemovalCoordinator } from "./ContextRemovalAccountProvider";
+import { useProjectContextAvailabilityCoordinator } from "./account-feature-context";
 import { contextTreeOverflowTriggerClassName } from "./context-row-geometry";
 
 // ─── Action types ────────────────────────────────────────────────────────────
@@ -256,7 +256,7 @@ export function useDeleteConfirmation({
   const [target, setTarget] = useState<DeleteTarget | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const mutation = useDeleteContextEntry(projectId, scheme);
-  const contextRemoval = useContextRemovalCoordinator();
+  const availability = useProjectContextAvailabilityCoordinator();
   const queryClient = useQueryClient();
 
   const requestDelete = useCallback(
@@ -275,13 +275,6 @@ export function useDeleteConfirmation({
     if (!target) return;
     setError(null);
     try {
-      const locator = { scheme, path: target.path, workId: target.workId };
-      const initiation = contextRemoval.captureDeleteInitiation(
-        projectId,
-        target.kind === "file"
-          ? { kind: "file", locator, documentId: target.documentId }
-          : { kind: "folder", locator },
-      );
       const result = await mutation.mutateAsync(
         target.kind === "file"
           ? {
@@ -291,15 +284,14 @@ export function useDeleteConfirmation({
             }
           : { path: target.path, workId: target.workId, expected: { kind: "folder" } },
       );
-      const admission = contextRemoval.acceptAcknowledgedDelete({
-        ...initiation,
-        cause: "acknowledged-delete",
-        confirmed: { status: "deleted", deletedDocumentIds: result.deletedDocumentIds },
+      await availability.acceptCommittedDelete({
+        projectId,
+        deletedDocumentIds: result.deletedDocumentIds,
+        generation: result.availabilityGeneration,
       });
-      if (admission.status === "rejected") throw new Error(admission.reason);
       setTarget(null);
       void queryClient.invalidateQueries({
-        queryKey: projectQueryKeys.contextTree(
+        queryKey: projectQueryKeys.contextCatalogView(
           projectId,
           scheme,
           isWorkScopedProjectContextScheme(scheme) ? target.workId : undefined,
@@ -309,7 +301,7 @@ export function useDeleteConfirmation({
       // Keep the target visible so the writer can refresh and retry.
       setError(cause instanceof Error ? cause : new Error("Context deletion failed"));
     }
-  }, [contextRemoval, projectId, queryClient, scheme, target, mutation]);
+  }, [availability, projectId, queryClient, scheme, target, mutation]);
 
   return {
     target,

@@ -5,6 +5,47 @@
 
 ## [Unreleased]
 
+- `apps/server`: fence exact-ID `user://` availability when its personal backing
+  project is deleted, preserve restore, validate Work catalog IDs before
+  authority lookup, and keep catalog replay limits explicit and bounded.
+- `apps/app`: route committed recursive-delete receipts through the canonical
+  generation-fenced availability batch so descendant tabs, routes, working-set
+  state, and document sessions settle atomically; remove the parallel
+  committed-delete authority hierarchy.
+
+- `apps/server`: conceal malformed foreign Context identities behind the same
+  project-final availability result as missing documents.
+- `apps/server`: read Work catalog authorization, lifecycle, revision, rows,
+  and pending counts from one repeatable-read snapshot.
+- `apps/app`: delete the unused Context catalog capability projection so the
+  server scheme policy remains the sole owner.
+- `apps/app`: retain account workspace teardown above authenticated route
+  boundaries, retry unfinished session and coordination close stages, and
+  withhold replacement accounts until the prior lifetime closes. Qualify account
+  declarations by the committed auth epoch and exact route account pair, and make
+  terminal reconciliation join retained room teardown before releasing lifecycle
+  authority.
+
+- `apps/app`: make document-session ownership exclusively lease-qualified, settle adopted local providers and lifetime leases in exact retryable stages before account close, fence local Untitled remint across every asynchronous lifecycle boundary, keep local persistence explicit, and remove the unfenced registry facade and unqualified persistence-key surface.
+- `apps/app`: atomically advance canonical Editor routes and working state for
+  project-final same-ID moves while preserving newer writer navigation and live
+  document sessions.
+
+- `apps/app`: make generation-bearing project-final availability commands the
+  sole remote terminal-removal boundary while preserving local Untitled tabs.
+
+- `database`, `contracts`, `apps/server`, `apps/app`: add the authoritative
+  Context metadata catalog with command-owned atomic metadata publication,
+  persisted tracked, custom, and binary classification, checkpoint-consistent
+  whole-commit replay, Work/no-Work authority,
+  authenticated snapshot/delta/children/stable-ID-or-URI lookup routes, and
+  lossy wake hints over the authenticated thread socket. React Query owns one
+  normalized stable-ID cache and one high-water acquisition drain shared by
+  direct-child tree rows, picker, and placement consumers. Catalog changes trigger
+  exact project-final rechecks; generation-bearing final commands remove stale
+  tabs, routes, and Yjs sessions by stable ID. Remove the recursive tree transport
+  and duplicate client owner.
+
 - `apps/app`: deepen the shared suggestion menu into a host-independent,
   generation-fenced and reentrancy-safe lifecycle with stable-row refresh
   selection, ordinary key actions, and a semantic host retreat lease that maps
@@ -42,8 +83,8 @@
   initiating target identity, admit exact removal effects before invalidation,
   and reconcile route continuity through account-scoped, Work-gated protocol state.
 
-- `contracts`, `apps/server`: acknowledge context deletion with the exact
-  committed document IDs while preserving empty-folder and non-recursive folder semantics.
+- `contracts`, `apps/server`: acknowledge file and recursive folder deletion with
+  the exact committed document IDs, including every populated-folder descendant.
 
 - `apps/server`: serialize concurrent authenticated-user provisioning so one
   WorkOS principal converges on one local account and cross-principal email
