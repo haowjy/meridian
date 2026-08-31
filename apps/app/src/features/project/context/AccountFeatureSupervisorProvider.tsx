@@ -1,23 +1,23 @@
-/** AuthKit bridge and root-owned presentation for the account feature supervisor. */
+/** Root-owned auth intent and presentation for the account feature supervisor. */
 import { Link } from "@tanstack/react-router";
-import { useAuth } from "@workos/authkit-tanstack-react-start/client";
 import { useContext, useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { AccountFeatureSupervisorContext } from "./account-feature-context";
 import { AccountFeatureSupervisor } from "./account-feature-supervisor";
 
 export function AccountFeatureSupervisorProvider({
+  authSubject,
   children,
   createSupervisor = () => new AccountFeatureSupervisor(),
 }: {
+  authSubject: string | null;
   children: React.ReactNode;
   createSupervisor?: () => AccountFeatureSupervisor;
 }) {
-  const { user, loading } = useAuth();
   const [supervisor] = useState(createSupervisor);
   useLayoutEffect(() => {
-    supervisor.setAuthIntent({ loading, subject: user?.id ?? null });
-  }, [supervisor, loading, user?.id]);
+    supervisor.setAuthIntent({ loading: false, subject: authSubject });
+  }, [supervisor, authSubject]);
   useEffect(() => {
     const retry = () => {
       if (supervisor.getSnapshot().kind === "close-failed") void supervisor.retry();

@@ -19,9 +19,6 @@ import {
   AccountFeatureSupervisor,
 } from "./account-feature-supervisor";
 
-const auth = vi.hoisted(() => ({ value: { user: { id: "subject-a" }, loading: false } }));
-vi.mock("@workos/authkit-tanstack-react-start/client", () => ({ useAuth: () => auth.value }));
-
 class RouteBoundary extends Component<
   { resetKey: number; children: React.ReactNode },
   { failed: boolean }
@@ -117,7 +114,6 @@ it("withholds descendants when a mounted route resolves a conflicting account", 
 });
 
 it("keeps one A obligation through route error, reset, and root retry", async () => {
-  auth.value = { user: { id: "subject-a" }, loading: false };
   const a = controlledLifetime("account-a");
   const created: string[] = [];
   const supervisor = new AccountFeatureSupervisor((accountId) => {
@@ -145,7 +141,6 @@ it("keeps one A obligation through route error, reset, and root retry", async ()
     const [failed, setFailed] = useState(false);
     const [resetKey, setResetKey] = useState(0);
     changeAccount = (subject, accountId) => {
-      auth.value = { user: { id: subject }, loading: false };
       setAccount({ subject, accountId });
     };
     failRoute = () => setFailed(true);
@@ -154,7 +149,10 @@ it("keeps one A obligation through route error, reset, and root retry", async ()
       setResetKey((value) => value + 1);
     };
     return (
-      <AccountFeatureSupervisorProvider createSupervisor={() => supervisor}>
+      <AccountFeatureSupervisorProvider
+        authSubject={account.subject}
+        createSupervisor={() => supervisor}
+      >
         <AccountFeatureRootBoundary>
           <Declaration subject={account.subject} accountId={account.accountId} />
           <RouteBoundary resetKey={resetKey}>
@@ -184,6 +182,33 @@ it("keeps one A obligation through route error, reset, and root retry", async ()
     a.attempts[1]?.resolve();
     await act(async () => Promise.resolve());
     expect(created).toEqual(["account-a", "account-b"]);
+  });
+});
+
+it("reveals the account composition when root auth resolves after navigation", async () => {
+  const supervisor = new AccountFeatureSupervisor((accountId) => compositionLifetime(accountId));
+  let resolveAuth!: () => void;
+
+  function Harness() {
+    const [subject, setSubject] = useState<string | null>(null);
+    resolveAuth = () => setSubject("subject-a");
+    return (
+      <AccountFeatureSupervisorProvider authSubject={subject} createSupervisor={() => supervisor}>
+        <AccountFeatureComposition
+          authSubject="subject-a"
+          accountId="account-a"
+          repairProjectCatalog={async () => undefined}
+        >
+          <p>Authenticated content</p>
+        </AccountFeatureComposition>
+      </AccountFeatureSupervisorProvider>
+    );
+  }
+
+  await withReactRoot(<Harness />, async () => {
+    expect(document.body.textContent).toContain("Preparing your workspace");
+    await act(async () => resolveAuth());
+    expect(document.body.textContent).toContain("Authenticated content");
   });
 });
 
