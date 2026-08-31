@@ -189,6 +189,11 @@ export function apiThreadMessagePath(threadId: string): string {
   return `${API_THREADS_PATH}/${threadId}/messages`;
 }
 
+/** Durable identity used to reconcile or explicitly retire one message admission. */
+export function apiThreadAdmissionPath(threadId: string, submissionId: string): string {
+  return `${API_THREADS_PATH}/${threadId}/admissions/${encodeURIComponent(submissionId)}`;
+}
+
 export function apiThreadCancelPath(threadId: string, turnId: string): string {
   return `${API_THREADS_PATH}/${threadId}/turns/${turnId}/cancel`;
 }

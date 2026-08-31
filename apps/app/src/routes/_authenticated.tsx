@@ -7,6 +7,7 @@ import { getAccountSettings } from "@/client/api/account-api";
 import { getAuthMe } from "@/client/api/auth-api";
 import { ssrApiRequestInit } from "@/client/api/ssr-api-request";
 import { MeridianCopilotProvider } from "@/client/copilot/MeridianCopilotProvider";
+import { FirstSendContinuityProvider } from "@/client/first-send-continuity";
 import { TransportProvider } from "@/client/providers/TransportProvider";
 import { AppQueryProvider } from "@/client/query/AppQueryProvider";
 import {
@@ -183,7 +184,9 @@ function AuthenticatedAccountProviderTree({
       repairProjectCatalog={repairProjectCatalog}
     >
       <DraftApplyRecoveryProvider accountId={user.userId}>
-        <AuthenticatedProviderTree now={now} pathname={pathname} user={user} />
+        <FirstSendContinuityProvider accountId={user.userId}>
+          <AuthenticatedProviderTree now={now} pathname={pathname} user={user} />
+        </FirstSendContinuityProvider>
       </DraftApplyRecoveryProvider>
     </AccountFeatureComposition>
   );

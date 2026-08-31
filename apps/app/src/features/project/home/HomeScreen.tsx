@@ -55,7 +55,7 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
   const movement = useHomeFavoriteMovement();
   const [now, setNow] = useState(Date.now());
   const [agentSlug, setAgentSlug] = useState(DEFAULT_AGENT_SLUG);
-  const [chosenWorkId, setChosenWorkId] = useState<string | null>(null);
+  const [chosenWorkId, setChosenWorkId] = useState<string | null | undefined>(undefined);
   const [modePending, setModePending] = useState(false);
   const [finePointer, setFinePointer] = useState(false);
 
@@ -80,7 +80,10 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
         ? { status: "loading" }
         : { status: "ready", works: worksQuery.works ?? [] },
   );
-  const selectedWork = worksQuery.works?.find(({ id }) => id === chosenWorkId) ?? null;
+  const initialWork =
+    worksQuery.works?.find(({ status }) => status === "active") ?? worksQuery.works?.[0] ?? null;
+  const effectiveWorkId = chosenWorkId === undefined ? (initialWork?.id ?? null) : chosenWorkId;
+  const selectedWork = worksQuery.works?.find(({ id }) => id === effectiveWorkId) ?? null;
   const referenceCatalog = useReferenceBrowserCatalog(
     projectId,
     selectedWork?.id,
@@ -109,35 +112,27 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
         });
     },
   };
-  const worksReady = worksQuery.status === "ready" && selectedWork !== null;
+  const worksReady = worksQuery.status === "ready";
   const submitDisabledReason = firstSend.busy
     ? t`Creating chat`
     : modePending
       ? t`Finishing write mode change`
       : worksQuery.status === "loading"
         ? t`Loading Work`
-        : !selectedWork
-          ? t`Choose a Work`
-          : firstSend.submitLocked
-            ? t`Finish the current chat attempt`
-            : undefined;
+        : firstSend.submitLocked
+          ? t`Finish the current chat attempt`
+          : undefined;
   const submit = async (envelope: import("@/components/app/composer").ComposerSubmitEnvelope) => {
-    const text = envelope.text;
-    const draftRevision = envelope.acceptedRevision;
-    if (!selectedWork || modePending)
+    if (modePending)
       return {
         kind: "rejected" as const,
         submissionId: envelope.submissionId,
         acceptedRevision: envelope.acceptedRevision,
       };
-    const accepted = await firstSend.submit(
-      text,
-      {
-        workId: selectedWork.id,
-        agentSlug,
-      },
-      draftRevision,
-    );
+    const accepted = await firstSend.submit(envelope, {
+      workId: selectedWork?.id ?? null,
+      agentSlug,
+    });
     return {
       kind: accepted ? ("accepted" as const) : ("rejected" as const),
       submissionId: envelope.submissionId,
@@ -199,7 +194,7 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
                       agentSlug={agentSlug}
                       disabled={firstSend.contextLocked}
                       onAgentChange={setAgentSlug}
-                      onWorkChange={(work) => setChosenWorkId(work.id)}
+                      onWorkChange={(work) => setChosenWorkId(work?.id ?? null)}
                       onRetryWorks={worksQuery.refetch}
                       onModePendingChange={handleModePendingChange}
                     />
@@ -228,8 +223,8 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
                   onRetry={() => {
                     if (firstSendError.action === "start_over") {
                       firstSend.startOver();
-                    } else if (selectedWork) {
-                      void firstSend.retry({ workId: selectedWork.id, agentSlug });
+                    } else {
+                      void firstSend.retry({ workId: selectedWork?.id ?? null, agentSlug });
                     }
                   }}
                 />
