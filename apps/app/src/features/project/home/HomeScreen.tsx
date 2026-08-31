@@ -112,7 +112,7 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
         });
     },
   };
-  const worksReady = worksQuery.status === "ready";
+  const worksExecutable = catalogWork.status === "ready" || catalogWork.status === "empty";
   const submitDisabledReason = firstSend.busy
     ? t`Creating chat`
     : modePending
@@ -175,7 +175,7 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
                       : { kind: "none", projectId }
                   }
                   onDraftChange={firstSend.updateDraft}
-                  submitDisabled={!worksReady || modePending || firstSend.submitLocked}
+                  submitDisabled={!worksExecutable || modePending || firstSend.submitLocked}
                   submitDisabledReason={submitDisabledReason}
                   busy={firstSend.busy}
                   toolbarLeft={

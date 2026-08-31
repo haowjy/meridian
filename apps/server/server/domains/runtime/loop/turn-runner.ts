@@ -201,19 +201,13 @@ export function createTurnRunner(deps: {
         const resumeAfterSeqBeforeStart = (await deps.hub.headSeq(input.threadId)).toString();
         await deps.workContextDelivery.beforeTurn(input.threadId);
 
-        const predictedSnapshotFloorNextSeq = input.admissionIdentity
-          ? (
-              (await deps.hub.headSeq(input.threadId)) + BigInt((input.userBlocks?.length ?? 1) + 3)
-            ).toString()
-          : null;
-
         const handle = await deps.orchestrator.runTurn({
           threadId: input.threadId,
           userText: input.userText,
           userBlocks: input.userBlocks,
           signal: controller.signal,
           onStartPersisted: input.admissionIdentity
-            ? ({ userTurnId, assistantTurnId }) =>
+            ? async ({ userTurnId, assistantTurnId }) =>
                 input.admissionIdentity?.onAccepted({
                   kind: "accepted",
                   threadId: input.threadId,
@@ -221,7 +215,7 @@ export function createTurnRunner(deps: {
                   userTurnId,
                   assistantTurnId,
                   resumeAfterSeq: resumeAfterSeqBeforeStart,
-                  snapshotFloorNextSeq: predictedSnapshotFloorNextSeq ?? "",
+                  snapshotFloorNextSeq: ((await deps.hub.headSeq(input.threadId)) + 1n).toString(),
                 }) ?? Promise.resolve()
             : undefined,
         });
@@ -230,12 +224,6 @@ export function createTurnRunner(deps: {
         // append until the background for-await below begins driving it. Capture
         // the post-setup head now so the floor exactly covers the persisted turns.
         const snapshotFloorNextSeq = ((await deps.hub.headSeq(input.threadId)) + 1n).toString();
-        if (
-          predictedSnapshotFloorNextSeq &&
-          snapshotFloorNextSeq !== predictedSnapshotFloorNextSeq
-        ) {
-          throw new Error("Admission cursor prediction diverged from persisted turn-start events");
-        }
 
         running.set(input.threadId, {
           controller,

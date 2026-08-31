@@ -21,6 +21,8 @@ if (!RUN) {
     const { createDrizzleEventJournalWriter } = await import(
       "../../threads/adapters/drizzle/event-writer.js"
     );
+    const { createThreadEventHub } = await import("../../threads/thread-event-hub.js");
+    const { createNoopEventSink } = await import("../../observability/index.js");
     const { createDrizzleUploadIntakeRepository } = await import(
       "../../context/uploads/drizzle-upload-intake.js"
     );
@@ -111,11 +113,15 @@ if (!RUN) {
         amountMillicredits: "1000000",
         reason: "admission transaction proof",
       });
-      const eventWriter = createDrizzleEventJournalWriter(firstDb);
       const eventReader = createDrizzleEventJournalReader(firstDb);
+      const hub = createThreadEventHub({
+        journalWriter: createDrizzleEventJournalWriter(firstDb),
+        journalReader: eventReader,
+        eventSink: createNoopEventSink(),
+      });
       const deps = createTestOrchestratorDeps({
         repos,
-        eventWriter,
+        eventWriter: hub,
         creditLedger,
         gateway: {
           getDefaultModel() {
@@ -131,7 +137,7 @@ if (!RUN) {
       });
       const runner = createTurnRunner({
         orchestrator: createOrchestrator(deps),
-        hub: { headSeq: (threadId: never) => eventReader.headSeq(threadId) } as never,
+        hub,
         repos: { turns: repos.turns },
         eventSink: deps.eventSink,
         workContextDelivery: {
@@ -197,7 +203,28 @@ if (!RUN) {
       });
     }
 
-    it("persists ordered occurrences and rolls the whole accepted settlement back together", async () => {
+    it("persists the actual sparse cursor for a one-text admission and replays it", async () => {
+      const service = await composeAdmission({ threadId: THREAD, documentId: DOCUMENT, uri: "" });
+      const request = {
+        actorUserId: USER as never,
+        threadId: THREAD,
+        submissionId: "one-text",
+        text: "Opening",
+        blocks: [{ type: "text" as const, text: "Opening" }],
+        references: [],
+      };
+
+      await expect(service.admit(request)).resolves.toMatchObject({
+        kind: "accepted",
+        snapshotFloorNextSeq: "3001",
+      });
+      await expect(service.admit(request)).resolves.toMatchObject({
+        kind: "already-accepted",
+        snapshotFloorNextSeq: "3001",
+      });
+    });
+
+    it("persists ordered occurrences, replays their actual sparse cursor, and rolls the whole accepted settlement back together", async () => {
       await firstDb.insert(schema.threads).values({
         id: ROLLBACK_THREAD,
         projectId: PROJECT,
@@ -241,7 +268,7 @@ if (!RUN) {
       const service = await composeAdmission({ threadId: THREAD, documentId: DOCUMENT, uri });
       const request = admission(THREAD, DOCUMENT, uri);
       const accepted = await service.admit(request);
-      expect(accepted).toMatchObject({ kind: "accepted" });
+      expect(accepted).toMatchObject({ kind: "accepted", snapshotFloorNextSeq: "8001" });
       if (accepted.kind !== "accepted" && accepted.kind !== "already-accepted") {
         throw new Error("expected accepted admission");
       }
@@ -278,7 +305,10 @@ if (!RUN) {
         },
       });
       expect(persisted.filter((block) => block.blockType === "image")).toHaveLength(2);
-      await expect(service.admit(request)).resolves.toMatchObject({ kind: "already-accepted" });
+      await expect(service.admit(request)).resolves.toMatchObject({
+        kind: "already-accepted",
+        snapshotFloorNextSeq: "8001",
+      });
       await expect(
         service.admit({
           ...request,

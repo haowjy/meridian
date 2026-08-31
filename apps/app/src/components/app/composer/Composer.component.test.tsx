@@ -289,6 +289,52 @@ describe("Composer upload deletion", () => {
     expect(intake.mock.calls[1]?.[0].intakeId).toBe(intake.mock.calls[0]?.[0].intakeId);
     expect(ref.current?.snapshot().ownedUploads[0]).toMatchObject({ locationRevision: "r2" });
   });
+
+  it("enables prose with a finalized No Work upload only after its intake settles", async () => {
+    let resolveIntake!: (value: {
+      documentId: string;
+      uri: `uploads://${string}`;
+      fileType: "image";
+      locationRevision: string;
+    }) => void;
+    const intake = vi.fn(
+      () =>
+        new Promise<{
+          documentId: string;
+          uri: `uploads://${string}`;
+          fileType: "image";
+          locationRevision: string;
+        }>((resolve) => {
+          resolveIntake = resolve;
+        }),
+    );
+    const ref = await mount((e) => outcome(e, "accepted"), {
+      uploadPort: { intake, deleteDraft: vi.fn() },
+      uploadScope: { kind: "none", projectId: "p" },
+    });
+    await act(async () => ref.current?.restoreSnapshot(textSnapshot("Opening", 1)));
+    const input = host.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File(["map"], "map.png", { type: "image/png" })],
+    });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    const sendButton = host.querySelector('button[aria-label="Send message"]') as HTMLButtonElement;
+    expect(sendButton.disabled).toBe(true);
+    expect(intake).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: { kind: "none", projectId: "p" } }),
+    );
+
+    await act(async () =>
+      resolveIntake({
+        documentId: "01900000-0000-7000-8000-000000000003",
+        uri: "uploads://@/map.png",
+        fileType: "image",
+        locationRevision: "r3",
+      }),
+    );
+    expect(sendButton.disabled).toBe(false);
+  });
 });
 
 describe("Composer @ references", () => {

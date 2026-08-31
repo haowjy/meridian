@@ -12,7 +12,7 @@ vi.mock("@lingui/react/macro", () => ({
 }));
 vi.mock("@/client/query/useHomeChatFeed", () => ({ useHomeChatFeed: () => ({}) }));
 vi.mock("@/client/query/useWorks", () => ({
-  useWorks: () => ({ status: "ready", works: [], refetch: vi.fn() }),
+  useWorks: () => ({ status: "empty", works: [], refetch: vi.fn() }),
 }));
 vi.mock("@/client/stores", () => ({
   useThreadActions: () => ({}),
