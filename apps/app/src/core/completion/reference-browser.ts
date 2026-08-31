@@ -18,11 +18,15 @@ import {
   rankReferenceRows,
   referenceAuthorityIndex,
 } from "./reference-policy";
+import {
+  createSuggestionDriverCore,
+  type SuggestionDriver,
+  type SuggestionTriggerRange,
+} from "./suggestion-driver";
 import type {
+  InternalSuggestionGeneration,
+  InternalSuggestionSession,
   SuggestionChoiceAction,
-  SuggestionGeneration,
-  SuggestionLifecycle,
-  SuggestionSession,
 } from "./suggestion-menu-store";
 
 export type ReferenceCatalogPort = {
@@ -56,34 +60,28 @@ export type ReferenceBrowserState =
       rows: readonly ReferenceRow[];
     });
 
-export type OpenReferenceBrowser = {
+export type ReferenceBrowserOpenContext = Readonly<{
   warmScopes: readonly CatalogScope[];
-  query: string;
-  triggerRange: { from: number; to: number };
-  completedPrefix?: string;
   referenceKinds?: readonly ReferenceKind[];
-};
-
-export type ReferenceBrowserController = {
-  open: (input: OpenReferenceBrowser) => SuggestionGeneration;
-  setQuery: (query: string) => boolean;
+}>;
+export type ReferenceBrowserController = SuggestionDriver<
+  never,
+  ReferenceRow,
+  ReferenceBrowserMeta
+> & {
   refresh: () => boolean;
-  backtrack: () => boolean;
-  dismiss: () => void;
-  close: () => boolean;
   state: () => ReferenceBrowserState;
 };
-
 export type ReferenceBrowserOptions = {
   catalog: ReferenceCatalogPort;
-  lifecycle: SuggestionLifecycle<ReferenceRow, ReferenceBrowserMeta>;
-  label: string;
-  anchorRect: () => DOMRect | null;
+  openContext: () => ReferenceBrowserOpenContext | null;
+  label: () => string;
   priors?: ReferenceRankingPriors;
-  onSelect: (row: Extract<ReferenceRow, { kind: "file" }>) => void;
-  /** The host changes only its trigger/query text; F2 performs no document insertion. */
-  onCompleteSegment: (prefix: string) => void;
-  onDismiss: () => void;
+  onSelect: (input: {
+    row: Extract<ReferenceRow, { kind: "file" }>;
+    triggerRange: SuggestionTriggerRange;
+  }) => void;
+  onCompleteSegment: (input: { prefix: string; triggerRange: SuggestionTriggerRange }) => void;
 };
 
 type RootLocation = {
@@ -107,7 +105,8 @@ type BrowsableCatalogEntry = Extract<CatalogEntry, { kind: "source" | "folder" |
 export function createReferenceBrowserController(
   options: ReferenceBrowserOptions,
 ): ReferenceBrowserController {
-  let identity: SuggestionGeneration | null = null;
+  const { menu, lifecycle } = createSuggestionDriverCore<ReferenceRow, ReferenceBrowserMeta>();
+  let identity: InternalSuggestionGeneration | null = null;
   let location: Location | null = null;
   let history: Location[] = [];
   let query = "";
@@ -117,6 +116,7 @@ export function createReferenceBrowserController(
   let incomplete = false;
   let acquisition: AbortController | null = null;
   let settled = false;
+  let awaitingSegmentEcho = false;
   let referenceKinds: readonly ReferenceKind[] | undefined;
 
   const authorities = (): ReferenceAuthorityIndex => {
@@ -144,12 +144,12 @@ export function createReferenceBrowserController(
     incomplete,
   });
 
-  const session = (): SuggestionSession<ReferenceRow, ReferenceBrowserMeta> => ({
+  const session = (): InternalSuggestionSession<ReferenceRow, ReferenceBrowserMeta> => ({
     items: rows,
     rowId: (row) => row.rowId,
     query,
-    anchorRect: options.anchorRect,
-    label: options.label,
+    anchorRect,
+    label: options.label(),
     meta: meta(),
     choose: chooseRow,
     backtrack,
@@ -167,19 +167,19 @@ export function createReferenceBrowserController(
   };
 
   const publish = (
-    candidate: SuggestionGeneration,
+    candidate: InternalSuggestionGeneration,
     selection: "reset" | "preserve-active",
     override?: CatalogCacheView,
   ): boolean => {
     rows = project(override);
-    return options.lifecycle.update(candidate, session(), selection);
+    return lifecycle.update(candidate, session(), selection);
   };
 
-  const advance = (): SuggestionGeneration | null => {
+  const advance = (): InternalSuggestionGeneration | null => {
     acquisition?.abort();
     acquisition = null;
     if (!identity) return null;
-    identity = options.lifecycle.nextGeneration(identity.sessionId);
+    identity = lifecycle.nextGeneration(identity.sessionId);
     return identity;
   };
 
@@ -216,26 +216,18 @@ export function createReferenceBrowserController(
 
   function chooseRow(row: ReferenceRow, action: SuggestionChoiceAction): void {
     if (row.kind !== "file") {
+      void navigate(row.action);
       if (action === "tab") {
         completedPrefix = row.action.prefix;
-        options.onCompleteSegment(row.action.prefix);
+        awaitingSegmentEcho = true;
+        options.onCompleteSegment({ prefix: row.action.prefix, triggerRange });
       }
-      void navigate(row.action);
       return;
     }
     if (settled || !identity) return;
     settled = true;
-    const selectedIdentity = identity;
-    try {
-      options.onSelect(row);
-    } finally {
-      acquisition?.abort();
-      options.lifecycle.close(selectedIdentity);
-      identity = null;
-      location = null;
-      history = [];
-      rows = [];
-    }
+    options.onSelect({ row, triggerRange });
+    requestExit?.();
   }
 
   function backtrack(): boolean {
@@ -254,36 +246,60 @@ export function createReferenceBrowserController(
   function dismiss(): void {
     if (!identity || settled) return;
     settled = true;
-    const dismissedIdentity = identity;
-    acquisition?.abort();
-    options.lifecycle.close(dismissedIdentity);
-    identity = null;
-    location = null;
-    history = [];
-    rows = [];
-    options.onDismiss();
+    requestExit?.();
   }
 
+  let requestExit: (() => void) | null = null;
+  let anchorRect: () => DOMRect | null = () => null;
+  let lastText = "";
   return {
-    open(input) {
+    menu,
+    start(frame) {
+      const context = options.openContext();
+      if (!context) return frame.requestExit();
       acquisition?.abort();
-      location = { kind: "root", warmScopes: input.warmScopes };
+      requestExit = frame.requestExit;
+      anchorRect = frame.anchorRect;
+      lastText = frame.text;
+      location = { kind: "root", warmScopes: context.warmScopes };
       history = [];
-      query = input.query;
-      triggerRange = input.triggerRange;
-      completedPrefix = input.completedPrefix ?? "";
-      referenceKinds = input.referenceKinds;
-      incomplete = input.warmScopes.some((scope) => options.catalog.read(scope) === null);
+      query = frame.query;
+      triggerRange = frame.triggerRange;
+      completedPrefix = "";
+      referenceKinds = context.referenceKinds;
+      incomplete = context.warmScopes.some((scope) => options.catalog.read(scope) === null);
       settled = false;
+      awaitingSegmentEcho = false;
       rows = project();
-      identity = options.lifecycle.open(session());
-      return identity;
+      identity = lifecycle.open(session());
     },
-    setQuery(nextQuery) {
-      if (!identity) return false;
-      query = nextQuery;
+    update(frame) {
+      if (!identity) return;
+      requestExit = frame.requestExit;
+      anchorRect = frame.anchorRect;
+      triggerRange = frame.triggerRange;
+      if (frame.text === lastText) return;
+      lastText = frame.text;
+      if (awaitingSegmentEcho) {
+        awaitingSegmentEcho = false;
+        return;
+      }
+      query = frame.query;
       const candidate = advance();
-      return candidate ? publish(candidate, "reset") : false;
+      if (candidate) publish(candidate, "reset");
+    },
+    exit() {
+      acquisition?.abort();
+      acquisition = null;
+      requestExit = null;
+      const closing = identity;
+      identity = null;
+      location = null;
+      history = [];
+      rows = [];
+      settled = true;
+      awaitingSegmentEcho = false;
+      if (closing) lifecycle.close(closing);
     },
     refresh() {
       if (!identity) return false;
@@ -292,20 +308,6 @@ export function createReferenceBrowserController(
           ? location.warmScopes.some((scope) => options.catalog.read(scope) === null)
           : incomplete;
       return publish(identity, "preserve-active");
-    },
-    backtrack,
-    dismiss,
-    close() {
-      if (!identity) return false;
-      acquisition?.abort();
-      const closed = options.lifecycle.close(identity);
-      if (closed) {
-        identity = null;
-        location = null;
-        history = [];
-        rows = [];
-      }
-      return closed;
     },
     state() {
       if (!location) return { kind: "closed" };

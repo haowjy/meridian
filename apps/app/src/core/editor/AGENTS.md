@@ -88,7 +88,11 @@ change-trail events, not manuscript content.
   lifecycle. The presentation-neutral half — the generation-fenced suggestion
   lifecycle and the document catalog's ranking — sits in
   [`../completion/`](../completion/AGENTS.md) rather than here, because another
-  host must not import the editor to complete a reference. The TipTap adapter
+  host must not import the editor to complete a reference. Each lane spec
+  creates one `SuggestionDriver`; extension storage owns that driver, while the
+  TipTap transport forwards frames and owns only the plugin
+  and semantic host lease. Session identity and generation stay private behind
+  the driver. The TipTap adapter
   sees interaction only through its injected `SuggestionHost`; the editor
   adapter contributes ordinary keys to Chrome's keymap and semantic retreat to
   Chrome's one Escape chain under one lease. Composer can place the same retreat

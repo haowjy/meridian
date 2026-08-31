@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createSuggestionLifecycle, type SuggestionSession } from "./suggestion-menu-store";
+import {
+  createInternalSuggestionLifecycle,
+  type InternalSuggestionSession,
+} from "./suggestion-menu-store";
 
 type Row = { id: string; blocked?: boolean; label?: string };
 const ROWS: Row[] = [
@@ -13,8 +16,8 @@ const choosableRow = (item: Row) => item.blocked !== true;
 
 function session(
   items: readonly Row[],
-  overrides: Partial<SuggestionSession<Row>> = {},
-): SuggestionSession<Row> {
+  overrides: Partial<InternalSuggestionSession<Row>> = {},
+): InternalSuggestionSession<Row> {
   return {
     items,
     rowId: (row) => row.id,
@@ -29,7 +32,7 @@ function session(
 }
 
 function nextGeneration(
-  lifecycle: ReturnType<typeof createSuggestionLifecycle<Row>>["lifecycle"],
+  lifecycle: ReturnType<typeof createInternalSuggestionLifecycle<Row>>["lifecycle"],
   sessionId: string,
 ) {
   const generation = lifecycle.nextGeneration(sessionId);
@@ -40,7 +43,7 @@ function nextGeneration(
 describe("suggestion lifecycle", () => {
   it("publishes open, accepted update, and close through one callback boundary", () => {
     const callbacks = { open: vi.fn(), update: vi.fn(), close: vi.fn() };
-    const { menu, lifecycle } = createSuggestionLifecycle<Row>(callbacks);
+    const { menu, lifecycle } = createInternalSuggestionLifecycle<Row>(callbacks);
     const identity = lifecycle.open(session(ROWS));
     const generation = nextGeneration(lifecycle, identity.sessionId);
 
@@ -58,7 +61,7 @@ describe("suggestion lifecycle", () => {
   });
 
   it("resets selection for a query update but preserves stable identity on refresh", () => {
-    const { menu, lifecycle } = createSuggestionLifecycle<Row>();
+    const { menu, lifecycle } = createInternalSuggestionLifecycle<Row>();
     const opened = lifecycle.open(session([{ id: "a" }, { id: "b" }, { id: "c" }]));
     menu.setActiveId("b");
 
@@ -81,7 +84,7 @@ describe("suggestion lifecycle", () => {
   });
 
   it("falls back to the first choosable row when a preserved row disappears", () => {
-    const { menu, lifecycle } = createSuggestionLifecycle<Row>();
+    const { menu, lifecycle } = createInternalSuggestionLifecycle<Row>();
     const opened = lifecycle.open(session([{ id: "a" }, { id: "b" }]));
     menu.setActiveId("b");
     const generation = nextGeneration(lifecycle, opened.sessionId);
@@ -94,7 +97,7 @@ describe("suggestion lifecycle", () => {
   });
 
   it("discards old generations and old sessions without publishing", () => {
-    const { menu, lifecycle } = createSuggestionLifecycle<Row>();
+    const { menu, lifecycle } = createInternalSuggestionLifecycle<Row>();
     const first = lifecycle.open(session([{ id: "first" }]));
     const staleGeneration = nextGeneration(lifecycle, first.sessionId);
     const currentGeneration = nextGeneration(lifecycle, first.sessionId);
@@ -115,7 +118,7 @@ describe("suggestion lifecycle", () => {
   });
 
   it("refuses an older generation of the current session from closing it", () => {
-    const { menu, lifecycle } = createSuggestionLifecycle<Row>();
+    const { menu, lifecycle } = createInternalSuggestionLifecycle<Row>();
     const opened = lifecycle.open(session([{ id: "current" }]));
     const stale = nextGeneration(lifecycle, opened.sessionId);
     const current = nextGeneration(lifecycle, opened.sessionId);
@@ -129,8 +132,8 @@ describe("suggestion lifecycle", () => {
   it("finishes an open event before a callback's reentrant open", () => {
     const events: string[] = [];
     let innerSessionId = "";
-    let lifecycle!: ReturnType<typeof createSuggestionLifecycle<Row>>["lifecycle"];
-    const created = createSuggestionLifecycle<Row>({
+    let lifecycle!: ReturnType<typeof createInternalSuggestionLifecycle<Row>>["lifecycle"];
+    const created = createInternalSuggestionLifecycle<Row>({
       open: (identity, published) => {
         events.push(`callback:${identity.sessionId}:${published.activeId}`);
         if (published.activeId === "outer") {
@@ -157,7 +160,7 @@ describe("suggestion lifecycle", () => {
 
   it("finishes an update event before a subscriber's reentrant close", () => {
     const callbacks = { update: vi.fn(), close: vi.fn() };
-    const { menu, lifecycle } = createSuggestionLifecycle<Row>(callbacks);
+    const { menu, lifecycle } = createInternalSuggestionLifecycle<Row>(callbacks);
     const opened = lifecycle.open(session([{ id: "before" }]));
     const current = nextGeneration(lifecycle, opened.sessionId);
     const publications: string[] = [];
@@ -180,7 +183,7 @@ describe("suggestion lifecycle", () => {
 describe("menu movement and choice", () => {
   it("steps over refusing rows and chooses by the active stable identity", () => {
     const choose = vi.fn();
-    const { menu, lifecycle } = createSuggestionLifecycle<Row>();
+    const { menu, lifecycle } = createInternalSuggestionLifecycle<Row>();
     lifecycle.open(session(ROWS, { choose, choosable: choosableRow }));
 
     expect(menu.snapshot()).toMatchObject({ activeId: "quote", activeIndex: 1 });
@@ -193,7 +196,7 @@ describe("menu movement and choice", () => {
   it("supports edge movement, distinct choice actions, and Escape backtracking", () => {
     const choose = vi.fn();
     const backtrack = vi.fn(() => true);
-    const { menu, lifecycle } = createSuggestionLifecycle<Row>();
+    const { menu, lifecycle } = createInternalSuggestionLifecycle<Row>();
     lifecycle.open(session(ROWS, { choose, choosable: choosableRow, backtrack }));
 
     expect(menu.moveTo("last")).toBe(true);
@@ -207,7 +210,7 @@ describe("menu movement and choice", () => {
   });
 
   it("hands keys back when every visible row refuses", () => {
-    const { menu, lifecycle } = createSuggestionLifecycle<Row>();
+    const { menu, lifecycle } = createInternalSuggestionLifecycle<Row>();
     lifecycle.open(session([{ id: "heading", blocked: true }], { choosable: choosableRow }));
     expect(menu.snapshot()).toMatchObject({ open: true, activeId: null, activeIndex: -1 });
     expect(menu.move(1)).toBe(false);

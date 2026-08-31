@@ -22,7 +22,11 @@ import {
   type WikilinkMenuItem,
 } from "@/core/completion";
 import { autoClosedRunLength } from "../auto-pair";
-import { createSuggestionLane, type SuggestionLaneOptions } from "../suggestion";
+import {
+  createSuggestionLane,
+  defaultSuggestionLaneDriver,
+  type SuggestionLaneOptions,
+} from "../suggestion";
 import { insertWikilink } from "./wikilink-insertion";
 import { allowsWikilinkTrigger } from "./wikilink-trigger";
 
@@ -34,6 +38,7 @@ const wikilinkLane = createSuggestionLane<WikilinkCatalog, WikilinkMenuItem>({
   name: "wikilinkSuggestion",
   char: "[[",
   allowSpaces: true,
+  driver: defaultSuggestionLaneDriver,
   keymapId: "wikilink-menu",
   label: (catalog) => catalog.label,
   allows: allowsWikilinkTrigger,
