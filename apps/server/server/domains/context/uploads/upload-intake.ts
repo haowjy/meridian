@@ -67,6 +67,7 @@ export interface UploadIntakeRepository {
   transaction<T>(operation: () => Promise<T>): Promise<T>;
   markObjectStored(projectId: string, intakeId: string, storageUrl: string): Promise<void>;
   resetObjectStored(projectId: string, intakeId: string): Promise<void>;
+  lockForFinalize(projectId: string, intakeId: string): Promise<UploadReservation>;
   finalize(projectId: string, intakeId: string): Promise<UploadReservation>;
   deleteDraft(
     input: DeleteDraftUploadInput,
@@ -254,12 +255,14 @@ export function createUploadIntake(deps: {
 
       try {
         const finalized = await deps.repository.transaction(async () => {
+          const current = await deps.repository.lockForFinalize(raw.owner.projectId, raw.intakeId);
+          if (current.state === "finalized") return current;
           const persisted = await deps.content.persist({
-            reservation,
+            reservation: current,
             actorUserId: raw.actorUserId,
             mimeType,
             bytes: raw.bytes,
-            storageUrl,
+            storageUrl: current.storageUrl,
           });
           if (!persisted.ok) throw Object.assign(new Error("upload persistence failed"), persisted);
           return deps.repository.finalize(raw.owner.projectId, raw.intakeId);

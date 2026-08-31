@@ -978,8 +978,8 @@ msgid "Couldn't load this result."
 msgstr ""
 
 #: src/features/project/shell/ContextSidebar.tsx
-msgid "Couldn't load uploads."
-msgstr ""
+#~ msgid "Couldn't load uploads."
+#~ msgstr ""
 
 #: src/components/app/work-composer-controls/WorkPickerPanel.tsx
 msgid "Couldn't load Work."
@@ -1833,8 +1833,8 @@ msgid "Loading signed image URL…"
 msgstr ""
 
 #: src/features/project/shell/ContextSidebar.tsx
-msgid "Loading uploads…"
-msgstr ""
+#~ msgid "Loading uploads…"
+#~ msgstr ""
 
 #: src/features/project/context/ContextTreePanel.tsx
 #: src/features/project/home/HomeScreen.tsx
@@ -2104,8 +2104,8 @@ msgid "No fields required; confirm to continue."
 msgstr ""
 
 #: src/features/project/shell/ContextSidebar.tsx
-msgid "No files uploaded yet."
-msgstr ""
+#~ msgid "No files uploaded yet."
+#~ msgstr ""
 
 #: src/features/project/work/WorkCard.tsx
 msgid "No goal yet"
@@ -2225,8 +2225,8 @@ msgid "Open {title}"
 msgstr ""
 
 #: src/features/project/shell/ContextSidebar.tsx
-msgid "Open a chat to see its uploads."
-msgstr ""
+#~ msgid "Open a chat to see its uploads."
+#~ msgstr ""
 
 #: src/features/project/shell/ContextSidebar.tsx
 msgid "Open a chat to see what the AI referenced."
@@ -3468,7 +3468,6 @@ msgid "Uploading elsewhere…"
 msgstr ""
 
 #: src/features/project/context/context-schemes.ts
-#: src/features/project/shell/ContextSidebar.tsx
 #: src/features/project/work/WorkDetailScreen.tsx
 msgid "Uploads"
 msgstr ""

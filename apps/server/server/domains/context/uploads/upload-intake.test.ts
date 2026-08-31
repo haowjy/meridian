@@ -48,6 +48,10 @@ function harness(owner: "work" | "none" = "none") {
     async resetObjectStored() {
       if (row) row = { ...row, state: "reserved", storageUrl: null };
     },
+    async lockForFinalize() {
+      if (!row) throw new Error("missing");
+      return row;
+    },
     async finalize() {
       if (!row) throw new Error("missing");
       row = { ...row, state: "finalized" };

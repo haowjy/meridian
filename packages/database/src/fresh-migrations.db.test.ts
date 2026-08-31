@@ -44,6 +44,7 @@ if (!enabled || !databaseUrl) {
         "0078_tricky_sharon_carter",
         "0079_free_whistler",
         "0080_reset_working_set_routes",
+        "0081_cultured_lethal_legion",
       ]);
       for (let index = 1; index < tail.length; index += 1) {
         expect(tail[index]?.when).toBeGreaterThan(tail[index - 1]?.when ?? 0);

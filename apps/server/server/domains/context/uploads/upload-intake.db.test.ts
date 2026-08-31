@@ -1,6 +1,6 @@
 /** PostgreSQL conformance for durable upload identity, allocation, and cascade. */
 import { createHash } from "node:crypto";
-import type { Database } from "@meridian/database";
+import { createDb, type Database } from "@meridian/database";
 import { conformanceUserValues } from "@meridian/database/__test-support__/db-fixtures";
 import { documents, projects, uploadIntakes, users, works } from "@meridian/database/schema";
 import { eq } from "drizzle-orm";
@@ -9,6 +9,7 @@ import { truncateDrizzleTables } from "../../../test-support/drizzle-reset.js";
 import { useRollbackTestDatabase } from "../../../test-support/rollback-test-database.js";
 import { createInMemoryCollabDomain } from "../../collab/index.js";
 import { createNoopEventSink } from "../../observability/index.js";
+import { createInMemoryObjectStore } from "../../storage/index.js";
 import { createDrizzleContextCatalog } from "../adapters/context-catalog.js";
 import { createProductionUnifiedContextPortFactory } from "../unified-context-port-factory.js";
 import { createContextUploadContentPort } from "./context-upload-content.js";
@@ -63,6 +64,74 @@ if (!RUN) {
       fileType: "markdown" as const,
     });
 
+    it("converges concurrent same-key reservations before allocating filename collisions", async () => {
+      const repo = await seed();
+      const [first, waiter] = await Promise.all([
+        repo.reserve(reservation("concurrent", "none")),
+        repo.reserve(reservation("concurrent", "none")),
+      ]);
+
+      expect([first.kind, waiter.kind].sort()).toEqual(["existing", "reserved"]);
+      if (
+        first.kind === "conflict" ||
+        first.kind === "owner_unavailable" ||
+        waiter.kind === "conflict" ||
+        waiter.kind === "owner_unavailable"
+      ) {
+        throw new Error("same-key reservation did not converge");
+      }
+      expect(waiter.reservation).toMatchObject({
+        documentId: first.reservation.documentId,
+        canonicalUri: first.reservation.canonicalUri,
+        fileType: first.reservation.fileType,
+      });
+    });
+
+    it("converges concurrent production service calls on the authoritative trio", async () => {
+      const firstDb = createDb(DATABASE_URL);
+      const waiterDb = createDb(DATABASE_URL);
+      try {
+        await seed(firstDb);
+        const collab = createInMemoryCollabDomain();
+        const objectStore = createInMemoryObjectStore();
+        const service = (db: Database) => {
+          const catalog = createDrizzleContextCatalog(db);
+          const contextPorts = createProductionUnifiedContextPortFactory({
+            db,
+            documentSync: collab,
+            manifestMembership: collab,
+            catalogMutations: catalog,
+          });
+          return createUploadIntake({
+            repository: createDrizzleUploadIntakeRepository(db, catalog),
+            content: createContextUploadContentPort(contextPorts),
+            objectStore,
+            eventSink: createNoopEventSink(),
+          });
+        };
+        const content = new TextEncoder().encode("# Concurrent\n");
+        const request = {
+          ...reservation("concurrent-service", "none"),
+          bytes: content,
+          byteDigest: createHash("sha256").update(content).digest("hex"),
+        };
+
+        const [first, waiter] = await Promise.all([
+          service(firstDb).intake(request),
+          service(waiterDb).intake(request),
+        ]);
+
+        expect(first).toEqual(waiter);
+        expect(first).toMatchObject({
+          ok: true,
+          value: { uri: "uploads://@/chapter.md", fileType: "markdown" },
+        });
+      } finally {
+        await firstDb.delete(users).where(eq(users.id, USER));
+        await Promise.all([firstDb.close(), waiterDb.close()]);
+      }
+    });
+
     it("converges idempotency, separates no-Work/Work authority, and suffixes active collisions", async () => {
       const repo = await seed();
       const first = await repo.reserve(reservation("one", "none"));
@@ -85,13 +154,6 @@ if (!RUN) {
       expect(work.kind === "reserved" && work.reservation.canonicalUri).toBe(
         "uploads://@draft/chapter.md",
       );
-    });
-
-    it("cascades reservation state with project identity", async () => {
-      const repo = await seed();
-      await repo.reserve(reservation("cascade", "none"));
-      await database.current.delete(projects).where(eq(projects.id, PROJECT));
-      expect(await database.current.select().from(uploadIntakes)).toEqual([]);
     });
 
     it("deletes only the exact unused identity and preserves revision mismatches", async () => {

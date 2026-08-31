@@ -68,10 +68,17 @@ export type MobileContextBrowserProps = Pick<
   onCreateDone: () => void;
 };
 
-function MobileEntryActionsMenu({ onAction }: { onAction: (action: EntryAction) => void }) {
+function MobileEntryActionsMenu({
+  allowDelete,
+  onAction,
+}: {
+  allowDelete: boolean;
+  onAction: (action: EntryAction) => void;
+}) {
   return (
     <EntryKebabButton
       allowCreate={false}
+      allowDelete={allowDelete}
       align="end"
       sideOffset={6}
       className={mobileContextTreeOverflowTriggerClassName}
@@ -460,6 +467,7 @@ function MobileFolderRow({
         label={dir.name}
         trailing={
           <MobileEntryActionsMenu
+            allowDelete={scheme !== "uploads"}
             onAction={(action) => {
               if (action === "rename") setRenaming(true);
               else onRequestDelete({ name: dir.name, path: dir.path, kind: "dir" });
@@ -518,6 +526,7 @@ function MobileFileRow({
         label={file.name}
         trailing={
           <MobileEntryActionsMenu
+            allowDelete={scheme !== "uploads"}
             onAction={(action) => {
               if (action === "rename") setRenaming(true);
               else

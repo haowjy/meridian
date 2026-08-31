@@ -32,6 +32,12 @@ function suffixed(filename: string, suffix: number): string {
   return `${name} (${suffix})${extension ? `.${extension}` : ""}`;
 }
 
+async function lockIntakeKey(db: Database, projectId: string, intakeId: string): Promise<void> {
+  await currentDrizzleDb(db).execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${`upload-intake:${projectId}:${intakeId}`}, 0))`,
+  );
+}
+
 function mapRow(row: IntakeRow, workSlug: string | null): UploadReservation {
   return {
     projectId: row.projectId,
@@ -137,6 +143,8 @@ export function createDrizzleUploadIntakeRepository(
     transaction: (operation) => runInDrizzleTransaction(db, operation),
     async reserve(input): Promise<ReserveUploadResult> {
       return runInDrizzleTransaction(db, async () => {
+        const activeDb = currentDrizzleDb(db);
+        await lockIntakeKey(db, input.owner.projectId, input.intakeId);
         const existing = await readReservation(db, input.owner.projectId, input.intakeId);
         if (existing) {
           return existing.fingerprint === input.fingerprint
@@ -145,7 +153,6 @@ export function createDrizzleUploadIntakeRepository(
         }
         const owner = await resolveOwner(db, input.owner, input.actorUserId);
         if (!owner) return { kind: "owner_unavailable" };
-        const activeDb = currentDrizzleDb(db);
         await activeDb.execute(
           sql`select pg_advisory_xact_lock(hashtextextended(${owner.sourceId}, 0))`,
         );
@@ -202,8 +209,17 @@ export function createDrizzleUploadIntakeRepository(
             canonicalUri,
             locationRevision: crypto.randomUUID(),
           })
+          .onConflictDoNothing({
+            target: [uploadIntakes.projectId, uploadIntakes.intakeId],
+          })
           .returning();
-        if (!created) throw new Error("Failed to reserve upload intake");
+        if (!created) {
+          const winner = await readReservation(db, input.owner.projectId, input.intakeId);
+          if (!winner) throw new Error("Upload intake winner was not readable");
+          return winner.fingerprint === input.fingerprint
+            ? { kind: "existing", reservation: winner }
+            : { kind: "conflict" };
+        }
         return { kind: "reserved", reservation: mapRow(created, owner.workSlug) };
       });
     },
@@ -229,6 +245,12 @@ export function createDrizzleUploadIntakeRepository(
             eq(uploadIntakes.state, "object_stored"),
           ),
         );
+    },
+    async lockForFinalize(projectId, intakeId) {
+      await lockIntakeKey(db, projectId, intakeId);
+      const reservation = await readReservation(db, projectId, intakeId);
+      if (!reservation) throw new Error("Upload reservation unavailable during finalize");
+      return reservation;
     },
     async finalize(projectId, intakeId) {
       const [row] = await currentDrizzleDb(db)

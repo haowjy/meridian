@@ -27,6 +27,8 @@ persisted file classification.
   Uploads sources are flat and provisioned by intake.
 - A same-key retry either returns the original trio or conflicts on the complete
   normalized actor/owner/name/MIME/byte-digest fingerprint.
+- The intake key serializes before owner/path allocation. Source serialization
+  remains only the collision-safe flat-name boundary.
 - Catalog visibility and finalized intake state share the ContextFS ambient SQL
   transaction. Object compensation runs only for definite non-commit; unknown
   outcomes retain the stable key for recovery.
