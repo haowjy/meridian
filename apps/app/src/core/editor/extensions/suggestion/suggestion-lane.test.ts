@@ -138,7 +138,7 @@ function mountWithRealHost() {
       ...createStandaloneEditorExtensions(),
       wordLane.extension.configure({
         catalog: () => CATALOG,
-        suggestionHost: editorSuggestionHost,
+        suggestionHost: (editor) => editorSuggestionHost(editor, "prose"),
       }),
     ],
     content: { type: "doc", content: [{ type: "paragraph" }] },

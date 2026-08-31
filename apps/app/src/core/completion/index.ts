@@ -30,6 +30,12 @@
  */
 
 export {
+  createDomInputSuggestionTransport,
+  type DomInputSelection,
+  type DomInputSuggestionTransport,
+  type DomInputSuggestionTransportOptions,
+} from "./dom-input-suggestion-transport";
+export {
   createReferenceBrowserController,
   type ReferenceBrowserController,
   type ReferenceBrowserMeta,
