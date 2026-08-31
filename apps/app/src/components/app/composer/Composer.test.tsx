@@ -63,7 +63,7 @@ describe("one ordered Composer serializer", () => {
       intakeId: "intake-1",
       documentId: reference.documentId,
       uri: reference.uri,
-      expectedRevision: "r1",
+      locationRevision: "r1",
     };
     const result = serializeComposerDraft({
       type: "doc",

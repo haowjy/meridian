@@ -32,7 +32,7 @@ export type ComposerOwnedUpload = Readonly<{
   intakeId: string;
   documentId: string;
   uri: UploadIntakeResult["uri"];
-  expectedRevision: string;
+  locationRevision: string;
 }>;
 export type ComposerDraftSnapshot = Readonly<{
   revision: ComposerDraftRevision;
@@ -59,7 +59,7 @@ export type ComposerUploadPort = Readonly<{
     file: File;
     intakeId: string;
     scope: ComposerUploadScope;
-  }) => Promise<UploadIntakeResult & { expectedRevision: string }>;
+  }) => Promise<UploadIntakeResult>;
   deleteDraft: (input: ComposerOwnedUpload, scope: ComposerUploadScope) => Promise<void>;
 }>;
 
@@ -111,6 +111,7 @@ const UploadNode = Node.create({
       "span",
       mergeAttributes(HTMLAttributes, {
         "data-composer-upload": value.state,
+        "data-intake-id": value.intakeId,
         role: "button",
         tabindex: "0",
         "aria-label": `${value.state} upload: ${value.name}`,
@@ -254,28 +255,89 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const rotatingPlaceholder = useComposerPlaceholder(streaming);
   const revision = useRef(0);
   const restored = useRef(new Set<string>());
+  const pendingRestorations = useRef<ComposerDraftRestoration[]>([]);
   const inFlight = useRef<ComposerSubmitEnvelope | null>(null);
+  const mountedRef = useRef(true);
   const scopeRef = useRef(uploadScope);
   scopeRef.current = uploadScope;
+  const resolvedUploadPort = uploadPort;
+  const uploadPortRef = useRef(resolvedUploadPort);
+  uploadPortRef.current = resolvedUploadPort;
+  const suppressDetachRef = useRef(false);
   const [pending, setPending] = useState(0);
   const [locked, setLocked] = useState(false);
   const [hasContent, setHasContent] = useState(false);
   const disabledReasonId = useId();
   const fileRef = useRef<HTMLInputElement>(null);
+  const intakeFilesRef = useRef(new Map<string, File>());
   const editor = useEditor({
     extensions: [StarterKit.configure({ hardBreak: {} }), ReferenceNode, UploadNode],
     content: { type: "doc", content: [{ type: "paragraph" }] },
     autofocus: autoFocus,
     editorProps: {
+      handleDOMEvents: {
+        click: (view, event) => {
+          const target =
+            event.target instanceof Element
+              ? event.target.closest("[data-composer-upload=failed]")
+              : null;
+          if (!target) return false;
+          const intakeId = target.getAttribute("data-intake-id");
+          const file = intakeId ? intakeFilesRef.current.get(intakeId) : null;
+          if (!file || !intakeId) return false;
+          let position = -1;
+          view.state.doc.descendants((node, pos) => {
+            if (
+              node.type.name === "composerUpload" &&
+              (node.attrs.upload as PendingAttrs).intakeId === intakeId
+            )
+              position = pos;
+          });
+          if (position >= 0) void attach(file, intakeId, position);
+          return true;
+        },
+      },
+      handleClickOn: (_view, position, node) => {
+        if (node.type.name !== "composerUpload") return false;
+        const value = node.attrs.upload as PendingAttrs;
+        if (value.state !== "failed") return false;
+        const file = intakeFilesRef.current.get(value.intakeId);
+        if (!file) return false;
+        void attach(file, value.intakeId, position);
+        return true;
+      },
       attributes: {
         "aria-label": t`Message`,
         class: "composer-input min-h-10 max-h-60 overflow-y-auto px-1.5 py-1 outline-none",
       },
     },
+    onCreate: ({ editor: current }) => {
+      const queued = pendingRestorations.current.splice(0);
+      for (const restoration of queued) {
+        const text = serializeComposerDraft(current.getJSON()).text;
+        current.commands.setContent(
+          plainDoc(text ? `${restoration.text}\n\n${text}` : restoration.text),
+        );
+      }
+    },
     onTransaction: ({ editor: current, transaction }) => {
       if (!transaction.docChanged) return;
+      if (!suppressDetachRef.current && uploadPortRef.current && scopeRef.current) {
+        const before = serializeComposerDraft(transaction.before.toJSON()).draft.ownedUploads;
+        const afterIds = new Set(
+          serializeComposerDraft(current.getJSON()).draft.ownedUploads.map(
+            (upload) => upload.intakeId,
+          ),
+        );
+        for (const removed of before) {
+          if (!afterIds.has(removed.intakeId)) {
+            void uploadPortRef.current.deleteDraft(removed, scopeRef.current);
+          }
+        }
+      }
       revision.current += 1;
-      setHasContent(!current.isEmpty);
+      const projection = serializeComposerDraft(current.getJSON());
+      setHasContent(projection.text.length > 0 || projection.references.length > 0);
       onDraftChange?.(
         serializeComposerDraft(current.getJSON(), revision.current, {
           from: current.state.selection.from,
@@ -305,7 +367,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       editor.commands.setContent(value.doc, { emitUpdate: false });
       editor.commands.setTextSelection(value.selection);
       revision.current += 1;
-      setHasContent(!editor.isEmpty);
+      {
+        const projection = serializeComposerDraft(editor.getJSON());
+        setHasContent(projection.text.length > 0 || projection.references.length > 0);
+      }
       onDraftChange?.(serializeComposerDraft(value.doc).text, revision.current);
     },
     [editor, onDraftChange],
@@ -337,7 +402,22 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     }),
     [editor, restoreSnapshot, snapshot],
   );
-  useEffect(() => () => editor?.destroy(), [editor]);
+  useEffect(() => {
+    if (!editor || pendingRestorations.current.length === 0) return;
+    const queued = pendingRestorations.current.splice(0);
+    for (const restoration of queued) {
+      const current = serializeComposerDraft(editor.getJSON()).text;
+      editor.commands.setContent(
+        plainDoc(current ? `${restoration.text}\n\n${current}` : restoration.text),
+      );
+    }
+  }, [editor]);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   async function submit() {
     if (!editor || submitDisabled || pending || locked || inFlight.current || editor.isEmpty)
@@ -355,6 +435,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       }),
     );
     inFlight.current = null;
+    if (!mountedRef.current || editor.isDestroyed) return;
     if (
       outcome.submissionId !== envelope.submissionId ||
       outcome.acceptedRevision !== envelope.acceptedRevision
@@ -364,25 +445,37 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       setLocked(true);
       return;
     }
-    if (outcome.kind === "accepted" && revision.current === envelope.acceptedRevision)
+    if (outcome.kind === "accepted" && revision.current === envelope.acceptedRevision) {
+      suppressDetachRef.current = true;
       editor.commands.clearContent(true);
+      suppressDetachRef.current = false;
+    }
     if (outcome.kind === "rejected" && revision.current === envelope.acceptedRevision)
       restoreSnapshot(envelope.draft);
     editor.commands.focus();
   }
-  async function attach(file: File) {
-    if (!editor || !uploadPort || !scopeRef.current) return;
-    const intakeId = crypto.randomUUID();
+  async function attach(file: File, retryIntakeId?: string, retryPosition?: number) {
+    if (!editor || !resolvedUploadPort || !scopeRef.current) return;
+    const intakeId = retryIntakeId ?? crypto.randomUUID();
+    intakeFilesRef.current.set(intakeId, file);
     const attrs: PendingAttrs = { intakeId, name: file.name, state: "pending", error: null };
-    editor
-      .chain()
-      .focus()
-      .insertContent({ type: "composerUpload", attrs: { upload: attrs } })
-      .run();
+    if (retryPosition === undefined) {
+      editor
+        .chain()
+        .focus()
+        .insertContent({ type: "composerUpload", attrs: { upload: attrs } })
+        .run();
+    } else {
+      editor
+        .chain()
+        .setNodeSelection(retryPosition)
+        .updateAttributes("composerUpload", { upload: attrs })
+        .run();
+    }
     setPending((n) => n + 1);
     const scope = scopeRef.current;
     try {
-      const ready = await uploadPort.intake({ file, intakeId, scope });
+      const ready = await resolvedUploadPort.intake({ file, intakeId, scope });
       let position = -1;
       editor.state.doc.descendants((node, pos) => {
         if (
@@ -410,7 +503,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   intakeId,
                   documentId: ready.documentId,
                   uri: ready.uri,
-                  expectedRevision: ready.expectedRevision,
+                  locationRevision: ready.locationRevision,
                 },
               },
             },
@@ -462,11 +555,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       <EditorContent
         editor={editor}
         data-placeholder={placeholder ?? rotatingPlaceholder}
-        onKeyDown={keyDown}
+        onKeyDownCapture={keyDown}
       />
       <div className="mt-1 flex items-center gap-2">
         <div className="min-w-0 flex-1">{toolbarLeft}</div>
-        {uploadPort ? (
+        {resolvedUploadPort ? (
           <>
             <input
               ref={fileRef}

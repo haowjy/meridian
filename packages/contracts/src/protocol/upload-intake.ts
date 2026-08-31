@@ -10,6 +10,7 @@ export interface UploadIntakeResult {
   documentId: string;
   uri: CanonicalContextUri;
   fileType: Filetype;
+  locationRevision: string;
 }
 
 export type UploadIntakeErrorCode = "owner_unavailable" | "idempotency_conflict" | "storage_failed";

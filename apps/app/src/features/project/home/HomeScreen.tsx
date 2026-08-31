@@ -3,6 +3,7 @@ import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import type { ProjectChatItem } from "@meridian/contracts/protocol";
 import { useCallback, useEffect, useState } from "react";
+import { uploadIntakePort } from "@/client/api/upload-intake-api";
 import { useHomeChatFeed } from "@/client/query/useHomeChatFeed";
 import { useWorks } from "@/client/query/useWorks";
 import { useAnnouncement, useThreadActions } from "@/client/stores";
@@ -160,6 +161,8 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
                   variant="hero"
                   autoFocus={finePointer}
                   onSubmit={submit}
+                  uploadPort={uploadIntakePort}
+                  uploadScope={{ projectId, workId: selectedWork?.id ?? null }}
                   onDraftChange={firstSend.updateDraft}
                   submitDisabled={!worksReady || modePending || firstSend.submitLocked}
                   submitDisabledReason={submitDisabledReason}

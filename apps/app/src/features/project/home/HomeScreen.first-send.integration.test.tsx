@@ -129,16 +129,17 @@ async function waitFor(check: () => boolean) {
   throw new Error(`condition not reached: ${document.body.textContent}`);
 }
 
-async function setTextarea(text: string) {
-  const textarea = document.querySelector('textarea[aria-label="Message"]') as HTMLTextAreaElement;
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
-      textarea,
-      text,
-    );
-    textarea.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-  return textarea;
+async function setComposerText(text: string) {
+  const element = document.querySelector(
+    '[contenteditable="true"][aria-label="Message"]',
+  ) as HTMLElement & { editor: { commands: { setContent: (doc: unknown) => void } } };
+  await act(async () =>
+    element.editor.commands.setContent({
+      type: "doc",
+      content: [{ type: "paragraph", content: text ? [{ type: "text", text }] : [] }],
+    }),
+  );
+  return element;
 }
 
 async function chooseWork(name: string) {
@@ -246,15 +247,17 @@ describe("Home first send", () => {
         <Harness />
       </Providers>,
       async () => {
-        await waitFor(() => Boolean(document.querySelector('textarea[aria-label="Message"]')));
+        await waitFor(() =>
+          Boolean(document.querySelector('[contenteditable="true"][aria-label="Message"]')),
+        );
         await chooseWork("Arc One");
-        const textarea = await setTextarea("Same words");
+        const editor = await setComposerText("Same words");
         await act(async () =>
-          textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+          editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
         );
         await waitFor(() => requests.some(({ method }) => method === "POST"));
-        await setTextarea("Different interim words");
-        await setTextarea("Same words");
+        await setComposerText("Different interim words");
+        await setComposerText("Same words");
         const body = requests.find(({ method }) => method === "POST")?.body;
         await act(async () => creation.resolve(json(canonical(String(body?.id), firstWork.id))));
         await act(async () => navigation.resolve());
@@ -265,9 +268,9 @@ describe("Home first send", () => {
           "Same words",
           expect.objectContaining({ optimisticUserTurnId: expect.any(String) }),
         );
-        expect((document.querySelector("textarea") as HTMLTextAreaElement).value).toBe(
-          "Same words",
-        );
+        expect(
+          (document.querySelector('[contenteditable="true"]') as HTMLElement).textContent,
+        ).toBe("Same words");
       },
       { drainMacrotask: true },
     );
@@ -318,17 +321,19 @@ describe("Home first send", () => {
         <Harness />
       </Providers>,
       async () => {
-        await waitFor(() => Boolean(document.querySelector('textarea[aria-label="Message"]')));
+        await waitFor(() =>
+          Boolean(document.querySelector('[contenteditable="true"][aria-label="Message"]')),
+        );
         await chooseWork("Arc One");
-        const textarea = await setTextarea("Immutable first message");
+        const editor = await setComposerText("Immutable first message");
         await act(async () =>
-          textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+          editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
         );
         await waitFor(() => requests.some(({ method }) => method === "POST"));
-        await setTextarea("Draft typed during create");
+        await setComposerText("Draft typed during create");
         const body = requests.find(({ method }) => method === "POST")?.body;
         await act(async () => creation.resolve(json(canonical(String(body?.id), firstWork.id))));
-        await setTextarea("Newest draft typed during route");
+        await setComposerText("Newest draft typed during route");
         await act(async () => navigation.resolve());
 
         await waitFor(() => admitted.mock.calls.length === 1);
@@ -338,9 +343,9 @@ describe("Home first send", () => {
           expect.objectContaining({ optimisticUserTurnId: expect.any(String) }),
         );
         expect(requests.filter(({ path }) => path.includes("/user-state"))).toHaveLength(0);
-        expect((document.querySelector("textarea") as HTMLTextAreaElement).value).toBe(
-          "Newest draft typed during route",
-        );
+        expect(
+          (document.querySelector('[contenteditable="true"]') as HTMLElement).textContent,
+        ).toBe("Newest draft typed during route");
         expect(document.body.textContent).not.toContain("couldn’t save that you opened");
       },
       { drainMacrotask: true },
@@ -400,9 +405,9 @@ describe("Home first send", () => {
       async () => {
         await waitFor(() => Boolean(document.querySelector('[aria-label*="choice unavailable"]')));
         await chooseWork("Expedition");
-        const textarea = await setTextarea("Exact opening line");
+        const editor = await setComposerText("Exact opening line");
         await act(async () =>
-          textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+          editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
         );
         await waitFor(
           () =>
@@ -495,9 +500,9 @@ describe("Home first send", () => {
       async () => {
         await waitFor(() => Boolean(document.querySelector('[aria-label*="choice unavailable"]')));
         await chooseWork("Arc One");
-        const textarea = await setTextarea("Archived opening");
+        const editor = await setComposerText("Archived opening");
         await act(async () =>
-          textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+          editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
         );
         await waitFor(() => creates.length === 1);
         expect(creates[0]).toMatchObject({ workId: archivedWork.id });

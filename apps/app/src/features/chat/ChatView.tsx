@@ -19,6 +19,7 @@ import { t } from "@lingui/core/macro";
 import type { Thread, ThreadLiveState, Turn, Work } from "@meridian/contracts/protocol";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { uploadIntakePort } from "@/client/api/upload-intake-api";
 import { useMeridianAgent } from "@/client/copilot/MeridianCopilotProvider";
 import { threadQueryKeys } from "@/client/query/thread-query-keys";
 import { announceError, useThreadActions, useThreadStore } from "@/client/stores";
@@ -171,6 +172,8 @@ export function ChatView({
             ref={composerRef}
             variant="pinned"
             streaming={isStreaming}
+            uploadPort={uploadIntakePort}
+            uploadScope={projectId ? { projectId, workId: activeWork?.id ?? null } : undefined}
             onSubmit={handleSubmit}
             onStop={handleStop}
             toolbarLeft={
