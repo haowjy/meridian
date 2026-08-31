@@ -171,7 +171,17 @@ function Destination({
   );
   const controller = useRef({ submit, resume: vi.fn() } as unknown as ThreadRunController).current;
   useThreadHandoff(threadId, controller, actions, undefined, restore);
-  return <Composer ref={composerRef} variant="pinned" onSubmit={() => true} />;
+  return (
+    <Composer
+      ref={composerRef}
+      variant="pinned"
+      onSubmit={(envelope) => ({
+        kind: "accepted",
+        submissionId: envelope.submissionId,
+        acceptedRevision: envelope.acceptedRevision,
+      })}
+    />
+  );
 }
 
 function Providers({ client, children }: { client: QueryClient; children: ReactNode }) {

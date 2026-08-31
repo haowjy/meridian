@@ -86,7 +86,16 @@ function Destination({
     [],
   );
   useThreadHandoff(threadId, controller, actions, undefined, restoreDraft);
-  return <Composer ref={composerRef} onSubmit={() => true} />;
+  return (
+    <Composer
+      ref={composerRef}
+      onSubmit={(envelope) => ({
+        kind: "accepted",
+        submissionId: envelope.submissionId,
+        acceptedRevision: envelope.acceptedRevision,
+      })}
+    />
+  );
 }
 
 let capturedActions: ThreadStoreActions | null = null;

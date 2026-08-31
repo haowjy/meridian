@@ -114,9 +114,16 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
           : firstSend.submitLocked
             ? t`Finish the current chat attempt`
             : undefined;
-  const submit = (text: string, draftRevision: number) => {
-    if (!selectedWork || modePending) return false;
-    return firstSend.submit(
+  const submit = async (envelope: import("@/components/app/composer").ComposerSubmitEnvelope) => {
+    const text = envelope.text;
+    const draftRevision = envelope.acceptedRevision;
+    if (!selectedWork || modePending)
+      return {
+        kind: "rejected" as const,
+        submissionId: envelope.submissionId,
+        acceptedRevision: envelope.acceptedRevision,
+      };
+    const accepted = await firstSend.submit(
       text,
       {
         workId: selectedWork.id,
@@ -124,6 +131,11 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
       },
       draftRevision,
     );
+    return {
+      kind: accepted ? ("accepted" as const) : ("rejected" as const),
+      submissionId: envelope.submissionId,
+      acceptedRevision: envelope.acceptedRevision,
+    };
   };
 
   return (

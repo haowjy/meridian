@@ -121,7 +121,8 @@ export function ChatView({
   const generating = isStreaming && draftMode;
   const dock = useDraftDock({ generating });
 
-  function handleSubmit(text: string): boolean {
+  function handleSubmit(envelope: import("@/components/app/composer").ComposerSubmitEnvelope) {
+    const text = envelope.text;
     requestTailFollow();
     const optimisticUserTurn = actions.appendUserTurn(threadId, text);
 
@@ -140,7 +141,11 @@ export function ChatView({
         // until a later acknowledgement or reload can reconcile the write.
         void queryClient.invalidateQueries({ queryKey: threadQueryKeys.snapshot(threadId) });
       });
-    return true;
+    return {
+      kind: "accepted" as const,
+      submissionId: envelope.submissionId,
+      acceptedRevision: envelope.acceptedRevision,
+    };
   }
 
   function handleStop() {
