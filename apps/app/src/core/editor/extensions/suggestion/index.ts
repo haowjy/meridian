@@ -12,6 +12,7 @@
 export { PROSE_TRIGGER_BLOCKS } from "./prose-trigger-blocks";
 export {
   createSuggestionLane,
+  type SuggestionComposition,
   type SuggestionLane,
   type SuggestionLaneOptions,
   type SuggestionLaneSpec,

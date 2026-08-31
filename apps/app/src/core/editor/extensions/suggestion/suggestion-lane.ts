@@ -37,16 +37,15 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import Suggestion, { exitSuggestion, type SuggestionProps } from "@tiptap/suggestion";
 
-import {
-  createSuggestionLifecycle,
-  type SuggestionChoiceAction,
-  type SuggestionGeneration,
-  type SuggestionHost,
-  type SuggestionHostLease,
-  type SuggestionKeyBindings,
-  type SuggestionLifecycle,
-  type SuggestionMenu,
-  type SuggestionSession,
+import type {
+  SuggestionChoiceAction,
+  SuggestionGeneration,
+  SuggestionHost,
+  SuggestionHostLease,
+  SuggestionKeyBindings,
+  SuggestionLifecycle,
+  SuggestionMenu,
+  SuggestionSession,
 } from "@/core/completion";
 
 /**
@@ -58,10 +57,17 @@ import {
  * lane mounted and silent, so a read-only surface or a fenced document pays for
  * no menu.
  */
-export type SuggestionLaneOptions<TCatalog> = {
+export type SuggestionComposition<TEntry, TMeta = null> = {
+  menu: SuggestionMenu<TEntry, TMeta>;
+  lifecycle: SuggestionLifecycle<TEntry, TMeta>;
+};
+
+export type SuggestionLaneOptions<TCatalog, TEntry, TMeta = null> = {
   catalog: () => TCatalog | null;
   /** Host composition seam: the adapter never imports editor chrome. */
   suggestionHost: (editor: Editor) => SuggestionHost | null;
+  /** The host-composed store and lifecycle; the lane never creates a competing session. */
+  suggestions: SuggestionComposition<TEntry, TMeta>;
 };
 
 /**
@@ -128,7 +134,7 @@ export type SuggestionLaneSpec<TCatalog, TItem, TEntry extends TItem = TItem, TM
 };
 
 export type SuggestionLane<TCatalog, TEntry, TMeta = null> = {
-  extension: Extension<SuggestionLaneOptions<TCatalog>>;
+  extension: Extension<SuggestionLaneOptions<TCatalog, TEntry, TMeta>>;
   /**
    * The open menu for this editor, or null on a surface that never mounted the
    * lane (a code file, a read-only viewer). Null is a real state.
@@ -147,15 +153,15 @@ export function createSuggestionLane<TCatalog, TItem, TEntry extends TItem = TIt
     lifecycle: SuggestionLifecycle<TEntry, TMeta>;
   };
 
-  const extension = Extension.create<SuggestionLaneOptions<TCatalog>, LaneStorage>({
+  const extension = Extension.create<SuggestionLaneOptions<TCatalog, TEntry, TMeta>, LaneStorage>({
     name: spec.name,
 
     addOptions() {
-      return { catalog: () => null, suggestionHost: () => null };
+      return { catalog: () => null, suggestionHost: () => null, suggestions: null as never };
     },
 
     addStorage(): LaneStorage {
-      return createSuggestionLifecycle<TEntry, TMeta>();
+      return this.options.suggestions;
     },
 
     addProseMirrorPlugins() {

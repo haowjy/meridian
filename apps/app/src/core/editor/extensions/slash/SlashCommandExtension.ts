@@ -33,7 +33,7 @@ export type SlashMenuMeta = { groupLabels: Record<SlashCommandGroupId, string> }
 export type SlashMenu = SuggestionMenu<SlashCommandItem, SlashMenuMeta>;
 
 export type SlashCommandExtensionOptions = Pick<
-  SuggestionLaneOptions<SlashCommandCatalog>,
+  SuggestionLaneOptions<SlashCommandCatalog, SlashCommandItem, SlashMenuMeta>,
   "catalog"
 >;
 

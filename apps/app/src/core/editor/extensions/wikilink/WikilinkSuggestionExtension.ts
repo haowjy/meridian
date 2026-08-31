@@ -28,7 +28,10 @@ import { allowsWikilinkTrigger } from "./wikilink-trigger";
 
 export type WikilinkMenu = SuggestionMenu<WikilinkMenuItem>;
 
-export type WikilinkExtensionOptions = Pick<SuggestionLaneOptions<WikilinkCatalog>, "catalog">;
+export type WikilinkExtensionOptions = Pick<
+  SuggestionLaneOptions<WikilinkCatalog, WikilinkMenuItem>,
+  "catalog"
+>;
 
 const wikilinkLane = createSuggestionLane<WikilinkCatalog, WikilinkMenuItem>({
   name: "wikilinkSuggestion",

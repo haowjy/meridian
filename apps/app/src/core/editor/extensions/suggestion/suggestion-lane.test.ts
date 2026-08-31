@@ -11,7 +11,11 @@
  */
 import { Editor } from "@tiptap/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SuggestionChoiceAction, SuggestionHost } from "@/core/completion";
+import {
+  createSuggestionLifecycle,
+  type SuggestionChoiceAction,
+  type SuggestionHost,
+} from "@/core/completion";
 import { getEditorChrome } from "../../chrome";
 import { createStandaloneEditorExtensions } from "../../config";
 import { editorSuggestionHost } from "../../suggestion-host";
@@ -72,7 +76,10 @@ afterEach(() => {
   editor = null;
 });
 
-function mount({ withLane = true } = {}) {
+function mount({
+  withLane = true,
+  suggestions = createSuggestionLifecycle<WordEntry, { title: string }>(),
+} = {}) {
   const instance = new Editor({
     extensions: [
       ...createStandaloneEditorExtensions(),
@@ -81,6 +88,7 @@ function mount({ withLane = true } = {}) {
             wordLane.extension.configure({
               catalog: () => CATALOG,
               suggestionHost: () => ({ register: registerHost }),
+              suggestions,
             }),
           ]
         : []),
@@ -92,12 +100,14 @@ function mount({ withLane = true } = {}) {
 }
 
 function mountWithRealHost() {
+  const suggestions = createSuggestionLifecycle<WordEntry, { title: string }>();
   const instance = new Editor({
     extensions: [
       ...createStandaloneEditorExtensions(),
       wordLane.extension.configure({
         catalog: () => CATALOG,
         suggestionHost: editorSuggestionHost,
+        suggestions,
       }),
     ],
     content: { type: "doc", content: [{ type: "paragraph" }] },
@@ -123,6 +133,24 @@ async function type(instance: Editor, text: string) {
 }
 
 describe("a lane declared as a spec", () => {
+  it("publishes through the exact lifecycle composed by its host", async () => {
+    const suggestions = createSuggestionLifecycle<WordEntry, { title: string }>();
+    const observed: boolean[] = [];
+    const unsubscribe = suggestions.menu.subscribe(() =>
+      observed.push(suggestions.menu.snapshot().open),
+    );
+    const instance = mount({ suggestions });
+
+    await type(instance, "%emb");
+
+    expect(wordLane.getMenu(instance)).toBe(suggestions.menu);
+    expect(suggestions.menu.snapshot().items.map(({ word }) => word)).toEqual([
+      "ember",
+      "emberling",
+    ]);
+    expect(observed).toContain(true);
+    unsubscribe();
+  });
   it("opens on its own char and publishes the catalog through the store", async () => {
     const instance = mount();
     await type(instance, "%emb");
