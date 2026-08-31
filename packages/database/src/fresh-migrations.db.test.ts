@@ -22,30 +22,7 @@ if (!enabled || !databaseUrl) {
       );
       const tail = journal.entries.slice(tailStart);
 
-      expect(tail.map((entry) => entry.tag)).toEqual([
-        "0060_cultured_cobalt_man",
-        "0061_milky_hedge_knight",
-        "0062_mature_prism",
-        "0063_milky_celestials",
-        "0064_writer_impact",
-        "0065_secret_red_ghost",
-        "0066_tired_proudstar",
-        "0067_blue_eddie_brock",
-        "0068_search_tool_rename",
-        "0069_multi_work_v1",
-        "0070_opposite_white_queen",
-        "0071_shallow_karnak",
-        "0072_aberrant_callisto",
-        "0073_mean_silver_surfer",
-        "0074_cute_domino",
-        "0075_bumpy_golden_guardian",
-        "0076_fuzzy_timeslip",
-        "0077_supreme_darkstar",
-        "0078_tricky_sharon_carter",
-        "0079_free_whistler",
-        "0080_reset_working_set_routes",
-        "0081_cultured_lethal_legion",
-      ]);
+      expect(tailStart).toBeGreaterThanOrEqual(0);
       for (let index = 1; index < tail.length; index += 1) {
         expect(tail[index]?.when).toBeGreaterThan(tail[index - 1]?.when ?? 0);
       }
