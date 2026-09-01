@@ -1,10 +1,5 @@
 /** Test composition for feature suites that need one complete account lifetime. */
-import { useState } from "react";
-import {
-  AccountFeatureComposition,
-  AccountFeatureSupervisorContext,
-} from "@/features/project/context/account-feature-context";
-import { AccountFeatureSupervisor } from "@/features/project/context/account-feature-supervisor";
+import { AccountFeatureComposition } from "@/features/project/context/account-feature-context";
 
 export * from "@/features/project/context/account-feature-context";
 
@@ -17,16 +12,9 @@ export function AccountFeatureTestProvider({
   repairProjectCatalog?: (projectId: string) => Promise<void>;
   children: React.ReactNode;
 }) {
-  const [supervisor] = useState(() => new AccountFeatureSupervisor(undefined, () => undefined));
   return (
-    <AccountFeatureSupervisorContext.Provider value={supervisor}>
-      <AccountFeatureComposition
-        authSubject={accountId}
-        accountId={accountId}
-        repairProjectCatalog={repairProjectCatalog}
-      >
-        {children}
-      </AccountFeatureComposition>
-    </AccountFeatureSupervisorContext.Provider>
+    <AccountFeatureComposition accountId={accountId} repairProjectCatalog={repairProjectCatalog}>
+      {children}
+    </AccountFeatureComposition>
   );
 }

@@ -5,9 +5,6 @@
 
 ## [Unreleased]
 
-- `apps/app`: finish workspace preparation after authenticated SPA login by
-  sourcing the account subject from the current authenticated route.
-
 - `apps/app`: add one renderer-neutral reference identity/ranking policy and
   hierarchical browser over the normalized scoped Context catalog, with strict
   lexical tiers, canonical Work/no-Work terminals, semantic segment navigation,
@@ -27,12 +24,8 @@
   and pending counts from one repeatable-read snapshot.
 - `apps/app`: delete the unused Context catalog capability projection so the
   server scheme policy remains the sole owner.
-- `apps/app`: retain account workspace teardown above authenticated route
-  boundaries, retry unfinished session and coordination close stages, and
-  withhold replacement accounts until the prior lifetime closes. Qualify account
-  declarations by the committed auth epoch and exact route account pair, and make
-  terminal reconciliation join retained room teardown before releasing lifecycle
-  authority.
+- `apps/app`: fence account workspace replacement until the prior account's
+  document sessions and project feature owners finish their staged teardown.
 
 - `apps/app`: make document-session ownership exclusively lease-qualified, settle adopted local providers and lifetime leases in exact retryable stages before account close, fence local Untitled remint across every asynchronous lifecycle boundary, keep local persistence explicit, and remove the unfenced registry facade and unqualified persistence-key surface.
 - `apps/app`: atomically advance canonical Editor routes and working state for

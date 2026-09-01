@@ -13,10 +13,6 @@ import { useEffect, useState } from "react";
 
 import { AnnouncementRegion } from "@/components/app/AnnouncementRegion";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import {
-  AccountFeatureRootBoundary,
-  AccountFeatureSupervisorProvider,
-} from "@/features/project/context/AccountFeatureSupervisorProvider";
 import { activateLocale, DEFAULT_LOCALE, i18n, resolveLocale } from "@/lib/i18n";
 import { TEXT_SIZE_BOOT_SCRIPT } from "@/lib/text-size";
 import { UI_THEME_BOOT_SCRIPT } from "@/lib/ui-theme";
@@ -70,14 +66,10 @@ function RootComponent() {
     <RootDocument lang={locale}>
       <I18nProvider i18n={i18n}>
         <AuthKitProvider initialAuth={auth}>
-          <AccountFeatureSupervisorProvider>
-            <TooltipProvider>
-              <AnnouncementRegion />
-              <AccountFeatureRootBoundary>
-                <Outlet />
-              </AccountFeatureRootBoundary>
-            </TooltipProvider>
-          </AccountFeatureSupervisorProvider>
+          <TooltipProvider>
+            <AnnouncementRegion />
+            <Outlet />
+          </TooltipProvider>
         </AuthKitProvider>
       </I18nProvider>
     </RootDocument>

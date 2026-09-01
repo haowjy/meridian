@@ -22,7 +22,10 @@ import {
 } from "./editor-review-handoff";
 
 const openTab = vi.fn();
-vi.mock("@/client/stores", () => ({ useContextTabsActions: () => ({ openTab }) }));
+vi.mock("@/client/stores", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/client/stores")>()),
+  useContextTabsActions: () => ({ openTab }),
+}));
 
 const draftA: AiDraftLaunchTarget = {
   workId: "work-a",

@@ -13,6 +13,7 @@ import { AppQueryProvider } from "@/client/query/AppQueryProvider";
 import {
   loadProjectList,
   ProjectStoreProvider,
+  rehydrateContextDesks,
   ThreadStoreProvider,
   useIndependentProjectsStore,
 } from "@/client/stores";
@@ -109,7 +110,7 @@ export const Route = createFileRoute("/_authenticated")({
         ...authMe.user,
         workingSetSyncEnabled: settings?.workingSetSyncEnabled ?? null,
       };
-      return { user: currentUser, projects: null, now, authSubject: workosUser.id };
+      return { user: currentUser, projects: null, now };
     }
 
     const [authMe, [settingsResult, projectsResult]] = await Promise.all([
@@ -130,7 +131,6 @@ export const Route = createFileRoute("/_authenticated")({
       user: currentUser,
       projects: projectsResult.status === "fulfilled" ? projectsResult.value : null,
       now,
-      authSubject: workosUser.id,
     };
   },
   staleTime: 60_000,
@@ -138,7 +138,7 @@ export const Route = createFileRoute("/_authenticated")({
 });
 
 function AuthenticatedLayout() {
-  const { projects, now, user, authSubject } = Route.useLoaderData();
+  const { projects, now, user } = Route.useLoaderData();
   configureWorkingSetSync(user.userId, user.workingSetSyncEnabled === true);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
 
@@ -148,12 +148,7 @@ function AuthenticatedLayout() {
   // ThreadStoreProvider during light↔workspace transitions.
   return (
     <AppQueryProvider initialProjects={projects}>
-      <AuthenticatedAccountProviderTree
-        authSubject={authSubject}
-        now={now}
-        pathname={pathname}
-        user={user}
-      />
+      <AuthenticatedAccountProviderTree now={now} pathname={pathname} user={user} />
     </AppQueryProvider>
   );
 }
@@ -162,12 +157,10 @@ function AuthenticatedAccountProviderTree({
   now,
   pathname,
   user,
-  authSubject,
 }: {
   now: number;
   pathname: string;
   user: { userId: string; workingSetSyncEnabled: boolean | null };
-  authSubject: string;
 }) {
   const queryClient = useQueryClient();
   const repairProjectCatalog = useCallback(
@@ -178,11 +171,7 @@ function AuthenticatedAccountProviderTree({
     [queryClient],
   );
   return (
-    <AccountFeatureComposition
-      authSubject={authSubject}
-      accountId={user.userId}
-      repairProjectCatalog={repairProjectCatalog}
-    >
+    <AccountFeatureComposition accountId={user.userId} repairProjectCatalog={repairProjectCatalog}>
       <DraftApplyRecoveryProvider accountId={user.userId}>
         <FirstSendContinuityProvider accountId={user.userId}>
           <AuthenticatedProviderTree now={now} pathname={pathname} user={user} />
@@ -224,6 +213,7 @@ function AuthenticatedProviderTree({
     if (!untitledReconciler) return;
     untitledReconciler.rehydrate();
     untitledReconciler.start();
+    void rehydrateContextDesks(user.userId);
     syncUntitledReceiptOwners();
     void useIndependentProjectsStore.persist.rehydrate();
     void useProjectSurfacePrefsStore.persist.rehydrate();

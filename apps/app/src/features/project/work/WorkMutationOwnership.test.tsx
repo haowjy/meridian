@@ -27,7 +27,10 @@ vi.mock("@lingui/react/macro", () => ({
   Trans: ({ children }: { children: React.ReactNode }) => children,
 }));
 vi.mock("@/client/api/projects-api", () => api);
-vi.mock("@/client/stores", () => ({ useIsProjectPendingCreation: () => false }));
+vi.mock("@/client/stores", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/client/stores")>()),
+  useIsProjectPendingCreation: () => false,
+}));
 
 const { WorkCollectionScreen } = await import("./WorkScreen");
 

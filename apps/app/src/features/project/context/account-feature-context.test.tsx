@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, StrictMode, useCallback, useLayoutEffect, useState } from "react";
+import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { useContextTabsStore } from "@/client/stores";
 import {
@@ -33,6 +34,17 @@ function tracked(documentId: string, path: string) {
 }
 
 describe("AccountFeatureTestProvider", () => {
+  it("renders a new account's children immediately without a preparation projection", () => {
+    const html = renderToString(
+      <TestAccountProvider accountId="account-a">
+        <p>Writer workspace</p>
+      </TestAccountProvider>,
+    );
+
+    expect(html).toContain("Writer workspace");
+    expect(html).not.toContain(["Preparing", "your", "workspace"].join(" "));
+  });
+
   it("keeps the account coordinator across an ordinary composition rerender", async () => {
     const instances: ContextRemovalCoordinator[] = [];
     let rerender: (() => void) | null = null;

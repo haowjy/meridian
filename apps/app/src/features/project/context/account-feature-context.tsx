@@ -1,26 +1,12 @@
-/** React projection of one supervisor-owned account feature lifetime. */
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useInsertionEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+/** Authenticated-account scope for the project feature lifetime. */
+import { createContext, useContext, useInsertionEffect, useRef, useState } from "react";
 import type { PostApplyDispositionOwner } from "../draft-apply-recovery/draft-apply-recovery-owner";
-import type {
-  AccountFeatureDeclaration,
-  AccountFeatureLifetime,
-  AccountFeatureSupervisor,
-} from "./account-feature-supervisor";
+import { AccountFeatureLifetime } from "./account-feature-lifetime";
 import type { ContextRemovalCoordinator } from "./context-removal-coordinator";
 import type { LocalUntitledOwner } from "./local-untitled-owner";
 import type { ProjectContextAvailabilityCoordinator } from "./project-context-availability-coordinator";
 import { ProjectDocumentLiveOpenerContext } from "./project-document-live-opener-context";
 
-export const AccountFeatureSupervisorContext = createContext<AccountFeatureSupervisor | null>(null);
 const ContextRemovalAccountContext = createContext<ContextRemovalCoordinator | null>(null);
 const ProjectAvailabilityAccountContext =
   createContext<ProjectContextAvailabilityCoordinator | null>(null);
@@ -31,80 +17,52 @@ const LiveDocumentRegistryAccountContext = createContext<AccountFeatureLifetime[
 const PostApplyOwnerAccountContext = createContext<PostApplyDispositionOwner | null>(null);
 
 export function AccountFeatureComposition({
-  authSubject,
   accountId,
   repairProjectCatalog,
   children,
 }: {
-  authSubject: string;
   accountId: string;
   repairProjectCatalog: (projectId: string) => Promise<void>;
   children: React.ReactNode;
 }) {
-  const supervisor = useContext(AccountFeatureSupervisorContext);
-  if (!supervisor) throw new Error("AccountFeatureSupervisorProvider is required");
-  const snapshot = useSyncExternalStore(
-    supervisor.subscribe,
-    supervisor.getSnapshot,
-    supervisor.getServerSnapshot,
+  const desired = useRef({ accountId, repairProjectCatalog });
+  desired.current = { accountId, repairProjectCatalog };
+  const [lifetime, setLifetime] = useState(
+    () => new AccountFeatureLifetime(accountId, repairProjectCatalog),
   );
-  const declarationRef = useRef<AccountFeatureDeclaration | null>(null);
-  const auth = supervisor.getAuthDeclaration();
-  if (
-    declarationRef.current &&
-    (declarationRef.current.auth.subject !== authSubject ||
-      declarationRef.current.account.id !== accountId)
-  ) {
-    declarationRef.current = null;
+  const [teardownError, setTeardownError] = useState<unknown>(null);
+  const transition = useRef<Promise<void> | null>(null);
+
+  if (teardownError) throw teardownError;
+  if (lifetime.accountId !== accountId && !transition.current) {
+    lifetime.beginClose();
   }
-  if (!declarationRef.current && auth?.subject === authSubject) {
-    declarationRef.current = Object.freeze({ auth, account: Object.freeze({ id: accountId }) });
-  }
-  const declaration = declarationRef.current;
-  const lifetime =
-    snapshot.kind === "ready" &&
-    declaration !== null &&
-    snapshot.declaration.auth.epoch === declaration.auth.epoch &&
-    snapshot.declaration.auth.subject === declaration.auth.subject &&
-    snapshot.declaration.account.id === declaration.account.id
-      ? snapshot.lifetime
-      : null;
-  const [attached, setAttached] = useState<AccountFeatureLifetime | null>(null);
 
-  useLayoutEffect(() => {
-    supervisor.setAuthSubject(authSubject);
-  }, [supervisor, authSubject]);
+  useInsertionEffect(() => {
+    if (lifetime.accountId === desired.current.accountId || transition.current) return;
+    const old = lifetime;
+    const closing = old
+      .finishClose()
+      .then(() => {
+        const next = desired.current;
+        setLifetime(new AccountFeatureLifetime(next.accountId, next.repairProjectCatalog));
+      })
+      .catch((error: unknown) => setTeardownError(error))
+      .finally(() => {
+        transition.current = null;
+      });
+    transition.current = closing;
+  }, [accountId, lifetime]);
 
-  useEffect(() => {
-    if (declaration) supervisor.declareAccount(declaration);
-  }, [supervisor, declaration]);
+  useInsertionEffect(
+    () => () => {
+      lifetime.beginClose();
+      void lifetime.finishClose();
+    },
+    [lifetime],
+  );
 
-  useEffect(() => {
-    if (!lifetime) {
-      setAttached(null);
-      return;
-    }
-    let attachment: ReturnType<AccountFeatureLifetime["attachComposition"]>;
-    try {
-      attachment = lifetime.attachComposition(repairProjectCatalog);
-    } catch {
-      setAttached(null);
-      return;
-    }
-    setAttached(lifetime);
-    return () => {
-      setAttached(null);
-      attachment.release();
-    };
-  }, [lifetime, repairProjectCatalog]);
-
-  if (!lifetime || attached !== lifetime) {
-    return (
-      <main className="grid min-h-svh place-items-center bg-background text-foreground">
-        <p>Preparing your workspace…</p>
-      </main>
-    );
-  }
+  if (lifetime.accountId !== accountId) return null;
   return <AccountFeatureProviders lifetime={lifetime}>{children}</AccountFeatureProviders>;
 }
 function AccountFeatureProviders({

@@ -196,20 +196,15 @@ Both HTTP snapshot callers must pass `nextSeq`. An unsequenced caller
 
 ## Authenticated layout shell
 
-`src/routes/__root.tsx` mounts one component-owned
-`AccountFeatureSupervisorProvider` under AuthKit and above the route outlet. It
-retains the exact immutable account feature lifetime and unfinished close stages
-across authenticated route errors, unmounts, and subject changes. The
-authenticated route contributes its committed WorkOS-subject/internal-account
-pair, synchronizes that route-authoritative subject into the supervisor, and
-contributes a detachable Query catalog-repair adapter through
-`AccountFeatureComposition`; it never owns or constructs the lifetime. A later
-account is not constructed until the retained prior lifetime closes and the
-device Context desk has committed the exact old-account `reset-account` fence.
-This preparation also runs when desk storage is absent, and descendants stay
-withheld while it is pending or retryable after failure. There is no
-module-global registry or supervisor, and authenticated route effects do not own
-desk account hydration.
+`src/routes/__root.tsx` owns AuthKit and renders the route outlet directly.
+The authenticated route's `AccountFeatureComposition` constructs its account
+feature lifetime synchronously, so its providers and descendants render on the
+first pass. An actual A-to-B account replacement synchronously fences the old
+lifetime and finishes its staged teardown before constructing B; only that
+replacement interval withholds descendants. The authenticated browser effect
+rehydrates the device Context desk after the shell is visible. Local persistence
+reconciliation never projects an account-preparation screen or gates initial
+rendering.
 
 `src/routes/_authenticated.tsx` mounts one unconditional route composition for
 every authenticated route (`AppQueryProvider` → `AccountFeatureComposition` →

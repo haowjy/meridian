@@ -65,8 +65,9 @@ scheme-scoped environment. Mobile renders one level at a time via route params.
 The writer-facing destination is **Editor**. One account-scoped,
 framework-independent `ContextRemovalCoordinator` owns every live removal
 transition: explicit close, generation-bearing terminal availability, Work pruning,
-and draft discard. Account construction precedes authenticated descendants. A project becomes
-live only after desk hydration, concrete Editor Work readiness, and one raw
+and draft discard. Account construction precedes authenticated descendants; device
+desk hydration starts afterward and never gates the visible shell. A project becomes
+live after its desk state reconciles, concrete Editor Work readiness, and one raw
 bootstrap/validation operation. Strict replay and pre-live Work interruption adopt
 that operation with fresh attempt tokens; after first completion, Work interruption
 only suspends the live host and can never restore raw bootstrap authority.

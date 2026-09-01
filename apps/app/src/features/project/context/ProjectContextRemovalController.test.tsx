@@ -221,37 +221,6 @@ describe("ProjectContextRemovalController", () => {
     });
   });
 
-  it("retains account state when only the route composition releases", async () => {
-    let coordinator: ContextRemovalCoordinator | null = null;
-    function Capture() {
-      coordinator = useContextRemovalCoordinator();
-      useLayoutEffect(() => {
-        const revision = coordinator?.beginRouteSelection("project-1", {
-          scheme: "manuscript",
-          path: "/chapter.md",
-          workId: "work-1",
-        });
-        if (revision !== undefined) {
-          coordinator?.bindRouteSelection("project-1", revision, {
-            kind: "server",
-            documentId: "document-1",
-          });
-        }
-      }, []);
-      return null;
-    }
-    await withReactRoot(
-      <AccountFeatureTestProvider accountId="account-1">
-        <Capture />
-      </AccountFeatureTestProvider>,
-      () => undefined,
-    );
-    if (!coordinator) throw new Error("expected coordinator");
-    expect(
-      (coordinator as ContextRemovalCoordinator).getProjectSnapshot("project-1").selection,
-    ).toMatchObject({ status: "bound", revision: 1 });
-  });
-
   it("releases the host without destroying account-owned project revision", async () => {
     let coordinator: ContextRemovalCoordinator | null = null;
     let setHostVisible: ((visible: boolean) => void) | null = null;

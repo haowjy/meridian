@@ -119,6 +119,10 @@ it("settles a populated-folder receipt through one terminal availability batch",
         confirmation?.requestDelete({ name: "populated", path: "/populated", kind: "dir" }),
       );
       await act(async () => confirmation?.confirm());
+      expect(contextRemoval?.getProjectSnapshot("project")).toMatchObject({
+        selection: { status: "none" },
+        removalFence: { removedDocumentIds: ["child-document"] },
+      });
     },
   );
 
@@ -133,10 +137,6 @@ it("settles a populated-folder receipt through one terminal availability batch",
   expect(useContextTabsStore.getState().byProject.project).toEqual({
     tabs: [],
     selectedTabIdByWork: {},
-  });
-  expect(contextRemoval?.getProjectSnapshot("project")).toMatchObject({
-    selection: { status: "none" },
-    removalFence: { removedDocumentIds: ["child-document"] },
   });
 });
 
