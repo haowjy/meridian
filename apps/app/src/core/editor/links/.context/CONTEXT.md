@@ -7,7 +7,7 @@ Reference depth. Read [`AGENTS.md`](../AGENTS.md) first.
 ```ts
 export type LinkTarget =
   | { kind: "wikilink"; name: string }   // [[The Second Gate]]
-  | { kind: "scheme"; uri: string }      // manuscript://…, work://…
+  | { kind: "scheme"; uri: string }      // manuscript://…, scratch://…
   | { kind: "relative"; path: string }   // chapter-213.md, ../notes/kael.md
   | { kind: "external"; url: string };   // http, https, mailto
 
@@ -36,7 +36,7 @@ and `example.com` in the form is a website.
 | `[[ Warden Ilsever ]]` | wikilink | `[[Warden Ilsever]]` |
 | `[[Kael\|the warden]]` | null | null |
 | `manuscript://appendix/charter` | scheme | unchanged |
-| `work://a1b2/notes.md` | scheme | unchanged |
+| `scratch://@revision-pass/notes.md` | scheme | unchanged |
 | `chapter-213.md`, `../notes/kael.md` | relative | unchanged |
 | `example.com` | relative | `https://example.com` |
 | `https://…`, `mailto:…`, `//host/p` | external | unchanged (`//` gains `https:`) |
@@ -166,6 +166,23 @@ changes (see
 [`features/editor/surfaces/link/.context/CONTEXT.md`](../../../../features/editor/surfaces/link/.context/CONTEXT.md)),
 so a change landing while questions are in flight is the ordinary case here,
 not an exotic one.
+
+### Current server divergence
+
+The client classifies all five Context URI schemes, plus the obsolete `work://`
+spelling, as internal. The server resolver behind this port has not converged on
+that grammar: it currently parses only `manuscript://` and UUID-qualified
+`work://`, loads manuscript plus every Work's scratch source, and matches a
+wikilink title across that whole candidate set without applying the request's
+current Work/no-Work scope. Canonical `scratch://`, `uploads://`, `kb://`, and
+`user://` targets therefore classify as links but resolve to no document, while
+a title can resolve from the wrong Work.
+
+This is an open merge blocker, not the intended resolution contract. Replace
+the legacy candidate/parser path with canonical Context authority; do not add a
+client title-search fallback, a `scratch`/`work` alias shim, or a second
+navigation authority. Submitted transcript occurrences keep their exact
+`(documentId, uri)` authority separate from syntax-only lookup.
 
 ## Rendering a state nobody stored
 

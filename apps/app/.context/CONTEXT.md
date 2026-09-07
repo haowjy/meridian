@@ -132,6 +132,41 @@ default-collapsed `Thinking` fold plus its visible `ActivityBlock` frontier.
 image-producing tool results as image blocks. For the full Thinking/Activity
 contract, see [`features/chat/.context/CONTEXT.md`](../src/features/chat/.context/CONTEXT.md).
 
+### Transcript reference rendering
+
+`src/rich-content/Markdown.tsx` uses the public `@meridian/markup` wikilink
+grammar for presentation and `reference-occurrences.ts` for submitted-reference
+authority. Those are separate decisions: grammar may make syntax readable, but
+only an exact submitted `(documentId, uri)` match grants occurrence navigation.
+Syntax-only navigation still goes through the project-scoped link resolver and
+must never inherit attachment authority.
+
+Occurrence coordinates are offsets in the original serialized message, not in
+decoded mdast text. Keep authorized content in one source block, use
+CommonMark's string decoder when mapping entity/backslash-decoded text
+boundaries, and leave code and raw HTML inert. A regex scanner or a second
+wikilink tokenizer will drift from the wire grammar.
+
+Streamdown caches processors by plugin function identity/name and does not
+rebuild them merely because React props changed. Keep the occurrence plugin a
+stable named option-taking plugin, key the renderer by occurrence metadata, and
+pass live resolution through React context. Removing any one of those seams can
+reuse stale authority or stale resolution while rendering unchanged text.
+
+### Composer reference-action divergence
+
+The shared Composer currently treats removal of the last atom carrying a draft
+upload intake ID as authority to call destructive `deleteDraft`. The reference
+menu's Change operation always clears that ownership field. Consequently a
+same-target Change, a duplicate ordinary occurrence, or Undo after Remove can
+leave a visible token pointing at a deleted upload.
+
+This is an open merge blocker, not a lifecycle contract. Whether reference
+removal should retain the file or automatic cleanup should become a
+draft-level, identity- and history-aware owner is awaiting product clarification.
+Do not move deletion into the menu, add a timer, or describe the current
+atom-observer behavior as approved.
+
 ## Wire types as protocol contract
 
 `@meridian/contracts/protocol` defines the canonical `AGUIEvent` payload and
@@ -400,6 +435,13 @@ as another card. Search
 fields, headings, and state copy add their own local gutters. This keeps
 selected, hover, and focus boundaries edge-attached across menus, selects,
 pickers, composer navigation, and the thread switcher.
+
+Shared Radix dropdown and context-menu content must cancel non-primary
+`pointerup` during capture. Radix otherwise selects the row underneath the
+release that summoned a context menu, even though that row never received the
+press; a right-click can therefore run Open, Copy, or another first-row action
+while the writer is only asking to inspect. Keep the guard in the shared
+`components/ui/` wrappers rather than repeating it at feature call sites.
 
 ### Typography
 
