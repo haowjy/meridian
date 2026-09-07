@@ -40,12 +40,18 @@ export function ContextMenuTrigger({
 
 export function ContextMenuContent({
   className,
+  onPointerUpCapture,
   ...props
 }: ComponentProps<typeof Primitive.Content>) {
   return (
     <Primitive.Portal>
       <Primitive.Content
         {...props}
+        onPointerUpCapture={(event) => {
+          onPointerUpCapture?.(event);
+          // The release that summoned a context menu must not select its first row.
+          if (event.button !== 0) event.preventDefault();
+        }}
         className={cn(
           dropdownNavigationPageClass,
           dropdownMenuContentClass,

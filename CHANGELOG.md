@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+- `apps/app`: keep context-click release from activating the menu row under it.
+
 - `apps/app`: render readable transcript links through the shared wiki grammar,
   preserve exact source-range authority, and open model-authored links through
   project-scoped resolution. Right-click exposes read-only link actions.
