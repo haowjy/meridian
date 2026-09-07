@@ -215,3 +215,21 @@ it("routes model-authored links through the scoped host and keeps context action
     },
   );
 });
+
+it("keeps unavailable syntax keyboard-inspectable without navigation", async () => {
+  await withReactRoot(<Markdown>{"[[Gate]]"}</Markdown>, async () => {
+    const trigger = document.querySelector<HTMLElement>('[role="link"][aria-disabled="true"]');
+    expect(trigger?.textContent).toBe("Gate");
+    await act(async () =>
+      trigger?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ContextMenu",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain("[[Gate]]");
+    expect(document.querySelector('[role="menuitem"]')).toBeNull();
+  });
+});

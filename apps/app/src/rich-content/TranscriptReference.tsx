@@ -52,7 +52,6 @@ export function TranscriptReference({
       ? () => navigateSyntax(target)
       : undefined;
   const label = resolution?.label ?? children;
-  if (!documentId && !follow) return <span>{label}</span>;
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -81,9 +80,9 @@ export function TranscriptReference({
         }}
       >
         <ContextMenuLabel>{label}</ContextMenuLabel>
-        {uri ? (
+        {uri || targetHref ? (
           <ContextMenuLabel className="max-w-80 break-all font-normal text-muted-foreground">
-            {uri}
+            {uri ?? targetHref}
           </ContextMenuLabel>
         ) : null}
         {follow ? <ContextMenuItem onSelect={follow}>{t`Open link`}</ContextMenuItem> : null}

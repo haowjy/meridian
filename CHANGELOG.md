@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+- `apps/app`: keep unavailable transcript links inspectable and expose consistent
+  Composer link semantics, pointer affordance, and keyboard focus.
+
 - `apps/app`: preserve surviving rich-text mark runs when rewriting link labels.
 
 - `apps/app`: undo link saves and removals separately from adjacent collaborative typing.

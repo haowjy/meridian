@@ -92,9 +92,10 @@ export const ComposerReferenceNode = Node.create({
       "span",
       mergeAttributes(HTMLAttributes, {
         "data-composer-reference": "",
-        role: "button",
+        role: "link",
         tabindex: "0",
-        "aria-label": `${value.fileType}: ${value.label}`,
+        "aria-label": value.label,
+        "aria-disabled": "true",
       }),
       value.label,
     ];
@@ -116,7 +117,7 @@ export const ComposerUploadNode = Node.create({
       mergeAttributes(HTMLAttributes, {
         "data-composer-upload": value.state,
         "data-intake-id": value.intakeId,
-        role: "button",
+        role: "link",
         tabindex: "0",
         "aria-label": `${value.state} upload: ${value.name}`,
       }),
