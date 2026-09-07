@@ -3,7 +3,6 @@ import {
   classifyFiletype,
   type DocumentFileType,
   isProjectContextTreeScheme,
-  isWorkScopedProjectContextScheme,
 } from "@meridian/contracts/protocol";
 import { sameServerContextTabLocator } from "./context-tab-locator";
 import {
@@ -116,8 +115,7 @@ function parseTab(value: unknown): ContextTab | null {
     typeof tab.path !== "string" ||
     tab.path.length === 0 ||
     !optionalString(tab.workId) ||
-    (isWorkScopedProjectContextScheme(tab.scheme) &&
-      (typeof tab.workId !== "string" || tab.workId.length === 0))
+    tab.workId === ""
   )
     return null;
   if (tab.kind === "tracked" && tab.editable === true) {

@@ -83,6 +83,7 @@ function scenario(initialSearch: ProjectSearch = { screen: "context" }) {
   const coordinator = new ContextRemovalCoordinator("account-1", { workingSet, route });
   return {
     coordinator,
+    route,
     search: () => search,
     routes: () => routes,
     setRoutes: (next: WorkingSetRoute[]) => {
@@ -362,3 +363,76 @@ describe("ContextRemovalCoordinator exact evidence protocol", () => {
 function identityFor(documentId: string) {
   return { kind: "server" as const, documentId };
 }
+
+it.each([
+  { rawWork: "none", workId: null },
+  { rawWork: undefined, workId: "work-1" },
+])("preserves raw $rawWork authority through missing-route repair, phone activation, and relocation", async ({
+  rawWork,
+  workId,
+}) => {
+  setDesk([], null);
+  const rig = scenario({
+    screen: "context",
+    work: rawWork,
+    scheme: "uploads",
+    path: "/missing.png",
+  });
+  rig.coordinator.registerRoutePort(projectId, rig.route, workId);
+  const missing = rig.coordinator.beginRouteSelection(projectId, {
+    scheme: "uploads",
+    path: "/missing.png",
+    workId,
+  });
+  rig.coordinator.rejectRouteCandidate(projectId, missing);
+  expect(rig.search().path).toBeUndefined();
+  expect(rig.search().work).toBe(rawWork);
+
+  rig.route.updateSearch(projectId, (search) => ({
+    ...search,
+    scheme: "uploads",
+    path: "/Map.png",
+  }));
+  const locator = { scheme: "uploads" as const, path: "/Map.png", workId };
+  const revision = rig.coordinator.beginRouteSelection(projectId, locator);
+  rig.coordinator.bindRouteSelection(projectId, revision, identityFor("image"));
+  expect(
+    rig.coordinator.activate({
+      projectId,
+      selectionRevision: revision,
+      transitionRevision: rig.coordinator.getProjectSnapshot(projectId).transitionRevision,
+      locator,
+      identity: identityFor("image"),
+      owner: { kind: "route-only" },
+    }),
+  ).toBe(true);
+  expect(rig.routes()).toEqual([
+    { documentId: "image", scheme: "uploads", path: "/Map.png", workId },
+  ]);
+
+  await rig.coordinator.reconcileDocumentAvailability([
+    {
+      kind: "available",
+      projectId,
+      commandId: "move-image",
+      generation: "1",
+      document: {
+        kind: "file",
+        entryId: "image",
+        scope: workId ? { kind: "work", projectId, workId } : { kind: "none", projectId },
+        sourceId: "source",
+        parentId: "source",
+        name: "Moved.png",
+        aliases: [],
+        path: ["Moved.png"],
+        uri: `uploads://${workId ? "@work-1" : "@"}/Moved.png`,
+        provisionalName: false,
+        editable: false,
+        disposition: "binary",
+        fileType: "image",
+        mimeType: "image/png",
+      },
+    },
+  ]);
+  expect(rig.search()).toMatchObject({ path: "/Moved.png", work: workId ?? "none" });
+});

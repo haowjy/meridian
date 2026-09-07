@@ -117,6 +117,7 @@ export type CandidateRejectionPlan = {
 };
 
 export function planCandidateRejection(input: {
+  rawRouteWork: string | undefined;
   revision: number;
   rejected: ContextRouteTarget;
   activeWorkId: string | null;
@@ -152,7 +153,7 @@ export function planCandidateRejection(input: {
     repair: {
       expectedSearch: {
         screen: "context",
-        work: input.rejected.workId ?? undefined,
+        work: input.rawRouteWork,
         scheme: input.rejected.scheme,
         path: input.rejected.path,
       },

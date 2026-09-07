@@ -91,6 +91,7 @@ describe("context removal planner", () => {
     const knowledge = { ...tracked("knowledge", "/knowledge.md"), scheme: "kb" as const };
     const rejected = { scheme: "scratch" as const, path: "/wrong.md", workId: "work-1" };
     const plan = planCandidateRejection({
+      rawRouteWork: "work-1",
       revision: 4,
       rejected,
       activeWorkId: "work-1",
@@ -121,6 +122,7 @@ describe("context removal planner", () => {
   it("excludes wrong-Work admitted and recent routes from rejection fallback", () => {
     const rejected = { scheme: "scratch" as const, path: "/wrong.md", workId: "work-1" };
     const plan = planCandidateRejection({
+      rawRouteWork: "work-1",
       revision: 2,
       rejected,
       activeWorkId: "work-1",
@@ -164,6 +166,7 @@ describe("context removal planner", () => {
     ],
   ])("uses the %s candidate-rejection fallback tier", (_case, tabs, selectedTabId, admitted, recentRoutes, path) => {
     const plan = planCandidateRejection({
+      rawRouteWork: "work-1",
       revision: 3,
       rejected: { scheme: "scratch", path: "/missing.md", workId: "work-1" },
       activeWorkId: "work-1",

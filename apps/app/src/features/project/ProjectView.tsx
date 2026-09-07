@@ -254,10 +254,10 @@ export function ProjectView(props: ProjectViewProps) {
   const hydrated = prefsHydrated && deskHydrated;
   const onSelectEditorContextPath = useCallback(
     (path: string, scheme?: ProjectContextTreeScheme, options?: { replace?: boolean }) => {
-      if (!editorWorkId || !scheme) return;
+      if (editorScope.status !== "ready" || !scheme) return;
       void props.onOpenContextTarget({ path, scheme, workId: editorWorkId }, options);
     },
-    [editorWorkId, props.onOpenContextTarget],
+    [editorWorkId, editorScope.status, props.onOpenContextTarget],
   );
   const resolvedProps = {
     ...props,
@@ -275,7 +275,7 @@ export function ProjectView(props: ProjectViewProps) {
     <div className="flex h-full min-h-0 w-full bg-background text-foreground">
       {hydrated ? (
         <>
-          {resolvedProps.contextLive && editorWorkId ? (
+          {resolvedProps.contextLive ? (
             <ProjectContextRemovalController
               projectId={props.projectId}
               activeScreen={props.activeScreen}
@@ -362,7 +362,10 @@ function HydratedReviewScopes({
       ? []
       : tabs.flatMap((tab) => {
           if (tab.kind !== "tracked") return [];
-          if (isWorkScopedProjectContextScheme(tab.scheme) && tab.workId !== props.editorWorkId)
+          if (
+            isWorkScopedProjectContextScheme(tab.scheme) &&
+            (tab.workId ?? null) !== props.editorWorkId
+          )
             return [];
           return [tab.documentId];
         });

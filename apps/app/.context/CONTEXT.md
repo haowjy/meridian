@@ -274,6 +274,10 @@ viewport.
 
 Ownership rules:
 
+- **`?work=none` is explicit No Work, not a Work ID.** Context navigation
+  serializes resolved null authority this way; only an omitted `work` may inherit
+  the selected Chat Work. Explicit No Work is ready without a Work catalog and
+  may mount Context viewers. It never creates a sentinel/default Work.
 - **`?screen=` wins; a bare `?thread=` (no screen) implies `chat`.** The
   Context/KB, extensions, and home screens are therefore reachable *with threads
   present* — a thread no longer forces the chat screen.

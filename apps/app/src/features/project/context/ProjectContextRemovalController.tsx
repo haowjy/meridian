@@ -11,7 +11,7 @@ export type ProjectContextRemovalControllerProps = {
   activeScreen: ScreenKey;
   activeContextScheme: ProjectContextTreeScheme | null;
   activeContextPath: string | null;
-  editorWorkId: string;
+  editorWorkId: string | null;
   route: ContextRemovalRoutePort;
 };
 
@@ -37,7 +37,7 @@ export function ProjectContextRemovalController({
   const registrationRef = useRef<{
     token: symbol;
     release: () => void;
-    editorWorkId: string;
+    editorWorkId: string | null;
   } | null>(null);
 
   useLayoutEffect(() => {

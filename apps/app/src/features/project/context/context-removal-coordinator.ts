@@ -29,6 +29,7 @@ import {
   applyContextRepairIfCurrent,
   type ContextRouteRepair,
   type ContextRouteTarget,
+  contextRouteMatchesSearch,
   type ProjectSearch,
   projectSearchEquals,
 } from "../routing/project-route";
@@ -344,10 +345,7 @@ export class ContextRemovalCoordinator {
       const search = route?.readSearch(activation.projectId);
       if (
         activation.identity.kind !== "server" ||
-        search?.screen !== "context" ||
-        search.scheme !== activation.locator.scheme ||
-        search.path !== activation.locator.path ||
-        (search.work ?? null) !== activation.locator.workId
+        !contextRouteMatchesSearch(search, activation.locator, state.activeWorkId)
       ) {
         return false;
       }
@@ -452,7 +450,7 @@ export class ContextRemovalCoordinator {
     const token = Symbol(projectId);
     this.routePorts.set(projectId, { token, port });
     state.live = true;
-    if (activeWorkId !== null && state.activeWorkId !== activeWorkId) {
+    if (state.activeWorkId !== activeWorkId) {
       this.changeWorkSelection(projectId, activeWorkId, null);
     }
     this.publish(state);
@@ -835,7 +833,7 @@ export class ContextRemovalCoordinator {
   /** Owns the synchronous old-Work prune and next-Work route transition. */
   changeWorkSelection(
     projectId: string,
-    activeWorkId: string,
+    activeWorkId: string | null,
     locator: ContextRouteTarget | null,
   ): number | null {
     if (this.unavailable()) return null;
@@ -853,7 +851,9 @@ export class ContextRemovalCoordinator {
     );
     const recentRoutes = this.workingSet.readRecentRoutes(projectId);
     const remainingTabs = tabs.filter((tab) => !documentIds.includes(tab.documentId));
-    const targetSelection = this.desk.read(projectId).selectedTabIdByWork[activeWorkId] ?? null;
+    const targetSelection = activeWorkId
+      ? (this.desk.read(projectId).selectedTabIdByWork[activeWorkId] ?? null)
+      : null;
     const fallback = chooseAdmittedFallback({
       activeWorkId,
       tabs: remainingTabs,
@@ -894,10 +894,14 @@ export class ContextRemovalCoordinator {
         : null;
       this.desk.commit(projectId, {
         documentIds: [],
-        deskSelection: {
-          workId: activeWorkId,
-          documentId: compatibleSelected?.documentId ?? fallbackTab?.documentId ?? null,
-        },
+        ...(activeWorkId
+          ? {
+              deskSelection: {
+                workId: activeWorkId,
+                documentId: compatibleSelected?.documentId ?? fallbackTab?.documentId ?? null,
+              },
+            }
+          : {}),
       });
       const promotedRoute = fallbackTab ? workingSetRouteForTab(fallbackTab) : null;
       this.workingSet.reconcileContextRoutes(projectId, {
@@ -1005,7 +1009,7 @@ export class ContextRemovalCoordinator {
 
   private readWorkPruneEvidence(
     projectId: string,
-    activeWorkId: string,
+    activeWorkId: string | null,
     selection: ContextRouteSelection,
   ): { documentIds: string[]; obsoleteRoutes: WorkingSetRoute[] } {
     const documentIds = this.desk
@@ -1015,7 +1019,7 @@ export class ContextRemovalCoordinator {
           tab.kind !== "new" &&
           (tab.kind !== "tracked" || tab.origin !== "local-untitled") &&
           isWorkScopedProjectContextScheme(tab.scheme) &&
-          tab.workId !== activeWorkId,
+          (tab.workId ?? null) !== activeWorkId,
       )
       .map((tab) => tab.documentId);
     if (
@@ -1137,10 +1141,8 @@ export class ContextRemovalCoordinator {
       const search = route?.readSearch(projectId);
       if (
         route &&
-        search?.screen === "context" &&
-        search.scheme === current.locator.scheme &&
-        search.path === current.locator.path &&
-        (search.work ?? null) === current.locator.workId
+        search &&
+        contextRouteMatchesSearch(search, current.locator, state.activeWorkId)
       ) {
         const repairPlan: ContextRouteRepair = {
           expectedSearch: {
@@ -1210,7 +1212,10 @@ export class ContextRemovalCoordinator {
       return;
     }
     const slice = this.desk.read(projectId);
+    const route = this.routePorts.get(projectId)?.port ?? this.fallbackRoute;
+    const search = route?.readSearch(projectId);
     const plan = planCandidateRejection({
+      rawRouteWork: search?.work,
       revision: rejection.revision,
       rejected: rejection.locator,
       activeWorkId: state.activeWorkId,
@@ -1237,15 +1242,7 @@ export class ContextRemovalCoordinator {
     state.admitted = plan.fallback;
     this.publish(state);
 
-    const route = this.routePorts.get(projectId)?.port ?? this.fallbackRoute;
-    const search = route?.readSearch(projectId);
-    if (
-      !route ||
-      search?.screen !== "context" ||
-      search.scheme !== rejection.locator.scheme ||
-      search.path !== rejection.locator.path ||
-      (search.work ?? null) !== rejection.locator.workId
-    ) {
+    if (!route || !contextRouteMatchesSearch(search, rejection.locator, state.activeWorkId)) {
       return;
     }
     route.updateSearch(projectId, (latest) =>

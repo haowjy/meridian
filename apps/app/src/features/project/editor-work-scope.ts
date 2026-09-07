@@ -4,7 +4,7 @@ import type { CatalogWorkResolution } from "./catalog-work-resolution";
 import type { RouteWorkResolution } from "./routing/project-route";
 
 export type EditorWorkScope =
-  | { status: "ready"; workId: string; source: "route" | "chat" }
+  | { status: "ready"; workId: string | null; source: "route" | "chat" }
   | { status: "loading"; workId: string }
   | { status: "error"; workId: string }
   | { status: "empty" }
@@ -15,6 +15,7 @@ export function resolveEditorWorkScope(
   chatWorkId: string | null,
   catalogWork: CatalogWorkResolution,
 ): EditorWorkScope {
+  if (routeWork.status === "none") return { status: "ready", workId: null, source: "route" };
   if (routeWork.status === "present")
     return { status: "ready", workId: routeWork.workId, source: "route" };
   if (routeWork.status === "loading") return { status: "loading", workId: routeWork.workId };

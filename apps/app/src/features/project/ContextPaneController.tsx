@@ -77,8 +77,8 @@ export function ContextViewerSurfaceController({
   const deskHydrated = useContextTabsStore((state) => state._deskHydrated);
   const { openTab, updateTrackedTab, selectTab } = useContextTabsActions();
   const visibleTabs = tabs.filter((tab) => {
-    if (tab.kind === "new") return tab.workId === routeWorkId;
-    return !isWorkScopedProjectContextScheme(tab.scheme) || tab.workId === routeWorkId;
+    if (tab.kind === "new") return (tab.workId ?? null) === routeWorkId;
+    return !isWorkScopedProjectContextScheme(tab.scheme) || (tab.workId ?? null) === routeWorkId;
   });
   const hasEditorWorkTab = visibleTabs.length > 0;
   const locator =
@@ -336,8 +336,7 @@ export function ContextViewerSurfaceController({
     const tab = tabs.find((candidate) => candidate.documentId === documentId);
     if (!tab) return;
     if (tab.kind === "new" && tab.workId !== routeWorkId) return;
-    if (!routeWorkId) return;
-    selectTab(projectId, routeWorkId, documentId);
+    if (routeWorkId) selectTab(projectId, routeWorkId, documentId);
     if (tab.kind === "new") {
       onSelectContextPath("", "scratch");
       return;

@@ -12,6 +12,7 @@ import {
 import {
   applyContextRepairIfCurrent,
   type ContextRouteTarget,
+  contextRouteMatchesSearch,
   openContextRouteSearch,
   type ProjectSearch,
   transitionProjectSearch,
@@ -158,10 +159,8 @@ export function planContextAvailabilityBatch(
         selection = { ...selection, locator: target };
         admitted = target;
         if (
-          routeSearch?.screen === "context" &&
-          routeSearch.scheme === previous.scheme &&
-          routeSearch.path === previous.path &&
-          (routeSearch.work ?? null) === previous.workId
+          routeSearch &&
+          contextRouteMatchesSearch(routeSearch, previous, input.project.activeWorkId)
         ) {
           routeSearch = openContextRouteSearch(routeSearch, target);
         }

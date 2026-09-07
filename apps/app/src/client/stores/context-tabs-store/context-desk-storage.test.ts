@@ -311,3 +311,27 @@ it("leaves the prior authority on a storage failure", async () => {
   ).rejects.toThrow("quota");
   expect(ledger.snapshot().projects.project?.tabs).toHaveLength(1);
 });
+
+it("retains a no-Work binary tab and unrelated desk entries across reload", async () => {
+  const storage = new MemoryStorage();
+  const ledger = new DeviceContextDeskLedger(storage, "account", locks);
+  await ledger.apply({ kind: "open", projectId: "project", tab: localTab("local") });
+  await ledger.apply({
+    kind: "open",
+    projectId: "project",
+    tab: {
+      kind: "viewer",
+      documentId: "image",
+      scheme: "uploads",
+      path: "/Map.png",
+      name: "Map.png",
+      editable: false,
+      fileType: "image",
+    },
+  });
+  const reloaded = new DeviceContextDeskLedger(storage, "account", locks);
+  expect(reloaded.snapshot().projects.project?.tabs.map((tab) => tab.documentId)).toEqual([
+    "local",
+    "image",
+  ]);
+});

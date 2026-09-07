@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+- `apps/app`: keep explicit No Work through link routes, Context bootstrap, tab
+  matching, and viewer reads even while a Work-bound chat is open.
+
 - `apps/app`: follow image and binary references into their Context viewer and
   preserve exact no-Work authority rather than inheriting the invoking Work.
 

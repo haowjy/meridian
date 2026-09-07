@@ -4,6 +4,12 @@ Reference depth. Read the [AGENTS.md](../AGENTS.md) first.
 
 ## Link navigation versus editor admission
 
+Resolved No Work survives routing as `?work=none`. Work-capable tabs without a
+`workId` belong to No Work; viewer reads and route matching must not inherit the
+host Chat Work. Nullable authority is ready for Context bootstrap and removal
+host registration, not a loading/missing-Work state. No-Work server tabs use
+route selection; the per-Work selected-tab map remains keyed by actual Work IDs.
+
 `ProjectDocumentNavigationAdapter` opens both tracked editors and existing
 read-only Context viewers through the one stable-ID opener. Its lower-level
 `not-editable` result means no live Yjs admission, not a failed navigation:
