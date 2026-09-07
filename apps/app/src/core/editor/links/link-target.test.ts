@@ -21,7 +21,7 @@ describe("reference completion step-aside", () => {
 
   it.each([
     "manuscript://Gate.md",
-    "work://work-1/notes.md",
+    "scratch://work-1/notes.md",
     "Gate",
     "example.com",
     "../notes/Gate.md",
@@ -38,7 +38,7 @@ describe("classifyLinkTarget", () => {
       "manuscript://appendix/vault-charter",
       { kind: "scheme", uri: "manuscript://appendix/vault-charter" },
     ],
-    ["work://a1b2/notes.md", { kind: "scheme", uri: "work://a1b2/notes.md" }],
+    ["scratch://a1b2/notes.md", { kind: "scheme", uri: "scratch://a1b2/notes.md" }],
     ["kb://characters/kael.md", { kind: "scheme", uri: "kb://characters/kael.md" }],
     ["chapter-213.md", { kind: "relative", path: "chapter-213.md" }],
     ["../notes/kael.md", { kind: "relative", path: "../notes/kael.md" }],
@@ -85,9 +85,9 @@ describe("documentLinkTarget", () => {
       kind: "wikilink",
       name: "Kael",
     });
-    expect(documentLinkTarget({ kind: "scheme", uri: "work://a/b.md" }, baseUri)).toEqual({
+    expect(documentLinkTarget({ kind: "scheme", uri: "scratch://a/b.md" }, baseUri)).toEqual({
       kind: "scheme",
-      uri: "work://a/b.md",
+      uri: "scratch://a/b.md",
     });
     expect(documentLinkTarget({ kind: "relative", path: "../kael.md" }, baseUri)).toEqual({
       kind: "relative",
@@ -114,7 +114,7 @@ describe("normalizeLinkHref", () => {
     ["[[The Second Gate]]", "[[The Second Gate]]"],
     ["  [[ Warden Ilsever ]]  ", "[[Warden Ilsever]]"],
     ["manuscript://appendix/vault-charter", "manuscript://appendix/vault-charter"],
-    ["work://a1b2/notes.md", "work://a1b2/notes.md"],
+    ["scratch://a1b2/notes.md", "scratch://a1b2/notes.md"],
     ["chapter-213.md", "chapter-213.md"],
     ["../notes/kael.md", "../notes/kael.md"],
     ["./sidebar.mdx", "./sidebar.mdx"],

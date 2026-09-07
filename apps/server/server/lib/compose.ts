@@ -26,9 +26,9 @@ import {
   type ContextCatalogWakeHub,
   createContextCatalogWakeHub,
   createContextUploadContentPort,
+  createDocumentLinkResolver,
   createDrizzleAssetPathResolver,
   createDrizzleContextCatalog,
-  createDrizzleDocumentLinkResolver,
   createDrizzleFigureDocumentRepository,
   createDrizzleProjectContextAvailability,
   createDrizzleResultRepository,
@@ -43,7 +43,6 @@ import {
   type DocumentLinkResolver,
   type FigureAssetService,
   InMemoryContextCatalog,
-  InMemoryDocumentLinkResolver,
   type ProjectContextAvailabilityPort,
   type PromotionService,
   type ResultRepository,
@@ -466,7 +465,7 @@ export async function createProductionAppPorts(input: {
     contextCatalog,
     projectContextAvailability,
     contextCatalogWakeHub,
-    documentLinks: createDrizzleDocumentLinkResolver(input.db),
+    documentLinks: createDocumentLinkResolver({ catalog: contextCatalog, workAuthorityResolver }),
     projects,
     works: workRepo,
     projectRepo,
@@ -812,6 +811,19 @@ export function createInMemoryAppServices(): AppServices {
     },
   };
 
+  const contextCatalog = new InMemoryContextCatalog();
+  const workAuthorityResolver: ProjectWorkAuthorityResolver = {
+    async byId() {
+      return null;
+    },
+    async bySlug() {
+      return null;
+    },
+    async lockById() {
+      return null;
+    },
+  };
+
   return {
     gateway: {
       async *stream(request) {
@@ -878,7 +890,7 @@ export function createInMemoryAppServices(): AppServices {
     },
     documentSync,
     contextPorts: createInMemoryUnifiedContextPortFactory({ documentSync }),
-    contextCatalog: new InMemoryContextCatalog(),
+    contextCatalog,
     projectContextAvailability: {
       async lookup(input) {
         return {
@@ -893,7 +905,7 @@ export function createInMemoryAppServices(): AppServices {
       },
     },
     contextCatalogWakeHub: createContextCatalogWakeHub(),
-    documentLinks: new InMemoryDocumentLinkResolver(),
+    documentLinks: createDocumentLinkResolver({ catalog: contextCatalog, workAuthorityResolver }),
     projects: {
       async findPersonalProjectId() {
         return null;
@@ -1028,17 +1040,7 @@ export function createInMemoryAppServices(): AppServices {
       },
       async touch() {},
     },
-    workAuthorityResolver: {
-      async byId() {
-        return null;
-      },
-      async bySlug() {
-        return null;
-      },
-      async lockById() {
-        return null;
-      },
-    },
+    workAuthorityResolver,
     workContext: unavailableWorkContext,
     workContextDelivery: noopWorkContextDelivery,
     billing: billingDomain.service,

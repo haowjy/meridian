@@ -38,7 +38,7 @@ const expectedSuites = [
   "apps/server/server/domains/context/adapters/context-fs/drizzle-tree-mutation-store.db.test.ts",
   "apps/server/server/domains/context/adapters/context-catalog.db.test.ts",
   "apps/server/server/domains/context/adapters/project-context-availability.db.test.ts",
-  "apps/server/server/domains/context/adapters/drizzle-document-link-resolver.db.test.ts",
+  "apps/server/server/domains/context/document-link-resolution.db.test.ts",
   "apps/server/server/domains/context/uploads/upload-intake.db.test.ts",
   "apps/server/server/domains/context/context/context-tree-mover.db.test.ts",
   "apps/server/server/domains/context/figures/figure-assets.db.test.ts",

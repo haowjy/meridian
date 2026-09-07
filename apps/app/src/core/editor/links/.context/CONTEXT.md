@@ -167,22 +167,16 @@ changes (see
 so a change landing while questions are in flight is the ordinary case here,
 not an exotic one.
 
-### Current server divergence
+### Server authority
 
-The client classifies all five Context URI schemes, plus the obsolete `work://`
-spelling, as internal. The server resolver behind this port has not converged on
-that grammar: it currently parses only `manuscript://` and UUID-qualified
-`work://`, loads manuscript plus every Work's scratch source, and matches a
-wikilink title across that whole candidate set without applying the request's
-current Work/no-Work scope. Canonical `scratch://`, `uploads://`, `kb://`, and
-`user://` targets therefore classify as links but resolve to no document, while
-a title can resolve from the wrong Work.
-
-This is an open merge blocker, not the intended resolution contract. Replace
-the legacy candidate/parser path with canonical Context authority; do not add a
-client title-search fallback, a `scratch`/`work` alias shim, or a second
-navigation authority. Submitted transcript occurrences keep their exact
-`(documentId, uri)` authority separate from syntax-only lookup.
+All five canonical Context schemes resolve through the same server port. Wiki
+names search project/personal content plus the selected Work/no-Work, not other
+Works. An explicit canonical Work slug may navigate to that Work in the same
+project; contextual scratch/uploads use the host's selected Work and `@/` is
+explicit no-Work. The server gets personal scope from authenticated identity.
+There is no legacy `work://` adapter or client-side title-search fallback.
+Submitted transcript `(documentId, uri)` authority remains separate from syntax
+lookup; rendering a title does not adopt it as an attachment.
 
 ## Rendering a state nobody stored
 

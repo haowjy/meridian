@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+- `apps/server`: resolve document links through the canonical Context catalog,
+  with authenticated personal scope and exact Work/no-Work navigation.
+
 - `apps/app`: retain uploaded files when references change or are removed, keeping
   duplicates and Undo valid; preserve intake provenance on same-target Change.
 

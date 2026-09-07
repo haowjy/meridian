@@ -23,7 +23,7 @@ import type { DocumentLinkTarget } from "@meridian/contracts/protocol";
 export type LinkTarget =
   /** `[[The Second Gate]]` — resolved by title or alias. Unresolved is normal. */
   | { kind: "wikilink"; name: string }
-  /** `manuscript://appendix/vault-charter`, `work://<id>/notes.md`. */
+  /** `manuscript://appendix/vault-charter`, `scratch://@revision-pass/notes.md`. */
   | { kind: "scheme"; uri: string }
   /** `chapter-213.md`, `../notes/kael.md` — resolved against the holder's URI. */
   | { kind: "relative"; path: string }
@@ -35,14 +35,8 @@ export function isInternalLinkTarget(target: LinkTarget): boolean {
   return target.kind !== "external";
 }
 
-/**
- * Schemes that address a project document. The context URI schemes plus
- * `work`, which is not a context URI but is how a work-scoped document is
- * spelled to the resolver. A scheme the resolver does not handle yet still
- * classifies as internal and simply resolves to nothing, which is the designed
- * unresolved state rather than a second kind of dead link.
- */
-const INTERNAL_SCHEMES: ReadonlySet<string> = new Set<string>([...CONTEXT_URI_SCHEMES, "work"]);
+/** Canonical Context schemes share the server resolver's grammar. */
+const INTERNAL_SCHEMES: ReadonlySet<string> = new Set(CONTEXT_URI_SCHEMES);
 
 /** Web schemes a link mark may carry. Anything else is not a link we honor. */
 const EXTERNAL_SCHEMES: ReadonlySet<string> = new Set(["http:", "https:", "mailto:"]);

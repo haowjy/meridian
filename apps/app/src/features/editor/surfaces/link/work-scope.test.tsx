@@ -4,7 +4,7 @@
  * document holding the link.
  *
  * Answers used to be dropped between the app and the link system. The resolver
- * was asked with the project alone, so `work://` shorthand had no Work to fall
+ * was asked with the project alone, so `scratch://` shorthand had no Work to fall
  * back to; the `[[` menu offered the manuscript alone, so a note in the Work's
  * scratch was a document the resolver would happily find and the menu refused to
  * name; and the Work and base URI rode a mutable ref, so a scope change decided
@@ -138,12 +138,12 @@ describe("the scope a resolved answer belongs to", () => {
 
     mount({ workId: "work-1" });
     await act(async () => {
-      answers.push(await getLinkResolution(editor)?.resolve("work://notes.md"));
+      answers.push(await getLinkResolution(editor)?.resolve("scratch://notes.md"));
     });
 
     mount({ workId: "work-2" });
     await act(async () => {
-      answers.push(await getLinkResolution(editor)?.resolve("work://notes.md"));
+      answers.push(await getLinkResolution(editor)?.resolve("scratch://notes.md"));
     });
 
     expect(asked().map((body) => body.workId)).toEqual(["work-1", "work-2"]);
@@ -317,9 +317,9 @@ function resolvedLink(documentId: string) {
   return {
     documentId,
     title: "Notes",
-    scheme: "work" as const,
+    scheme: "scratch" as const,
     path: "notes.md",
-    uri: "work://notes.md",
+    uri: "scratch://notes.md",
     workId: null,
   };
 }

@@ -72,10 +72,11 @@ router resolves to exact project-scoped Work authority before dispatch.
   by more than one asset resolves to nothing: the id direction is unique, the
   path direction is not.
 - **Document-link resolver port** (`ports/document-link-resolver.ts`) — one
-  resolution boundary for wikilink titles/aliases, `manuscript://` and
-  `work://` locations, and paths relative to the containing document. The
-  Drizzle adapter reads authoritative document/folder state for every
-  resolution; the in-memory adapter obeys the same contract.
+  resolution boundary for wikilink titles/aliases, all five canonical Context
+  schemes, and relative paths. The domain reads the existing Context catalog
+  and resolves Work qualifiers through project Work authority; it has no separate
+  candidate loader or resolution cache. Personal scope comes from authenticated
+  route identity, never from the URI.
 - **Corpus import** — folded into `kb://imports/…` ingest (ceremony deleted;
   `corpus-import-service.ts` keeps slugging/dedupe/normalization helpers).
 - **Browse layer scheme** (`browse-layer-scheme.ts`) — HTTP browse scheme
@@ -94,7 +95,7 @@ router resolves to exact project-scoped Work authority before dispatch.
 | `SchemeCapabilities` | Per-scheme `writable` / `searchable` / `creatable` declaration owned in `ports/context-adapter.ts` and enforced by the server router and adapters. |
 | `ContextDocumentStore` | Primitive folder/document backing store for one context source, including project-wide stable-ID lookup used to classify idempotent creation retries. |
 | `ContextTreeMutationStore` | Tree-aware mutation store with atomic `move`/provisional-graduation/recursive `delete`. Location tokens compare stable node/source/path fields rather than content activity timestamps. Delete results preserve every exact descendant document ID; deleting an empty folder returns none. |
-| `DocumentLinkResolver` | `resolve({ projectId, workId?, target })` returns one canonical manuscript/Work document or `null`. A target is a discriminated `wikilink`, `scheme`, or `relative` value. |
+| `DocumentLinkResolver` | `resolve({ projectId, userId, workId?, target })` returns one canonical Context document or `null`. A target is a discriminated `wikilink`, `scheme`, or `relative` value. |
 
 ## URI and router invariants
 
@@ -116,8 +117,11 @@ router resolves to exact project-scoped Work authority before dispatch.
 - Strings that look scheme-prefixed but omit `//` are invalid, not bare paths.
 - Wikilink title/alias matching is case-insensitive and trims outer whitespace.
   Scheme and relative paths are exact (an omitted final extension may match);
-  relative traversal cannot escape its scheme root. `work://` maps to the
-  selected Work's `scratch` source and serializes with its Work ID authority.
+  relative traversal cannot escape its scheme root. Wiki names search durable
+  project and authenticated personal files plus the selected Work/no-Work scope,
+  never another Work's titles. Canonical qualifiers may explicitly name another
+  non-deleted Work in the project. Contextual scratch/uploads use the selected
+  scope; `@/` always means no Work. Legacy `work://` is not accepted.
   Zero or multiple matches both resolve to `null`; resolution never guesses.
 - Router methods attach the resolved canonical URI to every `ContextError` and
   successful read/write result. Transport and collab callers publish that value;
