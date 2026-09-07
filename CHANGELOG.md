@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+- `apps/app`: omit empty containers from reference suggestions; keep explicit URI
+  searches readable with empty/loading feedback and Back navigation.
+
 - `apps/app`: keep explicit No Work through link routes, Context bootstrap, tab
   matching, and viewer reads even while a Work-bound chat is open.
 

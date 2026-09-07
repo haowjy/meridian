@@ -61,6 +61,8 @@ export type InternalSuggestionSession<TItem, TMeta = null> = {
   meta: TMeta;
   choose: (item: TItem, action: SuggestionChoiceAction) => void;
   choosable?: (item: TItem) => boolean;
+  /** Keep loading/empty feedback visible without inventing a selectable row. */
+  keepOpenWhenEmpty?: boolean;
   /** Handles Escape within a hierarchical session; false hands it back to the host. */
   backtrack?: () => boolean;
   dismiss: () => void;
@@ -174,7 +176,7 @@ export function createInternalSuggestionLifecycle<TItem, TMeta = null>(
   const publishSnapshot = () => {
     snapshot = session
       ? {
-          open: session.items.length > 0,
+          open: session.items.length > 0 || session.keepOpenWhenEmpty === true,
           items: session.items,
           activeId,
           activeIndex: indexOf(activeId),

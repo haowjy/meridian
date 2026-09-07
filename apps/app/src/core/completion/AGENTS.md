@@ -22,7 +22,8 @@ session and generation behind the private lifecycle, so stale updates or closes
 are refused rather than published by arrival order.
 Query/context/container updates reset selection by explicit caller policy, while
 a same-session refresh can preserve the active stable row ID. The store's own
-judgment remains narrow — a menu is open only while it has rows, the highlight
+judgment remains narrow — a menu normally opens only while it has rows; a driver
+can retain an empty session for loading/empty feedback without selectable rows. The highlight
 sits on the first row the host will accept, and a row the host refuses is stepped
 over rather than handed a key that does nothing.
 
@@ -43,7 +44,10 @@ its own Escape precedence. Releasing the lease tears down both halves once.
 reads the one F1 `CatalogCacheView` and delegates explicit cold-Work acquisition
 to its owner. The browser never stores a second tree, enumerates availability,
 or turns wake hints into rows. Root merges only project, user, and current Work
-or no-Work warm views. Other Works remain authority rows until activated.
+or no-Work warm views. Other Works remain authority rows until activated. Known-empty sources, folders,
+and acquired authorities are omitted; cold or invalidated metadata cannot prove
+emptiness. Explicit source/folder URI queries retain an empty-state surface and
+Back clears that search. No placeholder row may become a terminal reference.
 
 **Lexical tiers are inviolable.** Exact, prefix, word-start, contains, and fuzzy
 matches are strict tiers. Open-document and contextual priors break ties only

@@ -476,6 +476,7 @@ msgid "auto-selected"
 msgstr "auto-selected"
 
 #: src/components/app/composer-toolbar/ComposerToolbar.tsx
+#: src/features/editor/surfaces/link/AtReferenceMenu.tsx
 msgid "Back"
 msgstr "Back"
 
@@ -975,6 +976,10 @@ msgstr "Couldn't load files."
 #: src/features/project/shell/ContextSidebar.tsx
 msgid "Couldn't load recent documents."
 msgstr "Couldn't load recent documents."
+
+#: src/features/editor/surfaces/link/AtReferenceMenu.tsx
+msgid "Couldn't load references."
+msgstr "Couldn't load references."
 
 #: src/features/project/shell/RailSection.tsx
 msgid "Couldn't load results."
@@ -1829,6 +1834,10 @@ msgstr "Loading more chats"
 msgid "Loading recent documents…"
 msgstr "Loading recent documents…"
 
+#: src/features/editor/surfaces/link/AtReferenceMenu.tsx
+msgid "Loading references…"
+msgstr "Loading references…"
+
 #: src/features/project/shell/ResultViewerOverlay.tsx
 msgid "Loading result…"
 msgstr "Loading result…"
@@ -2111,6 +2120,11 @@ msgstr "No document with this name yet"
 msgid "No fields required; confirm to continue."
 msgstr "No fields required; confirm to continue."
 
+#. placeholder {0}: snapshot.meta.containerLabel
+#: src/features/editor/surfaces/link/AtReferenceMenu.tsx
+msgid "No files in {0}."
+msgstr "No files in {0}."
+
 #: src/features/project/work/WorkCard.tsx
 msgid "No goal yet"
 msgstr "No goal yet"
@@ -2119,9 +2133,14 @@ msgstr "No goal yet"
 msgid "No matching chats"
 msgstr "No matching chats"
 
+#: src/features/editor/surfaces/link/AtReferenceMenu.tsx
 #: src/features/project/context/file-suggestions/FileSuggestionList.tsx
 msgid "No matching files"
 msgstr "No matching files"
+
+#: src/features/editor/surfaces/link/AtReferenceMenu.tsx
+#~ msgid "No matching files."
+#~ msgstr "No matching files."
 
 #: src/features/project/chat-list/ProjectChatRow.tsx
 msgid "No messages yet."

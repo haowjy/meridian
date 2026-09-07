@@ -42,6 +42,9 @@ export type ReferenceBrowserMeta = {
   triggerRange: { from: number; to: number };
   completedPrefix: string;
   incomplete: boolean;
+  loadFailed: boolean;
+  containerLabel: string | null;
+  canBacktrack: boolean;
 };
 
 export type ReferenceBrowserState =
@@ -93,6 +96,7 @@ type DrilledLocation = {
   kind: "drilled";
   activeScope: CatalogScope;
   containerId?: string;
+  label?: string;
 };
 
 type Location = RootLocation | DrilledLocation;
@@ -114,6 +118,9 @@ export function createReferenceBrowserController(
   let completedPrefix = "";
   let rows: readonly ReferenceRow[] = [];
   let incomplete = false;
+  let loadFailed = false;
+  let queriedContainer: Extract<ReferenceRow, { kind: "source" | "folder" }> | null = null;
+  let triggerPrefix = "";
   let acquisition: AbortController | null = null;
   let settled = false;
   let awaitingSegmentEcho = false;
@@ -142,10 +149,15 @@ export function createReferenceBrowserController(
     triggerRange,
     completedPrefix,
     incomplete,
+    loadFailed,
+    containerLabel:
+      queriedContainer?.label ?? (location?.kind === "drilled" ? (location.label ?? null) : null),
+    canBacktrack: queriedContainer !== null || location?.kind === "drilled",
   });
 
   const session = (): InternalSuggestionSession<ReferenceRow, ReferenceBrowserMeta> => ({
     items: rows,
+    keepOpenWhenEmpty: true,
     rowId: (row) => row.rowId,
     query,
     anchorRect,
@@ -159,11 +171,50 @@ export function createReferenceBrowserController(
   const project = (override?: CatalogCacheView): readonly ReferenceRow[] => {
     if (!location) return [];
     const authorityIndex = authorities();
-    const candidates =
-      location.kind === "root"
-        ? rootRows(location.warmScopes, options.catalog, authorityIndex)
-        : drilledRows(location, options.catalog, authorityIndex, override);
-    return rankReferenceRows(candidates, query, { ...options.priors, kinds: referenceKinds });
+    const root = location.kind === "root" ? location : history[0];
+    const scopes = root?.kind === "root" ? [...root.warmScopes] : [];
+    if (location.kind === "drilled") {
+      const activeScope = location.activeScope;
+      if (!scopes.some((scope) => catalogScopeKey(scope) === catalogScopeKey(activeScope)))
+        scopes.push(activeScope);
+    }
+    const allRows = query.includes("://")
+      ? rootRows(scopes, options.catalog, authorityIndex, referenceKinds, true)
+      : [];
+    const typedQuery = query.startsWith("@") ? query.slice(1) : query;
+    queriedContainer =
+      allRows
+        .filter(
+          (row): row is Extract<ReferenceRow, { kind: "source" | "folder" }> =>
+            (row.kind === "source" || row.kind === "folder") &&
+            typedQuery.startsWith(row.action.prefix),
+        )
+        .sort((a, b) => b.action.prefix.length - a.action.prefix.length)[0] ?? null;
+    if (queriedContainer)
+      incomplete = catalogIncomplete(options.catalog.read(queriedContainer.action.scope));
+    else if (location.kind === "root")
+      incomplete = location.warmScopes.some((scope) =>
+        catalogIncomplete(options.catalog.read(scope)),
+      );
+    const candidates = queriedContainer
+      ? drilledRows(
+          {
+            kind: "drilled",
+            activeScope: queriedContainer.action.scope,
+            containerId: queriedContainer.action.containerId,
+          },
+          options.catalog,
+          authorityIndex,
+          referenceKinds,
+          override,
+        )
+      : location.kind === "root"
+        ? rootRows(location.warmScopes, options.catalog, authorityIndex, referenceKinds)
+        : drilledRows(location, options.catalog, authorityIndex, referenceKinds, override);
+    const search = queriedContainer
+      ? typedQuery.slice(queriedContainer.action.prefix.length)
+      : query;
+    return rankReferenceRows(candidates, search, { ...options.priors, kinds: referenceKinds });
   };
 
   const publish = (
@@ -183,16 +234,18 @@ export function createReferenceBrowserController(
     return identity;
   };
 
-  async function navigate(action: ReferenceNavigationAction): Promise<void> {
+  async function navigate(action: ReferenceNavigationAction, label: string): Promise<void> {
     if (!location || !identity) return;
     history.push(location);
     location = {
       kind: "drilled",
       activeScope: action.scope,
+      label,
       ...(action.containerId ? { containerId: action.containerId } : {}),
     };
     query = "";
     incomplete = action.acquire;
+    loadFailed = false;
     const candidate = advance();
     if (!candidate) return;
     publish(candidate, "reset");
@@ -208,7 +261,8 @@ export function createReferenceBrowserController(
       publish(candidate, "preserve-active", view);
     } catch {
       if (controller.signal.aborted || identity !== candidate) return;
-      incomplete = true;
+      incomplete = false;
+      loadFailed = true;
       acquisition = null;
       publish(candidate, "preserve-active");
     }
@@ -216,7 +270,7 @@ export function createReferenceBrowserController(
 
   function chooseRow(row: ReferenceRow, action: SuggestionChoiceAction): void {
     if (row.kind !== "file") {
-      void navigate(row.action);
+      void navigate(row.action, row.label);
       if (action === "tab") {
         completedPrefix = row.action.prefix;
         awaitingSegmentEcho = true;
@@ -231,12 +285,26 @@ export function createReferenceBrowserController(
   }
 
   function backtrack(): boolean {
-    if (!identity || !location || location.kind === "root") return false;
+    if (!identity || !location) return false;
+    if (queriedContainer) {
+      location = history.find((entry) => entry.kind === "root") ?? location;
+      history = [];
+      query = "";
+      completedPrefix = "";
+      loadFailed = false;
+      const candidate = advance();
+      if (candidate) publish(candidate, "reset");
+      awaitingSegmentEcho = true;
+      options.onCompleteSegment({ prefix: triggerPrefix, triggerRange });
+      return true;
+    }
+    if (location.kind === "root") return false;
     const previous = history.pop();
     if (!previous) return false;
     location = previous;
     query = "";
     incomplete = false;
+    loadFailed = false;
     const candidate = advance();
     if (!candidate) return false;
     publish(candidate, "reset");
@@ -261,13 +329,17 @@ export function createReferenceBrowserController(
       requestExit = frame.requestExit;
       anchorRect = frame.anchorRect;
       lastText = frame.text;
+      triggerPrefix = frame.text.slice(0, frame.text.length - frame.query.length);
+      loadFailed = false;
       location = { kind: "root", warmScopes: context.warmScopes };
       history = [];
       query = frame.query;
       triggerRange = frame.triggerRange;
       completedPrefix = "";
       referenceKinds = context.referenceKinds;
-      incomplete = context.warmScopes.some((scope) => options.catalog.read(scope) === null);
+      incomplete = context.warmScopes.some((scope) =>
+        catalogIncomplete(options.catalog.read(scope)),
+      );
       settled = false;
       awaitingSegmentEcho = false;
       rows = project();
@@ -305,8 +377,10 @@ export function createReferenceBrowserController(
       if (!identity) return false;
       incomplete =
         location?.kind === "root"
-          ? location.warmScopes.some((scope) => options.catalog.read(scope) === null)
-          : incomplete;
+          ? location.warmScopes.some((scope) => catalogIncomplete(options.catalog.read(scope)))
+          : acquisition !== null ||
+            (!loadFailed &&
+              catalogIncomplete(location ? options.catalog.read(location.activeScope) : null));
       return publish(identity, "preserve-active");
     },
     state() {
@@ -328,23 +402,35 @@ function rootRows(
   scopes: readonly CatalogScope[],
   catalog: ReferenceCatalogPort,
   authorities: ReferenceAuthorityIndex,
+  kinds?: readonly ReferenceKind[],
+  includeEmpty = false,
 ): ReferenceRow[] {
   const rows: ReferenceRow[] = [];
   const authorityRows = new Set<string>();
   for (const scope of scopes) {
     const view = catalog.read(scope);
     if (!view) continue;
+    const populated = includeEmpty ? null : populatedContainers(view, authorities, kinds);
     for (const entry of view.entries.values()) {
       if (entry.kind === "authority") {
         if (!entry.available || authorityRows.has(entry.entryId)) continue;
         authorityRows.add(entry.entryId);
-        rows.push(rowForAuthority(entry));
+        const row = rowForAuthority(entry);
+        const authorityView = catalog.read(row.action.scope);
+        if (
+          !includeEmpty &&
+          authorityView &&
+          !catalogIncomplete(authorityView) &&
+          populatedContainers(authorityView, authorities, kinds).size === 0
+        )
+          continue;
+        rows.push(row);
         continue;
       }
       if (entry.kind !== "source" || view.invalidatedEntryIds.has(entry.entryId)) continue;
       const sourceRow = rowForEntry(entry, authorities);
-      if (sourceRow) rows.push(sourceRow);
-      appendDescendants(rows, view, entry.entryId, authorities);
+      if (sourceRow && (!populated || populated.has(entry.entryId))) rows.push(sourceRow);
+      appendDescendants(rows, view, entry.entryId, authorities, populated);
     }
   }
   return rows;
@@ -355,12 +441,15 @@ function appendDescendants(
   view: CatalogCacheView,
   parentId: string,
   authorities: ReferenceAuthorityIndex,
+  populated: ReadonlySet<string> | null,
 ): void {
   for (const entry of catalogChildren(view, parentId)) {
     if (entry.kind === "authority") continue;
     const row = rowForEntry(entry, authorities);
-    if (row) rows.push(row);
-    if (entry.kind === "folder") appendDescendants(rows, view, entry.entryId, authorities);
+    if (row && (entry.kind === "file" || !populated || populated.has(entry.entryId)))
+      rows.push(row);
+    if (entry.kind === "folder")
+      appendDescendants(rows, view, entry.entryId, authorities, populated);
   }
 }
 
@@ -368,6 +457,7 @@ function drilledRows(
   location: DrilledLocation,
   catalog: ReferenceCatalogPort,
   authorities: ReferenceAuthorityIndex,
+  kinds?: readonly ReferenceKind[],
   override?: CatalogCacheView,
 ): ReferenceRow[] {
   const view =
@@ -375,19 +465,53 @@ function drilledRows(
       ? override
       : catalog.read(location.activeScope);
   if (!view) return [];
+  const populated = populatedContainers(view, authorities, kinds);
   const entries = location.containerId
     ? catalogChildren(view, location.containerId)
     : [...view.entries.values()].filter(
         (entry): entry is Extract<CatalogEntry, { kind: "source" }> => entry.kind === "source",
       );
   return entries.flatMap((entry) => {
-    if (entry.kind === "authority") return [];
+    if (entry.kind === "authority" || (entry.kind !== "file" && !populated.has(entry.entryId)))
+      return [];
     const row = rowForEntry(entry, authorities);
     return row ? [row] : [];
   });
 }
 
-function rowForAuthority(entry: CatalogAuthorityEntry): ReferenceRow {
+function catalogIncomplete(view: CatalogCacheView | null): boolean {
+  return !view?.generation || view.invalidatedEntryIds.size > 0;
+}
+
+/** Snapshot metadata proves emptiness; cold or invalidated containers must not disappear. */
+function populatedContainers(
+  view: CatalogCacheView,
+  authorities: ReferenceAuthorityIndex,
+  kinds?: readonly ReferenceKind[],
+): Set<string> {
+  const populated = new Set<string>();
+  if (catalogIncomplete(view)) {
+    for (const entry of view.entries.values())
+      if (entry.kind === "source" || entry.kind === "folder") populated.add(entry.entryId);
+    return populated;
+  }
+  for (const entry of view.entries.values()) {
+    if (entry.kind !== "file") continue;
+    const row = rowForFile(entry, authorities);
+    if (!row || (kinds && !kinds.includes(row.fileKind))) continue;
+    let parentId: string | undefined = entry.parentId;
+    while (parentId && !populated.has(parentId)) {
+      populated.add(parentId);
+      const parent = view.entries.get(parentId);
+      parentId = parent?.kind === "folder" ? parent.parentId : undefined;
+    }
+  }
+  return populated;
+}
+
+function rowForAuthority(
+  entry: CatalogAuthorityEntry,
+): Extract<ReferenceRow, { kind: "authority" }> {
   const scope: CatalogScope =
     entry.authority.kind === "work"
       ? { kind: "work", projectId: entry.scope.projectId, workId: entry.authority.workId }
@@ -439,7 +563,7 @@ function rowForEntry(
     matchAliases: [],
     action: {
       type: "navigate",
-      prefix,
+      prefix: prefix.endsWith("/") ? prefix : `${prefix}/`,
       scope: entry.scope,
       containerId: entry.entryId,
       acquire: false,

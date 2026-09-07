@@ -1,5 +1,7 @@
-import { FileText, Folder, Image } from "lucide-react";
+import { Trans } from "@lingui/react/macro";
+import { ChevronLeft, ChevronRight, FileText, Folder, Image } from "lucide-react";
 import { useSyncExternalStore } from "react";
+import { Button } from "@/components/ui/button";
 import {
   closedSuggestionMenu,
   type ReferenceBrowserMeta,
@@ -52,6 +54,38 @@ export function ReferenceSuggestionMenu({
       onChoose={(index) => menu.choose(index)}
       onDismiss={menu.dismiss}
       className="max-w-96"
+      note={
+        snapshot.items.length === 0 || snapshot.meta?.canBacktrack ? (
+          <div className="flex flex-col gap-1">
+            {snapshot.meta?.canBacktrack ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="justify-start"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => menu.backtrack()}
+              >
+                <ChevronLeft aria-hidden />
+                <Trans>Back</Trans>
+              </Button>
+            ) : null}
+            {snapshot.items.length === 0 ? (
+              <span role="status" className="px-2 py-1">
+                {snapshot.meta?.loadFailed ? (
+                  <Trans>Couldn't load references.</Trans>
+                ) : snapshot.meta?.incomplete ? (
+                  <Trans>Loading references…</Trans>
+                ) : snapshot.meta?.containerLabel ? (
+                  <Trans>No files in {snapshot.meta.containerLabel}.</Trans>
+                ) : (
+                  <Trans>No matching files</Trans>
+                )}
+              </span>
+            ) : null}
+          </div>
+        ) : undefined
+      }
       rows={snapshot.items.map((row) => ({
         key: row.rowId,
         content: (
@@ -59,6 +93,7 @@ export function ReferenceSuggestionMenu({
             <ReferenceIcon row={row} />
             <span className="truncate">{row.label}</span>
             <span className="ml-auto shrink-0 pl-4 text-ink-subtle text-xs">{row.location}</span>
+            {row.kind !== "file" ? <ChevronRight aria-hidden /> : null}
           </>
         ),
       }))}

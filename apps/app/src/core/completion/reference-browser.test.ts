@@ -278,7 +278,7 @@ describe("reference browser root and hierarchy", () => {
     rig.menu.chooseActive("enter");
     state = rig.controller.state();
     if (state.kind !== "drilled") return;
-    expect(state.rows.map((row) => row.kind)).toEqual(["folder", "file"]);
+    expect(state.rows.map((row) => row.kind)).toEqual(["file"]);
     expect(rig.menu.backtrack()).toBe(true);
     const authorityState = rig.controller.state();
     expect(authorityState.kind).toBe("drilled");
@@ -396,5 +396,126 @@ describe("reference browser actions and freshness", () => {
     await Promise.resolve();
     expect(rig.controller.state().kind).toBe("root");
     expect(fileIds(rig.menu.snapshot().items)).not.toContain("other-chapter");
+  });
+});
+
+it("hides known-empty sources and nested folders, but retains cold Work navigation", () => {
+  const rig = createRig();
+  rig.views.set(
+    catalogScopeKey(project),
+    view(project, [
+      {
+        ...source(project, "empty-kb", "manuscript"),
+        scheme: "kb",
+        name: "Knowledge Base",
+        uri: "kb://",
+      },
+      source(project, "manuscript", "manuscript"),
+      {
+        kind: "folder",
+        entryId: "empty-folder",
+        scope: project,
+        sourceId: "manuscript",
+        parentId: "manuscript",
+        name: "Empty",
+        hasChildren: false,
+        path: ["Empty"],
+        uri: "manuscript://Empty/",
+      },
+      file(project, "manuscript", "chapter", "Chapter.md"),
+      authority("work-cold", "cold-work", "Cold Work"),
+    ]),
+  );
+  rig.start({ warmScopes: [project], query: "", triggerRange: { from: 0, to: 1 } });
+  expect(rig.menu.snapshot().items.map((row) => row.label)).toEqual([
+    "Manuscript",
+    "Chapter.md",
+    "Cold Work",
+  ]);
+});
+
+it("keeps explicit empty URI searches visible and returns to the root without inserting a reference", () => {
+  const rig = createRig();
+  rig.views.set(
+    catalogScopeKey(project),
+    view(project, [
+      {
+        ...source(project, "empty-kb", "manuscript"),
+        scheme: "kb",
+        name: "Knowledge Base",
+        uri: "kb://",
+      },
+    ]),
+  );
+  rig.start({ warmScopes: [project], query: "kb://", triggerRange: { from: 0, to: 6 } });
+  expect(rig.menu.snapshot()).toMatchObject({
+    open: true,
+    items: [],
+    meta: { containerLabel: "Knowledge Base", incomplete: false, canBacktrack: true },
+  });
+  expect(rig.menu.chooseActive()).toBe(false);
+  expect(rig.menu.backtrack()).toBe(true);
+  expect(rig.completed).toEqual(["@"]);
+  expect(rig.selected).toEqual([]);
+});
+
+it("keeps nonempty ancestors and refreshes an empty explicit search when files arrive", () => {
+  const rig = createRig();
+  const root = source(project, "manuscript", "manuscript");
+  const folder = {
+    kind: "folder" as const,
+    entryId: "folder",
+    scope: project,
+    sourceId: root.entryId,
+    parentId: root.entryId,
+    name: "Folder",
+    hasChildren: true,
+    path: ["Folder"],
+    uri: "manuscript://Folder/",
+  };
+  rig.views.set(catalogScopeKey(project), view(project, [root, folder]));
+  rig.start({
+    warmScopes: [project],
+    query: "manuscript://Folder/",
+    triggerRange: { from: 0, to: 21 },
+  });
+  expect(rig.menu.snapshot().items).toEqual([]);
+  expect(rig.menu.snapshot().meta?.containerLabel).toBe("Folder");
+  rig.views.set(
+    catalogScopeKey(project),
+    view(project, [
+      root,
+      folder,
+      file(project, root.entryId, "nested", "Nested.md", folder.entryId),
+    ]),
+  );
+  rig.controller.refresh();
+  expect(fileIds(rig.menu.snapshot().items)).toEqual(["nested"]);
+  rig.menu.backtrack();
+  expect(rig.menu.snapshot().items.map((row) => row.kind)).toEqual(["source", "folder", "file"]);
+});
+
+it("shows cold catalogs as loading and failed acquisition as failure, not empty", async () => {
+  const rig = createRig({
+    acquire: async () => {
+      throw new Error("offline");
+    },
+  });
+  rig.views.delete(catalogScopeKey(otherWork));
+  rig.views.delete(catalogScopeKey(user));
+  rig.start({ warmScopes: [user], query: "", triggerRange: { from: 0, to: 1 } });
+  expect(rig.menu.snapshot()).toMatchObject({
+    open: true,
+    items: [],
+    meta: { incomplete: true, loadFailed: false },
+  });
+  rig.start({ warmScopes: [project], query: "revision-pass", triggerRange: { from: 0, to: 14 } });
+  rig.menu.chooseActive();
+  expect(rig.menu.snapshot().meta?.incomplete).toBe(true);
+  await Promise.resolve();
+  expect(rig.menu.snapshot()).toMatchObject({
+    open: true,
+    items: [],
+    meta: { incomplete: false, loadFailed: true, canBacktrack: true },
   });
 });
