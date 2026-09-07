@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+- `apps/app`: expose pending uploads as status and failed uploads as native retry
+  buttons, without treating them as links or submitting on retry keys.
+
 - `apps/app`: keep unavailable transcript links inspectable and expose consistent
   Composer link semantics, pointer affordance, and keyboard focus.
 

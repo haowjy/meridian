@@ -222,15 +222,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           return true;
         },
       },
-      handleClickOn: (_view, position, node) => {
-        if (node.type.name !== "composerUpload") return false;
-        const value = node.attrs.upload as ComposerPendingUploadAttrs;
-        if (value.state !== "failed") return false;
-        const file = intakeFilesRef.current.get(value.intakeId);
-        if (!file) return false;
-        void attach(file, value.intakeId, position);
-        return true;
-      },
       attributes: {
         "aria-label": t`Message`,
         class: "composer-input min-h-10 max-h-60 overflow-y-auto px-1.5 py-1 outline-none",
@@ -464,7 +455,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     }
   }
   const keyDown = (event: React.KeyboardEvent) => {
-    if (event.target instanceof Element && event.target.closest("[data-composer-reference]"))
+    if (
+      event.target instanceof Element &&
+      event.target.closest("[data-composer-reference], [data-composer-upload]")
+    )
       return;
     if (event.key === "Escape" && streaming) {
       event.preventDefault();

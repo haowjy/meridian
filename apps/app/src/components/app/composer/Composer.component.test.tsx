@@ -244,7 +244,7 @@ describe("Composer upload deletion", () => {
     Object.defineProperty(input, "files", { configurable: true, value: [file] });
     await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
     const failed = host.querySelector('[data-composer-upload="failed"]') as HTMLElement;
-    expect(failed).not.toBeNull();
+    expect(failed).toBeInstanceOf(HTMLButtonElement);
     expect(
       (host.querySelector('button[aria-label="Send message"]') as HTMLButtonElement).disabled,
     ).toBe(true);

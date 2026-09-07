@@ -109,16 +109,17 @@ export const ComposerUploadNode = Node.create({
   atom: true,
   selectable: true,
   addAttributes: () => ({ upload: { default: null } }),
-  parseHTML: () => [{ tag: "span[data-composer-upload]" }],
+  parseHTML: () => [{ tag: "[data-composer-upload]" }],
   renderHTML: ({ node, HTMLAttributes }) => {
     const value = node.attrs.upload as ComposerPendingUploadAttrs;
     return [
-      "span",
+      value.state === "failed" ? "button" : "span",
       mergeAttributes(HTMLAttributes, {
         "data-composer-upload": value.state,
         "data-intake-id": value.intakeId,
-        role: "link",
-        tabindex: "0",
+        type: value.state === "failed" ? "button" : undefined,
+        role: value.state === "pending" ? "status" : undefined,
+        contenteditable: "false",
         "aria-label": `${value.state} upload: ${value.name}`,
       }),
       value.state === "pending" ? `${value.name}…` : `${value.name} (failed)`,
