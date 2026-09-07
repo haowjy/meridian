@@ -2122,7 +2122,11 @@ msgstr ""
 
 #. placeholder {0}: snapshot.meta.containerLabel
 #: src/features/editor/surfaces/link/AtReferenceMenu.tsx
-msgid "No files in {0}."
+#~ msgid "No files in {0}."
+#~ msgstr ""
+
+#: src/features/editor/surfaces/link/AtReferenceMenu.tsx
+msgid "No files in {containerLabel}."
 msgstr ""
 
 #: src/features/project/work/WorkCard.tsx

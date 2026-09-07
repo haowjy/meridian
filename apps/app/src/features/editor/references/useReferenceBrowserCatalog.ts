@@ -28,7 +28,7 @@ export function useReferenceBrowserCatalog(
   useEffect(() => {
     if (!queryClient || !projectId) return;
     for (const scope of scopes)
-      void queryClient.fetchQuery(contextCatalogQueryOptions(queryClient, projectId, scope));
+      void queryClient.prefetchQuery(contextCatalogQueryOptions(queryClient, projectId, scope));
   }, [projectId, queryClient, scopes]);
   return useMemo(
     () =>
@@ -37,6 +37,23 @@ export function useReferenceBrowserCatalog(
             label,
             openContext: () => ({ warmScopes: scopes }),
             port: {
+              subscribe: (listener) =>
+                queryClient.getQueryCache().subscribe((event) => {
+                  const key = event.query.queryKey;
+                  if (
+                    key[0] === "projects" &&
+                    key[1] === projectId &&
+                    key[2] === "context-catalog" &&
+                    (event.type === "updated" || event.type === "removed")
+                  )
+                    listener();
+                }),
+              status: (scope) => {
+                const state = queryClient.getQueryState(
+                  projectQueryKeys.contextCatalog(projectId, scope),
+                );
+                return state?.status === "error" ? "error" : state?.data ? "ready" : "loading";
+              },
               read: (scope) =>
                 queryClient.getQueryData<CatalogCacheView>(
                   projectQueryKeys.contextCatalog(projectId, scope),

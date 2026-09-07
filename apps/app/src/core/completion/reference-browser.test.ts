@@ -158,11 +158,25 @@ function fixtureViews(): Map<string, CatalogCacheView> {
 
 function createRig(overrides: { acquire?: ReferenceCatalogPort["acquire"] } = {}) {
   const views = fixtureViews();
+  const listeners = new Set<() => void>();
+  const errors = new Set<string>();
   const selected: ReferenceRow[] = [];
   const completed: string[] = [];
   const dismissed = vi.fn();
   let openContext = { warmScopes: [project, user, currentWork] as readonly CatalogScope[] };
   const catalog: ReferenceCatalogPort = {
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    status: (scope) =>
+      errors.has(catalogScopeKey(scope))
+        ? "error"
+        : views.has(catalogScopeKey(scope))
+          ? "ready"
+          : "loading",
     read: (scope) => views.get(catalogScopeKey(scope)) ?? null,
     acquire:
       overrides.acquire ??
@@ -200,6 +214,11 @@ function createRig(overrides: { acquire?: ReferenceCatalogPort["acquire"] } = {}
   };
   return {
     views,
+    errors,
+    listeners,
+    emit: () => {
+      for (const listener of listeners) listener();
+    },
     catalog,
     controller,
     menu: controller.menu,
@@ -489,7 +508,7 @@ it("keeps nonempty ancestors and refreshes an empty explicit search when files a
       file(project, root.entryId, "nested", "Nested.md", folder.entryId),
     ]),
   );
-  rig.controller.refresh();
+  rig.emit();
   expect(fileIds(rig.menu.snapshot().items)).toEqual(["nested"]);
   rig.menu.backtrack();
   expect(rig.menu.snapshot().items.map((row) => row.kind)).toEqual(["source", "folder", "file"]);
@@ -518,4 +537,54 @@ it("shows cold catalogs as loading and failed acquisition as failure, not empty"
     items: [],
     meta: { incomplete: false, loadFailed: true, canBacktrack: true },
   });
+});
+
+it("recognizes an absent KB namespace and keeps Back after catalog deletion", () => {
+  const rig = createRig();
+  rig.views.set(catalogScopeKey(project), view(project, []));
+  rig.start({ warmScopes: [project], query: "kb://", triggerRange: { from: 0, to: 6 } });
+  expect(rig.menu.snapshot()).toMatchObject({
+    open: true,
+    items: [],
+    meta: { containerScheme: "kb", incomplete: false, canBacktrack: true },
+  });
+  expect(rig.menu.backtrack()).toBe(true);
+  expect(rig.completed).toEqual(["@"]);
+  rig.start({ warmScopes: [project], query: "kb://Deleted/", triggerRange: { from: 0, to: 14 } });
+  expect(rig.menu.snapshot().meta?.canBacktrack).toBe(true);
+  expect(rig.menu.backtrack()).toBe(true);
+});
+
+it("does not revive an empty KB when an unrelated manuscript is invalidated", () => {
+  const rig = createRig();
+  const snapshot = view(project, [
+    source(project, "manuscript", "manuscript"),
+    { ...source(project, "kb", "manuscript"), scheme: "kb", name: "Knowledge Base", uri: "kb://" },
+    file(project, "manuscript", "chapter", "Chapter.md"),
+  ]);
+  rig.views.set(catalogScopeKey(project), {
+    ...snapshot,
+    invalidatedEntryIds: new Set(["chapter"]),
+  });
+  rig.start({ warmScopes: [project], query: "", triggerRange: { from: 0, to: 1 } });
+  expect(rig.menu.snapshot().items.map((row) => row.label)).not.toContain("Knowledge Base");
+  rig.start({ warmScopes: [project], query: "kb://", triggerRange: { from: 0, to: 6 } });
+  expect(rig.menu.snapshot().meta?.incomplete).toBe(false);
+});
+
+it("subscribes while open so cold settlement, errors and deletion need no typing", () => {
+  const rig = createRig();
+  rig.views.delete(catalogScopeKey(project));
+  rig.start({ warmScopes: [project], query: "kb://", triggerRange: { from: 0, to: 6 } });
+  expect(rig.menu.snapshot().meta?.incomplete).toBe(true);
+  rig.errors.add(catalogScopeKey(project));
+  rig.emit();
+  expect(rig.menu.snapshot().meta).toMatchObject({ loadFailed: true, incomplete: false });
+  rig.errors.clear();
+  rig.views.set(catalogScopeKey(project), view(project, []));
+  rig.emit();
+  expect(rig.menu.snapshot().meta).toMatchObject({ loadFailed: false, incomplete: false });
+  expect(rig.listeners.size).toBe(1);
+  rig.controller.exit();
+  expect(rig.listeners.size).toBe(0);
 });

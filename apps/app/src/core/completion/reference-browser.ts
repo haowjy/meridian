@@ -1,4 +1,5 @@
 /** Hierarchical, renderer-neutral reference browser composed with the suggestion lifecycle. */
+import { type ContextUriScheme, parseContextUri } from "@meridian/contracts/context-uri";
 import type {
   CatalogAuthorityEntry,
   CatalogEntry,
@@ -30,6 +31,8 @@ import type {
 } from "./suggestion-menu-store";
 
 export type ReferenceCatalogPort = {
+  subscribe: (listener: () => void) => () => void;
+  status: (scope: CatalogScope) => "loading" | "ready" | "error";
   /** Read the already-installed F1 normalized view. Missing means cold, not empty. */
   read: (scope: CatalogScope) => CatalogCacheView | null;
   /** Explicit authority activation delegates to the F1 acquisition owner. */
@@ -44,6 +47,7 @@ export type ReferenceBrowserMeta = {
   incomplete: boolean;
   loadFailed: boolean;
   containerLabel: string | null;
+  containerScheme: ContextUriScheme | null;
   canBacktrack: boolean;
 };
 
@@ -124,6 +128,14 @@ export function createReferenceBrowserController(
   let acquisition: AbortController | null = null;
   let settled = false;
   let awaitingSegmentEcho = false;
+  let unsubscribe: (() => void) | null = null;
+  let containerScheme: ContextUriScheme | null = null;
+  let hasSearch = false;
+  const explicitUri = () => {
+    if (!query.includes("://")) return null;
+    const parsed = parseContextUri(query.startsWith("@") ? query.slice(1) : query);
+    return parsed.ok ? parsed.value : null;
+  };
   let referenceKinds: readonly ReferenceKind[] | undefined;
 
   const authorities = (): ReferenceAuthorityIndex => {
@@ -150,9 +162,12 @@ export function createReferenceBrowserController(
     completedPrefix,
     incomplete,
     loadFailed,
-    containerLabel:
-      queriedContainer?.label ?? (location?.kind === "drilled" ? (location.label ?? null) : null),
-    canBacktrack: queriedContainer !== null || location?.kind === "drilled",
+    containerLabel: hasSearch
+      ? null
+      : (queriedContainer?.label ??
+        (location?.kind === "drilled" ? (location.label ?? null) : null)),
+    containerScheme: hasSearch ? null : containerScheme,
+    canBacktrack: explicitUri() !== null || location?.kind === "drilled",
   });
 
   const session = (): InternalSuggestionSession<ReferenceRow, ReferenceBrowserMeta> => ({
@@ -190,12 +205,48 @@ export function createReferenceBrowserController(
             typedQuery.startsWith(row.action.prefix),
         )
         .sort((a, b) => b.action.prefix.length - a.action.prefix.length)[0] ?? null;
-    if (queriedContainer)
-      incomplete = catalogIncomplete(options.catalog.read(queriedContainer.action.scope));
-    else if (location.kind === "root")
-      incomplete = location.warmScopes.some((scope) =>
-        catalogIncomplete(options.catalog.read(scope)),
-      );
+    const parsed = explicitUri();
+    containerScheme = parsed?.path === "" ? parsed.scheme : null;
+    const namespaceScope = parsed
+      ? scopes.find((scope) => {
+          if (parsed.scheme === "kb" || parsed.scheme === "manuscript")
+            return scope.kind === "project";
+          if (parsed.scheme === "user") return scope.kind === "user";
+          if (parsed.authority.kind === "none") return scope.kind === "none";
+          if (parsed.authority.kind === "contextual")
+            return scope.kind === "work" || scope.kind === "none";
+          return (
+            scope.kind === "work" &&
+            [...authorityIndex.values()].some(
+              (entry) =>
+                entry.authority.kind === "work" &&
+                entry.authority.workId === scope.workId &&
+                parsed.authority.kind === "work" &&
+                entry.authority.workSlug === parsed.authority.workSlug,
+            )
+          );
+        })
+      : undefined;
+    const targetScope =
+      queriedContainer?.action.scope ??
+      namespaceScope ??
+      (location.kind === "drilled" ? location.activeScope : undefined);
+    if (targetScope) {
+      const view = override ?? options.catalog.read(targetScope);
+      const containerId =
+        queriedContainer?.action.containerId ??
+        (parsed
+          ? view?.sourceIdsByScheme.get(parsed.scheme)
+          : location.kind === "drilled"
+            ? location.containerId
+            : undefined);
+      incomplete = acquisition !== null || containerIncomplete(view, containerId, parsed !== null);
+      loadFailed = options.catalog.status(targetScope) === "error" || loadFailed;
+      if (loadFailed) incomplete = false;
+    } else {
+      incomplete = scopes.some((scope) => catalogIncomplete(options.catalog.read(scope)));
+      loadFailed = scopes.some((scope) => options.catalog.status(scope) === "error");
+    }
     const candidates = queriedContainer
       ? drilledRows(
           {
@@ -208,12 +259,15 @@ export function createReferenceBrowserController(
           referenceKinds,
           override,
         )
-      : location.kind === "root"
-        ? rootRows(location.warmScopes, options.catalog, authorityIndex, referenceKinds)
-        : drilledRows(location, options.catalog, authorityIndex, referenceKinds, override);
+      : namespaceScope
+        ? []
+        : location.kind === "root"
+          ? rootRows(location.warmScopes, options.catalog, authorityIndex, referenceKinds)
+          : drilledRows(location, options.catalog, authorityIndex, referenceKinds, override);
     const search = queriedContainer
       ? typedQuery.slice(queriedContainer.action.prefix.length)
       : query;
+    hasSearch = search.length > 0 && !(parsed && parsed.path === "");
     return rankReferenceRows(candidates, search, { ...options.priors, kinds: referenceKinds });
   };
 
@@ -248,11 +302,10 @@ export function createReferenceBrowserController(
     loadFailed = false;
     const candidate = advance();
     if (!candidate) return;
-    publish(candidate, "reset");
-    if (!action.acquire) return;
-
-    const controller = new AbortController();
+    const controller = action.acquire ? new AbortController() : null;
     acquisition = controller;
+    publish(candidate, "reset");
+    if (!controller) return;
     try {
       const view = await options.catalog.acquire(action.scope, controller.signal);
       if (controller.signal.aborted || identity !== candidate) return;
@@ -286,7 +339,7 @@ export function createReferenceBrowserController(
 
   function backtrack(): boolean {
     if (!identity || !location) return false;
-    if (queriedContainer) {
+    if (explicitUri()) {
       location = history.find((entry) => entry.kind === "root") ?? location;
       history = [];
       query = "";
@@ -326,6 +379,7 @@ export function createReferenceBrowserController(
       const context = options.openContext();
       if (!context) return frame.requestExit();
       acquisition?.abort();
+      unsubscribe?.();
       requestExit = frame.requestExit;
       anchorRect = frame.anchorRect;
       lastText = frame.text;
@@ -344,6 +398,11 @@ export function createReferenceBrowserController(
       awaitingSegmentEcho = false;
       rows = project();
       identity = lifecycle.open(session());
+      unsubscribe = options.catalog.subscribe(() => {
+        if (!identity) return;
+        loadFailed = false;
+        publish(identity, "preserve-active");
+      });
     },
     update(frame) {
       if (!identity) return;
@@ -361,6 +420,8 @@ export function createReferenceBrowserController(
       if (candidate) publish(candidate, "reset");
     },
     exit() {
+      unsubscribe?.();
+      unsubscribe = null;
       acquisition?.abort();
       acquisition = null;
       requestExit = null;
@@ -483,6 +544,26 @@ function catalogIncomplete(view: CatalogCacheView | null): boolean {
   return !view?.generation || view.invalidatedEntryIds.size > 0;
 }
 
+function containerIncomplete(
+  view: CatalogCacheView | null,
+  containerId: string | undefined,
+  explicit: boolean,
+): boolean {
+  if (!view?.generation) return true;
+  if (!containerId) return !explicit && view.invalidatedEntryIds.size > 0;
+  for (const id of view.invalidatedEntryIds) {
+    let entry = view.entries.get(id);
+    while (entry) {
+      if (entry.entryId === containerId) return true;
+      entry =
+        entry.kind === "folder" || entry.kind === "file"
+          ? view.entries.get(entry.parentId)
+          : undefined;
+    }
+  }
+  return false;
+}
+
 /** Snapshot metadata proves emptiness; cold or invalidated containers must not disappear. */
 function populatedContainers(
   view: CatalogCacheView,
@@ -490,20 +571,24 @@ function populatedContainers(
   kinds?: readonly ReferenceKind[],
 ): Set<string> {
   const populated = new Set<string>();
-  if (catalogIncomplete(view)) {
+  if (!view.generation) {
     for (const entry of view.entries.values())
       if (entry.kind === "source" || entry.kind === "folder") populated.add(entry.entryId);
     return populated;
   }
   for (const entry of view.entries.values()) {
-    if (entry.kind !== "file") continue;
-    const row = rowForFile(entry, authorities);
-    if (!row || (kinds && !kinds.includes(row.fileKind))) continue;
-    let parentId: string | undefined = entry.parentId;
+    let parentId: string | undefined;
+    if (view.invalidatedEntryIds.has(entry.entryId)) parentId = entry.entryId;
+    else {
+      if (entry.kind !== "file") continue;
+      const row = rowForFile(entry, authorities);
+      if (!row || (kinds && !kinds.includes(row.fileKind))) continue;
+      parentId = entry.parentId;
+    }
     while (parentId && !populated.has(parentId)) {
       populated.add(parentId);
       const parent = view.entries.get(parentId);
-      parentId = parent?.kind === "folder" ? parent.parentId : undefined;
+      parentId = parent?.kind === "folder" || parent?.kind === "file" ? parent.parentId : undefined;
     }
   }
   return populated;

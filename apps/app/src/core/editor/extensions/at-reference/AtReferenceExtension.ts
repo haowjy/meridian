@@ -76,6 +76,8 @@ const lane = createSuggestionLane<
   driver: ({ editor, catalog }) =>
     createReferenceBrowserController({
       catalog: {
+        subscribe: (listener) => catalog()?.port.subscribe(listener) ?? (() => {}),
+        status: (scope) => catalog()?.port.status(scope) ?? "loading",
         read: (scope) => catalog()?.port.read(scope) ?? null,
         acquire: (scope, signal) => {
           const current = catalog();

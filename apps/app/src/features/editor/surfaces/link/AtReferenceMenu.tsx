@@ -8,6 +8,7 @@ import {
   type ReferenceRow,
 } from "@/core/completion";
 import { getAtReferenceMenu } from "@/core/editor/extensions/at-reference";
+import { schemeLabel } from "@/features/project/context/context-schemes";
 import { type EditorChromeSurfaceProps, SuggestionMenu } from "../../chrome";
 
 const NO_SUBSCRIPTION = () => () => {};
@@ -40,6 +41,9 @@ export function ReferenceSuggestionMenu({
     () => menu?.snapshot() ?? closed(),
     closed,
   );
+  const containerLabel =
+    snapshot.meta?.containerLabel ??
+    (snapshot.meta?.containerScheme ? schemeLabel(snapshot.meta.containerScheme) : null);
   if (!menu) return null;
   return (
     <SuggestionMenu
@@ -76,8 +80,8 @@ export function ReferenceSuggestionMenu({
                   <Trans>Couldn't load references.</Trans>
                 ) : snapshot.meta?.incomplete ? (
                   <Trans>Loading references…</Trans>
-                ) : snapshot.meta?.containerLabel ? (
-                  <Trans>No files in {snapshot.meta.containerLabel}.</Trans>
+                ) : containerLabel ? (
+                  <Trans>No files in {containerLabel}.</Trans>
                 ) : (
                   <Trans>No matching files</Trans>
                 )}

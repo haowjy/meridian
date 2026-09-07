@@ -391,7 +391,12 @@ describe("Composer reference gestures", () => {
 it("hands context-menu focus to the Change reference picker", async () => {
   const ref = await mount((e) => outcome(e, "accepted"), {
     referenceCatalog: {
-      port: { read: () => null, acquire: vi.fn() },
+      port: {
+        read: () => null,
+        acquire: vi.fn(),
+        subscribe: () => () => {},
+        status: () => "ready",
+      },
       openContext: () => ({ warmScopes: [] }),
       label: "References",
     },

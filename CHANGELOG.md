@@ -6,7 +6,8 @@
 ## [Unreleased]
 
 - `apps/app`: omit empty containers from reference suggestions; keep explicit URI
-  searches readable with empty/loading feedback and Back navigation.
+  searches readable with empty/loading feedback and Back navigation, including
+  uncreated KB namespaces; refresh open pickers as catalog data changes.
 
 - `apps/app`: keep explicit No Work through link routes, Context bootstrap, tab
   matching, and viewer reads even while a Work-bound chat is open.
