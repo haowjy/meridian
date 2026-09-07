@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { Editor } from "@tiptap/core";
+import { yUndoPluginKey } from "@tiptap/y-tiptap";
 import { afterEach, describe, expect, it } from "vitest";
+import { createCollabPair } from "@/test-support/collab-editors";
 
 import { createStandaloneEditorExtensions } from "../config";
 import { commitLinkDraft, mapLinkDraft, resolveLinkDraft } from "./link-commands";
@@ -238,4 +240,23 @@ describe("destination-oriented editing", () => {
     expect(commitLinkDraft(target, draft, { text: draft.text, href: "[[Other]]" })).toBe("refused");
     expect(firstLinkHref(target)).toBe("[[Tower]]");
   });
+});
+
+it("undoes a link save separately from adjacent collaborative typing", () => {
+  const pair = createCollabPair({
+    type: "doc",
+    content: [{ type: "paragraph", content: [{ type: "text", text: "Start" }] }],
+  });
+  try {
+    const target = pair.local;
+    yUndoPluginKey.getState(target.state)?.undoManager.clear();
+    target.commands.setTextSelection(6);
+    target.commands.insertContent(" words");
+    const draft = resolveLinkDraft(target);
+    expect(commitLinkDraft(target, draft, { text: "Gate", href: "[[Gate]]" })).toBe("applied");
+    target.commands.undo();
+    expect(target.state.doc.textContent).toBe("Start words");
+  } finally {
+    pair.destroy();
+  }
 });

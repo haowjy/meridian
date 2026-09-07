@@ -10,9 +10,11 @@
  * rather than on wherever the caret happened to be.
  */
 import { type Editor, getMarkRange } from "@tiptap/core";
+import { closeHistory } from "@tiptap/pm/history";
 import type { Mark } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
 import type { Mappable } from "@tiptap/pm/transform";
+import { yUndoPluginKey } from "@tiptap/y-tiptap";
 
 import {
   anchorRange,
@@ -188,7 +190,9 @@ export function commitLinkDraft(
   const href = commit.href.trim();
   if (!href) {
     if (!draft.existing) return "invalid";
-    const removed = editor.chain().focus().setTextSelection(range).unsetLink().run();
+    const removed = runLinkEdit(editor, () =>
+      editor.chain().focus().setTextSelection(range).unsetLink().run(),
+    );
     return removed ? "removed" : "refused";
   }
 
@@ -196,30 +200,34 @@ export function commitLinkDraft(
   if (!normalized) return "invalid";
 
   if (!draft.needsText && (!commit.text.trim() || commit.text === draft.text)) {
-    const applied = editor
-      .chain()
-      .focus()
-      .setTextSelection(range)
-      .setLink({ href: normalized, title: null })
-      .run();
+    const applied = runLinkEdit(editor, () =>
+      editor
+        .chain()
+        .focus()
+        .setTextSelection(range)
+        .setLink({ href: normalized, title: null })
+        .run(),
+    );
     return applied ? "applied" : "refused";
   }
 
   // Nothing was selected, so the commit writes the link's own text. A URL with
   // no label reads as itself, which is what pasting a bare link produces.
   const text = commit.text.trim() || normalized;
-  const applied = editor
-    .chain()
-    .focus()
-    .insertContentAt(range, {
-      type: "text",
-      text,
-      marks: linkTextMarks(editor, { ...draft, ...range }, normalized).map((mark) => ({
-        type: mark.type.name,
-        attrs: mark.attrs,
-      })),
-    })
-    .run();
+  const applied = runLinkEdit(editor, () =>
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(range, {
+        type: "text",
+        text,
+        marks: linkTextMarks(editor, { ...draft, ...range }, normalized).map((mark) => ({
+          type: mark.type.name,
+          attrs: mark.attrs,
+        })),
+      })
+      .run(),
+  );
   return applied ? "applied" : "refused";
 }
 
@@ -244,7 +252,21 @@ export function selectionCoversLink(
 /** Drop the link mark over a range the pointer chose, not the caret (§5.5). */
 export function removeLinkAt(editor: Editor, range: { from: number; to: number }): boolean {
   if (editor.isDestroyed || !editor.isEditable) return false;
-  return editor.chain().focus().setTextSelection(range).unsetLink().run();
+  return runLinkEdit(editor, () =>
+    editor.chain().focus().setTextSelection(range).unsetLink().run(),
+  );
+}
+
+/** A summoned link action is one undo unit, separate from typing on either side. */
+function runLinkEdit(editor: Editor, apply: () => boolean): boolean {
+  const boundary = () => {
+    yUndoPluginKey.getState(editor.state)?.undoManager.stopCapturing();
+    editor.view.dispatch(closeHistory(editor.state.tr));
+  };
+  boundary();
+  const applied = apply();
+  boundary();
+  return applied;
 }
 
 /**

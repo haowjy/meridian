@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+- `apps/app`: undo link saves and removals separately from adjacent collaborative typing.
+
 - `apps/app`: show friendly destination names while resolution is pending and
   focus the link search field when changing an address without a catalog.
 
