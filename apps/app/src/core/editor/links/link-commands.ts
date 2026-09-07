@@ -211,23 +211,46 @@ export function commitLinkDraft(
     return applied ? "applied" : "refused";
   }
 
-  // Nothing was selected, so the commit writes the link's own text. A URL with
-  // no label reads as itself, which is what pasting a bare link produces.
   const text = commit.text.trim() || normalized;
-  const applied = runLinkEdit(editor, () =>
-    editor
-      .chain()
-      .focus()
-      .insertContentAt(range, {
-        type: "text",
-        text,
-        marks: linkTextMarks(editor, { ...draft, ...range }, normalized).map((mark) => ({
-          type: mark.type.name,
-          attrs: mark.attrs,
-        })),
-      })
-      .run(),
-  );
+  const applied = runLinkEdit(editor, () => {
+    const { state } = editor;
+    const linkType = state.schema.marks.link;
+    if (!linkType) return false;
+    const original = state.doc.textBetween(range.from, range.to);
+    const before = Array.from(original);
+    const after = Array.from(text);
+    let prefix = 0;
+    let suffix = 0;
+    while (prefix < Math.min(before.length, after.length) && before[prefix] === after[prefix])
+      prefix += 1;
+    while (
+      suffix < Math.min(before.length, after.length) - prefix &&
+      before[before.length - suffix - 1] === after[after.length - suffix - 1]
+    )
+      suffix += 1;
+    const from = range.from + before.slice(0, prefix).join("").length;
+    const to = range.to - before.slice(before.length - suffix).join("").length;
+    const inserted = after.slice(prefix, after.length - suffix).join("");
+    // Surviving text keeps its mark runs. New wording inherits only marks
+    // common to the replaced slice, never formatting sampled from its first word.
+    let marks: readonly Mark[] | undefined;
+    state.doc.nodesBetween(from, to, (node) => {
+      if (!node.isInline) return;
+      marks = marks ? marks.filter((mark) => mark.isInSet(node.marks)) : node.marks;
+    });
+    marks ??= state.storedMarks ?? state.doc.resolve(from).marks();
+    const tr = state.tr;
+    if (inserted) tr.replaceWith(from, to, state.schema.text(inserted, marks));
+    else tr.delete(from, to);
+    tr.addMark(
+      range.from,
+      range.from + text.length,
+      linkType.create({ href: normalized, title: null }),
+    );
+    editor.view.dispatch(tr);
+    editor.commands.focus();
+    return true;
+  });
   return applied ? "applied" : "refused";
 }
 
@@ -267,21 +290,4 @@ function runLinkEdit(editor: Editor, apply: () => boolean): boolean {
   const applied = apply();
   boundary();
   return applied;
-}
-
-/**
- * The marks the rewritten text should carry. Rewriting a link's text replaces
- * real content, so everything that content already wore comes with it: a bold
- * link stays bold, and only the link mark itself is exchanged.
- */
-function linkTextMarks(editor: Editor, draft: LinkDraft, href: string): Mark[] {
-  const { state } = editor;
-  const linkType = state.schema.marks.link;
-  const $from = state.doc.resolve(draft.from);
-  const existing = draft.existing
-    ? ($from.nodeAfter?.marks ?? [])
-    : (state.storedMarks ?? $from.marks());
-
-  const kept = existing.filter((mark) => mark.type !== linkType);
-  return linkType ? [...kept, linkType.create({ href, title: null })] : kept;
 }

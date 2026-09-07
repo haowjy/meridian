@@ -232,6 +232,30 @@ describe("destination-oriented editing", () => {
     expect(commitLinkDraft(target, draft, { text: draft.text, href: "[[Tower]]" })).toBe("applied");
     expect(target.getHTML()).toContain("<em>gate</em>");
   });
+  it("retains surviving emphasis without spreading the first run over replacement text", () => {
+    const target = editorWith(
+      '<p><a href="[[Gate]]"><em>the</em> second <strong>gate</strong></a></p>',
+    );
+    target.commands.setTextSelection(2);
+    const draft = resolveLinkDraft(target);
+    expect(commitLinkDraft(target, draft, { text: "western gate", href: draft.href })).toBe(
+      "applied",
+    );
+    expect(target.getHTML()).toContain("<strong>gate</strong>");
+    expect(target.getHTML()).not.toContain("<em>");
+  });
+  it("retains internal mark transitions outside the changed prefix", () => {
+    const target = editorWith(
+      '<p><a href="[[Gate]]">the <em>second</em> <strong>gate</strong></a></p>',
+    );
+    target.commands.setTextSelection(2);
+    const draft = resolveLinkDraft(target);
+    expect(commitLinkDraft(target, draft, { text: "a second gate", href: draft.href })).toBe(
+      "applied",
+    );
+    expect(target.getHTML()).toContain("<em>second</em>");
+    expect(target.getHTML()).toContain("<strong>gate</strong>");
+  });
   it("refuses a stale draft after the destination is replaced", () => {
     const target = editorWith('<p><a href="[[Gate]]">gate</a></p>');
     target.commands.setTextSelection(2);

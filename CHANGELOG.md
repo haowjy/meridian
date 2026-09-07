@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+- `apps/app`: preserve surviving rich-text mark runs when rewriting link labels.
+
 - `apps/app`: undo link saves and removals separately from adjacent collaborative typing.
 
 - `apps/app`: show friendly destination names while resolution is pending and
