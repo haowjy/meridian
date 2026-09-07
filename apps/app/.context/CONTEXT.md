@@ -153,19 +153,15 @@ stable named option-taking plugin, key the renderer by occurrence metadata, and
 pass live resolution through React context. Removing any one of those seams can
 reuse stale authority or stale resolution while rendering unchanged text.
 
-### Composer reference-action divergence
+### Composer reference actions and uploaded material
 
-The shared Composer currently treats removal of the last atom carrying a draft
-upload intake ID as authority to call destructive `deleteDraft`. The reference
-menu's Change operation always clears that ownership field. Consequently a
-same-target Change, a duplicate ordinary occurrence, or Undo after Remove can
-leave a visible token pointing at a deleted upload.
-
-This is an open merge blocker, not a lifecycle contract. Whether reference
-removal should retain the file or automatic cleanup should become a
-draft-level, identity- and history-aware owner is awaiting product clarification.
-Do not move deletion into the menu, add a timer, or describe the current
-atom-observer behavior as approved.
+Reference removal changes the draft, not the uploaded file. Uploaded material
+remains in Uploads until explicit file deletion, so duplicate occurrences and
+Undo/Redo cannot revive references to files deleted by an atom observer.
+Same-identity Change retains intake provenance; a different destination does
+not acquire ownership of the former upload. Composer exposes intake but no
+file-deletion port. Keep removal one history unit and never put cleanup into a
+reference menu, transaction observer, or timer.
 
 ## Wire types as protocol contract
 

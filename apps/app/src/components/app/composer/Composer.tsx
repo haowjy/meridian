@@ -26,12 +26,10 @@ import { ComposerReferenceMenu } from "./ComposerReferenceMenu";
 import {
   type ComposerDraftChange,
   type ComposerDraftSnapshot,
-  type ComposerOwnedUpload,
   type ComposerPendingUploadAttrs,
   ComposerReferenceNode,
   type ComposerSubmitEnvelope,
   ComposerUploadNode,
-  composerOwnedUploadReferences,
   composerReferenceContent,
   composerSelection,
   mergeComposerDraftSnapshots,
@@ -66,7 +64,6 @@ export type ComposerUploadPort = Readonly<{
     intakeId: string;
     scope: ComposerUploadScope;
   }) => Promise<UploadIntakeResult>;
-  deleteDraft: (input: ComposerOwnedUpload, scope: ComposerUploadScope) => Promise<void>;
 }>;
 
 export type ComposerProps = {
@@ -139,9 +136,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const referenceCatalogRef = useRef(referenceCatalog);
   referenceCatalogRef.current = referenceCatalog;
   const resolvedUploadPort = uploadPort;
-  const uploadPortRef = useRef(resolvedUploadPort);
-  uploadPortRef.current = resolvedUploadPort;
-  const suppressDetachRef = useRef(false);
   const suppressDraftChangeRef = useRef(false);
   const [pending, setPending] = useState(0);
   const [locked, setLocked] = useState(false);
@@ -242,16 +236,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     },
     onTransaction: ({ editor: current, transaction }) => {
       if (!transaction.docChanged) return;
-      if (!suppressDetachRef.current && uploadPortRef.current && scopeRef.current) {
-        const before = composerOwnedUploadReferences(transaction.before.toJSON());
-        const afterIds = new Set(
-          composerOwnedUploadReferences(current.getJSON()).map(({ upload }) => upload.intakeId),
-        );
-        for (const removed of before) {
-          if (!afterIds.has(removed.upload.intakeId))
-            void uploadPortRef.current.deleteDraft(removed.upload, removed.authority);
-        }
-      }
       revision.current += 1;
       const envelope = serializeComposerDraft(
         current.getJSON(),
@@ -354,9 +338,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       );
       setLocked(false);
       if (outcome.kind === "accepted" && revision.current === envelope.acceptedRevision) {
-        suppressDetachRef.current = true;
         editor.commands.clearContent(true);
-        suppressDetachRef.current = false;
       }
       if (outcome.kind === "rejected") {
         const later = snapshot();

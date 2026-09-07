@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+- `apps/app`: retain uploaded files when references change or are removed, keeping
+  duplicates and Undo valid; preserve intake provenance on same-target Change.
+
 - `apps/app`: route upload retry keys through the button action before the editor
   consumes Enter, preserving one retry and preventing accidental submission.
 

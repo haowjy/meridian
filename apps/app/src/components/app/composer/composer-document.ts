@@ -127,25 +127,6 @@ export const ComposerUploadNode = Node.create({
   },
 });
 
-export type ComposerOwnedUploadReference = Readonly<{
-  upload: ComposerOwnedUpload;
-  authority: Extract<AuthoritativeReference["authority"], { kind: "work" | "none" }>;
-}>;
-
-export function composerOwnedUploadReferences(doc: JSONContent): ComposerOwnedUploadReference[] {
-  const references: ComposerOwnedUploadReference[] = [];
-  const walk = (node: JSONContent) => {
-    if (node.type === "composerReference") {
-      const value = node.attrs?.reference as ComposerReferenceAttrs;
-      if (value.upload && (value.authority.kind === "work" || value.authority.kind === "none"))
-        references.push({ upload: value.upload, authority: value.authority });
-    }
-    for (const child of node.content ?? []) walk(child);
-  };
-  walk(doc);
-  return references;
-}
-
 export function composerReferenceContent(reference: ComposerReferenceAttrs): JSONContent {
   return { type: "composerReference", attrs: { reference } };
 }

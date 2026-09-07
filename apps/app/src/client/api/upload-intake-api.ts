@@ -1,10 +1,6 @@
-/** Browser adapter for authoritative material intake and identity-bound draft deletion. */
-import type { DeleteDraftUploadResult, UploadIntakeResult } from "@meridian/contracts/protocol";
-import type {
-  ComposerOwnedUpload,
-  ComposerUploadPort,
-  ComposerUploadScope,
-} from "@/components/app/composer";
+/** Browser adapter for authoritative material intake; removing a reference never deletes the file. */
+import type { UploadIntakeResult } from "@meridian/contracts/protocol";
+import type { ComposerUploadPort, ComposerUploadScope } from "@/components/app/composer";
 import { readResponsePayload } from "./http-client";
 
 function url(scope: ComposerUploadScope) {
@@ -34,19 +30,5 @@ export const uploadIntakePort: ComposerUploadPort = {
     form.set("intakeId", intakeId);
     form.set("byteDigest", digest);
     return response<UploadIntakeResult>(fetch(url(scope), { method: "POST", body: form }));
-  },
-  async deleteDraft(upload: ComposerOwnedUpload, scope: ComposerUploadScope) {
-    await response<DeleteDraftUploadResult>(
-      fetch(url(scope), {
-        method: "DELETE",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          intakeId: upload.intakeId,
-          documentId: upload.documentId,
-          uri: upload.uri,
-          expectedRevision: upload.locationRevision,
-        }),
-      }),
-    );
   },
 };

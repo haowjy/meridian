@@ -158,9 +158,9 @@ describe("Composer settlement", () => {
   });
 });
 describe("Composer upload deletion", () => {
-  it("deletes a detached ready draft upload but never an accepted clear", async () => {
+  it("retains an upload when its draft reference is removed or accepted", async () => {
     const deleteDraft = vi.fn(async () => {});
-    const port: ComposerUploadPort = { intake: vi.fn(), deleteDraft };
+    const port = { intake: vi.fn(), deleteDraft };
     const ref = await mount((e) => outcome(e, "accepted"), {
       uploadPort: port,
       uploadScope: { kind: "none", projectId: "p" },
@@ -222,7 +222,7 @@ describe("Composer upload deletion", () => {
         ownedUploads: [],
       }),
     );
-    expect(deleteDraft).toHaveBeenCalledWith(upload, { kind: "none", projectId: "p" });
+    expect(deleteDraft).not.toHaveBeenCalled();
   });
   it.each([
     "click",
@@ -238,7 +238,7 @@ describe("Composer upload deletion", () => {
         fileType: "text",
         locationRevision: "r2",
       });
-    const port: ComposerUploadPort = { intake, deleteDraft: vi.fn() };
+    const port: ComposerUploadPort = { intake };
     const ref = await mount((e) => outcome(e, "accepted"), {
       uploadPort: port,
       uploadScope: { kind: "none", projectId: "p" },
@@ -283,7 +283,7 @@ describe("Composer upload deletion", () => {
         }),
     );
     const ref = await mount((e) => outcome(e, "accepted"), {
-      uploadPort: { intake, deleteDraft: vi.fn() },
+      uploadPort: { intake },
       uploadScope: { kind: "none", projectId: "p" },
     });
     await act(async () => ref.current?.restoreSnapshot(textSnapshot("Opening", 1)));

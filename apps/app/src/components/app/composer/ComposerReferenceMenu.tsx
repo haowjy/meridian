@@ -51,6 +51,8 @@ export function ComposerReferenceMenu({
       !editor.state.doc.nodeAt(position)?.eq(node)
     )
       return;
+    if (next && next.documentId === reference.documentId && next.uri === reference.uri)
+      next = { ...next, upload: reference.upload };
     const tr = closeHistory(editor.state.tr);
     if (next)
       tr.replaceWith(
@@ -60,6 +62,7 @@ export function ComposerReferenceMenu({
       );
     else tr.delete(position, position + node.nodeSize);
     editor.view.dispatch(tr);
+    editor.view.dispatch(closeHistory(editor.state.tr));
     setChanging(false);
     editor.commands.focus();
   };
