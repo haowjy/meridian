@@ -372,3 +372,45 @@ describe("Composer reference gestures", () => {
     expect(ref.current?.getDraft()).toBe("[[Gate]]manuscript://@/gate.md");
   });
 });
+
+it("hands context-menu focus to the Change reference picker", async () => {
+  const ref = await mount((e) => outcome(e, "accepted"), {
+    referenceCatalog: {
+      port: { read: () => null, acquire: vi.fn() },
+      openContext: () => ({ warmScopes: [] }),
+      label: "References",
+    },
+  });
+  await act(async () =>
+    ref.current?.insertReference(
+      {
+        documentId: "01900000-0000-7000-8000-000000000009",
+        uri: "manuscript://gate.md",
+        authority: { kind: "project", projectId: "p" },
+        label: "Gate",
+        fileType: "markdown",
+      },
+      "[[Gate]]",
+    ),
+  );
+  const token = host.querySelector<HTMLElement>("[data-composer-reference]");
+  await act(async () =>
+    token?.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "F10",
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    ),
+  );
+  const change = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => item.textContent === "Change reference",
+  );
+  expect(change).toBeDefined();
+  await act(async () => change?.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 100)));
+  const input = document.querySelector('input[aria-label="Change reference"]');
+  expect(input).not.toBeNull();
+  expect(document.activeElement).toBe(input);
+});

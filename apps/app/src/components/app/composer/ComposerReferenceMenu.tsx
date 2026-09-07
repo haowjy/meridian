@@ -38,6 +38,8 @@ export function ComposerReferenceMenu({
   const reference = node.attrs.reference as ComposerReferenceAttrs;
   const trigger = useRef<HTMLSpanElement>(null);
   const [changing, setChanging] = useState(false);
+  // Opening before the menu releases its focus scope immediately dismisses the picker.
+  const changeAfterClose = useRef(false);
   const runtime = readRuntime();
   const follow = runtime.onOpen ? () => readRuntime().onOpen?.(reference) : undefined;
   const focus = () => trigger.current?.focus();
@@ -94,7 +96,10 @@ export function ComposerReferenceMenu({
           <ContextMenuContent
             onCloseAutoFocus={(event) => {
               event.preventDefault();
-              if (!changing) focus();
+              if (changeAfterClose.current) {
+                changeAfterClose.current = false;
+                setChanging(true);
+              } else if (!changing) focus();
             }}
           >
             <ContextMenuLabel>{reference.label}</ContextMenuLabel>
@@ -104,7 +109,9 @@ export function ComposerReferenceMenu({
             {follow ? <ContextMenuItem onSelect={follow}>{t`Open link`}</ContextMenuItem> : null}
             {runtime.catalog ? (
               <ContextMenuItem
-                onSelect={() => setChanging(true)}
+                onSelect={() => {
+                  changeAfterClose.current = true;
+                }}
               >{t`Change reference`}</ContextMenuItem>
             ) : null}
             <ContextMenuItem onSelect={() => replace(null)}>{t`Remove reference`}</ContextMenuItem>

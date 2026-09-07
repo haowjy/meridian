@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+- `apps/app`: open the reference replacement picker after its context menu
+  releases focus, so Change stays open in Home and Chat.
+
 - `apps/app`: expose pending uploads as status and failed uploads as native retry
   buttons, without treating them as links or submitting on retry keys.
 
