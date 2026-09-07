@@ -24,9 +24,11 @@ index below. Only a `relative` target needs it, and without one the port THROWS
 rather than answering null: an unasked question must not render as a missing
 document.
 
-`workId` is the active Work. The server resolves a bare `work://notes.md`
-against it (`document-link-resolution.ts`), so dropping it made that spelling
-unresolvable from the editor while the contract carried the field all along.
+`workId` is the active Work or null for no-Work. The server uses it for omitted
+`scratch://` or `uploads://` authority; `@/` is explicit no-Work and a canonical
+`@<slug>` resolves through Project Work authority. Legacy `work://` is invalid.
+Dropping nullable scope would make contextual links resolve against the wrong
+authority even though the route contract carries the distinction.
 
 Registering the navigator is also what makes the link menu's Open link verb
 exist. M7 leaves it absent on purpose (law 5); this is what fills the hole.
