@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+- `apps/app`: route upload retry keys through the button action before the editor
+  consumes Enter, preserving one retry and preventing accidental submission.
+
 - `apps/app`: open the reference replacement picker after its context menu
   releases focus, so Change stays open in Home and Chat.
 

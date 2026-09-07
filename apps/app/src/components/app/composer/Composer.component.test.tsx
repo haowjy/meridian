@@ -224,7 +224,11 @@ describe("Composer upload deletion", () => {
     );
     expect(deleteDraft).toHaveBeenCalledWith(upload, { kind: "none", projectId: "p" });
   });
-  it("blocks pending intake, retains failure, and retries the stable intake identity", async () => {
+  it.each([
+    "click",
+    "Enter",
+    " ",
+  ])("retries the stable intake identity with %s", async (activation) => {
     const intake = vi
       .fn()
       .mockRejectedValueOnce(new Error("storage failed"))
@@ -248,7 +252,13 @@ describe("Composer upload deletion", () => {
     expect(
       (host.querySelector('button[aria-label="Send message"]') as HTMLButtonElement).disabled,
     ).toBe(true);
-    await act(async () => failed.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await act(async () =>
+      failed.dispatchEvent(
+        activation === "click"
+          ? new MouseEvent("click", { bubbles: true })
+          : new KeyboardEvent("keydown", { key: activation, bubbles: true, cancelable: true }),
+      ),
+    );
     expect(intake).toHaveBeenCalledTimes(2);
     expect(intake.mock.calls[1]?.[0].intakeId).toBe(intake.mock.calls[0]?.[0].intakeId);
     expect(ref.current?.snapshot().ownedUploads[0]).toMatchObject({ locationRevision: "r2" });
@@ -341,6 +351,8 @@ describe("Composer reference gestures", () => {
         .querySelector('[role="menu"]')
         ?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
     );
+    // Radix restores focus in the task after its menu focus scope unmounts.
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(document.activeElement).toBe(tokens[1]);
     await act(async () =>
       tokens[1]?.dispatchEvent(

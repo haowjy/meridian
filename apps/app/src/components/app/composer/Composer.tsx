@@ -201,6 +201,19 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     autofocus: autoFocus,
     editorProps: {
       handleDOMEvents: {
+        keydown: (_view, event) => {
+          const target = event.target;
+          if (
+            !(target instanceof HTMLButtonElement) ||
+            target.dataset.composerUpload !== "failed" ||
+            (event.key !== "Enter" && event.key !== " ")
+          )
+            return false;
+          // ProseMirror's Enter keymap otherwise consumes the native button action.
+          event.preventDefault();
+          target.click();
+          return true;
+        },
         click: (view, event) => {
           const target =
             event.target instanceof Element
