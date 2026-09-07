@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 /** Real TipTap settlement and upload-ownership behavior. */
-import { act, createRef } from "react";
+import { act, createRef, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@lingui/core/macro", () => ({ t: (value: TemplateStringsArray) => value.join("") }));
+vi.mock("@lingui/react/macro", () => ({
+  Trans: ({ children }: { children: ReactNode }) => children,
+}));
 vi.mock("./placeholders", () => ({ useComposerPlaceholder: () => "Write" }));
 
 import {
@@ -425,4 +428,5 @@ it("hands context-menu focus to the Change reference picker", async () => {
   const input = document.querySelector('input[aria-label="Change reference"]');
   expect(input).not.toBeNull();
   expect(document.activeElement).toBe(input);
+  expect(document.querySelector('[role="status"]')?.textContent).toBe("No matching files");
 });
