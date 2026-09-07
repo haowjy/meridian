@@ -325,7 +325,6 @@ msgid "Add column"
 msgstr ""
 
 #: src/features/editor/surfaces/formatting/formatting-copy.ts
-#: src/features/editor/surfaces/link/LinkForm.tsx
 msgid "Add link"
 msgstr ""
 
@@ -583,6 +582,14 @@ msgstr ""
 msgid "Centered"
 msgstr ""
 
+#: src/features/editor/surfaces/link/LinkForm.tsx
+msgid "Change"
+msgstr ""
+
+#: src/components/app/composer/ComposerReferenceMenu.tsx
+msgid "Change reference"
+msgstr ""
+
 #: src/components/app/work-composer-controls/WorkPickerPanel.tsx
 #: src/features/chat/ComposerWorkControl.tsx
 msgid "Change work for this chat"
@@ -694,6 +701,10 @@ msgstr ""
 #: src/components/app/composer/placeholders.ts
 msgid "Chime in"
 msgstr "我来说两句"
+
+#: src/features/editor/surfaces/link/LinkForm.tsx
+msgid "Choose a document or enter a web address or document path."
+msgstr ""
 
 #: src/features/project/context/DocumentIdentityBar.tsx
 msgid "Choose a home"
@@ -1170,6 +1181,10 @@ msgstr ""
 
 #: src/features/project/work/WorkMetadata.tsx
 msgid "Description"
+msgstr ""
+
+#: src/features/editor/surfaces/link/LinkForm.tsx
+msgid "Destination"
 msgstr ""
 
 #: src/routes/dev-login.tsx
@@ -1732,7 +1747,6 @@ msgstr "我们开始吧"
 msgid "Light"
 msgstr ""
 
-#: src/features/editor/surfaces/link/LinkForm.tsx
 #: src/features/editor/surfaces/toolbar/toolbar-copy.ts
 msgid "Link"
 msgstr ""
@@ -2086,7 +2100,9 @@ msgstr ""
 msgid "No document answers to this name. A document can be created for it once the name works as a filename."
 msgstr ""
 
+#: src/features/editor/surfaces/link/LinkForm.tsx
 #: src/features/editor/surfaces/link/LinkHint.tsx
+#: src/features/editor/surfaces/link/LinkMenu.tsx
 msgid "No document with this name yet"
 msgstr ""
 
@@ -2244,7 +2260,9 @@ msgstr ""
 msgid "Open full screen"
 msgstr ""
 
+#: src/components/app/composer/ComposerReferenceMenu.tsx
 #: src/features/editor/surfaces/link/LinkMenu.tsx
+#: src/rich-content/TranscriptReference.tsx
 msgid "Open link"
 msgstr ""
 
@@ -2318,8 +2336,8 @@ msgid "Paste"
 msgstr ""
 
 #: src/features/editor/surfaces/link/LinkForm.tsx
-msgid "Paste a link or type [[a document name]]"
-msgstr ""
+#~ msgid "Paste a link or type [[a document name]]"
+#~ msgstr ""
 
 #: src/features/project/work/WorkDetailScreen.tsx
 msgid "Pending drafts"
@@ -2497,6 +2515,10 @@ msgstr ""
 msgid "Remove link"
 msgstr ""
 
+#: src/components/app/composer/ComposerReferenceMenu.tsx
+msgid "Remove reference"
+msgstr ""
+
 #: src/features/project/dock/ReviewOperationCard.tsx
 msgid "Removed"
 msgstr ""
@@ -2654,6 +2676,10 @@ msgstr ""
 msgid "Save failed"
 msgstr ""
 
+#: src/features/editor/surfaces/link/LinkForm.tsx
+msgid "Save link"
+msgstr ""
+
 #: src/features/project/work/WorkDetailScreen.tsx
 msgid "Save metadata changes?"
 msgstr ""
@@ -2686,6 +2712,14 @@ msgstr ""
 
 #: src/features/chat/ThreadSwitcherPopover.tsx
 msgid "Search chats"
+msgstr ""
+
+#: src/components/app/composer/ComposerReferenceMenu.tsx
+msgid "Search documents"
+msgstr ""
+
+#: src/features/editor/surfaces/link/LinkForm.tsx
+msgid "Search documents or paste a web link"
 msgstr ""
 
 #: src/features/home/first-party-packages.ts
@@ -3270,6 +3304,10 @@ msgstr ""
 msgid "This image never finished uploading."
 msgstr ""
 
+#: src/features/editor/surfaces/link/LinkForm.tsx
+msgid "This link can no longer be edited. Close the form and try again."
+msgstr ""
+
 #: src/routes/dev-login.tsx
 msgid "This page exists only when WORKOS_DEV_AUTOLOGIN is enabled. Clicking the button below performs a real WorkOS password authentication and mints the same session cookie as the production sign-in flow."
 msgstr ""
@@ -3328,8 +3366,8 @@ msgid "Top up any time. Extra usage carries over month to month."
 msgstr ""
 
 #: src/features/editor/surfaces/link/LinkForm.tsx
-msgid "Try a web address, a document path, or [[a document name]]."
-msgstr ""
+#~ msgid "Try a web address, a document path, or [[a document name]]."
+#~ msgstr ""
 
 #: src/features/chat/TurnEditsReceipt.tsx
 #: src/features/editor/surfaces/link/FollowOutcomeDialog.tsx
@@ -3419,8 +3457,8 @@ msgid "Untitled project"
 msgstr ""
 
 #: src/features/editor/surfaces/link/LinkForm.tsx
-msgid "Update link"
-msgstr ""
+#~ msgid "Update link"
+#~ msgstr ""
 
 #: src/features/chat/command-descriptor.ts
 msgid "Updated a Work"

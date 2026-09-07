@@ -96,7 +96,7 @@ export const ComposerReferenceNode = Node.create({
         tabindex: "0",
         "aria-label": `${value.fileType}: ${value.label}`,
       }),
-      value.spelling,
+      value.label,
     ];
   },
 });

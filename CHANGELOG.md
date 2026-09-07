@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+- `apps/app`: show readable Composer reference titles without changing wire text;
+  first click opens the document and context actions change or remove only the
+  selected occurrence, with keyboard access and Undo.
+
 - `apps/app`: edit manuscript links through display text and a destination picker,
   preserve styled prose on destination changes, refuse stale link edits, and
   support focused-link navigation and keyboard context menus.

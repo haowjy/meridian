@@ -101,6 +101,7 @@ describe("Composer draft changes", () => {
     );
     expect(onDraftChange).toHaveBeenCalledTimes(1);
     const change = onDraftChange.mock.calls[0]?.[0];
+    expect(host.querySelector("[data-composer-reference]")?.textContent).toBe("change");
     expect(change.text).toBe("[[change]]");
     expect(change.snapshot.doc).toEqual(doc);
     expect(change.snapshot.selection).toEqual({ anchor: 1, head: 2 });
@@ -297,5 +298,77 @@ describe("Composer upload deletion", () => {
       }),
     );
     expect(sendButton.disabled).toBe(false);
+  });
+});
+
+describe("Composer reference gestures", () => {
+  it("follows on the first click or Enter, and right-click removes only the second occurrence", async () => {
+    const onOpenReference = vi.fn();
+    const onSubmit = vi.fn((e: ComposerSubmitEnvelope) => outcome(e, "accepted"));
+    const ref = await mount(onSubmit, { onOpenReference });
+    const reference = {
+      documentId: "01900000-0000-7000-8000-000000000009",
+      uri: "manuscript://@/gate.md" as const,
+      authority: { kind: "project" as const, projectId: "p" },
+      label: "Gate",
+      fileType: "markdown" as const,
+    };
+    await act(async () => {
+      ref.current?.insertReference(reference, "[[Gate]]");
+      ref.current?.insertReference(reference, "manuscript://@/gate.md");
+    });
+    const tokens = host.querySelectorAll<HTMLElement>("[data-composer-reference]");
+    expect(tokens).toHaveLength(2);
+    await act(async () => tokens[1]?.click());
+    expect(onOpenReference).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    await act(async () =>
+      tokens[1]?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(onOpenReference).toHaveBeenCalledTimes(2);
+    expect(onSubmit).not.toHaveBeenCalled();
+    await act(async () =>
+      tokens[1]?.dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }),
+      ),
+    );
+    expect(onOpenReference).toHaveBeenCalledTimes(2);
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain(reference.uri);
+    await act(async () =>
+      document
+        .querySelector('[role="menu"]')
+        ?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+    );
+    expect(document.activeElement).toBe(tokens[1]);
+    await act(async () =>
+      tokens[1]?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "F10",
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(onOpenReference).toHaveBeenCalledTimes(2);
+    const remove = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+      (item) => item.textContent === "Remove reference",
+    );
+    expect(remove).toBeDefined();
+    await act(async () => remove?.click());
+    expect(ref.current?.getDraft()).toBe("[[Gate]]");
+    await act(async () =>
+      host.querySelector(".tiptap")?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "z",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(ref.current?.getDraft()).toBe("[[Gate]]manuscript://@/gate.md");
   });
 });

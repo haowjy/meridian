@@ -11,6 +11,7 @@ import { Composer } from "@/components/app/composer";
 import { InlineErrorRow } from "@/components/app/InlineErrorRow";
 import { DEFAULT_AGENT_SLUG } from "@/features/agents";
 import { useReferenceBrowserCatalog } from "@/features/editor/references/useReferenceBrowserCatalog";
+import { useOpenProjectDocument } from "@/features/project/context/open-project-document";
 import { resolveCatalogWork } from "../catalog-work-resolution";
 import { HomeFeed } from "./HomeFeed";
 import { NewThreadComposerToolbar } from "./NewThreadComposerToolbar";
@@ -50,6 +51,7 @@ export type HomeScreenProps = {
 export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScreenProps) {
   const feed = useHomeChatFeed(projectId);
   const worksQuery = useWorks(projectId);
+  const openReferenceDocument = useOpenProjectDocument(projectId ?? undefined);
   const actions = useThreadActions();
   const { announce, announceError } = useAnnouncement();
   const movement = useHomeFavoriteMovement();
@@ -159,6 +161,16 @@ export function HomeScreen({ projectId, onSelectThread, onOpenThread }: HomeScre
               </p>
               <div className="mt-4">
                 <Composer
+                  onOpenReference={
+                    projectId
+                      ? (reference) => {
+                          void openReferenceDocument({
+                            documentId: reference.documentId,
+                            disposition: "current",
+                          });
+                        }
+                      : undefined
+                  }
                   variant="hero"
                   autoFocus={finePointer}
                   onSubmit={submit}

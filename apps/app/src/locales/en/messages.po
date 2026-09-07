@@ -325,7 +325,6 @@ msgid "Add column"
 msgstr "Add column"
 
 #: src/features/editor/surfaces/formatting/formatting-copy.ts
-#: src/features/editor/surfaces/link/LinkForm.tsx
 msgid "Add link"
 msgstr "Add link"
 
@@ -583,6 +582,14 @@ msgstr "Center"
 msgid "Centered"
 msgstr "Centered"
 
+#: src/features/editor/surfaces/link/LinkForm.tsx
+msgid "Change"
+msgstr "Change"
+
+#: src/components/app/composer/ComposerReferenceMenu.tsx
+msgid "Change reference"
+msgstr "Change reference"
+
 #: src/components/app/work-composer-controls/WorkPickerPanel.tsx
 #: src/features/chat/ComposerWorkControl.tsx
 msgid "Change work for this chat"
@@ -694,6 +701,10 @@ msgstr "Checkout unavailable."
 #: src/components/app/composer/placeholders.ts
 msgid "Chime in"
 msgstr "Chime in"
+
+#: src/features/editor/surfaces/link/LinkForm.tsx
+msgid "Choose a document or enter a web address or document path."
+msgstr "Choose a document or enter a web address or document path."
 
 #: src/features/project/context/DocumentIdentityBar.tsx
 msgid "Choose a home"
@@ -1171,6 +1182,10 @@ msgstr "Describe the picture for a reader who cannot see it"
 #: src/features/project/work/WorkMetadata.tsx
 msgid "Description"
 msgstr "Description"
+
+#: src/features/editor/surfaces/link/LinkForm.tsx
+msgid "Destination"
+msgstr "Destination"
 
 #: src/routes/dev-login.tsx
 msgid "Dev login"
@@ -1732,7 +1747,6 @@ msgstr "Let's work on it"
 msgid "Light"
 msgstr "Light"
 
-#: src/features/editor/surfaces/link/LinkForm.tsx
 #: src/features/editor/surfaces/toolbar/toolbar-copy.ts
 msgid "Link"
 msgstr "Link"
@@ -2086,7 +2100,9 @@ msgstr "No context files yet."
 msgid "No document answers to this name. A document can be created for it once the name works as a filename."
 msgstr "No document answers to this name. A document can be created for it once the name works as a filename."
 
+#: src/features/editor/surfaces/link/LinkForm.tsx
 #: src/features/editor/surfaces/link/LinkHint.tsx
+#: src/features/editor/surfaces/link/LinkMenu.tsx
 msgid "No document with this name yet"
 msgstr "No document with this name yet"
 
@@ -2244,7 +2260,9 @@ msgstr "Open existing"
 msgid "Open full screen"
 msgstr "Open full screen"
 
+#: src/components/app/composer/ComposerReferenceMenu.tsx
 #: src/features/editor/surfaces/link/LinkMenu.tsx
+#: src/rich-content/TranscriptReference.tsx
 msgid "Open link"
 msgstr "Open link"
 
@@ -2318,8 +2336,8 @@ msgid "Paste"
 msgstr "Paste"
 
 #: src/features/editor/surfaces/link/LinkForm.tsx
-msgid "Paste a link or type [[a document name]]"
-msgstr "Paste a link or type [[a document name]]"
+#~ msgid "Paste a link or type [[a document name]]"
+#~ msgstr "Paste a link or type [[a document name]]"
 
 #: src/features/project/work/WorkDetailScreen.tsx
 msgid "Pending drafts"
@@ -2497,6 +2515,10 @@ msgstr "Remove from favorites"
 msgid "Remove link"
 msgstr "Remove link"
 
+#: src/components/app/composer/ComposerReferenceMenu.tsx
+msgid "Remove reference"
+msgstr "Remove reference"
+
 #: src/features/project/dock/ReviewOperationCard.tsx
 msgid "Removed"
 msgstr "Removed"
@@ -2654,6 +2676,10 @@ msgstr "Save changes"
 msgid "Save failed"
 msgstr "Save failed"
 
+#: src/features/editor/surfaces/link/LinkForm.tsx
+msgid "Save link"
+msgstr "Save link"
+
 #: src/features/project/work/WorkDetailScreen.tsx
 msgid "Save metadata changes?"
 msgstr "Save metadata changes?"
@@ -2687,6 +2713,14 @@ msgstr "Scratch for Work {workName}"
 #: src/features/chat/ThreadSwitcherPopover.tsx
 msgid "Search chats"
 msgstr "Search chats"
+
+#: src/components/app/composer/ComposerReferenceMenu.tsx
+msgid "Search documents"
+msgstr "Search documents"
+
+#: src/features/editor/surfaces/link/LinkForm.tsx
+msgid "Search documents or paste a web link"
+msgstr "Search documents or paste a web link"
 
 #: src/features/home/first-party-packages.ts
 msgid "Search papers, extract findings, and synthesize a summary across sources."
@@ -3270,6 +3304,10 @@ msgstr "This folder no longer exists."
 msgid "This image never finished uploading."
 msgstr "This image never finished uploading."
 
+#: src/features/editor/surfaces/link/LinkForm.tsx
+msgid "This link can no longer be edited. Close the form and try again."
+msgstr "This link can no longer be edited. Close the form and try again."
+
 #: src/routes/dev-login.tsx
 msgid "This page exists only when WORKOS_DEV_AUTOLOGIN is enabled. Clicking the button below performs a real WorkOS password authentication and mints the same session cookie as the production sign-in flow."
 msgstr "This page exists only when WORKOS_DEV_AUTOLOGIN is enabled. Clicking the button below performs a real WorkOS password authentication and mints the same session cookie as the production sign-in flow."
@@ -3328,8 +3366,8 @@ msgid "Top up any time. Extra usage carries over month to month."
 msgstr "Top up any time. Extra usage carries over month to month."
 
 #: src/features/editor/surfaces/link/LinkForm.tsx
-msgid "Try a web address, a document path, or [[a document name]]."
-msgstr "Try a web address, a document path, or [[a document name]]."
+#~ msgid "Try a web address, a document path, or [[a document name]]."
+#~ msgstr "Try a web address, a document path, or [[a document name]]."
 
 #: src/features/chat/TurnEditsReceipt.tsx
 #: src/features/editor/surfaces/link/FollowOutcomeDialog.tsx
@@ -3419,8 +3457,8 @@ msgid "Untitled project"
 msgstr "Untitled project"
 
 #: src/features/editor/surfaces/link/LinkForm.tsx
-msgid "Update link"
-msgstr "Update link"
+#~ msgid "Update link"
+#~ msgstr "Update link"
 
 #: src/features/chat/command-descriptor.ts
 msgid "Updated a Work"

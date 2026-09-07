@@ -31,6 +31,7 @@ import {
 } from "@/components/app/composer";
 import { DEFAULT_AGENT_SLUG } from "@/features/agents";
 import { useReferenceBrowserCatalog } from "@/features/editor/references/useReferenceBrowserCatalog";
+import { useOpenProjectDocument } from "@/features/project/context/open-project-document";
 import { displayThreadTitle } from "@/lib/thread-title";
 import { AgentOnlyComposerToolbar, ChatComposerToolbar } from "./ChatComposerToolbar";
 import { ChatSurface } from "./ChatSurface";
@@ -69,6 +70,7 @@ export function ChatView({
   snapshotNextSeq = null,
   historySettled,
 }: ChatViewProps) {
+  const openReferenceDocument = useOpenProjectDocument(projectId ?? undefined);
   const actions = useThreadActions();
   const { changeTrails } = useThreadDurableProjections({ threadId, projectId });
   const queryClient = useQueryClient();
@@ -202,6 +204,16 @@ export function ChatView({
               always keeps its own border and overlaps the strip's edge. */}
           <DraftDock dock={dock} />
           <Composer
+            onOpenReference={
+              projectId
+                ? (reference) => {
+                    void openReferenceDocument({
+                      documentId: reference.documentId,
+                      disposition: "current",
+                    });
+                  }
+                : undefined
+            }
             ref={composerRef}
             variant="pinned"
             streaming={isStreaming}

@@ -1,7 +1,7 @@
 /** Shared TipTap draft owner for every message-authoring surface. */
 import { t } from "@lingui/core/macro";
 import type { UploadIntakeResult } from "@meridian/contracts/protocol";
-import { EditorContent, useEditor } from "@tiptap/react";
+import { EditorContent, ReactNodeViewRenderer, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { ArrowUp, Paperclip, RotateCcw } from "lucide-react";
 import {
@@ -22,6 +22,7 @@ import { AtReferenceExtension } from "@/core/editor/extensions/at-reference";
 import { editorSuggestionHost } from "@/core/editor/suggestion-host";
 import { AtReferenceMenu } from "@/features/editor/surfaces/link/AtReferenceMenu";
 import { cn } from "@/lib/utils";
+import { ComposerReferenceMenu } from "./ComposerReferenceMenu";
 import {
   type ComposerDraftChange,
   type ComposerDraftSnapshot,
@@ -72,6 +73,7 @@ export type ComposerProps = {
   onSubmit: (
     envelope: ComposerSubmitEnvelope,
   ) => ComposerSubmitOutcome | Promise<ComposerSubmitOutcome>;
+  onOpenReference?: (reference: AuthoritativeReference) => void;
   onDraftChange?: (change: ComposerDraftChange) => void;
   onCheckSubmission?: (envelope: ComposerSubmitEnvelope) => Promise<ComposerSubmitOutcome>;
   onRetireSubmission?: (envelope: ComposerSubmitEnvelope) => Promise<ComposerSubmitOutcome>;
@@ -132,6 +134,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const mountedRef = useRef(true);
   const scopeRef = useRef(uploadScope);
   scopeRef.current = uploadScope;
+  const onOpenReferenceRef = useRef(props.onOpenReference);
+  onOpenReferenceRef.current = props.onOpenReference;
   const referenceCatalogRef = useRef(referenceCatalog);
   referenceCatalogRef.current = referenceCatalog;
   const resolvedUploadPort = uploadPort;
@@ -149,7 +153,21 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     extensions: [
       StarterKit.configure({ hardBreak: {} }),
       ChromeKernelExtension,
-      ComposerReferenceNode,
+      ComposerReferenceNode.extend({
+        addNodeView: () =>
+          ReactNodeViewRenderer(
+            (nodeProps) => (
+              <ComposerReferenceMenu
+                {...nodeProps}
+                readRuntime={() => ({
+                  onOpen: onOpenReferenceRef.current,
+                  catalog: referenceCatalogRef.current,
+                })}
+              />
+            ),
+            { update: ({ oldNode, newNode }) => oldNode.eq(newNode) },
+          ),
+      }),
       ComposerUploadNode,
       AtReferenceExtension.configure({
         catalog: () => {
@@ -446,6 +464,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     }
   }
   const keyDown = (event: React.KeyboardEvent) => {
+    if (event.target instanceof Element && event.target.closest("[data-composer-reference]"))
+      return;
     if (event.key === "Escape" && streaming) {
       event.preventDefault();
       onStop?.();
