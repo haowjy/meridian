@@ -110,13 +110,16 @@ function LinkFields({
   const [href, setHref] = useState(draft.href);
   const [query, setQuery] = useState("");
   const [choosing, setChoosing] = useState(!draft.href);
-  const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
+  const [selectedDestination, setSelectedDestination] = useState<{
+    label: string;
+    location: string;
+  } | null>(null);
   const [invalid, setInvalid] = useState(false);
   const [refused, setRefused] = useState(false);
   const resolution = useLinkResolution(editor, href || null);
   const target = classifyLinkTarget(href);
   const destinationLabel =
-    selectedLabel ??
+    selectedDestination?.label ??
     (resolution?.state === "resolved"
       ? resolution.document.title
       : target
@@ -143,7 +146,7 @@ function LinkFields({
             onCompleteSegment: ({ prefix }) => setQuery(prefix),
             onSelect: ({ row }) => {
               setHref(row.action.reference.uri);
-              setSelectedLabel(row.label);
+              setSelectedDestination({ label: row.label, location: row.location });
               setText((current) => current || row.label);
               setChoosing(false);
               setInvalid(false);
@@ -264,8 +267,11 @@ function LinkFields({
               }}
             >{t`Change`}</Button>
           </div>
-          {resolution?.state === "resolved" ? (
-            <span className="text-xs text-muted-foreground">{resolution.document.path}</span>
+          {selectedDestination || resolution?.state === "resolved" ? (
+            <span className="text-xs text-muted-foreground">
+              {selectedDestination?.location ??
+                (resolution?.state === "resolved" ? resolution.document.path : "")}
+            </span>
           ) : null}
           {resolution?.state === "unresolved" ? (
             <span className="text-xs text-muted-foreground">{t`No document with this name yet`}</span>
