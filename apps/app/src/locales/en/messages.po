@@ -2100,6 +2100,7 @@ msgstr "No context files yet."
 msgid "No document answers to this name. A document can be created for it once the name works as a filename."
 msgstr "No document answers to this name. A document can be created for it once the name works as a filename."
 
+#: src/features/chat/ChatView.tsx
 #: src/features/editor/surfaces/link/LinkForm.tsx
 #: src/features/editor/surfaces/link/LinkHint.tsx
 #: src/features/editor/surfaces/link/LinkMenu.tsx
@@ -3019,6 +3020,7 @@ msgstr "That image could not be read."
 msgid "That image did not upload."
 msgstr "That image did not upload."
 
+#: src/features/chat/ChatView.tsx
 #: src/features/editor/surfaces/link/FollowOutcomeDialog.tsx
 msgid "That link could not be checked"
 msgstr "That link could not be checked"
