@@ -39,6 +39,7 @@ import {
   type LinkMenuRequest,
   type LinkSurface,
   linkMenuRange,
+  linkTargetLabel,
   openLinkForm,
   removeLinkAt,
   selectionCoversLink,
@@ -74,8 +75,8 @@ export function LinkMenu({
   const label =
     resolution?.state === "resolved"
       ? resolution.document.title
-      : menu.target?.kind === "wikilink"
-        ? menu.target.name
+      : menu.target
+        ? linkTargetLabel(menu.target)
         : menu.href;
   const followable = canFollowLink(menu.target, surface.navigator);
   // A refusal is remembered for as long as this menu is open: the row greys

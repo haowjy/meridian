@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+- `apps/app`: show friendly destination names while resolution is pending and
+  focus the link search field when changing an address without a catalog.
+
 - `apps/app`: keep context-click release from activating the menu row under it.
 
 - `apps/app`: render readable transcript links through the shared wiki grammar,

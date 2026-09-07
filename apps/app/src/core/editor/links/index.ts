@@ -71,5 +71,6 @@ export {
   type LinkTarget,
   linkInputStepsAsideFromReferences,
   linkTargetHref,
+  linkTargetLabel,
   normalizeLinkHref,
 } from "./link-target";

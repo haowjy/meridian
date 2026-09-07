@@ -171,6 +171,14 @@ export function linkTargetHref(target: LinkTarget): string {
   }
 }
 
+/** A readable fallback while an internal destination's catalog title is unavailable. */
+export function linkTargetLabel(target: LinkTarget): string {
+  if (target.kind === "wikilink") return target.name;
+  if (target.kind === "external") return target.url;
+  const path = target.kind === "scheme" ? target.uri : target.path;
+  return path.slice(path.lastIndexOf("/") + 1) || path;
+}
+
 /** The inner name of `[[…]]`, or null when the brackets do not close a target. */
 function wikilinkName(value: string): string | null {
   if (!value.startsWith("[[") || !value.endsWith("]]") || value.length < 5) return null;

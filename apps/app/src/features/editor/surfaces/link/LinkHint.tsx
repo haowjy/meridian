@@ -27,7 +27,11 @@ import type { Editor } from "@tiptap/core";
 import { useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { type LinkHint as LinkHintTarget, linkTargetHref } from "@/core/editor/links";
+import {
+  type LinkHint as LinkHintTarget,
+  linkTargetHref,
+  linkTargetLabel,
+} from "@/core/editor/links";
 import {
   type AnchorRect,
   manuscriptOverlay,
@@ -70,10 +74,11 @@ export function LinkHint({ editor, hint }: { editor: Editor; hint: LinkHintTarge
       <span className="meridian-link-hint__destination">
         {resolution?.state === "resolved"
           ? resolution.document.title
-          : shown.target.kind === "wikilink"
-            ? shown.target.name
-            : href}
+          : linkTargetLabel(shown.target)}
       </span>
+      {resolution?.state === "resolved" ? (
+        <span className="meridian-link-hint__note">{resolution.document.path}</span>
+      ) : null}
       {resolution?.state === "unresolved" ? (
         <span className="meridian-link-hint__note">{t`No document with this name yet`}</span>
       ) : null}

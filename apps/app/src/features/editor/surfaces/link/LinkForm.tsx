@@ -27,6 +27,7 @@ import {
   type LinkFormRequest,
   type LinkSurface,
   linkInputStepsAsideFromReferences,
+  linkTargetLabel,
   mapLinkDraft,
   normalizeLinkHref,
   resolveLinkDraft,
@@ -118,8 +119,8 @@ function LinkFields({
     selectedLabel ??
     (resolution?.state === "resolved"
       ? resolution.document.title
-      : target?.kind === "wikilink"
-        ? target.name
+      : target
+        ? linkTargetLabel(target)
         : href);
   const fieldId = useId();
   const textInputRef = useRef<HTMLInputElement>(null);
@@ -168,10 +169,13 @@ function LinkFields({
         return { query: value, text: value, triggerRange: { from: 0, to: value.length } };
       },
     });
-    input.focus();
     transport.sync();
     return transport.destroy;
   }, [editor, hrefInput, referenceDriver]);
+
+  useEffect(() => {
+    hrefInput?.focus();
+  }, [hrefInput]);
 
   useEffect(() => {
     const input = hrefInputRef.current;
