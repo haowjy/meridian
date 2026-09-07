@@ -129,6 +129,48 @@ describe("ProjectDocumentNavigationProvider", () => {
     );
   });
 
+  it.each([
+    null,
+    "work-b",
+  ])("routes a binary reference to its exact viewer scope %s", async (workId) => {
+    const document: CatalogFileEntry = {
+      kind: "file",
+      entryId: "image",
+      sourceId: "source",
+      parentId: "source",
+      scope: workId
+        ? { kind: "work", projectId: "project-a", workId }
+        : { kind: "none", projectId: "project-a" },
+      name: "Map.png",
+      path: ["Map.png"],
+      aliases: [],
+      uri: workId ? "uploads://@work-b/Map.png" : "uploads://@/Map.png",
+      provisionalName: false,
+      editable: false,
+      disposition: "binary",
+      fileType: "image",
+      mimeType: "image/png",
+    };
+    const open = vi.fn(
+      async (): Promise<ProjectDocumentLiveOpenResult> => ({ kind: "not-editable", document }),
+    );
+    const openRoute = vi.fn(async () => undefined);
+    const doors: Record<string, OpenProjectDocument> = {};
+    await withReactRoot(
+      <Owner projectId="project-a" opener={{ open }} openRoute={openRoute}>
+        <Door name="reference" projectId="project-a" doors={doors} />
+      </Owner>,
+      async () => {
+        await doors.reference({ documentId: "image", workId: "work-a" });
+        expect(tabs).toHaveBeenCalledWith(
+          "project-a",
+          expect.objectContaining({ documentId: "image", kind: "viewer", editable: false }),
+        );
+        expect(openRoute).toHaveBeenCalledWith({ scheme: "uploads", path: "/Map.png", workId });
+      },
+    );
+  });
+
   it.each(["project change", "provider unmount"])("cancels on %s", async (exit) => {
     const delayed = deferred<ProjectDocumentLiveOpenResult>();
     let signal: AbortSignal | undefined;

@@ -96,6 +96,15 @@ if (!RUN_DB_TESTS || !DATABASE_URL) {
           target: { kind: "wikilink", name: "Gate" },
         }),
       ).toBeNull();
+      await database.current.update(works).set({ status: "archived" }).where(eq(works.id, b));
+      expect(
+        await r.resolve({
+          projectId: p,
+          userId: u,
+          workId: a,
+          target: { kind: "scheme", uri: "scratch://@work-b/Gate.md" },
+        }),
+      ).toBeNull();
       await database.current.update(works).set({ deletedAt: new Date() }).where(eq(works.id, b));
       expect(
         await r.resolve({

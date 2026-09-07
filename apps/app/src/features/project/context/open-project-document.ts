@@ -215,7 +215,7 @@ export class ProjectDocumentLiveOpener {
 
 export type OpenProjectDocumentRequest = {
   documentId: string;
-  /** The work whose scratch to search; without one, work-scoped schemes are skipped. */
+  /** Host Work context for project-scoped files; resolved Work/no-Work authority wins. */
   workId?: string | null;
   disposition?: "current" | "background";
   /** Abandons the open when the caller that asked for it is gone. */
@@ -232,7 +232,7 @@ type NavigationAdapterDependencies = {
   openRoute: OpenContextRoute | null;
 };
 
-/** Latest-attempt navigation effects over the exact-resolution opener. */
+/** Latest-attempt navigation: editable files admit sessions; not-editable results open viewers. */
 export class ProjectDocumentNavigationAdapter {
   private attempt = 0;
   private current: AbortController | null = null;
@@ -264,12 +264,16 @@ export class ProjectDocumentNavigationAdapter {
         signal: controller.signal,
       });
       if (token !== this.attempt || controller.signal.aborted) return { kind: "cancelled" };
-      if (result.kind !== "opened") return result;
+      if (result.kind !== "opened" && result.kind !== "not-editable") return result;
 
       const scheme = schemeForEntry(result.document);
       if (!scheme) return { kind: "unavailable", reason: "failed" };
       const routeWorkId =
-        result.document.scope.kind === "work" ? result.document.scope.workId : workId;
+        result.document.scope.kind === "work"
+          ? result.document.scope.workId
+          : result.document.scope.kind === "none"
+            ? null
+            : workId;
       const file = projectCatalogFile(result.document);
       if (disposition === "current" && !this.dependencies.openRoute) {
         throw new Error("Opening a project document requires the project route owner");

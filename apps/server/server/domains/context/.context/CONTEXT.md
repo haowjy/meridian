@@ -120,9 +120,11 @@ router resolves to exact project-scoped Work authority before dispatch.
   relative traversal cannot escape its scheme root. Wiki names search durable
   project and authenticated personal files plus the selected Work/no-Work scope,
   never another Work's titles. Canonical qualifiers may explicitly name another
-  non-deleted Work in the project. Contextual scratch/uploads use the selected
+  available (active) Work in the project. Contextual scratch/uploads use the selected
   scope; `@/` always means no Work. Legacy `work://` is not accepted.
-  Zero or multiple matches both resolve to `null`; resolution never guesses.
+  Archived Work identity still parses/resolves as authority, but the catalog
+  excludes its files from navigation. Zero or multiple matches both resolve to
+  `null`; resolution never guesses.
 - Router methods attach the resolved canonical URI to every `ContextError` and
   successful read/write result. Transport and collab callers publish that value;
   they never echo syntax-only request URIs as document identity.

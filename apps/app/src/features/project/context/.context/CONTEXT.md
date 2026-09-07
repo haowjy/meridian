@@ -2,6 +2,15 @@
 
 Reference depth. Read the [AGENTS.md](../AGENTS.md) first.
 
+## Link navigation versus editor admission
+
+`ProjectDocumentNavigationAdapter` opens both tracked editors and existing
+read-only Context viewers through the one stable-ID opener. Its lower-level
+`not-editable` result means no live Yjs admission, not a failed navigation:
+binary/custom metadata still opens a viewer tab and route. The resolved file's
+Work/no-Work authority overrides the invoking surface's Work; only project-scoped
+files retain host Work context. Never add upload-specific navigation in Composer.
+
 ## Architecture
 
 ```text

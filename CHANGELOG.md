@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+- `apps/app`: follow image and binary references into their Context viewer and
+  preserve exact no-Work authority rather than inheriting the invoking Work.
+
 - `apps/server`: resolve document links through the canonical Context catalog,
   with authenticated personal scope and exact Work/no-Work navigation.
 
