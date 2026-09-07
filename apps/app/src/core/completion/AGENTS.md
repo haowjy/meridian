@@ -23,9 +23,9 @@ are refused rather than published by arrival order.
 Query/context/container updates reset selection by explicit caller policy, while
 a same-session refresh can preserve the active stable row ID. The store's own
 judgment remains narrow — a menu normally opens only while it has rows; a driver
-can retain an empty session for loading/empty feedback without selectable rows. The highlight
-sits on the first row the host will accept, and a row the host refuses is stepped
-over rather than handed a key that does nothing.
+can retain an empty session for loading or empty feedback without selectable
+rows. The highlight sits on the first row the host will accept, and a row the
+host refuses is stepped over rather than handed a key that does nothing.
 
 **Transitions are serialized events.** An accepted open, update, or close first
 installs its captured snapshot, then calls its lifecycle callback, then notifies
@@ -44,10 +44,11 @@ its own Escape precedence. Releasing the lease tears down both halves once.
 reads the one F1 `CatalogCacheView` and delegates explicit cold-Work acquisition
 to its owner. The browser never stores a second tree, enumerates availability,
 or turns wake hints into rows. Root merges only project, user, and current Work
-or no-Work warm views. Other Works remain authority rows until activated. Known-empty sources, folders,
-and acquired authorities are omitted; cold or invalidated metadata cannot prove
-emptiness. Explicit source/folder URI queries retain an empty-state surface and
-Back clears that search. No placeholder row may become a terminal reference.
+or no-Work warm views. Other Works remain authority rows until activated.
+Known-empty sources, folders, and acquired authorities are omitted; cold or
+invalidated metadata cannot prove emptiness. Explicit source and folder URI
+queries retain an empty-state surface, and Back clears that search. No
+placeholder row may become a terminal reference.
 
 **Lexical tiers are inviolable.** Exact, prefix, word-start, contains, and fuzzy
 matches are strict tiers. Open-document and contextual priors break ties only
@@ -90,9 +91,8 @@ of them is the writer's fix, and the menu never guesses which they meant.
 - Reading availability lookup or cold wake hints as browse candidates.
 - Fetching recursively or retaining catalog entries in the browser controller.
 
-`wikilink-catalog.ts` remains temporarily because the existing `[[` host still
-imports it. F6 migrates that host; D then deletes the file and its legacy
-ranker. Do not add another caller or a compatibility export around it.
+`wikilink-catalog.ts` serves only the narrower `[[` lane. Do not use it as a
+second `@` browser or add another caller or compatibility export around it.
 
 → [`../editor/extensions/suggestion/`](../editor/extensions/suggestion/suggestion-lane.ts) —
   the TipTap adapter that drives this from a lane spec
