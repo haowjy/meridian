@@ -211,3 +211,31 @@ describe("link commit", () => {
     expect(firstLinkHref(target)).toBeNull();
   });
 });
+
+describe("destination-oriented editing", () => {
+  it("exposes selected prose and edits a selected link's label", () => {
+    const target = editorWith('<p><a href="[[Gate]]">the gate</a></p>');
+    target.commands.setTextSelection({ from: 1, to: 9 });
+    const draft = resolveLinkDraft(target);
+    expect(draft.text).toBe("the gate");
+    expect(commitLinkDraft(target, draft, { text: "the second gate", href: draft.href })).toBe(
+      "applied",
+    );
+    expect(target.state.doc.textContent).toBe("the second gate");
+  });
+  it("preserves mixed emphasis when only the destination changes", () => {
+    const target = editorWith('<p><a href="[[Gate]]">the <em>gate</em></a></p>');
+    target.commands.setTextSelection(2);
+    const draft = resolveLinkDraft(target);
+    expect(commitLinkDraft(target, draft, { text: draft.text, href: "[[Tower]]" })).toBe("applied");
+    expect(target.getHTML()).toContain("<em>gate</em>");
+  });
+  it("refuses a stale draft after the destination is replaced", () => {
+    const target = editorWith('<p><a href="[[Gate]]">gate</a></p>');
+    target.commands.setTextSelection(2);
+    const draft = resolveLinkDraft(target);
+    target.chain().extendMarkRange("link").setLink({ href: "[[Tower]]" }).run();
+    expect(commitLinkDraft(target, draft, { text: draft.text, href: "[[Other]]" })).toBe("refused");
+    expect(firstLinkHref(target)).toBe("[[Tower]]");
+  });
+});

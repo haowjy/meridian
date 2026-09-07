@@ -60,10 +60,12 @@ the href is nothing the editor will act on.
 | Shift+click | any | caret, because Shift extends a selection |
 | Right-click | plain prose | unclaimed: the browser's menu, and spellcheck with it |
 | Hover, settled | any classified link | destination hint below the link |
-| Ctrl+K | selection | form, one field |
-| Ctrl+K | bare caret | form, two fields, inserts a finished link |
-| Ctrl+K | caret in a link | form, pre-filled; an emptied URL removes the link |
+| Ctrl+K | selection | form with display text and destination |
+| Ctrl+K | bare caret | display text and destination, inserts a finished link |
+| Ctrl+K | caret in a link | pre-filled display text and destination; explicit Remove link |
 | Alt+Enter | caret in a followable link | follows |
+| Enter | focused link | follows immediately |
+| Context-menu key / Shift+F10 | focused link or caret in link | context menu without navigation |
 
 Every follow cancels the browser's own navigation first, unconditionally, on
 `click` and on `auxclick` alike — the middle button is the one path where a raw
@@ -203,8 +205,9 @@ under the `.md` TLD and rewrites a project document into an external site.
 
 `resolveLinkDraft` reads the selection when the form opens, not when it
 commits: focus moves into the form, and the commit must rewrite the range the
-writer was looking at. `needsText` (a bare caret) is the only thing that
-chooses between the one-field and two-field forms.
+writer was looking at. The form always exposes display text and destination. `needsText` means a bare
+caret has no existing prose to preserve. Unchanged display text updates only
+the link mark, retaining mixed formatting within the range.
 
 The range travels, on the anchor above. `mapLinkDraft` follows every
 transaction and returns null when the words are gone, which closes the form —
@@ -214,7 +217,8 @@ inverts it the moment somebody types there.
 
 `commitLinkDraft` returns `applied`, `removed`, `invalid`, or `refused`. The
 form stays open on `invalid` so a bad URL never closes over a change that did
-not happen, and `refused` covers a document that turned read-only mid-form.
+not happen, and `refused` covers a document that turned read-only mid-form or a replaced
+link identity. The form reports refusal without presenting a successful save.
 Rewriting a link's text keeps the marks that text already wore.
 
 The menu acts by position instead: `linkAt(state, pos)` resolves the whole mark

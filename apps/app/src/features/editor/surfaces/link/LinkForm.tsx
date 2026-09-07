@@ -1,19 +1,4 @@
-/**
- * The link form: Ctrl+K, the toolbar's Link button, and the menu's Edit link
- * all open this one surface.
- *
- * Law 5, literally: it has no preconditions and refuses nothing. Over a
- * selection it asks for a URL; at a bare caret it asks for text and a URL and
- * inserts a finished link; inside an existing link it arrives pre-filled and
- * an emptied URL removes the link. Every internal spelling is typeable here
- * — a `[[document name]]`, a `manuscript://` URI, a relative path — because
- * the classifier behind the field knows all of them.
- *
- * It hangs at the caret rather than at whatever control opened it: the writer
- * is looking at their own sentence, and the form belongs beside the words it
- * is about (mockup 06 state E).
- */
-
+/** Destination and display-text editing over the anchored link commands. */
 import { t } from "@lingui/core/macro";
 import type { Editor } from "@tiptap/core";
 import type { Transaction } from "@tiptap/pm/state";
@@ -36,12 +21,14 @@ import {
   createReferenceBrowserController,
 } from "@/core/completion";
 import {
+  classifyLinkTarget,
   commitLinkDraft,
   type LinkDraft,
   type LinkFormRequest,
   type LinkSurface,
   linkInputStepsAsideFromReferences,
   mapLinkDraft,
+  normalizeLinkHref,
   resolveLinkDraft,
 } from "@/core/editor/links";
 import { editorSuggestionHost } from "@/core/editor/suggestion-host";
@@ -49,6 +36,7 @@ import { EditorPopover } from "@/features/editor/chrome";
 import { useEditorScope } from "@/features/editor/editor-scope";
 import { useReferenceBrowserCatalog } from "@/features/editor/references/useReferenceBrowserCatalog";
 import { ReferenceSuggestionMenu } from "./AtReferenceMenu";
+import { useLinkResolution } from "./useLinkResolution";
 
 export function LinkForm({
   editor,
@@ -119,7 +107,20 @@ function LinkFields({
 }) {
   const [text, setText] = useState(draft.text);
   const [href, setHref] = useState(draft.href);
+  const [query, setQuery] = useState("");
+  const [choosing, setChoosing] = useState(!draft.href);
+  const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
   const [invalid, setInvalid] = useState(false);
+  const [refused, setRefused] = useState(false);
+  const resolution = useLinkResolution(editor, href || null);
+  const target = classifyLinkTarget(href);
+  const destinationLabel =
+    selectedLabel ??
+    (resolution?.state === "resolved"
+      ? resolution.document.title
+      : target?.kind === "wikilink"
+        ? target.name
+        : href);
   const fieldId = useId();
   const textInputRef = useRef<HTMLInputElement>(null);
   const hrefInputRef = useRef<HTMLInputElement>(null);
@@ -138,8 +139,15 @@ function LinkFields({
             catalog: referenceCatalog.port,
             openContext: referenceCatalog.openContext,
             label: () => referenceCatalog.label,
-            onCompleteSegment: ({ prefix }) => setHref(prefix),
-            onSelect: ({ row }) => setHref(row.action.reference.uri),
+            onCompleteSegment: ({ prefix }) => setQuery(prefix),
+            onSelect: ({ row }) => {
+              setHref(row.action.reference.uri);
+              setSelectedLabel(row.label);
+              setText((current) => current || row.label);
+              setChoosing(false);
+              setInvalid(false);
+              textInputRef.current?.focus();
+            },
           })
         : null,
     [referenceCatalog],
@@ -160,6 +168,7 @@ function LinkFields({
         return { query: value, text: value, triggerRange: { from: 0, to: value.length } };
       },
     });
+    input.focus();
     transport.sync();
     return transport.destroy;
   }, [editor, hrefInput, referenceDriver]);
@@ -167,23 +176,45 @@ function LinkFields({
   useEffect(() => {
     const input = hrefInputRef.current;
     if (!input || document.activeElement !== input) return;
-    input.setSelectionRange(href.length, href.length);
+    input.setSelectionRange(query.length, query.length);
     input.dispatchEvent(new Event("select"));
-  }, [href]);
+  }, [query]);
 
   useEffect(() => {
     // The first empty field is where the writer has something to say.
     const textInput = textInputRef.current;
-    const input = textInput && !textInput.value ? textInput : hrefInputRef.current;
+    const input = hrefInputRef.current ?? textInput;
     input?.focus();
     input?.select();
   }, []);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const result = commitLinkDraft(editor, readDraft(), { text, href });
+    const address = choosing ? query.trim() : href;
+    // Search words are not destinations. Explicit pasted addresses still use the core normalizer.
+    if (
+      choosing &&
+      !(
+        linkInputStepsAsideFromReferences(address) ||
+        /[./]/.test(address) ||
+        address.startsWith("[[")
+      )
+    ) {
+      setInvalid(true);
+      return;
+    }
+    const normalized = normalizeLinkHref(address);
+    if (!normalized) {
+      setInvalid(true);
+      return;
+    }
+    const result = commitLinkDraft(editor, readDraft(), { text, href: normalized });
     if (result === "invalid") {
       setInvalid(true);
+      return;
+    }
+    if (result === "refused") {
+      setRefused(true);
       return;
     }
     onClose();
@@ -191,33 +222,61 @@ function LinkFields({
 
   return (
     <form className="flex flex-col gap-2" onSubmit={submit}>
-      {draft.needsText ? (
-        <LinkField
-          id={`${fieldId}-text`}
-          ref={textInputRef}
-          label={t`Text`}
-          value={text}
-          placeholder={t`Link text`}
-          onChange={setText}
-        />
-      ) : null}
       <LinkField
-        id={`${fieldId}-href`}
-        ref={attachHrefInput}
-        label={t`Link`}
-        value={href}
-        placeholder={t`Paste a link or type [[a document name]]`}
-        inputMode="url"
-        invalid={invalid}
-        describedBy={invalid ? `${fieldId}-error` : undefined}
-        onChange={(next) => {
-          setHref(next);
-          setInvalid(false);
-        }}
+        id={`${fieldId}-text`}
+        ref={textInputRef}
+        label={t`Text`}
+        value={text}
+        placeholder={t`Link text`}
+        onChange={setText}
       />
+      {choosing ? (
+        <LinkField
+          id={`${fieldId}-href`}
+          ref={attachHrefInput}
+          label={t`Destination`}
+          value={query}
+          placeholder={t`Search documents or paste a web link`}
+          inputMode="url"
+          invalid={invalid}
+          describedBy={invalid ? `${fieldId}-error` : undefined}
+          onChange={(next) => {
+            setQuery(next);
+            setInvalid(false);
+          }}
+        />
+      ) : (
+        <div className="flex flex-col gap-1">
+          <span className="text-meta text-muted-foreground">{t`Destination`}</span>
+          <div className="flex items-center justify-between gap-2">
+            <span className="min-w-0 break-words">{destinationLabel}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setQuery(target?.kind === "external" ? href : "");
+                setChoosing(true);
+              }}
+            >{t`Change`}</Button>
+          </div>
+          {resolution?.state === "resolved" ? (
+            <span className="text-xs text-muted-foreground">{resolution.document.path}</span>
+          ) : null}
+          {resolution?.state === "unresolved" ? (
+            <span className="text-xs text-muted-foreground">{t`No document with this name yet`}</span>
+          ) : null}
+        </div>
+      )}
+      {refused ? (
+        <p
+          role="alert"
+          className="text-destructive text-xs"
+        >{t`This link can no longer be edited. Close the form and try again.`}</p>
+      ) : null}
       {invalid ? (
         <p id={`${fieldId}-error`} className="text-destructive text-xs" role="alert">
-          {t`Try a web address, a document path, or [[a document name]].`}
+          {t`Choose a document or enter a web address or document path.`}
         </p>
       ) : null}
       <div className="flex items-center justify-end gap-1.5">
@@ -228,8 +287,9 @@ function LinkFields({
             size="sm"
             className="mr-auto"
             onClick={() => {
-              commitLinkDraft(editor, readDraft(), { text, href: "" });
-              onClose();
+              const result = commitLinkDraft(editor, readDraft(), { text, href: "" });
+              if (result === "refused") setRefused(true);
+              else onClose();
             }}
           >
             <Unlink className="size-3.5" aria-hidden />
@@ -240,7 +300,7 @@ function LinkFields({
           {t`Cancel`}
         </Button>
         <Button type="submit" size="sm">
-          {draft.existing ? t`Update link` : t`Add link`}
+          {t`Save link`}
         </Button>
       </div>
       {referenceDriver && hrefInput ? (

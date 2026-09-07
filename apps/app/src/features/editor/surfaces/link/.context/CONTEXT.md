@@ -85,9 +85,10 @@ result through the same door.
 `useLinkableDocuments` remains the legacy `[[` and relative-link projection.
 Canonical `@` and LinkForm completion instead read the normalized F1 catalog
 through `useReferenceBrowserCatalog` and let the F2 browser own scope,
-navigation, and ordering. LinkForm observes its focused href input through the
+navigation, and ordering. LinkForm keeps the selected href separate from search text, shows a destination
+summary with Change, and observes its focused search input through the
 shared DOM suggestion transport; one Chrome-reaching lease owns its semantic
-keys and retreat, and the shared menu attaches accessibility state to that href
+keys and retreat, and the shared menu attaches accessibility state to that search
 input rather than to editor prose.
 
 `revision` is content, not an object identity and not a counter: the row's id,

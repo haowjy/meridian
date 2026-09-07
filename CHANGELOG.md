@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+- `apps/app`: edit manuscript links through display text and a destination picker,
+  preserve styled prose on destination changes, refuse stale link edits, and
+  support focused-link navigation and keyboard context menus.
+
 - `apps/app`: add one renderer-neutral reference identity/ranking policy and
   hierarchical browser over the normalized scoped Context catalog, with strict
   lexical tiers, canonical Work/no-Work terminals, semantic segment navigation,

@@ -14,7 +14,13 @@ import type { Mark } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
 import type { Mappable } from "@tiptap/pm/transform";
 
-import { anchorRange, type EditorAnchor, followAnchor, resolveAnchor } from "../anchors";
+import {
+  anchorRange,
+  type EditorAnchor,
+  followAnchor,
+  resolveAnchor,
+  resolveAnchorIn,
+} from "../anchors";
 import { normalizeLinkHref } from "./link-target";
 
 export type LinkSelection = {
@@ -80,9 +86,10 @@ export type LinkDraft = LinkAnchor & {
    *  Carried as a `LinkAnchor`, so it survives an AI write landing under it. */
   /** A link mark already covers the range; committing edits or removes it. */
   existing: boolean;
+  identity: Mark | null;
   /**
-   * A bare caret has no text to link, so the form asks for it. A non-empty
-   * selection already supplies the text and asks only for the URL (§5.5).
+   * A bare caret has no content to preserve; a destination-only edit otherwise
+   * updates the mark without flattening the selected prose.
    */
   needsText: boolean;
   text: string;
@@ -101,8 +108,9 @@ export function resolveLinkDraft(editor: Editor): LinkDraft {
     return {
       ...anchorLinkRange(editor.state, { from, to }),
       existing: false,
+      identity: null,
       needsText: empty,
-      text: "",
+      text: editor.state.doc.textBetween(from, to),
       href: "",
     };
   }
@@ -110,7 +118,8 @@ export function resolveLinkDraft(editor: Editor): LinkDraft {
   return {
     ...anchorLinkRange(editor.state, { from: link.from, to: link.to }),
     existing: true,
-    needsText: empty,
+    identity: link.identity,
+    needsText: false,
     text: editor.state.doc.textBetween(link.from, link.to),
     href: linkHref(link),
   };
@@ -131,7 +140,9 @@ export function mapLinkDraft(
   mapping: Mappable,
 ): LinkDraft | null {
   const at = followAnchor(state, draft, mapping);
-  return at ? { ...draft, ...at } : null;
+  if (!at) return null;
+  if (draft.identity && !linkAt(state, at.from + 1)?.identity.eq(draft.identity)) return null;
+  return { ...draft, ...at };
 }
 
 /**
@@ -170,7 +181,10 @@ export function commitLinkDraft(
 ): LinkCommitResult {
   if (editor.isDestroyed || !editor.isEditable) return "refused";
 
-  const range = { from: draft.from, to: draft.to };
+  const range = resolveAnchorIn(editor.state, draft);
+  if (!range) return "refused";
+  if (draft.identity && !linkAt(editor.state, range.from + 1)?.identity.eq(draft.identity))
+    return "refused";
   const href = commit.href.trim();
   if (!href) {
     if (!draft.existing) return "invalid";
@@ -181,7 +195,7 @@ export function commitLinkDraft(
   const normalized = normalizeLinkHref(href);
   if (!normalized) return "invalid";
 
-  if (!draft.needsText) {
+  if (!draft.needsText && (!commit.text.trim() || commit.text === draft.text)) {
     const applied = editor
       .chain()
       .focus()
@@ -200,7 +214,7 @@ export function commitLinkDraft(
     .insertContentAt(range, {
       type: "text",
       text,
-      marks: linkTextMarks(editor, draft, normalized).map((mark) => ({
+      marks: linkTextMarks(editor, { ...draft, ...range }, normalized).map((mark) => ({
         type: mark.type.name,
         attrs: mark.attrs,
       })),

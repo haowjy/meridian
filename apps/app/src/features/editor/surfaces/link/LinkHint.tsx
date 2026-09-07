@@ -68,7 +68,11 @@ export function LinkHint({ editor, hint }: { editor: Editor; hint: LinkHintTarge
       style={position ?? { left: rect.left, top: rect.bottom + HINT_GAP_PX }}
     >
       <span className="meridian-link-hint__destination">
-        {resolution?.state === "resolved" ? resolution.document.uri : href}
+        {resolution?.state === "resolved"
+          ? resolution.document.title
+          : shown.target.kind === "wikilink"
+            ? shown.target.name
+            : href}
       </span>
       {resolution?.state === "unresolved" ? (
         <span className="meridian-link-hint__note">{t`No document with this name yet`}</span>
