@@ -17,7 +17,8 @@ vi.mock("@/client/query/useContextCatalog", () => ({
     scope: Parameters<typeof projectQueryKeys.contextCatalog>[1],
   ) => ({
     queryKey: projectQueryKeys.contextCatalog(projectId, scope),
-    queryFn: () => new Promise(() => {}),
+    queryFn: () =>
+      scope.kind === "work" ? Promise.reject(new Error("offline")) : new Promise(() => {}),
   }),
 }));
 
@@ -76,6 +77,18 @@ it("publishes settlement, failure and removal from the production cache subscrip
   expect(browser.menu.snapshot().meta?.loadFailed).toBe(true);
   act(() => client.removeQueries({ queryKey: key }));
   expect(browser.menu.snapshot().meta).toMatchObject({ incomplete: true, loadFailed: false });
+  const coldScope = { kind: "work" as const, projectId: "project", workId: "cold" };
+  await expect(installed.port.acquire(coldScope, new AbortController().signal)).rejects.toThrow();
+  expect(installed.port.status(coldScope)).toBe("error");
+  act(() => client.setQueryData(key, { ...emptyCatalogView(scope), generation: "another" }));
+  expect(installed.port.status(coldScope)).toBe("error");
+  act(() =>
+    client.setQueryData(projectQueryKeys.contextCatalog("project", coldScope), {
+      ...emptyCatalogView(coldScope),
+      generation: "recovered",
+    }),
+  );
+  expect(installed.port.status(coldScope)).toBe("ready");
   browser.exit();
   await act(async () => root.unmount());
   client.clear();

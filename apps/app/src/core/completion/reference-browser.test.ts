@@ -588,3 +588,24 @@ it("subscribes while open so cold settlement, errors and deletion need no typing
   rig.controller.exit();
   expect(rig.listeners.size).toBe(0);
 });
+
+it("keeps a failed authority's query error through unrelated updates until that scope recovers", async () => {
+  const rig = createRig({
+    acquire: async () => {
+      rig.errors.add(catalogScopeKey(otherWork));
+      throw new Error("offline");
+    },
+  });
+  rig.views.delete(catalogScopeKey(otherWork));
+  rig.start({ warmScopes: [project], query: "revision-pass", triggerRange: { from: 0, to: 14 } });
+  rig.menu.chooseActive();
+  await Promise.resolve();
+  expect(rig.menu.snapshot().meta).toMatchObject({ loadFailed: true, incomplete: false });
+  rig.views.set(catalogScopeKey(project), view(project, []));
+  rig.emit();
+  expect(rig.menu.snapshot().meta).toMatchObject({ loadFailed: true, incomplete: false });
+  rig.errors.delete(catalogScopeKey(otherWork));
+  rig.views.set(catalogScopeKey(otherWork), view(otherWork, []));
+  rig.emit();
+  expect(rig.menu.snapshot().meta).toMatchObject({ loadFailed: false, incomplete: false });
+});

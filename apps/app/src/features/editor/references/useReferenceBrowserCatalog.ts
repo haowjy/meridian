@@ -1,6 +1,5 @@
 import { QueryClientContext } from "@tanstack/react-query";
 import { useContext, useEffect, useMemo } from "react";
-import { acquireContextCatalog } from "@/client/query/context-catalog-acquisition";
 import type { CatalogCacheView } from "@/client/query/context-catalog-cache";
 import { projectQueryKeys } from "@/client/query/project-query-keys";
 import { contextCatalogQueryOptions } from "@/client/query/useContextCatalog";
@@ -59,12 +58,7 @@ export function useReferenceBrowserCatalog(
                   projectQueryKeys.contextCatalog(projectId, scope),
                 ) ?? null,
               acquire: (scope, _signal) =>
-                acquireContextCatalog(
-                  queryClient,
-                  projectQueryKeys.contextCatalog(projectId, scope),
-                  projectId,
-                  scope,
-                ),
+                queryClient.fetchQuery(contextCatalogQueryOptions(queryClient, projectId, scope)),
             },
           }
         : null,
