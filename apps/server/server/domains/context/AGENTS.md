@@ -1,9 +1,9 @@
 # domains/context
 
-Agent-readable/writable project content addressed by context URIs. Five
-schemes split into durable Project content (`manuscript://`, `kb://`,
-`user://`) and work-item-scoped scratch (`scratch://`, `uploads://`). Bare paths
-default to `manuscript://`.
+Agent-readable/writable content addressed by context URIs. Five schemes split
+into durable Project content (`manuscript://`, `kb://`), authenticated personal
+content (`user://`), and Work/no-Work material (`scratch://`, `uploads://`).
+Bare paths default to `manuscript://`.
 
 Single unified `ContextPort` — callers resolve through `contextPortForThread`,
 never scheme-specific adapters directly.
@@ -31,7 +31,7 @@ journaling.
 
 ## HTTP routes
 
-Seven filesystem mutation/content routes live under
+Eight filesystem mutation/content routes live under
 `routes/api/projects/[projectId]/context/[scheme]/`. Most use `_helpers.ts` for
 auth, project ownership, scheme/Work resolution, canonical error translation,
 and URI construction. Writer-facing mutation input goes through the shared
@@ -52,6 +52,7 @@ Routes: `read.get.ts`, `create.post.ts`, `create-untitled.post.ts`,
 `rename.post.ts`, `move.post.ts`, `delete.post.ts`, `upload.post.ts`, and the
 identity-bound `upload.delete.ts`. Upload routes delegate all authority,
 classification, collision, persistence, and deletion decisions to `UploadIntake`.
+Composer reference removal never calls the separate upload-delete route.
 
 Metadata browsing uses the sibling catalog routes: complete compact snapshot,
 whole-commit changes, direct children, and stable-ID/canonical-URI lookup. Every
