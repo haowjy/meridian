@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+- `apps/app`: render readable transcript links through the shared wiki grammar,
+  preserve exact source-range authority, and open model-authored links through
+  project-scoped resolution. Right-click exposes read-only link actions.
+
 - `apps/app`: show readable Composer reference titles without changing wire text;
   first click opens the document and context actions change or remove only the
   selected occurrence, with keyboard access and Undo.

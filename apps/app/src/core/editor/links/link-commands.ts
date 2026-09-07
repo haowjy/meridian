@@ -140,7 +140,7 @@ export function mapLinkDraft(
   mapping: Mappable,
 ): LinkDraft | null {
   const at = followAnchor(state, draft, mapping);
-  if (!at) return null;
+  if (!at || (draft.existing && at.from === at.to)) return null;
   if (draft.identity && !linkAt(state, at.from + 1)?.identity.eq(draft.identity)) return null;
   return { ...draft, ...at };
 }
@@ -182,7 +182,7 @@ export function commitLinkDraft(
   if (editor.isDestroyed || !editor.isEditable) return "refused";
 
   const range = resolveAnchorIn(editor.state, draft);
-  if (!range) return "refused";
+  if (!range || (draft.existing && range.from === range.to)) return "refused";
   if (draft.identity && !linkAt(editor.state, range.from + 1)?.identity.eq(draft.identity))
     return "refused";
   const href = commit.href.trim();

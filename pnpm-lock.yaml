@@ -248,6 +248,9 @@ importers:
       mermaid:
         specifier: 11.16.0
         version: 11.16.0
+      micromark-util-decode-string:
+        specifier: ^2.0.1
+        version: 2.0.1
       motion:
         specifier: ^12.42.0
         version: 12.42.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)

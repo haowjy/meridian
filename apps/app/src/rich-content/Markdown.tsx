@@ -2,6 +2,7 @@
  * Markdown renderer wrapper around Streamdown with Meridian's prose tokens and streaming block collapse behavior.
  */
 
+import { remarkWikiLink } from "@meridian/markup";
 import type { ComponentType } from "react";
 import { defaultRemarkPlugins, Streamdown, type StreamdownProps } from "streamdown";
 
@@ -14,7 +15,11 @@ import {
   remarkReferenceOccurrences,
 } from "./reference-occurrences";
 import { remarkLineBreaks } from "./remark-line-breaks";
-import { TranscriptReference, type TranscriptReferenceResolution } from "./TranscriptReference";
+import {
+  TranscriptReference,
+  TranscriptReferenceContext,
+  type TranscriptReferenceResolution,
+} from "./TranscriptReference";
 
 export type MarkdownProps = {
   children: string;
@@ -38,6 +43,10 @@ export type MarkdownProps = {
 
 const SHIKI_THEME: NonNullable<StreamdownProps["shikiTheme"]> = ["github-light", "github-dark"];
 
+const REFERENCE_COMPONENTS = { [REFERENCE_TAG]: TranscriptReference as ComponentType };
+const EXACT_BLOCK = (source: string) => (source ? [source] : []);
+const REFERENCE_REMEND = { links: false, images: false };
+
 const CONTROLS = { code: true, table: false, mermaid: false } as const;
 
 /**
@@ -57,41 +66,38 @@ export function Markdown({
   const streaming = mode === "streaming";
   const remarkPlugins: NonNullable<StreamdownProps["remarkPlugins"]> = [
     ...Object.values(defaultRemarkPlugins),
-    ...(references.length ? [remarkReferenceOccurrences(references)] : []),
+    remarkWikiLink,
+    [remarkReferenceOccurrences, { occurrences: references }],
     ...(breaks ? [remarkLineBreaks] : []),
   ];
-  const components = references.length
-    ? {
-        [REFERENCE_TAG]: ((props) => (
-          <TranscriptReference
-            {...props}
-            resolutions={referenceResolutions}
-            onOpen={onOpenReference}
-          />
-        )) as ComponentType,
-      }
-    : undefined;
 
   return (
-    <Streamdown
-      mode={mode}
-      isAnimating={streaming}
-      parseMarkdownIntoBlocksFn={streaming ? collapseMarkdownBlocks : undefined}
-      shikiTheme={SHIKI_THEME}
-      controls={CONTROLS}
-      remarkPlugins={remarkPlugins}
-      allowedTags={
-        references.length ? { [REFERENCE_TAG]: ["dataDocumentId", "dataUri"] } : undefined
-      }
-      components={components}
-      className={cn(
-        "prose-tokens",
-        variant === "compact" && "text-tier-compact",
-        streaming && "space-y-2",
-        className,
-      )}
+    <TranscriptReferenceContext.Provider
+      value={{ resolutions: referenceResolutions, onOpen: onOpenReference }}
     >
-      {children}
-    </Streamdown>
+      <Streamdown
+        key={JSON.stringify(references)}
+        mode={mode}
+        isAnimating={streaming}
+        parseMarkdownIntoBlocksFn={
+          references.length ? EXACT_BLOCK : streaming ? collapseMarkdownBlocks : undefined
+        }
+        parseIncompleteMarkdown={references.length ? false : undefined}
+        remend={REFERENCE_REMEND}
+        shikiTheme={SHIKI_THEME}
+        controls={CONTROLS}
+        remarkPlugins={remarkPlugins}
+        allowedTags={{ [REFERENCE_TAG]: ["dataDocumentId", "dataUri", "dataTargetHref"] }}
+        components={REFERENCE_COMPONENTS}
+        className={cn(
+          "prose-tokens",
+          variant === "compact" && "text-tier-compact",
+          streaming && "space-y-2",
+          className,
+        )}
+      >
+        {children}
+      </Streamdown>
+    </TranscriptReferenceContext.Provider>
   );
 }

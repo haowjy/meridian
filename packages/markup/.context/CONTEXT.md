@@ -10,6 +10,8 @@
 - `AssetPathResolver` adapters: `unresolvedAssetPathResolver` (refuses to
   serialize an asset ref) and `createAssetPathResolver(entries)`.
 - Plugin factories: `markdown()` and `mdx({ components })`.
+- `remarkWikiLink`: the same syntax grammar for read-only renderers. Consumers
+  own inline presentation and navigation authority; the parser resolves neither.
 - Both presets include the first-class `[[target]]` wikilink extension. It maps
   to the existing link mark with `href: "[[target]]"` and `title: null`; labels
   are deliberately not part of the syntax.

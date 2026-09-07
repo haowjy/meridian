@@ -19,20 +19,23 @@ import { t } from "@lingui/core/macro";
 import type { Thread, ThreadLiveState, Turn, Work } from "@meridian/contracts/protocol";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { resolveDocumentLink } from "@/client/api/document-links-api";
 import { uploadIntakePort } from "@/client/api/upload-intake-api";
 import { useMeridianAgent } from "@/client/copilot/MeridianCopilotProvider";
 import { threadQueryKeys } from "@/client/query/thread-query-keys";
-import { announceError, useThreadActions, useThreadStore } from "@/client/stores";
+import { announce, announceError, useThreadActions, useThreadStore } from "@/client/stores";
 import {
   Composer,
   type ComposerDraftSnapshot,
   type ComposerHandle,
   type ComposerSubmitEnvelope,
 } from "@/components/app/composer";
+import { documentLinkTarget, type LinkTarget } from "@/core/editor/links";
 import { DEFAULT_AGENT_SLUG } from "@/features/agents";
 import { useReferenceBrowserCatalog } from "@/features/editor/references/useReferenceBrowserCatalog";
 import { useOpenProjectDocument } from "@/features/project/context/open-project-document";
 import { displayThreadTitle } from "@/lib/thread-title";
+import { TranscriptLinkNavigationContext } from "@/rich-content/TranscriptReference";
 import { AgentOnlyComposerToolbar, ChatComposerToolbar } from "./ChatComposerToolbar";
 import { ChatSurface } from "./ChatSurface";
 import type { InterruptRespondRequest } from "./CustomBlockRenderer";
@@ -193,80 +196,117 @@ export function ChatView({
     [controller],
   );
 
+  const transcriptNavigation = useRef<AbortController | null>(null);
+  useEffect(() => () => transcriptNavigation.current?.abort(), [projectId, activeWork?.id]);
+  const followTranscriptLink = useCallback(
+    async (target: LinkTarget) => {
+      if (!projectId || target.kind === "relative") return;
+      const request = documentLinkTarget(target, "");
+      if (!request) return;
+      transcriptNavigation.current?.abort();
+      const attempt = new AbortController();
+      transcriptNavigation.current = attempt;
+      try {
+        const result = await resolveDocumentLink(
+          projectId,
+          {
+            workId: activeWork?.id,
+            target: request,
+          },
+          { signal: attempt.signal },
+        );
+        if (attempt.signal.aborted) return;
+        if (!result.document) {
+          announce(t`No document with this name yet`);
+          return;
+        }
+        await openReferenceDocument({
+          documentId: result.document.documentId,
+          disposition: "current",
+        });
+      } catch {
+        if (!attempt.signal.aborted) announceError(t`That link could not be checked`);
+      }
+    },
+    [projectId, activeWork?.id, openReferenceDocument],
+  );
+
   return (
-    <ChatSurface
-      title={pageTitle}
-      surfaceRef={chatSurfaceRef}
-      footer={
-        <div data-debug-composer={threadId}>
-          {/* The dock strip sits BEHIND (below) the composer — narrower via
+    <TranscriptLinkNavigationContext.Provider value={projectId ? followTranscriptLink : undefined}>
+      <ChatSurface
+        title={pageTitle}
+        surfaceRef={chatSurfaceRef}
+        footer={
+          <div data-debug-composer={threadId}>
+            {/* The dock strip sits BEHIND (below) the composer — narrower via
               mx-2, top corners rounded, jade-tinted background. The composer
               always keeps its own border and overlaps the strip's edge. */}
-          <DraftDock dock={dock} />
-          <Composer
-            onOpenReference={
-              projectId
-                ? (reference) => {
-                    void openReferenceDocument({
-                      documentId: reference.documentId,
-                      disposition: "current",
-                    });
-                  }
-                : undefined
-            }
-            ref={composerRef}
-            variant="pinned"
-            streaming={isStreaming}
-            referenceCatalog={referenceCatalog}
-            uploadPort={uploadIntakePort}
-            uploadScope={
-              projectId
-                ? activeWork
-                  ? { kind: "work", projectId, workId: activeWork.id, workSlug: activeWork.slug }
-                  : { kind: "none", projectId }
-                : undefined
-            }
-            onSubmit={handleSubmit}
-            onCheckSubmission={(envelope) => settleQuarantined(envelope, false)}
-            onRetireSubmission={(envelope) => settleQuarantined(envelope, true)}
-            onStop={handleStop}
-            toolbarLeft={
-              projectId && activeWork ? (
-                <ChatComposerToolbar
-                  projectId={projectId}
-                  threadId={threadId}
-                  work={activeWork}
-                  agentSlug={composerAgentSlug}
-                  readonlyAgent={threadStarted}
-                  onAgentChange={setDraftAgentSlug}
-                />
-              ) : threadStarted ? (
-                <AgentOnlyComposerToolbar
-                  projectId={projectId ?? null}
-                  readonlyAgent
-                  agentSlug={composerAgentSlug}
-                />
-              ) : (
-                <AgentOnlyComposerToolbar
-                  projectId={projectId ?? null}
-                  agentSlug={composerAgentSlug}
-                  onAgentChange={setDraftAgentSlug}
-                />
-              )
-            }
-          />
-        </div>
-      }
-    >
-      <TurnList
-        threadId={threadId}
-        turns={turns}
-        historySettled={historySettled}
-        tailFollowRevision={tailFollowRevision}
-        ariaLabel={t`Chat`}
-        onRespondToInterrupt={handleRespondToInterrupt}
-        changeTrails={changeTrails.byId}
-      />
-    </ChatSurface>
+            <DraftDock dock={dock} />
+            <Composer
+              onOpenReference={
+                projectId
+                  ? (reference) => {
+                      void openReferenceDocument({
+                        documentId: reference.documentId,
+                        disposition: "current",
+                      });
+                    }
+                  : undefined
+              }
+              ref={composerRef}
+              variant="pinned"
+              streaming={isStreaming}
+              referenceCatalog={referenceCatalog}
+              uploadPort={uploadIntakePort}
+              uploadScope={
+                projectId
+                  ? activeWork
+                    ? { kind: "work", projectId, workId: activeWork.id, workSlug: activeWork.slug }
+                    : { kind: "none", projectId }
+                  : undefined
+              }
+              onSubmit={handleSubmit}
+              onCheckSubmission={(envelope) => settleQuarantined(envelope, false)}
+              onRetireSubmission={(envelope) => settleQuarantined(envelope, true)}
+              onStop={handleStop}
+              toolbarLeft={
+                projectId && activeWork ? (
+                  <ChatComposerToolbar
+                    projectId={projectId}
+                    threadId={threadId}
+                    work={activeWork}
+                    agentSlug={composerAgentSlug}
+                    readonlyAgent={threadStarted}
+                    onAgentChange={setDraftAgentSlug}
+                  />
+                ) : threadStarted ? (
+                  <AgentOnlyComposerToolbar
+                    projectId={projectId ?? null}
+                    readonlyAgent
+                    agentSlug={composerAgentSlug}
+                  />
+                ) : (
+                  <AgentOnlyComposerToolbar
+                    projectId={projectId ?? null}
+                    agentSlug={composerAgentSlug}
+                    onAgentChange={setDraftAgentSlug}
+                  />
+                )
+              }
+            />
+          </div>
+        }
+      >
+        <TurnList
+          threadId={threadId}
+          turns={turns}
+          historySettled={historySettled}
+          tailFollowRevision={tailFollowRevision}
+          ariaLabel={t`Chat`}
+          onRespondToInterrupt={handleRespondToInterrupt}
+          changeTrails={changeTrails.byId}
+        />
+      </ChatSurface>
+    </TranscriptLinkNavigationContext.Provider>
   );
 }
