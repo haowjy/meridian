@@ -14,7 +14,7 @@ export const linkMarkCodec: MarkCodec<LinkAst> = {
       const children = inlineMarkdownToMdast(text, ctx);
       if (children.length === 1 && children[0]?.type === "text") {
         const label = (children[0] as { value: string }).value;
-        if (!/[\t\r\n]/.test(label)) return formatWikilink(wikiTarget, label);
+        if (!/[\r\n]/.test(label)) return formatWikilink(wikiTarget, label);
       }
     }
     const title = attrs.title == null ? "" : ` "${String(attrs.title).replaceAll('"', '\\"')}"`;

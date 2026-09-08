@@ -41,6 +41,7 @@ describe("codec presets", () => {
 
   it.each([
     "Walkthrough",
+    "a\tb",
     "修炼 arc",
     "a]b|c\\d",
     "A&amp;B",

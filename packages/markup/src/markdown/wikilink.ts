@@ -100,7 +100,7 @@ const tokenizeWikiLink: Tokenizer = (effects, ok, nok) => {
   }
 
   function label(code: Code): State | undefined {
-    if (code === null || markdownLineEnding(code) || code === -2) return nok(code);
+    if (code === null || markdownLineEnding(code)) return nok(code);
     if (code === RIGHT_BRACKET) {
       if (labelSize === 0) return nok(code);
       effects.exit("wikiLinkLabel");

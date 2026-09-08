@@ -151,8 +151,7 @@ ProseMirror `link` mark; the display text is its text content. Resolution never
 occurs in the codec. Unresolved destinations round-trip unchanged.
 
 Display text is literal prose, not nested Markdown. Backslash escapes backslash,
-closing bracket, and pipe inside the label. Empty labels, tabs, and line endings
-are not recognized. Target outer whitespace is trimmed; label whitespace is
+closing bracket, and pipe inside the label. Empty labels and line endings are not recognized; tabs remain literal label text. Target outer whitespace is trimmed; label whitespace is
 preserved. Plain labeled Markdown links such as `[label]([[target]])` normalize
 to the pipe spelling. Rich labels and links with title metadata retain the
 ordinary Markdown resource spelling to avoid losing marks or metadata. Images
