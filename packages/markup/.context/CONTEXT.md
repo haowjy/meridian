@@ -152,7 +152,7 @@ occurs in the codec. Unresolved destinations round-trip unchanged.
 
 Display text is literal prose, not nested Markdown. Backslash escapes backslash,
 closing bracket, and pipe inside the label. Destinations also escape both brackets,
-pipes, and backslashes, so a filename such as `Gate|Map.png` becomes
+pipes, and backslashes, so destination text such as `Gate|Map.png` becomes
 `[[Gate\|Map.png]]`, not an alias for `Gate`. The shared formatter/decoder owns
 this boundary for editor insertion, Composer, images, and transcript rendering.
 Empty labels and line endings are not recognized; tabs remain literal label text.
@@ -165,3 +165,7 @@ The shared micromark grammar owns recognition, including MDX ingress protection
 and read-only transcript parsing. `formatWikilink` spells plain labels;
 `wikilinkTarget` extracts a destination-only href, not a complete aliased link.
 App routing interprets scoped URI destinations without changing the label.
+
+Wire recognition does not authorize creating a Context file with that name.
+The app's shared Context entry-name validator owns filename policy separately;
+for example, it permits brackets but currently rejects pipe characters.
