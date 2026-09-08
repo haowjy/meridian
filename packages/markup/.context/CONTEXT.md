@@ -161,3 +161,10 @@ The shared micromark grammar owns recognition, including MDX ingress protection
 and read-only transcript parsing. `formatWikilink` spells plain labels;
 `wikilinkTarget` extracts a destination-only href, not a complete aliased link.
 App routing interprets scoped URI destinations without changing the label.
+
+> [!WARNING]
+> At `84602fb1e`, the grammar accepts tabs in display text even though the settled
+> contract rejects them, and `formatWikilink` does not refuse a destination that
+> contains the reserved pipe delimiter. A valid catalog URI such as
+> `uploads://@/Gate|Map.png` can therefore be misparsed or rejected downstream.
+> These are open review findings, not canonical behavior.
