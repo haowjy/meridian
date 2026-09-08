@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+- Clarify editing docs: semantic Markdown round trips, CRDT merge limits, and
+  direct versus draft publication.
+
 - `apps/app`, `packages/markup`: escape reference destination delimiters without
   truncating filenames; keep explicitly authored URI labels in transcripts.
 
