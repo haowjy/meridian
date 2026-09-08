@@ -1,5 +1,7 @@
 /** One atomic occurrence owns its context actions; TipTap supplies its live position. */
+
 import { t } from "@lingui/core/macro";
+import { formatWikilink } from "@meridian/markup";
 import { closeHistory } from "@tiptap/pm/history";
 import { type NodeViewProps, NodeViewWrapper } from "@tiptap/react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
@@ -179,7 +181,7 @@ function ReferenceReplacement({
         onSelect: ({ row }) =>
           selectRef.current({
             ...row.action.reference,
-            spelling: row.ambiguous ? row.action.reference.uri : `[[${row.label}]]`,
+            spelling: row.ambiguous ? row.action.reference.uri : formatWikilink(row.label),
             imageCapable: row.fileKind === "asset" && row.action.reference.fileType === "image",
             upload: null,
           }),

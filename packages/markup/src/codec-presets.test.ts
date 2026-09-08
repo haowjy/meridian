@@ -13,6 +13,7 @@ import {
 } from "./codec-test-support.js";
 import {
   createMarkupCodec,
+  formatWikilink,
   markdownCodec,
   mdxCodec,
   requiredBlockNamesForSchema,
@@ -25,6 +26,26 @@ import {
 import { mdxBlockCodecs } from "./mdx/index.js";
 
 describe("codec presets", () => {
+  it.each([
+    "Gate|Map.png",
+    "Gate[Map].png",
+    "folder\\notes.md",
+    "uploads://@/Gate|Map.png",
+  ])("round-trips reserved destination characters: %s", (target) => {
+    for (const codec of [
+      markdownCodec({ schema, assetPathResolver: unresolvedAssetPathResolver }),
+      mdxCodec({ schema, assetPathResolver: unresolvedAssetPathResolver, components }),
+    ]) {
+      const wire = formatWikilink(target, "My reference");
+      const parsed = codec.parse(wire).blocks;
+      expect(parsed[0]?.textContent).toBe("My reference");
+      expect(parsed[0]?.firstChild?.marks[0]?.attrs.href).toBe(
+        `[[${target.replace(/[\\[\]|]/g, "\\$&")}]]`,
+      );
+      expect(codec.serialize(parsed)).toBe(`${wire}\n`);
+    }
+  });
+
   it("keeps rich labels and title metadata lossless", () => {
     for (const codec of [
       markdownCodec({ schema, assetPathResolver: unresolvedAssetPathResolver }),

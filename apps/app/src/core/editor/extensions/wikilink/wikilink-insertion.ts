@@ -9,6 +9,7 @@
  * click would each read as a different thing.
  */
 
+import { formatWikilink, wikilinkTarget } from "@meridian/markup";
 import type { Editor } from "@tiptap/core";
 
 import { normalizeLinkHref } from "../../links";
@@ -16,9 +17,10 @@ import { normalizeLinkHref } from "../../links";
 export type WikilinkRange = { from: number; to: number };
 
 export function insertWikilink(editor: Editor, range: WikilinkRange, name: string): boolean {
-  const href = normalizeLinkHref(`[[${name}]]`);
+  const href = normalizeLinkHref(formatWikilink(name));
   if (!href || !editor.isEditable) return false;
-  const text = href.slice(2, -2);
+  const text = wikilinkTarget(href);
+  if (!text) return false;
 
   return (
     editor

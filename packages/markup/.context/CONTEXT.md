@@ -151,8 +151,12 @@ ProseMirror `link` mark; the display text is its text content. Resolution never
 occurs in the codec. Unresolved destinations round-trip unchanged.
 
 Display text is literal prose, not nested Markdown. Backslash escapes backslash,
-closing bracket, and pipe inside the label. Empty labels and line endings are not recognized; tabs remain literal label text. Target outer whitespace is trimmed; label whitespace is
-preserved. Plain labeled Markdown links such as `[label]([[target]])` normalize
+closing bracket, and pipe inside the label. Destinations also escape both brackets,
+pipes, and backslashes, so a filename such as `Gate|Map.png` becomes
+`[[Gate\|Map.png]]`, not an alias for `Gate`. The shared formatter/decoder owns
+this boundary for editor insertion, Composer, images, and transcript rendering.
+Empty labels and line endings are not recognized; tabs remain literal label text.
+Target outer whitespace is trimmed; label whitespace is preserved. Plain labeled Markdown links such as `[label]([[target]])` normalize
 to the pipe spelling. Rich labels and links with title metadata retain the
 ordinary Markdown resource spelling to avoid losing marks or metadata. Images
 retain `![alt]([[target]])`.
@@ -161,10 +165,3 @@ The shared micromark grammar owns recognition, including MDX ingress protection
 and read-only transcript parsing. `formatWikilink` spells plain labels;
 `wikilinkTarget` extracts a destination-only href, not a complete aliased link.
 App routing interprets scoped URI destinations without changing the label.
-
-> [!WARNING]
-> At `84602fb1e`, the grammar accepts tabs in display text even though the settled
-> contract rejects them, and `formatWikilink` does not refuse a destination that
-> contains the reserved pipe delimiter. A valid catalog URI such as
-> `uploads://@/Gate|Map.png` can therefore be misparsed or rejected downstream.
-> These are open review findings, not canonical behavior.

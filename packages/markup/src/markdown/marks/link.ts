@@ -23,10 +23,10 @@ export const linkMarkCodec: MarkCodec<LinkAst> = {
 
   parse(ast) {
     if (ast.type === "wikiLink" && typeof ast.target === "string") {
-      return { href: `[[${ast.target}]]`, title: null };
+      return { href: formatWikilink(ast.target), title: null };
     }
     if (ast.type === "wikiLinkResource" && typeof ast.target === "string") {
-      return { href: `[[${ast.target}]]`, title: ast.title ?? null };
+      return { href: formatWikilink(ast.target), title: ast.title ?? null };
     }
     if (ast.type !== "link") return null;
     return { href: ast.url ?? "", title: ast.title ?? null };

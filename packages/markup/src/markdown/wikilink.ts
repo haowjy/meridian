@@ -29,7 +29,7 @@ import type {
 } from "micromark-util-types";
 import type { Plugin } from "unified";
 import type { MdastWikiLink, MdastWikiLinkImage, MdastWikiLinkResource } from "../ast.js";
-import { formatWikilink } from "./wikilink-target.js";
+import { formatWikilink, unescapeWikilinkText } from "./wikilink-target.js";
 
 // These resource nodes keep a wikilink target opaque. CommonMark otherwise
 // decodes character references in destinations, changing `A&amp;B` to `A&B`.
@@ -96,7 +96,15 @@ const tokenizeWikiLink: Tokenizer = (effects, ok, nok) => {
     targetSize += 1;
     if (!unicodeWhitespace(code)) hasNonSpace = true;
     effects.consume(code);
-    return target;
+    return code === 92 ? escapedTarget : target;
+  }
+
+  function escapedTarget(code: Code): State | undefined {
+    if (code === 92 || code === LEFT_BRACKET || code === RIGHT_BRACKET || code === PIPE) {
+      effects.consume(code);
+      return target;
+    }
+    return target(code);
   }
 
   function label(code: Code): State | undefined {
@@ -182,7 +190,13 @@ const tokenizeWikiLinkResourceEnd: Tokenizer = function (effects, ok, nok) {
   }
 
   function target(code: Code): State | undefined {
-    if (code === null || markdownLineEnding(code) || code === -2 || code === PIPE) {
+    if (
+      code === null ||
+      markdownLineEnding(code) ||
+      code === -2 ||
+      code === PIPE ||
+      code === LEFT_BRACKET
+    ) {
       return nok(code);
     }
     if (code === RIGHT_BRACKET) {
@@ -195,7 +209,15 @@ const tokenizeWikiLinkResourceEnd: Tokenizer = function (effects, ok, nok) {
     targetSize += 1;
     if (!unicodeWhitespace(code)) hasNonSpace = true;
     effects.consume(code);
-    return target;
+    return code === 92 ? escapedTarget : target;
+  }
+
+  function escapedTarget(code: Code): State | undefined {
+    if (code === 92 || code === LEFT_BRACKET || code === RIGHT_BRACKET || code === PIPE) {
+      effects.consume(code);
+      return target;
+    }
+    return target(code);
   }
 
   function targetCloseSecond(code: Code): State | undefined {
@@ -277,13 +299,13 @@ const exitWikiLinkTarget: FromMarkdownHandle = function (this: CompileContext, t
     text?.type === "text" && typeof text.value === "string"
       ? text.value
       : this.sliceSerialize(token);
-  node.target = target.trim();
+  node.target = unescapeWikilinkText(target).trim();
   if (text?.type === "text") text.value = node.target;
 };
 
 const exitWikiLinkLabel: FromMarkdownHandle = function (this: CompileContext, token: Token) {
   const node = this.stack[this.stack.length - 1] as unknown as MdastWikiLink;
-  node.label = this.sliceSerialize(token).replace(/\\([\\\]|])/g, "$1");
+  node.label = unescapeWikilinkText(this.sliceSerialize(token));
   node.children = [{ type: "text", value: node.label }];
 };
 
@@ -299,7 +321,7 @@ const exitWikiLinkResourceTarget: FromMarkdownHandle = function (
     target: string;
     url?: string;
   };
-  node.target = this.sliceSerialize(token).trim();
+  node.target = unescapeWikilinkText(this.sliceSerialize(token)).trim();
   delete node.url;
 };
 
@@ -355,7 +377,7 @@ const handleWikiLinkResource: ToMarkdownHandle = (node, _parent, state, info) =>
   );
   value += tracker.move("](");
   exitLabel();
-  value += tracker.move(`[[${resource.target}]]`);
+  value += tracker.move(formatWikilink(resource.target));
   value += serializeTitle(resource.title, state, tracker, value);
   value += tracker.move(")");
   exitLink();
@@ -371,7 +393,7 @@ const handleWikiLinkImage: ToMarkdownHandle = (node, _parent, state, info) => {
   value += tracker.move(state.safe(image.alt, { before: value, after: "]", ...tracker.current() }));
   value += tracker.move("](");
   exitLabel();
-  value += tracker.move(`[[${image.target}]]`);
+  value += tracker.move(formatWikilink(image.target));
   value += serializeTitle(image.title, state, tracker, value);
   value += tracker.move(")");
   exitImage();

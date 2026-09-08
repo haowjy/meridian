@@ -97,12 +97,6 @@ shared DOM suggestion transport; one Chrome-reaching lease owns its semantic
 keys and retreat, and the shared menu attaches accessibility state to that search
 input rather than to editor prose.
 
-> [!WARNING]
-> At `84602fb1e`, LinkForm brackets catalog URIs without first proving they satisfy
-> the wikilink target grammar. A valid URI containing `|` is then refused, while a
-> Composer spelling can reinterpret the suffix as display text. The shared,
-> lossless spelling boundary required to close that gap is not implemented yet.
-
 `revision` is content, not an object identity and not a counter: the row's id,
 URI, and title joined per document. A refetch that found the same documents is
 the same revision and costs nothing, while anything that changes where a link

@@ -19,6 +19,7 @@
 
 import { CONTEXT_URI_SCHEMES } from "@meridian/contracts";
 import type { DocumentLinkTarget } from "@meridian/contracts/protocol";
+import { formatWikilink, wikilinkTarget } from "@meridian/markup";
 
 export type LinkTarget =
   /** `[[The Second Gate]]` — resolved by title or alias. Unresolved is normal. */
@@ -86,7 +87,7 @@ export function classifyLinkTarget(href: string): LinkTarget | null {
   const value = href.trim();
   if (!value || hasAsciiControl(value)) return null;
 
-  const name = wikilinkName(value);
+  const name = wikilinkTarget(value);
   if (name) {
     const scheme = EXPLICIT_SCHEME.exec(name)?.[1]?.toLowerCase();
     return scheme && INTERNAL_SCHEMES.has(scheme)
@@ -135,8 +136,8 @@ export function normalizeLinkHref(input: string): string | null {
   const value = input.trim();
   if (!value || hasAsciiControl(value)) return null;
 
-  const name = wikilinkName(value);
-  if (name) return `[[${name}]]`;
+  const name = wikilinkTarget(value);
+  if (name) return formatWikilink(name);
   if (value.startsWith("[[")) return null;
 
   if (value.startsWith("//")) return validExternalHref(`https:${value}`);
@@ -160,7 +161,7 @@ export function normalizeLinkHref(input: string): string | null {
 export function linkTargetHref(target: LinkTarget): string {
   switch (target.kind) {
     case "wikilink":
-      return `[[${target.name}]]`;
+      return formatWikilink(target.name);
     case "scheme":
       return target.uri;
     case "relative":
@@ -176,14 +177,6 @@ export function linkTargetLabel(target: LinkTarget): string {
   if (target.kind === "external") return target.url;
   const path = target.kind === "scheme" ? target.uri : target.path;
   return path.slice(path.lastIndexOf("/") + 1) || path;
-}
-
-/** The inner name of `[[…]]`, or null when the brackets do not close a target. */
-function wikilinkName(value: string): string | null {
-  if (!value.startsWith("[[") || !value.endsWith("]]") || value.length < 5) return null;
-  const name = value.slice(2, -2).trim();
-  // Hrefs contain only destinations; alias text lives in the linked text, never here.
-  return name && !/[\r\n[\]|]/.test(name) ? name : null;
 }
 
 function externalTarget(candidate: string): LinkTarget | null {

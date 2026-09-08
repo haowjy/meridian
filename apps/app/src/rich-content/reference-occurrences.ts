@@ -1,4 +1,5 @@
 /** Project original-source authority onto parsed inline references, never onto code or title matches. */
+import { formatWikilink } from "@meridian/markup";
 import { decodeString } from "micromark-util-decode-string";
 import { classifyLinkTarget } from "@/core/editor/links";
 
@@ -47,7 +48,11 @@ export function remarkReferenceOccurrences({
   };
 }
 
-function presentation(node: Node, occurrence?: MarkdownReferenceOccurrence): void {
+function presentation(
+  node: Node,
+  occurrence?: MarkdownReferenceOccurrence,
+  authoredLabel = false,
+): void {
   node.data = occurrence
     ? {
         hName: REFERENCE_TAG,
@@ -55,13 +60,11 @@ function presentation(node: Node, occurrence?: MarkdownReferenceOccurrence): voi
       }
     : {
         hName: REFERENCE_TAG,
-        hProperties: { dataTargetHref: node.target ? `[[${node.target}]]` : (node.url ?? "") },
+        hProperties: {
+          dataTargetHref: node.target ? formatWikilink(node.target) : (node.url ?? ""),
+        },
       };
-  if (
-    node.label !== undefined ||
-    node.type === "wikiLinkResource" ||
-    (node.type === "link" && !(node.children?.length === 1 && node.children[0]?.value === node.url))
-  ) {
+  if (node.label !== undefined || node.type === "wikiLinkResource" || authoredLabel) {
     node.data.hProperties = { ...node.data.hProperties, dataAuthoredLabel: "true" };
   }
   // A standard link handler would otherwise emit its href around the custom control.
@@ -83,11 +86,13 @@ function transform(
   }
   const target = node.type === "link" && node.url ? classifyLinkTarget(node.url) : null;
   if (target && target.kind !== "external") {
+    const authoredLabel = typeof start === "number" && source[start] === "[";
     const defaultUriLabel =
+      !authoredLabel &&
       target.kind === "scheme" &&
       node.children?.length === 1 &&
       node.children[0]?.value === node.url;
-    presentation(node, exact);
+    presentation(node, exact, authoredLabel);
     if (defaultUriLabel && node.children?.[0] && target.kind === "scheme") {
       node.children[0].value = target.uri.split("/").at(-1) || target.uri;
     }

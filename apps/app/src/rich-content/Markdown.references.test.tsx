@@ -262,3 +262,42 @@ it.each([
     },
   );
 });
+
+it("preserves an explicitly authored label equal to its URI", async () => {
+  const uri = "scratch://@revision/guide.md";
+  const source = `[${uri}](${uri})`;
+  await withReactRoot(
+    <Markdown
+      references={[{ from: 0, to: source.length, documentId: "guide", uri }]}
+      referenceResolutions={
+        new Map([
+          ["guide", { documentId: "guide", uri, label: "Renamed destination", available: true }],
+        ])
+      }
+    >
+      {source}
+    </Markdown>,
+    () => {
+      expect(document.querySelector('[role="link"]')?.textContent).toBe(uri);
+    },
+  );
+});
+
+it.each([
+  "literal",
+  "autolink",
+])("uses resolved titles for a %s URI without an authored label", async (kind) => {
+  const uri = "scratch://@revision/guide.md";
+  const source = kind === "literal" ? uri : `<${uri}>`;
+  await withReactRoot(
+    <Markdown
+      references={[{ from: 0, to: source.length, documentId: "guide", uri }]}
+      referenceResolutions={
+        new Map([["guide", { documentId: "guide", uri, label: "Resolved title", available: true }]])
+      }
+    >
+      {source}
+    </Markdown>,
+    () => expect(document.querySelector('[role="link"]')?.textContent).toBe("Resolved title"),
+  );
+});

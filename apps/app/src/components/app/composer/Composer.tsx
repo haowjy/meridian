@@ -1,6 +1,8 @@
 /** Shared TipTap draft owner for every message-authoring surface. */
+
 import { t } from "@lingui/core/macro";
 import type { UploadIntakeResult } from "@meridian/contracts/protocol";
+import { formatWikilink } from "@meridian/markup";
 import { EditorContent, ReactNodeViewRenderer, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { ArrowUp, Paperclip, RotateCcw } from "lucide-react";
@@ -171,7 +173,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             ...catalog,
             insertReference: (current, range, row) => {
               const reference = row.action.reference;
-              const spelling = row.ambiguous ? reference.uri : `[[${reference.label}]]`;
+              const spelling = row.ambiguous ? reference.uri : formatWikilink(reference.label);
               return current
                 .chain()
                 .focus()
@@ -416,7 +418,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               ...ready,
               authority: scope,
               label: file.name,
-              spelling: `[[${file.name}]]`,
+              spelling: formatWikilink(file.name),
               imageCapable: ready.fileType === "image",
               upload: {
                 intakeId,

@@ -52,10 +52,13 @@ describe("link destination form", () => {
   });
 });
 
-it("saves display text over a scoped destination without turning it into a name lookup", async () => {
+it.each([
+  "guide.md",
+  "Gate|Map.md",
+])("saves display text over a scoped destination %s without changing lookup", async (filename) => {
   const editor = new Editor({
     extensions: createStandaloneEditorExtensions(),
-    content: '<p><a href="scratch://@revision/guide.md">Guide</a></p>',
+    content: `<p><a href="scratch://@revision/${filename}">Guide</a></p>`,
   });
   document.body.append(editor.view.dom);
   editor.commands.setTextSelection({ from: 1, to: 6 });
@@ -83,7 +86,7 @@ it("saves display text over a scoped destination without turning it into a name 
       expect(
         editor.state.doc.firstChild?.firstChild?.marks.find((mark) => mark.type.name === "link")
           ?.attrs.href,
-      ).toBe("[[scratch://@revision/guide.md]]");
+      ).toBe(`[[scratch://@revision/${filename.replace("|", "\\|")}]]`);
     });
   } finally {
     editor.view.dom.remove();

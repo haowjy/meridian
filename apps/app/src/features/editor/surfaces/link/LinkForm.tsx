@@ -1,5 +1,7 @@
 /** Destination and display-text editing over the anchored link commands. */
+
 import { t } from "@lingui/core/macro";
+import { formatWikilink } from "@meridian/markup";
 import type { Editor } from "@tiptap/core";
 import type { Transaction } from "@tiptap/pm/state";
 import { Unlink } from "lucide-react";
@@ -145,7 +147,7 @@ function LinkFields({
             label: () => referenceCatalog.label,
             onCompleteSegment: ({ prefix }) => setQuery(prefix),
             onSelect: ({ row }) => {
-              setHref(`[[${row.action.reference.uri}]]`);
+              setHref(formatWikilink(row.action.reference.uri));
               setSelectedDestination({ label: row.label, location: row.location });
               setText((current) => current || row.label);
               setChoosing(false);
@@ -218,7 +220,7 @@ function LinkFields({
     const destination = classifyLinkTarget(normalized);
     const result = commitLinkDraft(editor, readDraft(), {
       text,
-      href: destination?.kind === "scheme" ? `[[${destination.uri}]]` : normalized,
+      href: destination?.kind === "scheme" ? formatWikilink(destination.uri) : normalized,
     });
     if (result === "invalid") {
       setInvalid(true);

@@ -32,6 +32,8 @@ describe("reference completion step-aside", () => {
 
 describe("classifyLinkTarget", () => {
   it.each([
+    ["[[uploads://@/Gate\\|Map.png]]", { kind: "scheme", uri: "uploads://@/Gate|Map.png" }],
+    ["[[Gate\\|Map.png]]", { kind: "wikilink", name: "Gate|Map.png" }],
     ["[[scratch://@revision/guide.md]]", { kind: "scheme", uri: "scratch://@revision/guide.md" }],
     ["[[The Second Gate]]", { kind: "wikilink", name: "The Second Gate" }],
     ["[[ Warden Ilsever ]]", { kind: "wikilink", name: "Warden Ilsever" }],

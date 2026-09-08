@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+- `apps/app`, `packages/markup`: escape reference destination delimiters without
+  truncating filenames; keep explicitly authored URI labels in transcripts.
+
 - `apps/app`, `packages/markup`: edit reference display text independently; serialize
   plain aliases as `[[destination|display text]]` and preserve them in transcripts,
   including pasted tabs and escaped punctuation.
