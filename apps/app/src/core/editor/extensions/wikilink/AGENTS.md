@@ -21,11 +21,13 @@ should hold for `/` and `@` too belongs in the mechanism, not here — and a cha
 here that needs a new field on the spec is telling you the same thing.
 
 **A wikilink is a link, not a node.** What lands in the document is a link mark
-whose href is `[[Name]]` and whose text is `Name` — the shape the codec spells
-back as `[[Name]]`. Change either half and the wire format quietly becomes
-`[text]([[Name]])`, which is not a wikilink at all. `insertWikilink` asks
-`normalizeLinkHref` rather than assembling brackets, so this lane can never
-disagree with the classifier about what a name means.
+whose href is the destination-only `[[Name]]`; its text is the occurrence's
+display text. Matching text serializes as `[[Name]]`, while edited plain text
+serializes as `[[Name|display text]]`. The label never enters destination
+classification or resolution. Richly marked labels and links with title metadata
+retain ordinary Markdown resource syntax. `insertWikilink` asks
+`normalizeLinkHref` rather than assembling brackets, so this lane cannot disagree
+with the classifier about what a destination means.
 
 ## Key rules
 

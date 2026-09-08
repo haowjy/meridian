@@ -96,7 +96,11 @@ change-trail events, not manuscript content.
   sees interaction only through its injected `SuggestionHost`; the editor
   adapter contributes ordinary keys to Chrome's keymap and semantic retreat to
   Chrome's one Escape chain under one lease. Composer can place the same retreat
-  in its own precedence without importing editor Chrome. See
+  in its own precedence without importing editor Chrome. The `@` lane keeps
+  spaces inside a nonempty multiword query, but immediate whitespace after the
+  triggering `@` makes that occurrence literal; eligibility reads document text
+  so paste, composition, caret re-entry, and catalog refresh agree. Do not replace
+  that delimiter rule with `allowSpaces: false` or a Space key handler. See
   [`extensions/suggestion/suggestion-lane.ts`](extensions/suggestion/suggestion-lane.ts).
 
 - Control-surface policy is the chrome kernel's, not an extension's private

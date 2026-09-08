@@ -87,8 +87,12 @@ result through the same door.
 `useLinkableDocuments` remains the legacy `[[` and relative-link projection.
 Canonical `@` and LinkForm completion instead read the normalized F1 catalog
 through `useReferenceBrowserCatalog` and let the F2 browser own scope,
-navigation, and ordering. LinkForm keeps the selected href separate from search text, shows a destination
-summary with Change, and observes its focused search input through the
+navigation, and ordering. LinkForm keeps editable display text separate from the
+selected destination. A catalog selection stores a scoped URI as a bracketed
+wikilink destination, so plain prose can serialize canonically as
+`[[destination|display text]]`; the label never participates in resolution.
+External links retain ordinary Markdown link spelling. The form shows a
+destination summary with Change and observes its focused search input through the
 shared DOM suggestion transport; one Chrome-reaching lease owns its semantic
 keys and retreat, and the shared menu attaches accessibility state to that search
 input rather than to editor prose.

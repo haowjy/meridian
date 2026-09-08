@@ -34,7 +34,7 @@ and `example.com` in the form is a website.
 |---|---|---|
 | `[[The Second Gate]]` | wikilink | `[[The Second Gate]]` |
 | `[[ Warden Ilsever ]]` | wikilink | `[[Warden Ilsever]]` |
-| `[[Kael\|the warden]]` | null | null |
+| `[[Kael\|the warden]]` | null | null (an href is destination-only; display text is stored in linked prose) |
 | `manuscript://appendix/charter` | scheme | unchanged |
 | `scratch://@revision-pass/notes.md` | scheme | unchanged |
 | `chapter-213.md`, `../notes/kael.md` | relative | unchanged |
@@ -78,6 +78,12 @@ of the link they pressed.
 External ignores the disposition — §5.5 sends it to a new tab either way. It is
 the internal family where `current` and `new-tab` are different places, and the
 navigator receives it so the app can decide.
+
+> [!NOTE]
+> Copy link address still exposes the rendered/stored href instead of the
+> runtime-resolved navigation destination for internal wikilinks. That separate
+> defect is tracked in [#520](https://github.com/haowjy/meridian-flow/issues/520);
+> display-text support does not fix or bless it.
 
 The external guard is ruling 9: none. Mockup 06 state F records the alternative.
 
