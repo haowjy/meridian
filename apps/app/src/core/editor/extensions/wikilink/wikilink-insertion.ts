@@ -1,12 +1,8 @@
 /**
  * What choosing a row does to the document.
  *
- * One shape, and the wire format is why: the codec spells a link as
- * `[[target]]` only when the link's text IS its target and it carries no
- * title. Anything else round-trips as `[text]([[target]])`, which is not a
- * wikilink at all. So the inserted text is the name, exactly, and the href is
- * the classifier's own spelling of it rather than brackets pasted together
- * here.
+ * Insert the destination name as the initial visible text. A writer can later
+ * edit that text independently; the codec emits [[target|display text]].
  *
  * A name the link system will not accept inserts nothing: the menu never
  * writes something into the manuscript that the resolver, the hint, and the

@@ -51,3 +51,42 @@ describe("link destination form", () => {
     }
   });
 });
+
+it("saves display text over a scoped destination without turning it into a name lookup", async () => {
+  const editor = new Editor({
+    extensions: createStandaloneEditorExtensions(),
+    content: '<p><a href="scratch://@revision/guide.md">Guide</a></p>',
+  });
+  document.body.append(editor.view.dom);
+  editor.commands.setTextSelection({ from: 1, to: 6 });
+  const surface = getLinkSurface(editor);
+  if (!surface) throw new Error("missing link surface");
+  surface.openForm({ x: 0, y: 0 });
+  const form = surface.state.form;
+  if (!form) throw new Error("missing form");
+  try {
+    await withReactRoot(<LinkForm editor={editor} surface={surface} form={form} />, async () => {
+      const input = document.querySelector<HTMLInputElement>("input");
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+          input,
+          "Walkthrough",
+        );
+        input?.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () =>
+        document
+          .querySelector("form")
+          ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+      );
+      expect(editor.state.doc.textContent).toBe("Walkthrough");
+      expect(
+        editor.state.doc.firstChild?.firstChild?.marks.find((mark) => mark.type.name === "link")
+          ?.attrs.href,
+      ).toBe("[[scratch://@revision/guide.md]]");
+    });
+  } finally {
+    editor.view.dom.remove();
+    editor.destroy();
+  }
+});

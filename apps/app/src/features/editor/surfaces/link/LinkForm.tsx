@@ -145,7 +145,7 @@ function LinkFields({
             label: () => referenceCatalog.label,
             onCompleteSegment: ({ prefix }) => setQuery(prefix),
             onSelect: ({ row }) => {
-              setHref(row.action.reference.uri);
+              setHref(`[[${row.action.reference.uri}]]`);
               setSelectedDestination({ label: row.label, location: row.location });
               setText((current) => current || row.label);
               setChoosing(false);
@@ -215,7 +215,11 @@ function LinkFields({
       setInvalid(true);
       return;
     }
-    const result = commitLinkDraft(editor, readDraft(), { text, href: normalized });
+    const destination = classifyLinkTarget(normalized);
+    const result = commitLinkDraft(editor, readDraft(), {
+      text,
+      href: destination?.kind === "scheme" ? `[[${destination.uri}]]` : normalized,
+    });
     if (result === "invalid") {
       setInvalid(true);
       return;
@@ -232,7 +236,7 @@ function LinkFields({
       <LinkField
         id={`${fieldId}-text`}
         ref={textInputRef}
-        label={t`Text`}
+        label={t`Display text`}
         value={text}
         placeholder={t`Link text`}
         onChange={setText}

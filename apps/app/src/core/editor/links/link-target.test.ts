@@ -32,6 +32,7 @@ describe("reference completion step-aside", () => {
 
 describe("classifyLinkTarget", () => {
   it.each([
+    ["[[scratch://@revision/guide.md]]", { kind: "scheme", uri: "scratch://@revision/guide.md" }],
     ["[[The Second Gate]]", { kind: "wikilink", name: "The Second Gate" }],
     ["[[ Warden Ilsever ]]", { kind: "wikilink", name: "Warden Ilsever" }],
     [

@@ -87,7 +87,9 @@ export function Markdown({
         shikiTheme={SHIKI_THEME}
         controls={CONTROLS}
         remarkPlugins={remarkPlugins}
-        allowedTags={{ [REFERENCE_TAG]: ["dataDocumentId", "dataUri", "dataTargetHref"] }}
+        allowedTags={{
+          [REFERENCE_TAG]: ["dataDocumentId", "dataUri", "dataTargetHref", "dataAuthoredLabel"],
+        }}
         components={REFERENCE_COMPONENTS}
         className={cn(
           "prose-tokens",

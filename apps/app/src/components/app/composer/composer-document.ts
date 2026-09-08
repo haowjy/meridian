@@ -5,6 +5,7 @@ import type {
   UploadIntakeResult,
   UserMessageBlock,
 } from "@meridian/contracts/protocol";
+import { formatWikilink, wikilinkTarget } from "@meridian/markup";
 import type { Editor, JSONContent } from "@tiptap/core";
 import { mergeAttributes, Node } from "@tiptap/core";
 import type { Selection } from "@tiptap/pm/state";
@@ -68,6 +69,8 @@ export function mergeComposerDraftSnapshots(
 
 export type ComposerReferenceAttrs = AuthoritativeReference & {
   spelling: string;
+  /** Per-occurrence prose, independent of the catalog title and stable identity. */
+  displayText?: string;
   imageCapable: boolean;
   upload: ComposerOwnedUpload | null;
 };
@@ -94,10 +97,10 @@ export const ComposerReferenceNode = Node.create({
         "data-composer-reference": "",
         role: "link",
         tabindex: "0",
-        "aria-label": value.label,
+        "aria-label": value.displayText ?? value.label,
         "aria-disabled": "true",
       }),
-      value.label,
+      value.displayText ?? value.label,
     ];
   },
 });
@@ -164,14 +167,18 @@ export function serializeComposerDraft(
     if (node.type === "hardBreak") return emitText("\n");
     if (node.type === "composerReference") {
       const value = node.attrs?.reference as ComposerReferenceAttrs;
+      const spelling =
+        value.displayText === undefined
+          ? value.spelling
+          : formatWikilink(wikilinkTarget(value.spelling) ?? value.uri, value.displayText);
       const occurrence: ReferenceOccurrence = {
         type: "reference",
-        text: value.spelling,
+        text: spelling,
         documentId: value.documentId,
         uri: value.uri,
       };
       blocks.push(occurrence);
-      text += value.spelling;
+      text += spelling;
       if (value.imageCapable)
         blocks.push({ type: "image", documentId: value.documentId, uri: value.uri });
       const key = `${value.documentId}\0${value.uri}`;

@@ -435,3 +435,51 @@ it("hands context-menu focus to the Change reference picker", async () => {
   expect(document.activeElement).toBe(input);
   expect(document.querySelector('[role="status"]')?.textContent).toBe("No matching files");
 });
+
+it("edits display text without changing occurrence identity and undoes the edit", async () => {
+  const open = vi.fn();
+  const ref = await mount((e) => outcome(e, "accepted"), { onOpenReference: open });
+  const reference = {
+    documentId: "01900000-0000-7000-8000-000000000009",
+    uri: "scratch://@work/guide.md",
+    authority: { kind: "project" as const, projectId: "p" },
+    label: "Guide",
+    fileType: "markdown" as const,
+  };
+  await act(async () => ref.current?.insertReference(reference, "[[Guide]]"));
+  const token = host.querySelector<HTMLElement>("[data-composer-reference]");
+  await act(async () =>
+    token?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, button: 2 })),
+  );
+  const edit = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => item.textContent === "Edit display text",
+  );
+  expect(edit).toBeDefined();
+  await act(async () => edit?.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const input = document.querySelector<HTMLInputElement>("input[id]");
+  expect(input?.value).toBe("Guide");
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+      input,
+      "My ] guide",
+    );
+    input?.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () =>
+    input?.closest("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+  );
+  expect(ref.current?.getDraft()).toBe("[[Guide|My \\] guide]]");
+  const renamed = host.querySelector<HTMLElement>("[data-composer-reference]");
+  expect(renamed?.textContent).toBe("My ] guide");
+  await act(async () => renamed?.click());
+  expect(open.mock.calls[0]?.[0]).toMatchObject(reference);
+  await act(async () =>
+    host
+      .querySelector(".tiptap")
+      ?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true, cancelable: true }),
+      ),
+  );
+  expect(ref.current?.getDraft()).toBe("[[Guide]]");
+});

@@ -25,6 +25,39 @@ import {
 import { mdxBlockCodecs } from "./mdx/index.js";
 
 describe("codec presets", () => {
+  it("keeps rich labels and title metadata lossless", () => {
+    for (const codec of [
+      markdownCodec({ schema, assetPathResolver: unresolvedAssetPathResolver }),
+      mdxCodec({ schema, assetPathResolver: unresolvedAssetPathResolver, components }),
+    ]) {
+      for (const wire of ["[**bold** and plain]([[Guide]])", '[label]([[Guide]] "tooltip")']) {
+        const parsed = codec.parse(wire).blocks;
+        expect(codec.parse(codec.serialize(parsed)).blocks.map((node) => node.toJSON())).toEqual(
+          parsed.map((node) => node.toJSON()),
+        );
+      }
+    }
+  });
+
+  it.each([
+    "Walkthrough",
+    "修炼 arc",
+    "a]b|c\\d",
+    "A&amp;B",
+    "**literal**",
+    " <b>{text} ",
+  ])("round-trips wikilink display text %j", (label) => {
+    for (const codec of [
+      markdownCodec({ schema, assetPathResolver: unresolvedAssetPathResolver }),
+      mdxCodec({ schema, assetPathResolver: unresolvedAssetPathResolver, components }),
+    ]) {
+      const doc = [paragraph(t(label, [m("link", { href: "[[guide.md]]", title: null })]))];
+      const wire = `[[guide.md|${label.replace(/[\\\]|]/g, "\\$&")}]]\n`;
+      expect(codec.serialize(doc)).toBe(wire);
+      expect(codec.parse(wire).blocks[0]?.toJSON()).toEqual(doc[0]?.toJSON());
+    }
+  });
+
   it.each([
     ["markdown", markdownCodec({ schema, assetPathResolver: unresolvedAssetPathResolver })],
     ["mdx", mdxCodec({ schema, assetPathResolver: unresolvedAssetPathResolver, components })],
@@ -55,14 +88,14 @@ describe("codec presets", () => {
   });
 
   it.each([
-    "[label]([[X]])",
-    "[修炼 arc]([[第一章 雪夜]])",
-  ])("round-trips a labeled wikilink href byte-exact: %s", (input) => {
+    ["[label]([[X]])", "[[X|label]]"],
+    ["[修炼 arc]([[第一章 雪夜]])", "[[第一章 雪夜|修炼 arc]]"],
+  ])("canonicalizes a labeled wikilink href: %s", (input, expected) => {
     for (const wikilinkCodec of [
       markdownCodec({ schema, assetPathResolver: unresolvedAssetPathResolver }),
       mdxCodec({ schema, assetPathResolver: unresolvedAssetPathResolver, components }),
     ]) {
-      expect(wikilinkCodec.serialize(wikilinkCodec.parse(input).blocks)).toBe(`${input}\n`);
+      expect(wikilinkCodec.serialize(wikilinkCodec.parse(input).blocks)).toBe(`${expected}\n`);
     }
   });
 
@@ -70,9 +103,9 @@ describe("codec presets", () => {
     ["image href", "![alt]([[X]])", "![alt]([[X]])"],
     ["image href with spaces", "![alt]([[Realm Map]])", "![alt]([[Realm Map]])"],
     ["link title", '[label]([[X]] "t")', '[label]([[X]] "t")'],
-    ["escaped closing bracket in label", "[a\\]b]([[X]])", "[a\\]b]([[X]])"],
-    ["nested brackets in label", "[a[b]c]([[X]])", "[a\\[b\\]c]([[X]])"],
-    ["outer target whitespace", "[label]([[ X ]])", "[label]([[X]])"],
+    ["escaped closing bracket in label", "[a\\]b]([[X]])", "[[X|a\\]b]]"],
+    ["nested brackets in label", "[a[b]c]([[X]])", "[[X|a[b\\]c]]"],
+    ["outer target whitespace", "[label]([[ X ]])", "[[X|label]]"],
     ["invalid wikilink target", "[label]([[X|Y]])", "[label](\\[\\[X|Y]])"],
     ["Unicode-whitespace-only link target", "[label]([[ ]])", "[label](\\[\\[ ]])"],
     ["Unicode-whitespace-only image target", "![alt]([[ ]])", "![alt](\\[\\[ ]])"],
@@ -260,7 +293,7 @@ describe("codec presets", () => {
       const input = "[label]([[A&amp; B]])";
       const parsed = wikilinkCodec.parse(input).blocks;
       expect(parsed[0]?.firstChild?.marks[0]?.attrs.href).toBe("[[A&amp; B]]");
-      expect(wikilinkCodec.serialize(parsed)).toBe(`${input}\n`);
+      expect(wikilinkCodec.serialize(parsed)).toBe("[[A&amp; B|label]]\n");
     }
   });
 
@@ -293,14 +326,14 @@ describe("codec presets", () => {
     }
   });
 
-  it("keeps malformed, labeled, and code-contained bracket text literal", () => {
+  it("keeps malformed and code-contained bracket text literal", () => {
     const wikilinkCodec = mdxCodec({
       schema,
       assetPathResolver: unresolvedAssetPathResolver,
       components,
     });
     const input = [
-      "Literal [[unfinished and [[target|label]] plus `[[inline code]]`.",
+      "Literal [[unfinished and [[target|]] plus `[[inline code]]`.",
       "",
       "```md",
       "[[fenced code]]",
@@ -310,11 +343,11 @@ describe("codec presets", () => {
     const parsed = wikilinkCodec.parse(input).blocks;
 
     expect(parsed[0]?.textContent).toBe(
-      "Literal [[unfinished and [[target|label]] plus [[inline code]].",
+      "Literal [[unfinished and [[target|]] plus [[inline code]].",
     );
     expect(parsed[0]?.rangeHasMark(0, parsed[0].content.size, schema.marks.link)).toBe(false);
     expect(parsed[1]?.textContent).toBe("[[fenced code]]");
-    expect(wikilinkCodec.serialize(parsed)).not.toContain("[[target|label]]");
+    expect(wikilinkCodec.serialize(parsed)).not.toContain("[[target|]]");
   });
 
   it.each([

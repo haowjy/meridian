@@ -1227,6 +1227,11 @@ msgstr "Discard changes"
 msgid "Dismiss"
 msgstr "Dismiss"
 
+#: src/components/app/composer/ComposerReferenceMenu.tsx
+#: src/features/editor/surfaces/link/LinkForm.tsx
+msgid "Display text"
+msgstr "Display text"
+
 #: src/features/editor/surfaces/slash/slash-catalog-copy.ts
 msgid "Divider"
 msgstr "Divider"
@@ -1299,6 +1304,10 @@ msgstr "Duplicate"
 #: src/features/project/work/WorkMetadata.tsx
 msgid "Edit {0}"
 msgstr "Edit {0}"
+
+#: src/components/app/composer/ComposerReferenceMenu.tsx
+msgid "Edit display text"
+msgstr "Edit display text"
 
 #: src/features/editor/surfaces/link/LinkMenu.tsx
 msgid "Edit link"
@@ -2692,6 +2701,7 @@ msgstr "rule"
 msgid "Save {0}"
 msgstr "Save {0}"
 
+#: src/components/app/composer/ComposerReferenceMenu.tsx
 #: src/features/project/work/WorkDetailScreen.tsx
 msgid "Save changes"
 msgstr "Save changes"
@@ -2998,7 +3008,6 @@ msgstr "Talk it out"
 msgid "Task Assignment"
 msgstr "Task Assignment"
 
-#: src/features/editor/surfaces/link/LinkForm.tsx
 #: src/features/editor/surfaces/slash/slash-catalog-copy.ts
 msgid "Text"
 msgstr "Text"

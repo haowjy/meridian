@@ -3,6 +3,7 @@ import { t } from "@lingui/core/macro";
 import { closeHistory } from "@tiptap/pm/history";
 import { type NodeViewProps, NodeViewWrapper } from "@tiptap/react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -37,9 +38,10 @@ export function ComposerReferenceMenu({
 }) {
   const reference = node.attrs.reference as ComposerReferenceAttrs;
   const trigger = useRef<HTMLSpanElement>(null);
-  const [changing, setChanging] = useState(false);
+  const [editing, setEditing] = useState<"destination" | "label" | null>(null);
   // Opening before the menu releases its focus scope immediately dismisses the picker.
-  const changeAfterClose = useRef(false);
+  const changeAfterClose = useRef<"destination" | "label" | null>(null);
+  const label = reference.displayText ?? reference.label;
   const runtime = readRuntime();
   const follow = runtime.onOpen ? () => readRuntime().onOpen?.(reference) : undefined;
   const focus = () => trigger.current?.focus();
@@ -63,12 +65,17 @@ export function ComposerReferenceMenu({
     else tr.delete(position, position + node.nodeSize);
     editor.view.dispatch(tr);
     editor.view.dispatch(closeHistory(editor.state.tr));
-    setChanging(false);
+    setEditing(null);
     editor.commands.focus();
   };
   return (
     <NodeViewWrapper as="span" className="inline" contentEditable={false}>
-      <Popover open={changing} onOpenChange={setChanging}>
+      <Popover
+        open={editing !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditing(null);
+        }}
+      >
         <ContextMenu>
           <PopoverAnchor asChild>
             <ContextMenuTrigger asChild>
@@ -79,7 +86,7 @@ export function ComposerReferenceMenu({
                 tabIndex={0}
                 role="link"
                 aria-disabled={!follow}
-                aria-label={reference.label}
+                aria-label={label}
                 onClick={(event) => {
                   event.preventDefault();
                   follow?.();
@@ -92,7 +99,7 @@ export function ComposerReferenceMenu({
                   }
                 }}
               >
-                {reference.label}
+                {label}
               </span>
             </ContextMenuTrigger>
           </PopoverAnchor>
@@ -100,34 +107,47 @@ export function ComposerReferenceMenu({
             onCloseAutoFocus={(event) => {
               event.preventDefault();
               if (changeAfterClose.current) {
-                changeAfterClose.current = false;
-                setChanging(true);
-              } else if (!changing) focus();
+                setEditing(changeAfterClose.current);
+                changeAfterClose.current = null;
+              } else if (!editing) focus();
             }}
           >
-            <ContextMenuLabel>{reference.label}</ContextMenuLabel>
+            <ContextMenuLabel>{label}</ContextMenuLabel>
             <ContextMenuLabel className="max-w-80 break-all font-normal text-muted-foreground">
               {reference.uri}
             </ContextMenuLabel>
             {follow ? <ContextMenuItem onSelect={follow}>{t`Open link`}</ContextMenuItem> : null}
+            <ContextMenuItem
+              onSelect={() => {
+                changeAfterClose.current = "label";
+              }}
+            >{t`Edit display text`}</ContextMenuItem>
             {runtime.catalog ? (
               <ContextMenuItem
                 onSelect={() => {
-                  changeAfterClose.current = true;
+                  changeAfterClose.current = "destination";
                 }}
               >{t`Change reference`}</ContextMenuItem>
             ) : null}
             <ContextMenuItem onSelect={() => replace(null)}>{t`Remove reference`}</ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
-        {changing && runtime.catalog ? (
+        {editing ? (
           <PopoverContent
             onCloseAutoFocus={(event) => {
               event.preventDefault();
               focus();
             }}
           >
-            <ReferenceReplacement editor={editor} catalog={runtime.catalog} onSelect={replace} />
+            {editing === "label" ? (
+              <ReferenceDisplayText reference={reference} onSave={replace} />
+            ) : runtime.catalog ? (
+              <ReferenceReplacement
+                editor={editor}
+                catalog={runtime.catalog}
+                onSelect={(next) => replace({ ...next, displayText: reference.displayText })}
+              />
+            ) : null}
           </PopoverContent>
         ) : null}
       </Popover>
@@ -206,5 +226,30 @@ function ReferenceReplacement({
         />
       ) : null}
     </>
+  );
+}
+
+function ReferenceDisplayText({
+  reference,
+  onSave,
+}: {
+  reference: ComposerReferenceAttrs;
+  onSave: (next: ComposerReferenceAttrs) => void;
+}) {
+  const id = useId();
+  const [text, setText] = useState(reference.displayText ?? reference.label);
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (text.trim())
+          onSave({ ...reference, displayText: text === reference.label ? undefined : text });
+      }}
+    >
+      <label className="text-meta text-muted-foreground" htmlFor={id}>{t`Display text`}</label>
+      <Input id={id} value={text} onChange={(event) => setText(event.target.value)} />
+      <Button type="submit" disabled={!text.trim()}>{t`Save changes`}</Button>
+    </form>
   );
 }

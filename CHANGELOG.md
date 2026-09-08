@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+- `apps/app`, `packages/markup`: edit reference display text independently; serialize
+  plain aliases as `[[destination|display text]]` and preserve them in transcripts.
+
 - `apps/app`: close reference suggestions on @ followed by Space; keep the text
   literal and preserve multiword reference searches.
 

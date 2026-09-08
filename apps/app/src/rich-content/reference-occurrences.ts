@@ -14,6 +14,7 @@ type Node = {
   value?: string;
   url?: string;
   target?: string;
+  label?: string;
   children?: Node[];
   position?: { start: { offset?: number }; end: { offset?: number } };
   data?: { hName?: string; hProperties?: Record<string, string> };
@@ -56,6 +57,13 @@ function presentation(node: Node, occurrence?: MarkdownReferenceOccurrence): voi
         hName: REFERENCE_TAG,
         hProperties: { dataTargetHref: node.target ? `[[${node.target}]]` : (node.url ?? "") },
       };
+  if (
+    node.label !== undefined ||
+    node.type === "wikiLinkResource" ||
+    (node.type === "link" && !(node.children?.length === 1 && node.children[0]?.value === node.url))
+  ) {
+    node.data.hProperties = { ...node.data.hProperties, dataAuthoredLabel: "true" };
+  }
   // A standard link handler would otherwise emit its href around the custom control.
   if (node.type === "link") node.type = "referenceLabel";
 }
@@ -75,14 +83,14 @@ function transform(
   }
   const target = node.type === "link" && node.url ? classifyLinkTarget(node.url) : null;
   if (target && target.kind !== "external") {
-    if (
+    const defaultUriLabel =
       target.kind === "scheme" &&
       node.children?.length === 1 &&
-      node.children[0]?.value === node.url
-    ) {
+      node.children[0]?.value === node.url;
+    presentation(node, exact);
+    if (defaultUriLabel && node.children?.[0] && target.kind === "scheme") {
       node.children[0].value = target.uri.split("/").at(-1) || target.uri;
     }
-    presentation(node, exact);
     if (exact) return true;
   }
   if (!node.children) return Boolean(target && target.kind !== "external");

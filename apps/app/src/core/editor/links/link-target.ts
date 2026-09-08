@@ -87,7 +87,12 @@ export function classifyLinkTarget(href: string): LinkTarget | null {
   if (!value || hasAsciiControl(value)) return null;
 
   const name = wikilinkName(value);
-  if (name) return { kind: "wikilink", name };
+  if (name) {
+    const scheme = EXPLICIT_SCHEME.exec(name)?.[1]?.toLowerCase();
+    return scheme && INTERNAL_SCHEMES.has(scheme)
+      ? { kind: "scheme", uri: name }
+      : { kind: "wikilink", name };
+  }
   // A bracketed href that is not a well-formed wikilink is not a path either.
   if (value.startsWith("[[")) return null;
 
@@ -177,8 +182,7 @@ export function linkTargetLabel(target: LinkTarget): string {
 function wikilinkName(value: string): string | null {
   if (!value.startsWith("[[") || !value.endsWith("]]") || value.length < 5) return null;
   const name = value.slice(2, -2).trim();
-  // `|` is the aliased spelling the wire format does not carry, and a bracket
-  // or newline inside means the brackets never closed a single target.
+  // Hrefs contain only destinations; alias text lives in the linked text, never here.
   return name && !/[\r\n[\]|]/.test(name) ? name : null;
 }
 

@@ -233,3 +233,32 @@ it("keeps unavailable syntax keyboard-inspectable without navigation", async () 
     expect(document.querySelector('[role="menuitem"]')).toBeNull();
   });
 });
+
+it.each([
+  "static",
+  "streaming",
+] as const)("preserves alias prose when the destination resolves in %s", async (mode) => {
+  const source = "[[Gate|the northern entrance]]";
+  const uri = "manuscript://@/gate.md";
+  const open = vi.fn();
+  await withReactRoot(
+    <Markdown
+      mode={mode}
+      references={[{ from: 0, to: source.length, documentId: "gate", uri }]}
+      referenceResolutions={
+        new Map([
+          ["gate", { documentId: "gate", uri, label: "Renamed destination", available: true }],
+        ])
+      }
+      onOpenReference={open}
+    >
+      {source}
+    </Markdown>,
+    () => {
+      const link = document.querySelector<HTMLElement>('[role="link"]');
+      expect(link?.textContent).toBe("the northern entrance");
+      link?.click();
+      expect(open).toHaveBeenCalledWith("gate");
+    },
+  );
+});

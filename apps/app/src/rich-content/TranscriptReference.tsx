@@ -31,11 +31,13 @@ export function TranscriptReference({
   "data-document-id": documentId,
   "data-uri": uri,
   "data-target-href": targetHref,
+  "data-authored-label": authoredLabel,
 }: {
   children?: ReactNode;
   "data-document-id"?: string;
   "data-uri"?: string;
   "data-target-href"?: string;
+  "data-authored-label"?: string;
 }) {
   const { resolutions, onOpen } = useContext(TranscriptReferenceContext);
   const navigateSyntax = useContext(TranscriptLinkNavigationContext);
@@ -51,7 +53,7 @@ export function TranscriptReference({
     : navigateSyntax && target && (target.kind === "wikilink" || target.kind === "scheme")
       ? () => navigateSyntax(target)
       : undefined;
-  const label = resolution?.label ?? children;
+  const label = authoredLabel === "true" ? children : (resolution?.label ?? children);
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>

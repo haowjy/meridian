@@ -1,16 +1,22 @@
+import { inlineMarkdownToMdast } from "../../helpers.js";
 import type { MarkCodec } from "../../types.js";
-import { wikilinkTarget } from "../wikilink-target.js";
+import { formatWikilink, wikilinkTarget } from "../wikilink-target.js";
 
 type LinkAst = { type: string; url?: string; title?: string | null; target?: string };
 
 export const linkMarkCodec: MarkCodec<LinkAst> = {
   name: "link",
 
-  serialize(text, attrs) {
+  serialize(text, attrs, ctx) {
     const href = String(attrs.href ?? "");
     const wikiTarget = wikilinkTarget(href);
-    if (wikiTarget !== null && markdownText(text) === wikiTarget && attrs.title == null)
-      return `[[${wikiTarget}]]`;
+    if (wikiTarget !== null && attrs.title == null) {
+      const children = inlineMarkdownToMdast(text, ctx);
+      if (children.length === 1 && children[0]?.type === "text") {
+        const label = (children[0] as { value: string }).value;
+        if (!/[\t\r\n]/.test(label)) return formatWikilink(wikiTarget, label);
+      }
+    }
     const title = attrs.title == null ? "" : ` "${String(attrs.title).replaceAll('"', '\\"')}"`;
     return `[${text.replaceAll("]", "\\]")}](${markdownLinkDestination(href)}${title})`;
   },
@@ -26,10 +32,6 @@ export const linkMarkCodec: MarkCodec<LinkAst> = {
     return { href: ast.url ?? "", title: ast.title ?? null };
   },
 };
-
-function markdownText(value: string): string {
-  return value.replace(/\\([!-/:-@[-`{-~])/g, "$1");
-}
 
 function markdownLinkDestination(href: string): string {
   if (!href.includes("\t")) return href;
