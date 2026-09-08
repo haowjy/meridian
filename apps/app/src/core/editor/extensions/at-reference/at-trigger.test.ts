@@ -70,3 +70,26 @@ describe("where `@` alone opens the menu", () => {
     }
   });
 });
+
+describe("literal @ whitespace boundary", () => {
+  it.each(["@ ", "@ ordinary prose", "@\u00a0", "@\u3000"])("keeps %j literal", (value) =>
+    expect(opensOn([paragraph(text(value))])).toBe(false));
+
+  it.each([
+    "@",
+    "@Chapter One",
+    "@kb://",
+    "@uploads://@draft/Chapter One.png",
+  ])("retains reference search for %j", (value) =>
+    expect(opensOn([paragraph(text(value))])).toBe(true));
+
+  it("reads the escape space across text marks", () => {
+    expect(opensOn([paragraph(text("@"), linked(" ", "https://example.com"))])).toBe(false);
+  });
+
+  it("allows a fresh trigger after an escaped occurrence", () => {
+    const { doc, from } = docWithTrigger([paragraph(text("@ prose @"))], "@");
+    expect(allowsAtTrigger(doc, from)).toBe(false);
+    expect(allowsAtTrigger(doc, doc.content.size - 2)).toBe(true);
+  });
+});

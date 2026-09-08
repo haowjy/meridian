@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+- `apps/app`: close reference suggestions on @ followed by Space; keep the text
+  literal and preserve multiword reference searches.
+
 - `apps/app`: omit empty containers from reference suggestions; keep explicit URI
   searches readable with empty/loading feedback and Back navigation, including
   uncreated KB namespaces; refresh open pickers as catalog data changes.
